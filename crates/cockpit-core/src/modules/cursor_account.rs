@@ -311,6 +311,35 @@ fn auth_ids_match(left: &str, right: &str) -> bool {
     auth_identity_key(left) == auth_identity_key(right)
 }
 
+/// 刷新时以 token 里的真实身份校正 `auth_id`。
+/// 旧版本在 state.vscdb 错位时会把别的账号的 authId 写进记录，导致同一账号出现两条、
+/// 且因 auth_id 不同无法自动去重；这里修正后，下一次列表加载就能合并。
+fn reconcile_account_auth_id(account: &mut CursorAccount, workos_id: Option<&str>) {
+    let Some(identity) = extract_auth_id_from_access_token(account.access_token.as_str())
+        .or_else(|| normalize_non_empty(workos_id))
+    else {
+        return;
+    };
+
+    let needs_update = account
+        .auth_id
+        .as_deref()
+        .map(|current| !auth_ids_match(current, identity.as_str()))
+        .unwrap_or(true);
+    if !needs_update {
+        return;
+    }
+
+    if let Some(previous) = account.auth_id.as_deref() {
+        logger::log_warn(&format!(
+            "[Cursor Refresh] auth_id 与 token 身份不一致，已按 token 修正: id={}, previous={}, actual={}",
+            account.id, previous, identity
+        ));
+    }
+    account.auth_id = Some(identity.clone());
+    upsert_cursor_auth_raw_string(account, "authId", Some(identity));
+}
+
 fn decode_access_token_payload(access_token: &str) -> Option<serde_json::Value> {
     let parts: Vec<&str> = access_token.split('.').collect();
     if parts.len() < 2 {
@@ -1862,9 +1891,7 @@ async fn refresh_account_async_once(account_id: &str) -> Result<CursorAccount, S
             }
 
             upsert_cursor_auth_raw_string(&mut account, "workosId", meta.workos_id.clone());
-            if account.auth_id.is_none() {
-                account.auth_id = normalize_non_empty(meta.workos_id.as_deref());
-            }
+            reconcile_account_auth_id(&mut account, meta.workos_id.as_deref());
 
             logger::log_info(&format!(
                 "[Cursor Refresh] 用户信息拉取成功: id={}, email={}",
@@ -1878,6 +1905,8 @@ async fn refresh_account_async_once(account_id: &str) -> Result<CursorAccount, S
             ));
         }
     }
+    // 即使用户信息拉取失败，也用 token 自身的身份兜底校正。
+    reconcile_account_auth_id(&mut account, None);
 
     match fetch_stripe_profile_with_client(&client, &account.access_token).await {
         Ok(Some(profile)) => {
