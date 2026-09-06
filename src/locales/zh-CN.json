@@ -5114,6 +5114,10 @@
     "subscription": "订阅状态",
     "injectToCursor": "切换到 Cursor",
     "quota": {
+      "totalUsage": "总用量",
+      "cursorModels": "Cursor 模型",
+      "otherModels": "其他模型",
+      "grokBotWeekly": "Grok Bot（周用量）",
       "onDemand": "按需使用"
     },
     "title": "Cursor 账号管理",

@@ -313,8 +313,9 @@ export function getRecommendedCursorAccount(
     );
     const usedPercentList = [
       totalUsedPercent,
-      toFiniteNumber(usage.autoPercentUsed),
-      toFiniteNumber(usage.apiPercentUsed),
+      toFiniteNumber(usage.cursorModelsPercentUsed ?? usage.autoPercentUsed),
+      toFiniteNumber(usage.otherModelsPercentUsed ?? usage.apiPercentUsed),
+      toFiniteNumber(usage.grokBotWeeklyPercentUsed),
     ].filter((value): value is number => value != null);
     const avgUsedPercent = usedPercentList.length > 0
       ? usedPercentList.reduce((sum, value) => sum + value, 0) / usedPercentList.length

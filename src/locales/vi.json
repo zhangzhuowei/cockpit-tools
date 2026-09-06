@@ -4809,6 +4809,10 @@
     "subscription": "Gói đăng ký",
     "injectToCursor": "Chuyển sang Cursor",
     "quota": {
+      "totalUsage": "Tổng sử dụng",
+      "cursorModels": "Mô hình Cursor",
+      "otherModels": "Mô hình khác",
+      "grokBotWeekly": "Grok Bot (hàng tuần)",
       "onDemand": "Theo yêu cầu"
     },
     "title": "Quản lý tài khoản Cursor",

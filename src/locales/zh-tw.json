@@ -4809,6 +4809,10 @@
     "subscription": "訂閱方案",
     "injectToCursor": "切換至 Cursor",
     "quota": {
+      "totalUsage": "總用量",
+      "cursorModels": "Cursor 模型",
+      "otherModels": "其他模型",
+      "grokBotWeekly": "Grok Bot（週用量）",
       "onDemand": "按需使用"
     },
     "title": "Cursor 帳號管理",

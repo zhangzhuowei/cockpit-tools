@@ -4962,6 +4962,10 @@
     "subscription": "Subscription​",
     "injectToCursor": "Switch to Cursor​",
     "quota": {
+      "totalUsage": "Total penggunaan",
+      "cursorModels": "Model Cursor",
+      "otherModels": "Model lain",
+      "grokBotWeekly": "Grok Bot (mingguan)",
       "onDemand": "Sesuai permintaan"
     },
     "title": "Cursor Account​",

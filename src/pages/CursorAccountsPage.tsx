@@ -284,7 +284,7 @@ export function CursorAccountsPage() {
   const resolveAutoQuota = useCallback(
     (account: CursorAccount) => {
       const usage = getCursorUsage(account);
-      const auto = normalizeCursorPercent(usage.autoPercentUsed);
+      const auto = normalizeCursorPercent(usage.cursorModelsPercentUsed ?? usage.autoPercentUsed);
       return {
         percentage: auto.bar,
         quotaClass: getCursorQuotaClass(auto.display),
@@ -297,11 +297,28 @@ export function CursorAccountsPage() {
   const resolveApiQuota = useCallback(
     (account: CursorAccount) => {
       const usage = getCursorUsage(account);
-      const api = normalizeCursorPercent(usage.apiPercentUsed);
+      const api = normalizeCursorPercent(usage.otherModelsPercentUsed ?? usage.apiPercentUsed);
       return {
         percentage: api.bar,
         quotaClass: getCursorQuotaClass(api.display),
         valueText: `${api.display}%`,
+      };
+    },
+    [],
+  );
+
+  const resolveGrokBotQuota = useCallback(
+    (account: CursorAccount) => {
+      const usage = getCursorUsage(account);
+      if (usage.grokBotWeeklyPercentUsed == null) {
+        return null;
+      }
+      const grok = normalizeCursorPercent(usage.grokBotWeeklyPercentUsed);
+      return {
+        percentage: grok.bar,
+        quotaClass: getCursorQuotaClass(grok.display),
+        valueText: `${grok.display}%`,
+        resetAt: usage.grokBotWeeklyResetAt ?? null,
       };
     },
     [],
@@ -616,9 +633,11 @@ export function CursorAccountsPage() {
       const total = resolveTotalQuota(account);
       const auto = resolveAutoQuota(account);
       const api = resolveApiQuota(account);
+      const grokBot = resolveGrokBotQuota(account);
       const onDemand = resolveOnDemandQuota(account);
       const resetTs = resolveResetTime(account);
       const resetText = formatResetTime(resetTs);
+      const grokBotResetText = formatResetTime(grokBot?.resetAt);
       const accountTags = (account.tags || []).map((tag) => tag.trim()).filter(Boolean);
       const visibleTags = accountTags.slice(0, 2);
       const moreTagCount = Math.max(0, accountTags.length - visibleTags.length);
@@ -686,7 +705,7 @@ export function CursorAccountsPage() {
               <>
                 <div className="quota-item windsurf-credit-item">
                   <div className="quota-header">
-                    <span className="quota-label">Total Usage</span>
+                    <span className="quota-label">{t('cursor.quota.totalUsage', 'Total Usage')}</span>
                     <span className={`quota-pct ${total.quotaClass}`}>{total.valueText}</span>
                   </div>
                   {total.costText && (
@@ -706,7 +725,7 @@ export function CursorAccountsPage() {
 
                 <div className="quota-item windsurf-credit-item">
                   <div className="quota-header">
-                    <span className="quota-label">Auto + Composer</span>
+                    <span className="quota-label">{t('cursor.quota.cursorModels', 'Cursor Models')}</span>
                     <span className={`quota-pct ${auto.quotaClass}`}>{auto.valueText}</span>
                   </div>
                   <div className="quota-bar-track">
@@ -716,13 +735,30 @@ export function CursorAccountsPage() {
 
                 <div className="quota-item windsurf-credit-item">
                   <div className="quota-header">
-                    <span className="quota-label">API Usage</span>
+                    <span className="quota-label">{t('cursor.quota.otherModels', 'Other Models')}</span>
                     <span className={`quota-pct ${api.quotaClass}`}>{api.valueText}</span>
                   </div>
                   <div className="quota-bar-track">
                     <div className={`quota-bar ${api.quotaClass}`} style={{ width: `${Math.min(api.percentage, 100)}%` }} />
                   </div>
                 </div>
+
+                {grokBot && (
+                  <div className="quota-item windsurf-credit-item">
+                    <div className="quota-header">
+                      <span className="quota-label">{t('cursor.quota.grokBotWeekly', 'Grok Bot (Weekly)')}</span>
+                      <span className={`quota-pct ${grokBot.quotaClass}`}>{grokBot.valueText}</span>
+                    </div>
+                    {grokBotResetText && (
+                      <div className="windsurf-credit-meta-row">
+                        <span className="windsurf-credit-used">{t('common.shared.quota.resetAt', { time: grokBotResetText, defaultValue: 'Reset: {{time}}' })}</span>
+                      </div>
+                    )}
+                    <div className="quota-bar-track">
+                      <div className={`quota-bar ${grokBot.quotaClass}`} style={{ width: `${Math.min(grokBot.percentage, 100)}%` }} />
+                    </div>
+                  </div>
+                )}
 
                 <div className="quota-item windsurf-credit-item">
                   <div className="quota-header">
@@ -783,9 +819,11 @@ export function CursorAccountsPage() {
       const total = resolveTotalQuota(account);
       const auto = resolveAutoQuota(account);
       const api = resolveApiQuota(account);
+      const grokBot = resolveGrokBotQuota(account);
       const onDemand = resolveOnDemandQuota(account);
       const resetTs = resolveResetTime(account);
       const resetText = formatResetTime(resetTs);
+      const grokBotResetText = formatResetTime(grokBot?.resetAt);
       const accountTags = (account.tags || []).map((tag) => tag.trim()).filter(Boolean);
       const visibleTags = accountTags.slice(0, 3);
       const moreTagCount = Math.max(0, accountTags.length - visibleTags.length);
@@ -837,7 +875,7 @@ export function CursorAccountsPage() {
             {hasQuotaData ? (
               <div className="quota-item windsurf-table-credit-item">
                 <div className="quota-header">
-                  <span className="quota-name">Total Usage</span>
+                  <span className="quota-name">{t('cursor.quota.totalUsage', 'Total Usage')}</span>
                   <span className={`quota-value ${total.quotaClass}`}>{total.valueText}</span>
                 </div>
                 {total.costText && (
@@ -863,7 +901,7 @@ export function CursorAccountsPage() {
               <>
                 <div className="quota-item windsurf-table-credit-item">
                   <div className="quota-header">
-                    <span className="quota-name">Auto + Composer</span>
+                    <span className="quota-name">{t('cursor.quota.cursorModels', 'Cursor Models')}</span>
                     <span className={`quota-value ${auto.quotaClass}`}>{auto.valueText}</span>
                   </div>
                   <div className="quota-progress-track">
@@ -872,13 +910,29 @@ export function CursorAccountsPage() {
                 </div>
                 <div className="quota-item windsurf-table-credit-item" style={{ marginTop: 4 }}>
                   <div className="quota-header">
-                    <span className="quota-name">API</span>
+                    <span className="quota-name">{t('cursor.quota.otherModels', 'Other Models')}</span>
                     <span className={`quota-value ${api.quotaClass}`}>{api.valueText}</span>
                   </div>
                   <div className="quota-progress-track">
                     <div className={`quota-progress-bar ${api.quotaClass}`} style={{ width: `${Math.min(api.percentage, 100)}%` }} />
                   </div>
                 </div>
+                {grokBot && (
+                  <div className="quota-item windsurf-table-credit-item" style={{ marginTop: 4 }}>
+                    <div className="quota-header">
+                      <span className="quota-name">{t('cursor.quota.grokBotWeekly', 'Grok Bot (Weekly)')}</span>
+                      <span className={`quota-value ${grokBot.quotaClass}`}>{grokBot.valueText}</span>
+                    </div>
+                    {grokBotResetText && (
+                      <div className="windsurf-credit-meta-row table">
+                        <span className="windsurf-credit-used">{t('common.shared.quota.resetAt', { time: grokBotResetText, defaultValue: 'Reset: {{time}}' })}</span>
+                      </div>
+                    )}
+                    <div className="quota-progress-track">
+                      <div className={`quota-progress-bar ${grokBot.quotaClass}`} style={{ width: `${Math.min(grokBot.percentage, 100)}%` }} />
+                    </div>
+                  </div>
+                )}
                 <div className="quota-item windsurf-table-credit-item" style={{ marginTop: 4 }}>
                   <div className="quota-header">
                     <span className="quota-name">{t('cursor.quota.onDemand', 'On-Demand')}</span>
@@ -1147,7 +1201,7 @@ export function CursorAccountsPage() {
                 </th>
                 <th style={{ width: 240 }}>{t('common.shared.columns.email', '邮箱')}</th>
                 <th style={{ width: 120 }}>{t('common.shared.columns.plan', '计划')}</th>
-                <th>Total Usage</th>
+                <th>{t('cursor.quota.totalUsage', 'Total Usage')}</th>
                 <th>Usage Details</th>
                 <th className="sticky-action-header table-action-header">{t('common.shared.columns.actions', '操作')}</th>
               </tr>
@@ -1179,7 +1233,7 @@ export function CursorAccountsPage() {
                 </th>
                 <th style={{ width: 240 }}>{t('common.shared.columns.email', '邮箱')}</th>
                 <th style={{ width: 120 }}>{t('common.shared.columns.plan', '计划')}</th>
-                <th>Total Usage</th>
+                <th>{t('cursor.quota.totalUsage', 'Total Usage')}</th>
                 <th>Usage Details</th>
                 <th className="sticky-action-header table-action-header">{t('common.shared.columns.actions', '操作')}</th>
               </tr>

@@ -5114,6 +5114,10 @@
     "subscription": "Subscription",
     "injectToCursor": "Switch to Cursor",
     "quota": {
+      "totalUsage": "Total Usage",
+      "cursorModels": "Cursor Models",
+      "otherModels": "Other Models",
+      "grokBotWeekly": "Grok Bot (Weekly)",
       "onDemand": "On-Demand"
     },
     "title": "Cursor Account",

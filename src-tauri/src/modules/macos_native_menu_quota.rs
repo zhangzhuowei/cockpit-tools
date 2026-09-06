@@ -2217,10 +2217,14 @@
             .and_then(|text| chrono::DateTime::parse_from_rfc3339(text).ok())
             .map(|value| value.timestamp());
 
+        let grok_bot = crate::modules::cursor_account::read_grok_bot_weekly(account);
+
         CursorTrayUsage {
             total_used_percent: total_direct.or(total_ratio).map(clamp_cursor_percent),
             auto_used_percent: auto_direct.map(clamp_cursor_percent),
             api_used_percent: api_direct.map(clamp_cursor_percent),
+            grok_bot_weekly_percent: grok_bot.used_percent,
+            grok_bot_reset_ts: grok_bot.reset_ts,
             reset_ts,
             on_demand_text,
             on_demand_percent,

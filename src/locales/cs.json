@@ -4809,6 +4809,10 @@
     "subscription": "Předplatné",
     "injectToCursor": "Přepnout na Cursor",
     "quota": {
+      "totalUsage": "Celkové využití",
+      "cursorModels": "Modely Cursor",
+      "otherModels": "Ostatní modely",
+      "grokBotWeekly": "Grok Bot (týdenní)",
       "onDemand": "Na vyžádání"
     },
     "title": "Správa účtů Cursor",

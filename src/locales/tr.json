@@ -4809,6 +4809,10 @@
     "subscription": "Abonelik",
     "injectToCursor": "Cursor'a geç",
     "quota": {
+      "totalUsage": "Toplam kullanım",
+      "cursorModels": "Cursor modelleri",
+      "otherModels": "Diğer modeller",
+      "grokBotWeekly": "Grok Bot (haftalık)",
       "onDemand": "İsteğe bağlı"
     },
     "title": "Cursor Hesap Yönetimi",

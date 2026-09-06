@@ -295,6 +295,22 @@ fn normalize_auth_identity(value: Option<&str>) -> Option<String> {
     normalize_non_empty(value)
 }
 
+/// `auth0|user_xxx`（JWT sub / state.vscdb）与 `user_xxx`（GetUserMeta.workosId）指向同一用户，
+/// 比较时只看 `|` 之后的部分。
+fn auth_identity_key(value: &str) -> String {
+    value
+        .trim()
+        .rsplit('|')
+        .next()
+        .unwrap_or(value)
+        .trim()
+        .to_ascii_lowercase()
+}
+
+fn auth_ids_match(left: &str, right: &str) -> bool {
+    auth_identity_key(left) == auth_identity_key(right)
+}
+
 fn decode_access_token_payload(access_token: &str) -> Option<serde_json::Value> {
     let parts: Vec<&str> = access_token.split('.').collect();
     if parts.len() < 2 {
@@ -395,7 +411,7 @@ fn accounts_are_duplicates(left: &CursorAccount, right: &CursorAccount) -> bool 
     let left_auth_id = resolve_account_auth_id(left);
     let right_auth_id = resolve_account_auth_id(right);
     if let (Some(left_auth), Some(right_auth)) = (left_auth_id.as_ref(), right_auth_id.as_ref()) {
-        return left_auth == right_auth;
+        return auth_ids_match(left_auth, right_auth);
     }
     if left_auth_id.is_some() || right_auth_id.is_some() {
         return false;
@@ -741,6 +757,22 @@ pub fn list_accounts_checked() -> Result<Vec<CursorAccount>, String> {
     Ok(accounts)
 }
 
+fn merge_json_objects(existing: Option<Value>, incoming: Option<Value>) -> Option<Value> {
+    match (existing, incoming) {
+        (Some(Value::Object(mut base)), Some(Value::Object(extra))) => {
+            for (key, value) in extra {
+                base.insert(key, value);
+            }
+            Some(Value::Object(base))
+        }
+        (_, Some(value)) => Some(value),
+        (existing, None) => existing,
+    }
+}
+
+/// 导入（本地 / JSON / Token）落到已有账号上时只覆盖 payload 真正携带的字段。
+/// 本地导入的 payload 没有 usage、name、status 等，不能把已刷新出来的配额、封禁状态清掉；
+/// cursor_auth_raw 做键级合并，保留 refresh 写入的 workosId / isEnterprise 等信息。
 fn apply_payload(
     account: &mut CursorAccount,
     payload: CursorImportPayload,
@@ -752,20 +784,40 @@ fn apply_payload(
     } else if !account.email.contains('@') {
         account.email.clear();
     }
-    account.name = payload.name;
+
+    let token_changed = normalize_token_identity(Some(payload.access_token.as_str()))
+        != normalize_token_identity(Some(account.access_token.as_str()));
     account.access_token = payload.access_token;
-    account.refresh_token = payload.refresh_token;
-    account.membership_type = payload.membership_type;
-    account.subscription_status = payload.subscription_status;
-    account.sign_up_type = payload.sign_up_type;
-    account.cursor_auth_raw = payload.cursor_auth_raw;
-    account.cursor_usage_raw = payload.cursor_usage_raw;
+
+    if payload.name.is_some() {
+        account.name = payload.name;
+    }
+    if payload.refresh_token.is_some() {
+        account.refresh_token = payload.refresh_token;
+    }
+    if payload.membership_type.is_some() {
+        account.membership_type = payload.membership_type;
+    }
+    if payload.subscription_status.is_some() {
+        account.subscription_status = payload.subscription_status;
+    }
+    if payload.sign_up_type.is_some() {
+        account.sign_up_type = payload.sign_up_type;
+    }
+    account.cursor_auth_raw =
+        merge_json_objects(account.cursor_auth_raw.take(), payload.cursor_auth_raw);
+    if payload.cursor_usage_raw.is_some() {
+        account.cursor_usage_raw = payload.cursor_usage_raw;
+    }
     if let Some(auth_id) = resolved_auth_id {
         account.auth_id = Some(auth_id.clone());
         upsert_cursor_auth_raw_string(account, "authId", Some(auth_id));
     }
-    account.status = payload.status;
-    account.status_reason = payload.status_reason;
+    // 换了新凭据时状态需要重新评估；同一 token 重复导入则保留已知的封禁/错误状态。
+    if payload.status.is_some() || token_changed {
+        account.status = payload.status;
+        account.status_reason = payload.status_reason;
+    }
     account.last_used = now_ts();
 }
 
@@ -797,7 +849,7 @@ pub fn upsert_account(payload: CursorImportPayload) -> Result<CursorAccount, Str
             if let (Some(existing), Some(incoming)) =
                 (existing_auth_id.as_ref(), incoming_auth_id.as_ref())
             {
-                return existing == incoming;
+                return auth_ids_match(existing, incoming);
             }
             if existing_auth_id.is_some() || incoming_auth_id.is_some() {
                 return false;
@@ -1136,8 +1188,9 @@ pub fn read_local_cursor_auth() -> Result<Option<CursorImportPayload>, String> {
     }
 
     let refresh_token = read_vscdb_item(&conn, "cursorAuth/refreshToken");
-    let auth_id = read_vscdb_item(&conn, "cursorAuth/authId")
-        .or_else(|| extract_auth_id_from_access_token(access_token.as_str()));
+    // token 的 sub 才是当前实际生效的身份；cursorAuth/authId 可能是上一个账号的残留值。
+    let auth_id = extract_auth_id_from_access_token(access_token.as_str())
+        .or_else(|| read_vscdb_item(&conn, "cursorAuth/authId"));
     let membership_type = read_vscdb_item(&conn, "cursorAuth/stripeMembershipType");
     let subscription_status = read_vscdb_item(&conn, "cursorAuth/stripeSubscriptionStatus");
     let sign_up_type = read_vscdb_item(&conn, "cursorAuth/cachedSignUpType");
@@ -1212,6 +1265,83 @@ fn upsert_vscdb_item(conn: &Connection, key: &str, value: &str) -> Result<(), St
     Ok(())
 }
 
+fn delete_vscdb_item(conn: &Connection, key: &str) -> Result<(), String> {
+    conn.execute("DELETE FROM ItemTable WHERE key = ?1", (key,))
+        .map_err(|e| format!("删除 {} 失败: {}", key, e))?;
+    Ok(())
+}
+
+/// 账号没有该字段时删除键，避免把上一个账号的值留在 state.vscdb 里。
+fn upsert_or_delete_vscdb_item(
+    conn: &Connection,
+    key: &str,
+    value: Option<&str>,
+) -> Result<(), String> {
+    match normalize_non_empty(value) {
+        Some(text) => upsert_vscdb_item(conn, key, &text),
+        None => delete_vscdb_item(conn, key),
+    }
+}
+
+/// Cursor 会用 authId/userId/email 等键判断当前登录身份，切号时必须整组覆盖，
+/// 否则 token 是新账号的、身份键还是旧账号的，导致"当前账号"识别错位、本地导入串号。
+fn write_account_auth_to_vscdb(conn: &Connection, account: &CursorAccount) -> Result<(), String> {
+    let auth_id = resolve_account_auth_id(account);
+
+    upsert_vscdb_item(conn, "cursorAuth/accessToken", &account.access_token)?;
+    upsert_or_delete_vscdb_item(
+        conn,
+        "cursorAuth/refreshToken",
+        account.refresh_token.as_deref(),
+    )?;
+    upsert_vscdb_item(conn, "cursorAuth/cachedEmail", &account.email)?;
+    upsert_vscdb_item(conn, "cursorAuth/email", &account.email)?;
+
+    for key in [
+        "cursorAuth/authId",
+        "cursorAuth/userId",
+        "cursorAuth/cachedUserId",
+        "cursorAuth/stripeMembershipAuthId",
+    ] {
+        upsert_or_delete_vscdb_item(conn, key, auth_id.as_deref())?;
+    }
+
+    upsert_or_delete_vscdb_item(
+        conn,
+        "cursorAuth/stripeMembershipType",
+        account.membership_type.as_deref(),
+    )?;
+    upsert_or_delete_vscdb_item(
+        conn,
+        "cursorAuth/stripeSubscriptionStatus",
+        account.subscription_status.as_deref(),
+    )?;
+    upsert_or_delete_vscdb_item(
+        conn,
+        "cursorAuth/cachedSignUpType",
+        account.sign_up_type.as_deref(),
+    )?;
+    // 显示名缓存属于上一个账号，删掉让 Cursor 重新拉取。
+    delete_vscdb_item(conn, "cursorAuth/cachedScopedProfile")?;
+
+    upsert_vscdb_item(conn, "cursor.accessToken", &account.access_token)?;
+    upsert_vscdb_item(conn, "cursor.email", &account.email)?;
+    Ok(())
+}
+
+fn touch_account_last_used(account_id: &str) {
+    let Some(mut account) = load_account(account_id) else {
+        return;
+    };
+    account.last_used = now_ts();
+    if let Err(err) = upsert_account_record(account) {
+        logger::log_warn(&format!(
+            "[Cursor Account] 更新 last_used 失败: id={}, error={}",
+            account_id, err
+        ));
+    }
+}
+
 pub fn inject_to_cursor(account_id: &str) -> Result<(), String> {
     let account =
         load_account(account_id).ok_or_else(|| format!("Cursor 账号不存在: {}", account_id))?;
@@ -1223,20 +1353,8 @@ pub fn inject_to_cursor(account_id: &str) -> Result<(), String> {
     let conn =
         Connection::open(&db_path).map_err(|e| format!("打开 Cursor 本地数据库失败: {}", e))?;
 
-    upsert_vscdb_item(&conn, "cursorAuth/accessToken", &account.access_token)?;
-    if let Some(ref rt) = account.refresh_token {
-        upsert_vscdb_item(&conn, "cursorAuth/refreshToken", rt)?;
-    }
-    upsert_vscdb_item(&conn, "cursorAuth/cachedEmail", &account.email)?;
-    if let Some(ref mt) = account.membership_type {
-        upsert_vscdb_item(&conn, "cursorAuth/stripeMembershipType", mt)?;
-    }
-    if let Some(ref ss) = account.subscription_status {
-        upsert_vscdb_item(&conn, "cursorAuth/stripeSubscriptionStatus", ss)?;
-    }
-
-    upsert_vscdb_item(&conn, "cursor.accessToken", &account.access_token)?;
-    upsert_vscdb_item(&conn, "cursor.email", &account.email)?;
+    write_account_auth_to_vscdb(&conn, &account)?;
+    touch_account_last_used(account_id);
 
     logger::log_info(&format!(
         "[Cursor Account] 注入成功: id={}, email={}",
@@ -1255,20 +1373,7 @@ pub fn inject_to_cursor_at_path(db_path: &std::path::Path, account_id: &str) -> 
     let conn =
         Connection::open(db_path).map_err(|e| format!("打开 Cursor 本地数据库失败: {}", e))?;
 
-    upsert_vscdb_item(&conn, "cursorAuth/accessToken", &account.access_token)?;
-    if let Some(ref rt) = account.refresh_token {
-        upsert_vscdb_item(&conn, "cursorAuth/refreshToken", rt)?;
-    }
-    upsert_vscdb_item(&conn, "cursorAuth/cachedEmail", &account.email)?;
-    if let Some(ref mt) = account.membership_type {
-        upsert_vscdb_item(&conn, "cursorAuth/stripeMembershipType", mt)?;
-    }
-    if let Some(ref ss) = account.subscription_status {
-        upsert_vscdb_item(&conn, "cursorAuth/stripeSubscriptionStatus", ss)?;
-    }
-
-    upsert_vscdb_item(&conn, "cursor.accessToken", &account.access_token)?;
-    upsert_vscdb_item(&conn, "cursor.email", &account.email)?;
+    write_account_auth_to_vscdb(&conn, &account)?;
 
     logger::log_info(&format!(
         "[Cursor Account] 注入成功(自定义路径): id={}, email={}, path={}",
@@ -1284,6 +1389,9 @@ pub fn inject_to_cursor_at_path(db_path: &std::path::Path, account_id: &str) -> 
 // ---------------------------------------------------------------------------
 
 const CURSOR_USAGE_SUMMARY_URL: &str = "https://cursor.com/api/usage-summary";
+const CURSOR_SAND_USAGE_STATUS_URL: &str = "https://cursor.com/api/dashboard/get-sand-usage-status";
+const CURSOR_GET_SAND_USAGE_STATUS_URL: &str =
+    "https://api2.cursor.sh/aiserver.v1.DashboardService/GetSandUsageStatus";
 const CURSOR_GET_USER_META_URL: &str = "https://api2.cursor.sh/aiserver.v1.AuthService/GetUserMeta";
 const CURSOR_FULL_STRIPE_PROFILE_URL: &str = "https://api2.cursor.sh/auth/full_stripe_profile";
 const CURSOR_STRIPE_PROFILE_URL: &str = "https://api2.cursor.sh/auth/stripe_profile";
@@ -1570,6 +1678,129 @@ async fn fetch_usage_summary_with_client(
         .map_err(|e| format!("解析 Cursor usage JSON 失败: {}", e))
 }
 
+fn attach_usage_object(usage: &mut Value, key: &str, value: Value) {
+    if let Some(obj) = usage.as_object_mut() {
+        obj.insert(key.to_string(), value);
+    }
+}
+
+async fn fetch_sand_usage_via_dashboard(
+    client: &reqwest::Client,
+    access_token: &str,
+) -> Result<Value, String> {
+    let cookie = build_session_cookie(access_token)
+        .ok_or_else(|| "无法从 accessToken 解析 WorkOS 用户 ID".to_string())?;
+
+    let response = client
+        .post(CURSOR_SAND_USAGE_STATUS_URL)
+        .header("Accept", "application/json")
+        .header("Content-Type", "application/json")
+        .header("Cookie", &cookie)
+        .header("Origin", "https://cursor.com")
+        .header("Referer", "https://cursor.com/dashboard")
+        .header(
+            "User-Agent",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+        )
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .map_err(|e| format!("请求 Cursor Grok Bot 用量接口失败: {}", e))?;
+
+    let status = response.status().as_u16();
+    if status == 401 || status == 403 {
+        return Err("Cursor 会话已过期或未认证，请重新导入账号".to_string());
+    }
+    if status != 200 {
+        return Err(format!(
+            "Cursor Grok Bot 用量接口返回异常状态码: {}",
+            status
+        ));
+    }
+
+    let body = response
+        .text()
+        .await
+        .map_err(|e| format!("读取 Cursor Grok Bot 用量响应失败: {}", e))?;
+
+    serde_json::from_str::<Value>(&body)
+        .map_err(|e| format!("解析 Cursor Grok Bot 用量 JSON 失败: {}", e))
+}
+
+async fn fetch_sand_usage_via_rpc(
+    client: &reqwest::Client,
+    access_token: &str,
+) -> Result<Value, String> {
+    let response = client
+        .post(CURSOR_GET_SAND_USAGE_STATUS_URL)
+        .header("Authorization", format!("Bearer {}", access_token))
+        .header("Accept", "application/json")
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .map_err(|e| format!("请求 Cursor Grok Bot RPC 失败: {}", e))?;
+
+    let status = response.status().as_u16();
+    if status == 401 || status == 403 {
+        return Err("Cursor 会话已过期或未认证，请重新导入账号".to_string());
+    }
+    if status != 200 {
+        return Err(format!(
+            "Cursor Grok Bot RPC 返回异常状态码: {}",
+            status
+        ));
+    }
+
+    let body = response
+        .text()
+        .await
+        .map_err(|e| format!("读取 Cursor Grok Bot RPC 响应失败: {}", e))?;
+
+    serde_json::from_str::<Value>(&body)
+        .map_err(|e| format!("解析 Cursor Grok Bot RPC JSON 失败: {}", e))
+}
+
+async fn fetch_optional_sand_usage(
+    client: &reqwest::Client,
+    access_token: &str,
+    account_id: &str,
+) -> Option<Value> {
+    match fetch_sand_usage_via_dashboard(client, access_token).await {
+        Ok(value) if value.is_object() => return Some(value),
+        Ok(_) => {
+            logger::log_warn(&format!(
+                "[Cursor Refresh] Grok Bot 用量响应不是对象: id={}",
+                account_id
+            ));
+        }
+        Err(err) => {
+            logger::log_warn(&format!(
+                "[Cursor Refresh] Grok Bot Dashboard 用量拉取失败: id={}, error={}",
+                account_id, err
+            ));
+        }
+    }
+
+    match fetch_sand_usage_via_rpc(client, access_token).await {
+        Ok(value) if value.is_object() => Some(value),
+        Ok(_) => {
+            logger::log_warn(&format!(
+                "[Cursor Refresh] Grok Bot RPC 用量响应不是对象: id={}",
+                account_id
+            ));
+            None
+        }
+        Err(err) => {
+            logger::log_warn(&format!(
+                "[Cursor Refresh] Grok Bot RPC 用量拉取失败: id={}, error={}",
+                account_id, err
+            ));
+            None
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Refresh (updates our own account storage + fetches usage from official APIs)
 // ---------------------------------------------------------------------------
@@ -1682,11 +1913,26 @@ async fn refresh_account_async_once(account_id: &str) -> Result<CursorAccount, S
 
     let mut usage_refreshed = false;
     match fetch_usage_summary_with_client(&client, &account.access_token).await {
-        Ok(usage) => {
+        Ok(mut usage) => {
             if let Some(mt) = usage.get("membershipType").and_then(|v| v.as_str()) {
                 if !mt.is_empty() {
                     account.membership_type = Some(mt.to_string());
                 }
+            }
+            let previous_sand = account
+                .cursor_usage_raw
+                .as_ref()
+                .and_then(|raw| raw.get("sandUsage").cloned());
+            if let Some(sand) =
+                fetch_optional_sand_usage(&client, &account.access_token, &account.id).await
+            {
+                attach_usage_object(&mut usage, "sandUsage", sand);
+                logger::log_info(&format!(
+                    "[Cursor Refresh] Grok Bot 周用量拉取成功: id={}",
+                    account.id
+                ));
+            } else if let Some(sand) = previous_sand {
+                attach_usage_object(&mut usage, "sandUsage", sand);
             }
             account.cursor_usage_raw = Some(usage);
             account.quota_query_last_error = None;
@@ -1754,6 +2000,15 @@ struct CursorUsagePercent {
     total_used: Option<i32>,
     auto_used: Option<i32>,
     api_used: Option<i32>,
+    grok_bot_weekly_used: Option<i32>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct CursorGrokBotWeekly {
+    pub used_percent: Option<i32>,
+    // 托盘/菜单展示用；core crate 内暂无消费者。
+    #[allow(dead_code)]
+    pub reset_ts: Option<i64>,
 }
 
 fn clamp_percent(value: f64) -> i32 {
@@ -1790,6 +2045,145 @@ fn pick_number(value: Option<&Value>, keys: &[&str]) -> Option<f64> {
         }
     }
     None
+}
+
+fn pick_bool(value: Option<&Value>, keys: &[&str]) -> Option<bool> {
+    let obj = value?.as_object()?;
+    for key in keys {
+        let Some(raw) = obj.get(*key) else {
+            continue;
+        };
+        if let Some(flag) = raw.as_bool() {
+            return Some(flag);
+        }
+        if let Some(text) = raw.as_str() {
+            let normalized = text.trim().to_ascii_lowercase();
+            if normalized == "true" {
+                return Some(true);
+            }
+            if normalized == "false" {
+                return Some(false);
+            }
+        }
+    }
+    None
+}
+
+fn parse_cursor_timestamp(value: Option<&Value>) -> Option<i64> {
+    let value = value?;
+    if let Some(n) = value.as_f64() {
+        if !n.is_finite() || n <= 0.0 {
+            return None;
+        }
+        if n >= 1_000_000_000_000.0 {
+            return Some((n / 1000.0).round() as i64);
+        }
+        return Some(n.round() as i64);
+    }
+    if let Some(text) = value.as_str() {
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(trimmed) {
+            return Some(parsed.timestamp());
+        }
+        if let Ok(n) = trimmed.parse::<f64>() {
+            return parse_cursor_timestamp(Some(&Value::from(n)));
+        }
+    }
+    None
+}
+
+fn grok_bot_from_object(value: Option<&Value>) -> CursorGrokBotWeekly {
+    let has_included_limit = pick_bool(
+        value,
+        &[
+            "hasNonZeroIncludedLimit",
+            "has_non_zero_included_limit",
+        ],
+    );
+    if has_included_limit == Some(false) {
+        return CursorGrokBotWeekly::default();
+    }
+
+    let percent = pick_number(
+        value,
+        &[
+            "usagePercent",
+            "usedPercent",
+            "percentUsed",
+            "weeklyPercentUsed",
+            "weekly_percent_used",
+            "grokBotWeeklyPercentUsed",
+            "grok_bot_weekly_percent_used",
+        ],
+    );
+    let used = pick_number(value, &["used", "includedUsed", "included_used"]);
+    let limit = pick_number(value, &["limit", "includedLimit", "included_limit"]);
+    let ratio = match (used, limit) {
+        (Some(used_val), Some(limit_val)) if limit_val > 0.0 => {
+            Some((used_val / limit_val) * 100.0)
+        }
+        _ => None,
+    };
+
+    let reset_ts = value.and_then(|raw| raw.as_object()).and_then(|obj| {
+        [
+            "nextResetTimestampUtc",
+            "next_reset_timestamp_utc",
+            "resetsAt",
+            "resetAt",
+            "weeklyResetAt",
+            "weekly_reset_at",
+            "resetTime",
+        ]
+        .into_iter()
+        .find_map(|key| parse_cursor_timestamp(obj.get(key)))
+    });
+
+    CursorGrokBotWeekly {
+        used_percent: percent.or(ratio).map(clamp_percent),
+        reset_ts,
+    }
+}
+
+pub(crate) fn read_grok_bot_weekly(account: &CursorAccount) -> CursorGrokBotWeekly {
+    let Some(raw) = account.cursor_usage_raw.as_ref() else {
+        return CursorGrokBotWeekly::default();
+    };
+    let Some(raw_obj) = raw.as_object() else {
+        return CursorGrokBotWeekly::default();
+    };
+
+    let individual = raw_obj
+        .get("individualUsage")
+        .or_else(|| raw_obj.get("individual_usage"));
+    let sand = raw_obj.get("sandUsage");
+    let candidates = [
+        sand,
+        sand.and_then(|value| value.get("status")),
+        sand.and_then(|value| value.get("usage")),
+        raw_obj.get("grokBot"),
+        raw_obj.get("grok_bot"),
+        raw_obj.get("weeklyUsage"),
+        raw_obj.get("weekly_usage"),
+        individual.and_then(|value| value.get("grokBot")),
+        individual.and_then(|value| value.get("grok_bot")),
+        individual.and_then(|value| value.get("grok")),
+        individual.and_then(|value| value.get("weeklyUsage")),
+        individual.and_then(|value| value.get("weekly_usage")),
+        raw_obj.get("plan").and_then(|value| value.get("grokBot")),
+    ];
+
+    for candidate in candidates {
+        let parsed = grok_bot_from_object(candidate);
+        if parsed.used_percent.is_some() {
+            return parsed;
+        }
+    }
+
+    CursorGrokBotWeekly::default()
 }
 
 fn read_usage_percent(account: &CursorAccount) -> CursorUsagePercent {
@@ -1832,6 +2226,7 @@ fn read_usage_percent(account: &CursorAccount) -> CursorUsagePercent {
         total_used: total_direct.or(total_ratio).map(clamp_percent),
         auto_used: auto_direct.map(clamp_percent),
         api_used: api_direct.map(clamp_percent),
+        grok_bot_weekly_used: read_grok_bot_weekly(account).used_percent,
     }
 }
 
@@ -1843,10 +2238,13 @@ pub(crate) fn extract_quota_metrics(account: &CursorAccount) -> Vec<(String, i32
         metrics.push(("Total Usage".to_string(), 100 - used.clamp(0, 100)));
     }
     if let Some(used) = usage.auto_used {
-        metrics.push(("Auto + Composer".to_string(), 100 - used.clamp(0, 100)));
+        metrics.push(("Cursor Models".to_string(), 100 - used.clamp(0, 100)));
     }
     if let Some(used) = usage.api_used {
-        metrics.push(("API Usage".to_string(), 100 - used.clamp(0, 100)));
+        metrics.push(("Other Models".to_string(), 100 - used.clamp(0, 100)));
+    }
+    if let Some(used) = usage.grok_bot_weekly_used {
+        metrics.push(("Grok Bot (Weekly)".to_string(), 100 - used.clamp(0, 100)));
     }
 
     metrics
@@ -1877,7 +2275,7 @@ pub(crate) fn resolve_current_account_id(accounts: &[CursorAccount]) -> Option<S
                 if let (Some(existing), Some(incoming)) =
                     (existing_auth_id.as_ref(), incoming_auth_id.as_ref())
                 {
-                    return existing == incoming;
+                    return auth_ids_match(existing, incoming);
                 }
                 if existing_auth_id.is_some() || incoming_auth_id.is_some() {
                     return false;

@@ -4809,6 +4809,10 @@
     "subscription": "Подписка",
     "injectToCursor": "Переключиться на Cursor",
     "quota": {
+      "totalUsage": "Общее использование",
+      "cursorModels": "Модели Cursor",
+      "otherModels": "Другие модели",
+      "grokBotWeekly": "Grok Bot (неделя)",
       "onDemand": "По запросу"
     },
     "title": "Управление аккаунтами Cursor",

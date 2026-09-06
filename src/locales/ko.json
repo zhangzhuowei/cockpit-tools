@@ -4809,6 +4809,10 @@
     "subscription": "구독",
     "injectToCursor": "Cursor로 전환",
     "quota": {
+      "totalUsage": "총 사용량",
+      "cursorModels": "Cursor 모델",
+      "otherModels": "기타 모델",
+      "grokBotWeekly": "Grok Bot (주간)",
       "onDemand": "온디맨드"
     },
     "title": "Cursor 계정 관리",

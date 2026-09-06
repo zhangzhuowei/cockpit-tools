@@ -4809,6 +4809,10 @@
     "subscription": "Assinatura",
     "injectToCursor": "Alternar para Cursor",
     "quota": {
+      "totalUsage": "Uso total",
+      "cursorModels": "Modelos Cursor",
+      "otherModels": "Outros modelos",
+      "grokBotWeekly": "Grok Bot (semanal)",
       "onDemand": "Sob demanda"
     },
     "title": "Gerenciamento de contas Cursor",

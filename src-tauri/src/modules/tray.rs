@@ -1299,7 +1299,7 @@ fn build_cursor_display_info(lang: &str) -> AccountDisplayInfo {
     if let Some(auto_used) = usage.auto_used_percent {
         quota_lines.push(format_quota_line(
             lang,
-            "Auto + Composer",
+            "Cursor Models",
             &format_percent_text(auto_used),
             None,
         ));
@@ -1308,9 +1308,19 @@ fn build_cursor_display_info(lang: &str) -> AccountDisplayInfo {
     if let Some(api_used) = usage.api_used_percent {
         quota_lines.push(format_quota_line(
             lang,
-            "API",
+            "Other Models",
             &format_percent_text(api_used),
             None,
+        ));
+    }
+
+    if let Some(grok_used) = usage.grok_bot_weekly_percent {
+        let grok_reset = format_reset_time_from_ts(lang, usage.grok_bot_reset_ts);
+        quota_lines.push(format_quota_line(
+            lang,
+            "Grok Bot",
+            &format_percent_text(grok_used),
+            Some(&grok_reset),
         ));
     }
 
@@ -2274,6 +2284,8 @@ struct CursorTrayUsage {
     total_used_percent: Option<i32>,
     auto_used_percent: Option<i32>,
     api_used_percent: Option<i32>,
+    grok_bot_weekly_percent: Option<i32>,
+    grok_bot_reset_ts: Option<i64>,
     reset_ts: Option<i64>,
     on_demand_text: Option<String>,
 }
@@ -2476,10 +2488,14 @@ fn read_cursor_tray_usage(account: &crate::models::cursor::CursorAccount) -> Cur
         .and_then(|text| chrono::DateTime::parse_from_rfc3339(text).ok())
         .map(|value| value.timestamp());
 
+    let grok_bot = crate::modules::cursor_account::read_grok_bot_weekly(account);
+
     CursorTrayUsage {
         total_used_percent: total_direct.or(total_ratio).map(clamp_cursor_percent),
         auto_used_percent: auto_direct.map(clamp_cursor_percent),
         api_used_percent: api_direct.map(clamp_cursor_percent),
+        grok_bot_weekly_percent: grok_bot.used_percent,
+        grok_bot_reset_ts: grok_bot.reset_ts,
         reset_ts,
         on_demand_text,
     }

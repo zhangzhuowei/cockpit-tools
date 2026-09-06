@@ -226,6 +226,10 @@ export type CursorUsage = {
   totalPercentUsed?: number | null;
   autoPercentUsed?: number | null;
   apiPercentUsed?: number | null;
+  cursorModelsPercentUsed?: number | null;
+  otherModelsPercentUsed?: number | null;
+  grokBotWeeklyPercentUsed?: number | null;
+  grokBotWeeklyResetAt?: number | null;
   onDemandUsedCents?: number | null;
   onDemandLimitCents?: number | null;
   teamOnDemandUsedCents?: number | null;
@@ -282,6 +286,88 @@ function pickBoolean(obj: unknown, ...candidateKeys: string[]): boolean | null {
   return null;
 }
 
+function parseCursorTimestamp(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return value >= 1_000_000_000_000 ? Math.floor(value / 1000) : Math.floor(value);
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const trimmed = value.trim();
+    const asNumber = Number(trimmed);
+    if (Number.isFinite(asNumber) && asNumber > 0) {
+      return parseCursorTimestamp(asNumber);
+    }
+    const ts = new Date(trimmed).getTime();
+    if (Number.isFinite(ts)) return Math.floor(ts / 1000);
+  }
+  return null;
+}
+
+function readGrokBotWeekly(raw: unknown): {
+  percentUsed: number | null;
+  resetAt: number | null;
+} {
+  if (!raw || typeof raw !== 'object') {
+    return { percentUsed: null, resetAt: null };
+  }
+
+  const rawObj = raw as Record<string, unknown>;
+  const individual =
+    getPath(raw, 'individualUsage') ?? getPath(raw, 'individual_usage');
+  const sand = rawObj.sandUsage;
+  const candidates = [
+    sand,
+    getPath(sand, 'status'),
+    getPath(sand, 'usage'),
+    rawObj.grokBot,
+    rawObj.grok_bot,
+    rawObj.weeklyUsage,
+    rawObj.weekly_usage,
+    getPath(individual, 'grokBot'),
+    getPath(individual, 'grok_bot'),
+    getPath(individual, 'grok'),
+    getPath(individual, 'weeklyUsage'),
+    getPath(individual, 'weekly_usage'),
+    getPath(raw, 'plan', 'grokBot'),
+  ];
+
+  for (const candidate of candidates) {
+    if (pickBoolean(candidate, 'hasNonZeroIncludedLimit', 'has_non_zero_included_limit') === false) {
+      continue;
+    }
+    const percent = pickNumber(
+      candidate,
+      'usagePercent',
+      'usedPercent',
+      'percentUsed',
+      'weeklyPercentUsed',
+      'weekly_percent_used',
+      'grokBotWeeklyPercentUsed',
+      'grok_bot_weekly_percent_used',
+    );
+    const used = pickNumber(candidate, 'used', 'includedUsed', 'included_used');
+    const limit = pickNumber(candidate, 'limit', 'includedLimit', 'included_limit');
+    const ratio =
+      used != null && limit != null && limit > 0 ? (used / limit) * 100 : null;
+    const percentUsed = percent ?? ratio;
+    const resetAt = parseCursorTimestamp(
+      candidate && typeof candidate === 'object'
+        ? (candidate as Record<string, unknown>).nextResetTimestampUtc
+          ?? (candidate as Record<string, unknown>).next_reset_timestamp_utc
+          ?? (candidate as Record<string, unknown>).resetsAt
+          ?? (candidate as Record<string, unknown>).resetAt
+          ?? (candidate as Record<string, unknown>).weeklyResetAt
+          ?? (candidate as Record<string, unknown>).weekly_reset_at
+          ?? (candidate as Record<string, unknown>).resetTime
+        : null,
+    );
+    if (percentUsed != null) {
+      return { percentUsed, resetAt };
+    }
+  }
+
+  return { percentUsed: null, resetAt: null };
+}
+
 export function getCursorUsage(account: CursorAccount): CursorUsage {
   const raw = account.cursor_usage_raw;
   if (!raw || typeof raw !== 'object') {
@@ -307,6 +393,11 @@ export function getCursorUsage(account: CursorAccount): CursorUsage {
   const totalPct = pickNumber(plan, 'totalPercentUsed', 'total_percent_used');
   const autoPct = pickNumber(plan, 'autoPercentUsed', 'auto_percent_used');
   const apiPct = pickNumber(plan, 'apiPercentUsed', 'api_percent_used');
+  const cursorModelsPct =
+    pickNumber(plan, 'cursorModelsPercentUsed', 'cursor_models_percent_used') ?? autoPct;
+  const otherModelsPct =
+    pickNumber(plan, 'otherModelsPercentUsed', 'other_models_percent_used') ?? apiPct;
+  const grokBot = readGrokBotWeekly(raw);
   const planUsed = pickNumber(plan, 'used', 'totalSpend', 'total_spend');
   const planLimit = pickNumber(plan, 'limit');
   const odUsed = pickNumber(
@@ -387,6 +478,10 @@ export function getCursorUsage(account: CursorAccount): CursorUsage {
     totalPercentUsed: totalPct,
     autoPercentUsed: autoPct,
     apiPercentUsed: apiPct,
+    cursorModelsPercentUsed: cursorModelsPct,
+    otherModelsPercentUsed: otherModelsPct,
+    grokBotWeeklyPercentUsed: grokBot.percentUsed,
+    grokBotWeeklyResetAt: grokBot.resetAt,
     onDemandUsedCents: odUsed,
     onDemandLimitCents: odLimit,
     teamOnDemandUsedCents: teamOdUsed,

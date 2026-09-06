@@ -1456,7 +1456,7 @@
                 let mut rows = Vec::new();
                 if let Some(percentage) = usage.total_used_percent {
                     rows.push(make_progress_row(
-                        "Total Usage".to_string(),
+                        translate_or(lang, "cursor.quota.totalUsage", "Total Usage", &[]),
                         format!("{percentage}%"),
                         percentage,
                         format_reset_subtext(lang, usage.reset_ts),
@@ -1465,7 +1465,7 @@
                 }
                 if let Some(percentage) = usage.auto_used_percent {
                     rows.push(make_progress_row(
-                        "Auto + Composer".to_string(),
+                        translate_or(lang, "cursor.quota.cursorModels", "Cursor Models", &[]),
                         format!("{percentage}%"),
                         percentage,
                         None,
@@ -1474,10 +1474,19 @@
                 }
                 if let Some(percentage) = usage.api_used_percent {
                     rows.push(make_progress_row(
-                        "API Usage".to_string(),
+                        translate_or(lang, "cursor.quota.otherModels", "Other Models", &[]),
                         format!("{percentage}%"),
                         percentage,
                         None,
+                        cursor_usage_tone(percentage),
+                    ));
+                }
+                if let Some(percentage) = usage.grok_bot_weekly_percent {
+                    rows.push(make_progress_row(
+                        translate_or(lang, "cursor.quota.grokBotWeekly", "Grok Bot (Weekly)", &[]),
+                        format!("{percentage}%"),
+                        percentage,
+                        format_reset_subtext(lang, usage.grok_bot_reset_ts),
                         cursor_usage_tone(percentage),
                     ));
                 }

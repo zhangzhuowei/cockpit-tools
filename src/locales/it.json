@@ -4809,6 +4809,10 @@
     "subscription": "Abbonamento",
     "injectToCursor": "Passa a Cursor",
     "quota": {
+      "totalUsage": "Utilizzo totale",
+      "cursorModels": "Modelli Cursor",
+      "otherModels": "Altri modelli",
+      "grokBotWeekly": "Grok Bot (settimanale)",
       "onDemand": "Su richiesta"
     },
     "title": "Gestione account Cursor",

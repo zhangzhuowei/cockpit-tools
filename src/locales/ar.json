@@ -4856,6 +4856,10 @@
     "subscription": "الاشتراك",
     "injectToCursor": "التبديل إلى Cursor",
     "quota": {
+      "totalUsage": "إجمالي الاستخدام",
+      "cursorModels": "نماذج Cursor",
+      "otherModels": "نماذج أخرى",
+      "grokBotWeekly": "Grok Bot (أسبوعي)",
       "onDemand": "حسب الطلب"
     },
     "title": "إدارة حسابات Cursor",

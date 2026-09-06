@@ -4809,6 +4809,10 @@
     "subscription": "サブスクリプション",
     "injectToCursor": "Cursor に切り替え",
     "quota": {
+      "totalUsage": "合計使用量",
+      "cursorModels": "Cursor モデル",
+      "otherModels": "その他のモデル",
+      "grokBotWeekly": "Grok Bot（週次）",
       "onDemand": "オンデマンド"
     },
     "title": "Cursor アカウント管理",

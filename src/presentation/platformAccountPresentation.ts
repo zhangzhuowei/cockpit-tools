@@ -1733,14 +1733,19 @@ export function buildCursorAccountPresentation(
   const totalPercent = normalizeCursorUsagePercent(
     usage.totalPercentUsed ?? ratioPercent,
   );
-  const autoPercent = normalizeCursorUsagePercent(usage.autoPercentUsed);
-  const apiPercent = normalizeCursorUsagePercent(usage.apiPercentUsed);
+  const autoPercent = normalizeCursorUsagePercent(
+    usage.cursorModelsPercentUsed ?? usage.autoPercentUsed,
+  );
+  const apiPercent = normalizeCursorUsagePercent(
+    usage.otherModelsPercentUsed ?? usage.apiPercentUsed,
+  );
+  const grokBotPercent = normalizeCursorUsagePercent(usage.grokBotWeeklyPercentUsed);
   const quotaItems: UnifiedQuotaMetric[] = [];
 
   if (totalPercent != null) {
     quotaItems.push({
       key: "total",
-      label: "Total Usage",
+      label: t("cursor.quota.totalUsage", "Total Usage"),
       percentage: totalPercent,
       quotaClass: getCursorUsageQuotaClass(totalPercent),
       valueText: `${totalPercent}%`,
@@ -1754,7 +1759,7 @@ export function buildCursorAccountPresentation(
   if (autoPercent != null) {
     quotaItems.push({
       key: "auto",
-      label: "Auto + Composer",
+      label: t("cursor.quota.cursorModels", "Cursor Models"),
       percentage: autoPercent,
       quotaClass: getCursorUsageQuotaClass(autoPercent),
       valueText: `${autoPercent}%`,
@@ -1764,10 +1769,24 @@ export function buildCursorAccountPresentation(
   if (apiPercent != null) {
     quotaItems.push({
       key: "api",
-      label: "API Usage",
+      label: t("cursor.quota.otherModels", "Other Models"),
       percentage: apiPercent,
       quotaClass: getCursorUsageQuotaClass(apiPercent),
       valueText: `${apiPercent}%`,
+    });
+  }
+
+  if (grokBotPercent != null) {
+    quotaItems.push({
+      key: "grok_bot_weekly",
+      label: t("cursor.quota.grokBotWeekly", "Grok Bot (Weekly)"),
+      percentage: grokBotPercent,
+      quotaClass: getCursorUsageQuotaClass(grokBotPercent),
+      valueText: `${grokBotPercent}%`,
+      resetAt: usage.grokBotWeeklyResetAt,
+      resetText: usage.grokBotWeeklyResetAt
+        ? formatCodexResetTime(usage.grokBotWeeklyResetAt, t)
+        : "",
     });
   }
 
