@@ -1684,6 +1684,19 @@ fn attach_usage_object(usage: &mut Value, key: &str, value: Value) {
     }
 }
 
+// Grok Bot 是附加信息，不能拖慢主配额刷新；比全局 15s 更短，且两次尝试合计不超过主请求。
+const CURSOR_SAND_USAGE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(6);
+
+/// 上一轮的 Grok Bot 数据只在其周重置点还没过去时才值得沿用，否则宁可不显示。
+fn reusable_previous_sand(previous: Option<Value>) -> Option<Value> {
+    let value = previous?;
+    let reset_ts = grok_bot_from_object(Some(&value))
+        .reset_ts
+        .or_else(|| grok_bot_from_object(value.get("status")).reset_ts)
+        .or_else(|| grok_bot_from_object(value.get("usage")).reset_ts)?;
+    (reset_ts > now_ts()).then_some(value)
+}
+
 async fn fetch_sand_usage_via_dashboard(
     client: &reqwest::Client,
     access_token: &str,
@@ -1693,6 +1706,7 @@ async fn fetch_sand_usage_via_dashboard(
 
     let response = client
         .post(CURSOR_SAND_USAGE_STATUS_URL)
+        .timeout(CURSOR_SAND_USAGE_TIMEOUT)
         .header("Accept", "application/json")
         .header("Content-Type", "application/json")
         .header("Cookie", &cookie)
@@ -1733,6 +1747,7 @@ async fn fetch_sand_usage_via_rpc(
 ) -> Result<Value, String> {
     let response = client
         .post(CURSOR_GET_SAND_USAGE_STATUS_URL)
+        .timeout(CURSOR_SAND_USAGE_TIMEOUT)
         .header("Authorization", format!("Bearer {}", access_token))
         .header("Accept", "application/json")
         .header("Content-Type", "application/json")
@@ -1919,10 +1934,12 @@ async fn refresh_account_async_once(account_id: &str) -> Result<CursorAccount, S
                     account.membership_type = Some(mt.to_string());
                 }
             }
-            let previous_sand = account
-                .cursor_usage_raw
-                .as_ref()
-                .and_then(|raw| raw.get("sandUsage").cloned());
+            let previous_sand = reusable_previous_sand(
+                account
+                    .cursor_usage_raw
+                    .as_ref()
+                    .and_then(|raw| raw.get("sandUsage").cloned()),
+            );
             if let Some(sand) =
                 fetch_optional_sand_usage(&client, &account.access_token, &account.id).await
             {
@@ -2000,7 +2017,6 @@ struct CursorUsagePercent {
     total_used: Option<i32>,
     auto_used: Option<i32>,
     api_used: Option<i32>,
-    grok_bot_weekly_used: Option<i32>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -2226,10 +2242,10 @@ fn read_usage_percent(account: &CursorAccount) -> CursorUsagePercent {
         total_used: total_direct.or(total_ratio).map(clamp_percent),
         auto_used: auto_direct.map(clamp_percent),
         api_used: api_direct.map(clamp_percent),
-        grok_bot_weekly_used: read_grok_bot_weekly(account).used_percent,
     }
 }
 
+/// IDE 额度池（剩余百分比），用于账号推荐、托盘/菜单排序等平均值计算。
 pub(crate) fn extract_quota_metrics(account: &CursorAccount) -> Vec<(String, i32)> {
     let usage = read_usage_percent(account);
     let mut metrics = Vec::new();
@@ -2243,10 +2259,17 @@ pub(crate) fn extract_quota_metrics(account: &CursorAccount) -> Vec<(String, i32
     if let Some(used) = usage.api_used {
         metrics.push(("Other Models".to_string(), 100 - used.clamp(0, 100)));
     }
-    if let Some(used) = usage.grok_bot_weekly_used {
+
+    metrics
+}
+
+/// 低额度告警检查项：IDE 额度池 + Grok Bot 周用量。
+/// Grok Bot 是独立产品，不参与"推荐切换账号"的平均分，否则没用过 Grok Bot 的账号会被无理由抬高。
+fn extract_alert_metrics(account: &CursorAccount) -> Vec<(String, i32)> {
+    let mut metrics = extract_quota_metrics(account);
+    if let Some(used) = read_grok_bot_weekly(account).used_percent {
         metrics.push(("Grok Bot (Weekly)".to_string(), 100 - used.clamp(0, 100)));
     }
-
     metrics
 }
 
@@ -2404,7 +2427,7 @@ pub fn run_quota_alert_if_needed(
         return Ok(None);
     }
 
-    let metrics = extract_quota_metrics(current);
+    let metrics = extract_alert_metrics(current);
     if metrics.is_empty() {
         clear_quota_alert_cooldown(&current_id, threshold);
         return Ok(None);

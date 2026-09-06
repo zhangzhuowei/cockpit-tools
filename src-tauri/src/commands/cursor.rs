@@ -194,6 +194,13 @@ pub async fn inject_cursor_account(app: AppHandle, account_id: String) -> Result
     let account = cursor_account::load_account(&account_id)
         .ok_or_else(|| format!("Cursor account not found: {}", account_id))?;
 
+    // 必须先关掉正在运行的默认 Cursor 再写 state.vscdb：Cursor 退出时会把内存里的
+    // 旧账号 token 回写，若后面启动失败提前返回，切换会被静默还原。
+    let default_dir = crate::modules::cursor_instance::get_default_cursor_user_data_dir()?
+        .to_string_lossy()
+        .to_string();
+    crate::modules::cursor_instance::close_cursor(&[default_dir], 20)?;
+
     cursor_account::inject_to_cursor(&account_id)?;
     crate::modules::provider_current_state::set_current_account_id(
         "cursor",
@@ -225,6 +232,11 @@ pub async fn inject_cursor_account(app: AppHandle, account_id: String) -> Result
                     }
                     Some(err)
                 } else {
+                    // 注入已经完成，让前端以真实状态为准，不再乐观标记。
+                    logger::log_warn(&format!(
+                        "[Cursor Switch] 注入完成但启动异常: account_id={}, error={}",
+                        account_id, err
+                    ));
                     return Err(err);
                 }
             }

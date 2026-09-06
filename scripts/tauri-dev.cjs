@@ -31,10 +31,13 @@ if (macosSdkRoot) {
   env.SDKROOT = macosSdkRoot;
 }
 const extraArgs = process.argv.slice(2);
+// Windows 上 spawnSync 找不到 npm/tauri 的 .cmd 垫片，需显式指定并经 shell 启动。
+const isWin = process.platform === 'win32';
 
-const syncResult = spawnSync('npm', ['run', 'sync-version'], {
+const syncResult = spawnSync(isWin ? 'npm.cmd' : 'npm', ['run', 'sync-version'], {
   stdio: 'inherit',
   env,
+  shell: isWin,
 });
 
 if (syncResult.status !== 0) {
@@ -42,11 +45,12 @@ if (syncResult.status !== 0) {
 }
 
 const tauriResult = spawnSync(
-  'tauri',
-  ['dev', '--config', 'src-tauri/tauri.dev.conf.json', ...extraArgs],
+  isWin ? 'npx.cmd' : 'npx',
+  ['tauri', 'dev', '--config', 'src-tauri/tauri.dev.conf.json', ...extraArgs],
   {
     stdio: 'inherit',
     env,
+    shell: isWin,
   },
 );
 
