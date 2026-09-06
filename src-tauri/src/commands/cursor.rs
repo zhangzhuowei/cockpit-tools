@@ -108,6 +108,12 @@ pub fn add_cursor_account_with_token(
     app: AppHandle,
     access_token: String,
 ) -> Result<CursorAccount, String> {
+    let access_token = cursor_account::normalize_import_access_token(&access_token);
+    if access_token.is_empty() {
+        return Err("access_token 不能为空".to_string());
+    }
+    cursor_account::validate_import_access_token(&access_token, None)?;
+
     let email = "unknown".to_string();
     let payload = crate::models::cursor::CursorImportPayload {
         email,

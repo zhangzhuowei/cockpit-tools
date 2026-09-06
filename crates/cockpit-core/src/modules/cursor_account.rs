@@ -369,6 +369,56 @@ fn extract_access_token_exp(access_token: &str) -> Option<i64> {
     value.get("exp").and_then(|raw| raw.as_i64())
 }
 
+/// 用户粘贴的 token 常带着来源痕迹：`Bearer ` 前缀、浏览器 Cookie 的
+/// `WorkosCursorSessionToken=user_xxx::<jwt>`（或 URL 编码的 `%3A%3A`）、首尾引号。
+/// 这些都能正确解析出 Auth ID，但作为 Bearer 发出去就是 401，因此在保存前统一剥掉。
+pub(crate) fn normalize_import_access_token(raw: &str) -> String {
+    let mut token = raw.trim().trim_matches(|c| c == '"' || c == '\'').trim();
+
+    if token.len() > 7 && token[..7].eq_ignore_ascii_case("bearer ") {
+        token = token[7..].trim();
+    }
+    if let Some(rest) = token
+        .strip_prefix("WorkosCursorSessionToken=")
+        .or_else(|| token.strip_prefix("workoscursorsessiontoken="))
+    {
+        token = rest.trim();
+    }
+
+    let decoded = token.replace("%3A%3A", "::").replace("%3a%3a", "::");
+    let token = decoded.rsplit("::").next().unwrap_or(decoded.as_str());
+    token.trim().to_string()
+}
+
+/// 导入前校验：必须是 JWT；已过期且没有 refresh_token 的 token 保存下去也只会一直
+/// "配额查询失败"，不如直接告诉用户重新获取。
+pub(crate) fn validate_import_access_token(
+    access_token: &str,
+    refresh_token: Option<&str>,
+) -> Result<(), String> {
+    if access_token.split('.').count() < 3 || decode_access_token_payload(access_token).is_none() {
+        return Err(
+            "access_token 不是有效的 Cursor JWT，请粘贴 Cursor 的 accessToken（以 eyJ 开头），而不是 Cookie 或 refresh_token"
+                .to_string(),
+        );
+    }
+
+    let Some(exp) = extract_access_token_exp(access_token) else {
+        return Ok(());
+    };
+    let now = now_ts();
+    if exp <= now && normalize_non_empty(refresh_token).is_none() {
+        let expired_at = chrono::DateTime::<chrono::Utc>::from_timestamp(exp, 0)
+            .map(|value| value.format("%Y-%m-%d %H:%M UTC").to_string())
+            .unwrap_or_else(|| exp.to_string());
+        return Err(format!(
+            "access_token 已于 {} 过期，且没有 refresh_token 可续期；请重新获取 token 或改用 OAuth 登录",
+            expired_at
+        ));
+    }
+    Ok(())
+}
+
 fn access_token_needs_refresh(access_token: &str) -> bool {
     let Some(exp) = extract_access_token_exp(access_token) else {
         return true;
@@ -1013,6 +1063,8 @@ fn payload_from_import_value(raw: Value) -> Result<CursorImportPayload, String> 
             "cursor_access_token",
         ],
     )
+    .map(|raw| normalize_import_access_token(&raw))
+    .filter(|token| !token.is_empty())
     .ok_or_else(|| "缺少 access_token 字段".to_string())?;
 
     let name = extract_string(obj, &["name", "displayName"]);
@@ -1020,6 +1072,7 @@ fn payload_from_import_value(raw: Value) -> Result<CursorImportPayload, String> 
         obj,
         &["refresh_token", "refreshToken", "cursor_refresh_token"],
     );
+    validate_import_access_token(access_token.as_str(), refresh_token.as_deref())?;
     let membership_type = extract_string(
         obj,
         &[
@@ -2494,4 +2547,52 @@ pub fn run_quota_alert_if_needed(
 
     crate::modules::account::dispatch_quota_alert(&payload);
     Ok(Some(payload))
+}
+
+#[cfg(test)]
+mod import_token_tests {
+    use super::*;
+
+    fn fake_jwt(sub: &str, exp: i64) -> String {
+        let engine = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        let header = engine.encode(br#"{"alg":"HS256","typ":"JWT"}"#);
+        let payload = engine.encode(format!(r#"{{"sub":"{}","exp":{}}}"#, sub, exp).as_bytes());
+        format!("{}.{}.sig", header, payload)
+    }
+
+    #[test]
+    fn normalize_strips_bearer_cookie_and_quotes() {
+        let jwt = fake_jwt("auth0|user_1", 4_000_000_000);
+        assert_eq!(normalize_import_access_token(&format!("Bearer {}", jwt)), jwt);
+        assert_eq!(normalize_import_access_token(&format!("\"{}\"", jwt)), jwt);
+        assert_eq!(
+            normalize_import_access_token(&format!("WorkosCursorSessionToken=user_1::{}", jwt)),
+            jwt
+        );
+        assert_eq!(
+            normalize_import_access_token(&format!("user_1%3A%3A{}", jwt)),
+            jwt
+        );
+        assert_eq!(normalize_import_access_token(&format!("  {}  ", jwt)), jwt);
+    }
+
+    #[test]
+    fn auth_ids_match_ignores_auth0_prefix_and_case() {
+        assert!(auth_ids_match("auth0|user_ABC", "user_abc"));
+        assert!(auth_ids_match("user_abc", "auth0|user_abc"));
+        assert!(!auth_ids_match("auth0|user_abc", "auth0|user_xyz"));
+    }
+
+    #[test]
+    fn validate_rejects_non_jwt_and_expired_without_refresh() {
+        assert!(validate_import_access_token("not-a-jwt", None).is_err());
+        assert!(validate_import_access_token("a.b", None).is_err());
+
+        let expired = fake_jwt("auth0|user_1", 1_000);
+        assert!(validate_import_access_token(&expired, None).is_err());
+        assert!(validate_import_access_token(&expired, Some("refresh")).is_ok());
+
+        let valid = fake_jwt("auth0|user_1", 4_000_000_000);
+        assert!(validate_import_access_token(&valid, None).is_ok());
+    }
 }
