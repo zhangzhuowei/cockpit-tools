@@ -15,11 +15,89 @@ impl AccountQuotaCooldown {
     }
 }
 
+fn json_finite_f64(value: Option<&serde_json::Value>) -> Option<f64> {
+    match value? {
+        serde_json::Value::Number(number) => number.as_f64().filter(|value| value.is_finite()),
+        serde_json::Value::String(raw) => raw.trim().parse::<f64>().ok().filter(|value| value.is_finite()),
+        _ => None,
+    }
+}
+
+fn json_bool(value: Option<&serde_json::Value>) -> Option<bool> {
+    match value? {
+        serde_json::Value::Bool(flag) => Some(*flag),
+        serde_json::Value::String(raw) => match raw.trim().to_ascii_lowercase().as_str() {
+            "true" | "1" | "yes" => Some(true),
+            "false" | "0" | "no" => Some(false),
+            _ => None,
+        },
+        serde_json::Value::Number(number) => number.as_i64().map(|value| value != 0),
+        _ => None,
+    }
+}
+
+fn object_field<'a>(
+    object: &'a serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Option<&'a serde_json::Value> {
+    object.get(key).or_else(|| {
+        object.iter().find_map(|(name, value)| {
+            name.eq_ignore_ascii_case(key).then_some(value)
+        })
+    })
+}
+
+fn quota_has_usable_credits(quota: &CodexQuota) -> bool {
+    let Some(raw) = quota.raw_data.as_ref().and_then(serde_json::Value::as_object) else {
+        return false;
+    };
+    if let Some(limit) = object_field(raw, "spend_control")
+        .and_then(serde_json::Value::as_object)
+        .and_then(|spend| object_field(spend, "individual_limit"))
+        .and_then(serde_json::Value::as_object)
+    {
+        if json_bool(object_field(limit, "unlimited")).unwrap_or(false) {
+            return true;
+        }
+        if json_finite_f64(object_field(limit, "remaining")).is_some_and(|value| value > 0.0) {
+            return true;
+        }
+        if json_finite_f64(object_field(limit, "remaining_percent")).is_some_and(|value| value > 0.0)
+        {
+            return true;
+        }
+        if let (Some(total), Some(used)) = (
+            json_finite_f64(object_field(limit, "limit")),
+            json_finite_f64(object_field(limit, "used")),
+        ) {
+            if (total - used) > 0.0 {
+                return true;
+            }
+        }
+    }
+    let Some(credits) = object_field(raw, "credits").and_then(serde_json::Value::as_object) else {
+        return false;
+    };
+    if json_bool(object_field(credits, "unlimited")).unwrap_or(false) {
+        return true;
+    }
+    json_finite_f64(object_field(credits, "remaining")).is_some_and(|value| value > 0.0)
+        || json_finite_f64(object_field(credits, "balance")).is_some_and(|value| value > 0.0)
+}
+
 fn account_quota_cooldown(account: &CodexAccount, now: i64) -> Option<AccountQuotaCooldown> {
     if account.is_api_key_auth() {
         return None;
     }
     let quota = account.quota.as_ref()?;
+    let updated_at_ms = account.usage_updated_at.unwrap_or_default().saturating_mul(1000);
+    if quota_has_usable_credits(quota) {
+        return Some(AccountQuotaCooldown {
+            exhausted: false,
+            reset_at_ms: None,
+            updated_at_ms,
+        });
+    }
     let has_presence_flags =
         quota.hourly_window_present.is_some() || quota.weekly_window_present.is_some();
     let windows = [
@@ -45,7 +123,7 @@ fn account_quota_cooldown(account: &CodexAccount, now: i64) -> Option<AccountQuo
     Some(AccountQuotaCooldown {
         exhausted,
         reset_at_ms: if exhausted { reset_at_ms } else { None },
-        updated_at_ms: account.usage_updated_at.unwrap_or_default().saturating_mul(1000),
+        updated_at_ms,
     })
 }
 
@@ -84,6 +162,33 @@ fn account_recovery_blocked_by_quota(runtime: &GatewayRuntime, account_id: &str,
             sidecar_scheduler_blocks_account(Some(health), now)
                 && health.sidecar_scheduler_reason.as_deref().is_some_and(is_quota_cooldown_reason)
         })
+}
+
+fn mark_quota_cooldowns_recovered(runtime: &mut GatewayRuntime, account_ids: &[String], now: i64) {
+    for account_id in account_ids
+        .iter()
+        .map(|account_id| account_id.trim())
+        .filter(|account_id| !account_id.is_empty())
+    {
+        runtime.account_quota_cooldowns.insert(
+            account_id.to_string(),
+            AccountQuotaCooldown {
+                exhausted: false,
+                reset_at_ms: None,
+                updated_at_ms: now,
+            },
+        );
+    }
+}
+
+fn clear_runtime_quota_cooldowns(runtime: &mut GatewayRuntime, account_ids: &[String]) {
+    for account_id in account_ids
+        .iter()
+        .map(|account_id| account_id.trim())
+        .filter(|account_id| !account_id.is_empty())
+    {
+        runtime.account_quota_cooldowns.remove(account_id);
+    }
 }
 
 async fn account_quota_blocks_dispatch(account_id: &str, model: &str) -> bool {

@@ -448,15 +448,9 @@ func (s *relayServer) handleResetAuthState(c *gin.Context) {
 		authID    string
 	}
 	targets := make([]resetTarget, 0, len(accountIDs))
-	quotaBlocked := false
 	for _, accountID := range accountIDs {
 		account := s.manifest.accountByID[accountID]
 		if account == nil || strings.TrimSpace(account.AuthID) == "" {
-			continue
-		}
-		auth, _ := s.authManager.GetByID(account.AuthID)
-		if accountQuotaExhausted(s.manifest, account, time.Now()) || authHasQuotaCooldown(auth, time.Now()) {
-			quotaBlocked = true
 			continue
 		}
 		if len(allowed) > 0 {
@@ -467,10 +461,6 @@ func (s *relayServer) handleResetAuthState(c *gin.Context) {
 		targets = append(targets, resetTarget{accountID: accountID, authID: account.AuthID})
 	}
 	if len(targets) == 0 {
-		if quotaBlocked {
-			writeAPIError(c, http.StatusConflict, "quota cooldown cannot be cleared manually; wait for quota recovery", "quota_cooldown")
-			return
-		}
 		writeAPIError(c, http.StatusNotFound, "no resettable accounts found", "account_not_found")
 		return
 	}
@@ -481,6 +471,7 @@ func (s *relayServer) handleResetAuthState(c *gin.Context) {
 			resetAccountIDs = append(resetAccountIDs, target.accountID)
 		}
 	}
+	clearQuotaCooldownForAccounts(s.manifest, resetAccountIDs, time.Now())
 	c.JSON(http.StatusOK, gin.H{
 		"status":     "ok",
 		"reset":      len(resetAccountIDs),
@@ -522,25 +513,9 @@ func (s *relayServer) handleResetSchedulerState(c *gin.Context) {
 	}
 
 	selected := make([]string, 0, len(accountIDs))
-	quotaBlocked := false
-	blockedAccounts, blockedAuths := make(map[string]bool), make(map[string]bool)
-	if s.authManager != nil {
-		for _, auth := range s.authManager.List() {
-			if authHasQuotaCooldown(auth, time.Now()) {
-				blockedAuths[auth.ID] = true
-				if account := accountForAuthInManifest(s.manifest, auth); account != nil {
-					blockedAccounts[account.ID] = true
-				}
-			}
-		}
-	}
 	for _, accountID := range accountIDs {
 		account := s.manifest.accountByID[accountID]
 		if account == nil {
-			continue
-		}
-		if accountQuotaExhausted(s.manifest, account, time.Now()) || blockedAccounts[accountID] || blockedAuths[account.AuthID] {
-			quotaBlocked = true
 			continue
 		}
 		if len(allowed) > 0 {
@@ -551,10 +526,6 @@ func (s *relayServer) handleResetSchedulerState(c *gin.Context) {
 		selected = append(selected, accountID)
 	}
 	if len(selected) == 0 {
-		if quotaBlocked {
-			writeAPIError(c, http.StatusConflict, "quota cooldown cannot be cleared manually; wait for quota recovery", "quota_cooldown")
-			return
-		}
 		writeAPIError(c, http.StatusNotFound, "no matching accounts found", "account_not_found")
 		return
 	}
@@ -596,6 +567,7 @@ func (s *relayServer) handleResetSchedulerState(c *gin.Context) {
 			resetAuthCount++
 		}
 	}
+	clearQuotaCooldownForAccounts(s.manifest, selected, time.Now())
 
 	c.JSON(http.StatusOK, gin.H{
 		"status":         "ok",

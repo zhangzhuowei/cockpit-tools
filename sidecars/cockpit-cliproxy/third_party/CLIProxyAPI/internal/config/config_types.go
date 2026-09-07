@@ -145,7 +145,10 @@ type AntigravityConfig struct {
 
 // CodexConfig configures provider-wide Codex request behavior.
 type CodexConfig struct {
-	IdentityConfuse bool `yaml:"identity-confuse" json:"identity-confuse"`
+	// APIServiceCompatibility enables request-scoped capacity recovery and paired
+	// OAuth version headers for the host API Service, not instance gateways.
+	APIServiceCompatibility bool `yaml:"api-service-compatibility" json:"api-service-compatibility"`
+	IdentityConfuse         bool `yaml:"identity-confuse" json:"identity-confuse"`
 	// DisableCodexCloaking disables forcing the official Codex identity headers on HTTP/SSE and WebSocket requests.
 	DisableCodexCloaking bool `yaml:"disable-codex-cloaking" json:"disable-codex-cloaking"`
 	// StreamBootstrapBuffering holds back initial handshake events (response.created,

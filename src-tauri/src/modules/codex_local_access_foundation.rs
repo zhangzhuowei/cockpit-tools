@@ -1,6 +1,8 @@
 // Codex Local Access：Gateway state types, request parsing and shared protocol helpers。
 // 通过 include! 保持原 modules::codex_local_access 作用域和私有调用关系。
-use crate::models::codex::{CodexAccount, CodexApiProviderMode, CodexAppSpeed, CodexAuthMode};
+use crate::models::codex::{
+    CodexAccount, CodexApiProviderMode, CodexAppSpeed, CodexAuthMode, CodexQuota,
+};
 use crate::models::codex_local_access::{
     CodexLocalAccessAccountCooldown, CodexLocalAccessAccountHealth,
     CodexLocalAccessAccountModelRule, CodexLocalAccessAccountPoolHealth,

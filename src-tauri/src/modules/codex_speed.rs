@@ -62,16 +62,7 @@ fn read_desktop_service_tier_from_doc(doc: &Document) -> Option<&str> {
 }
 
 fn read_config_toml(path: &Path) -> Result<Document, String> {
-    let content = match fs::read_to_string(path) {
-        Ok(content) => content,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Document::new()),
-        Err(err) => return Err(format!("读取 Codex config.toml 失败: {}", err)),
-    };
-    if content.trim().is_empty() {
-        return Ok(Document::new());
-    }
-    crate::modules::codex_config_format::read_codex_config_doc_from_str(&content)
-        .map_err(|err| format!("解析 Codex config.toml 失败: {}", err))
+    crate::modules::codex_config_format::load_codex_config_doc(path)
 }
 
 fn read_global_state_json(path: &Path) -> Result<Map<String, Value>, String> {

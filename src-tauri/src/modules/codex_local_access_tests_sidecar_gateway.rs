@@ -212,7 +212,7 @@
     }
 
     #[test]
-    fn quota_exhaustion_blocks_manual_recovery_until_reset() {
+    fn quota_exhaustion_blocks_dispatch_until_reset_or_recovery() {
         let mut runtime = super::GatewayRuntime::default();
         runtime.account_quota_cooldowns.insert(
             "account-1".to_string(),
@@ -225,6 +225,107 @@
 
         assert!(super::account_recovery_blocked_by_quota(&runtime, "account-1", 1_500_000));
         assert!(!super::account_recovery_blocked_by_quota(&runtime, "account-1", 2_000_000));
+
+        super::mark_quota_cooldowns_recovered(
+            &mut runtime,
+            &["account-1".to_string()],
+            1_750_000,
+        );
+        assert!(!super::account_recovery_blocked_by_quota(&runtime, "account-1", 1_800_000));
+        let recovered = runtime.account_quota_cooldowns.get("account-1").expect("recovered snapshot");
+        assert!(!recovered.active(1_800_000));
+        assert_eq!(recovered.updated_at_ms, 1_750_000);
+    }
+
+    #[test]
+    fn removing_accounts_clears_runtime_health_and_quota_cooldown() {
+        let mut runtime = super::GatewayRuntime::default();
+        runtime.account_health.insert(
+            "account-1".to_string(),
+            super::RuntimeAccountHealth::default(),
+        );
+        runtime.account_quota_cooldowns.insert(
+            "account-1".to_string(),
+            super::AccountQuotaCooldown {
+                exhausted: true,
+                reset_at_ms: None,
+                updated_at_ms: 1_000_000,
+            },
+        );
+        runtime.account_quota_cooldowns.insert(
+            "account-2".to_string(),
+            super::AccountQuotaCooldown {
+                exhausted: true,
+                reset_at_ms: None,
+                updated_at_ms: 1_000_000,
+            },
+        );
+
+        super::clear_runtime_account_health(&mut runtime, &["account-1".to_string()]);
+        super::clear_runtime_quota_cooldowns(&mut runtime, &["account-1".to_string()]);
+
+        assert!(!runtime.account_health.contains_key("account-1"));
+        assert!(!runtime.account_quota_cooldowns.contains_key("account-1"));
+        assert!(runtime.account_quota_cooldowns.contains_key("account-2"));
+    }
+
+    fn oauth_account_with_quota(
+        hourly: i32,
+        weekly: i32,
+        raw_data: Option<serde_json::Value>,
+    ) -> CodexAccount {
+        let mut account = test_account_with_plan("free");
+        account.quota = Some(crate::models::codex::CodexQuota {
+            hourly_percentage: hourly,
+            hourly_reset_time: None,
+            hourly_window_minutes: None,
+            hourly_window_present: Some(true),
+            weekly_percentage: weekly,
+            weekly_reset_time: None,
+            weekly_window_minutes: None,
+            weekly_window_present: Some(true),
+            reset_credits_available: None,
+            reset_credits: Vec::new(),
+            reset_credits_next_expires_at: None,
+            raw_data,
+        });
+        account.usage_updated_at = Some(1_700);
+        account
+    }
+
+    #[test]
+    fn remaining_credits_keep_zero_window_accounts_out_of_quota_cooldown() {
+        let now = 1_800_000_i64;
+        let credit_account = oauth_account_with_quota(
+            0,
+            0,
+            Some(serde_json::json!({
+                "credits": { "balance": "351.02", "remaining": 351.02, "unlimited": false }
+            })),
+        );
+        let cooldown = super::account_quota_cooldown(&credit_account, now)
+            .expect("credit account should produce a cooldown snapshot");
+        assert!(!cooldown.exhausted);
+        assert_eq!(super::resolve_remaining_quota(&credit_account), Some(1));
+
+        let spend_control_account = oauth_account_with_quota(
+            0,
+            0,
+            Some(serde_json::json!({
+                "spend_control": {
+                    "individual_limit": { "limit": "400", "used": "48.98", "remaining": "351.02" }
+                }
+            })),
+        );
+        let spend_cooldown = super::account_quota_cooldown(&spend_control_account, now)
+            .expect("spend-control credits should keep the account schedulable");
+        assert!(!spend_cooldown.exhausted);
+
+        let exhausted_account = oauth_account_with_quota(0, 0, None);
+        let exhausted = super::account_quota_cooldown(&exhausted_account, now)
+            .expect("zero windows without credits should be exhausted");
+        assert!(exhausted.exhausted);
+        assert_eq!(super::resolve_remaining_quota(&exhausted_account), Some(0));
     }
 
     #[test]
@@ -891,6 +992,7 @@
             HashMap::new(),
             None,
             HashMap::new(),
+            true,
             Some(super::GatewayPreparationContext {
                 generation: current_generation.wrapping_add(1),
                 total: 1,
@@ -2875,6 +2977,7 @@ http_headers = { "x-cockpit-instance-id" = "default" }
             HashMap::new(),
             None,
             overrides,
+            true,
             None,
         )
         .expect("prepare scoped sidecar config");

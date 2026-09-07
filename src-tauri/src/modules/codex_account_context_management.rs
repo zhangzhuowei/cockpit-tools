@@ -20,31 +20,9 @@ pub(crate) fn read_context_management_experimental_mode_from_doc(doc: &Document)
 }
 
 fn read_context_management_config(path: &Path) -> Result<(Document, bool), String> {
-    let content = match fs::read_to_string(path) {
-        Ok(content) => content,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok((Document::new(), false));
-        }
-        Err(error) => {
-            return Err(format!(
-                "读取 Codex config.toml 失败: path={}, error={}",
-                path.display(),
-                error
-            ));
-        }
-    };
-    if content.trim().is_empty() {
-        return Ok((Document::new(), false));
-    }
-    crate::modules::codex_config_format::read_codex_config_doc_from_str(&content)
-        .map(|doc| (doc, true))
-        .map_err(|error| {
-            format!(
-                "解析 Codex config.toml 失败: path={}, error={}",
-                path.display(),
-                error
-            )
-        })
+    let existed = path.exists();
+    let doc = crate::modules::codex_config_format::load_codex_config_doc(path)?;
+    Ok((doc, existed))
 }
 
 fn new_context_management_item(features_is_inline: bool) -> Item {

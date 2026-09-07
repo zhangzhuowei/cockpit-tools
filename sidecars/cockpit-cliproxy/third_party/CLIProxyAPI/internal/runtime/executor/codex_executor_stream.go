@@ -21,7 +21,14 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (_ *cliproxyexecutor.StreamResult, err error) {
+func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (result *cliproxyexecutor.StreamResult, err error) {
+	apiService := helps.CodexAPIServiceCompatibilityEnabled(e.cfg, auth)
+	if apiService {
+		defer func() {
+			err = helps.NormalizeCodexCapacityError(err)
+			result = helps.NormalizeCodexCapacityStream(ctx, result)
+		}()
+	}
 	opts.Headers = codexRequestHeadersWithGinResponsesLite(ctx, opts.Headers)
 	liteHeaderValue := ""
 	if opts.Headers != nil {
@@ -100,6 +107,9 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 		httpReq.Header.Set(codexResponsesLiteHeaderName, liteHeaderValue)
 	}
 	applyModelHeaderOverrides(httpReq.Header, baseModel)
+	if apiService {
+		applyCodexCloakingHeaders(httpReq.Header, e.cfg, false)
+	}
 	applyCodexIdentityConfuseHeaders(httpReq.Header, &identityState)
 	if useFullResponses {
 		removeCodexResponsesLiteHeaderForFullResponse(httpReq.Header, true)
@@ -159,10 +169,14 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 		helps.AppendAPIResponseChunk(ctx, e.cfg, data)
 		helps.LogWithRequestID(ctx).Debugf("request error, error status: %d, error message: %s", httpResp.StatusCode, helps.SummarizeErrorBody(httpResp.Header.Get("Content-Type"), data))
 		err = newCodexStatusErr(httpResp.StatusCode, data)
+		if apiService {
+			err = helps.NormalizeCodexCapacityError(err, httpResp.Header)
+		}
 		return nil, err
 	}
 
-	buffering := e.cfg != nil && e.cfg.Codex.StreamBootstrapBuffering
+	buffering := e.cfg != nil && e.cfg.Codex.StreamBootstrapBuffering &&
+		(!e.cfg.Codex.APIServiceCompatibility || apiService)
 
 	scanner := bufio.NewScanner(httpResp.Body)
 	scanner.Buffer(nil, 52_428_800) // 50MB
@@ -212,7 +226,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 					}
 					helps.RecordAPIResponseError(ctx, e.cfg, streamErr)
 					reporter.PublishFailure(ctx, streamErr)
-					if isCodexOverloadBootstrapFailure(terminalBody) {
+					if isCodexOverloadBootstrapFailure(terminalBody) || (apiService && helps.IsCodexCapacityFailure(terminalBody)) {
 						// Transient capacity rejection smuggled into an HTTP 200 stream. Fail the
 						// attempt before the downstream headers are committed so the conductor can
 						// transparently retry on another credential, and report the status the

@@ -311,8 +311,6 @@ export function CodexAccountPoolHealthModal({
     .filter(
       (issue) =>
         issue.kind !== "missing" &&
-        issue.kind !== "quota" &&
-        !hasQuotaCooldown(issue.health) &&
         issue.health?.schedulerReason !== "disabled",
     )
     .map((issue) => issue.accountId);
@@ -337,7 +335,7 @@ export function CodexAccountPoolHealthModal({
       !member.available &&
       code !== "disabled" &&
       code !== "missing" &&
-      !code.includes("quota") &&
+      code !== "quota_reserved" &&
       !["model_excluded", "model_disabled", "image_policy_blocked"].includes(
         code,
       )

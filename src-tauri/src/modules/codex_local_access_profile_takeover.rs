@@ -307,8 +307,10 @@ fn inspect_local_access_profile_attachment(
         uses_bound_oauth_auth || is_codex_local_access_auth_text(text, expected_api_key)
     });
 
-    match read_optional_profile_file(&profile_config_path(profile_dir)) {
-        Ok(Some(config_text)) => match inspect_local_access_profile_config(
+    match crate::modules::codex_config_format::load_codex_config_doc(&profile_config_path(profile_dir))
+        .map(|mut doc| crate::modules::codex_config_format::codex_config_doc_to_string(&mut doc))
+    {
+        Ok(config_text) if !config_text.trim().is_empty() => match inspect_local_access_profile_config(
             &config_text,
             &expected_base_url,
             expected_api_key,
@@ -329,7 +331,7 @@ fn inspect_local_access_profile_attachment(
                 });
             }
         },
-        Ok(None) => {}
+        Ok(_) => {}
         Err(error) => {
             attachment.error = Some(match attachment.error.take() {
                 Some(existing) => format!("{}；{}", existing, error),

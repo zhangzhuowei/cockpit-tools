@@ -403,6 +403,18 @@ func applyCodexCloakingHeaders(headers http.Header, cfg *config.Config, isAPIKey
 	}
 	headers.Set("User-Agent", codexUserAgent)
 	headers.Set("Originator", codexOriginator)
+	if cfg.Codex.APIServiceCompatibility {
+		// Version is the same declaration as the UA version, not the downstream
+		// client's independent version. API-key passthrough returns above.
+		_, rest, _ := strings.Cut(codexUserAgent, "/")
+		version, _, _ := strings.Cut(rest, " ")
+		for key := range headers {
+			if strings.EqualFold(key, "Version") {
+				delete(headers, key)
+			}
+		}
+		headers.Set("Version", version)
+	}
 }
 
 func normalizeCodexInstructions(body []byte, model ...string) []byte {

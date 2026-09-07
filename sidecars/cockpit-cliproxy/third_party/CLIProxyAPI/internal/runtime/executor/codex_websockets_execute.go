@@ -20,6 +20,9 @@ import (
 )
 
 func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (resp cliproxyexecutor.Response, err error) {
+	if helps.CodexAPIServiceCompatibilityEnabled(e.cfg, auth) {
+		defer func() { err = helps.NormalizeCodexCapacityError(err) }()
+	}
 	opts.Headers = codexRequestHeadersWithGinResponsesLite(ctx, opts.Headers)
 	if errPolicy := enforceCodexClientPolicy(auth, opts.Headers, req.Payload); errPolicy != nil {
 		return resp, errPolicy
@@ -93,6 +96,9 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 	reporter.SetTranslatedReasoningEffort(clientBody, to.String())
 	wsHeaders = applyCodexWebsocketHeaders(ctx, wsHeaders, auth, apiKey, e.cfg, opts.Headers)
 	applyModelHeaderOverrides(wsHeaders, baseModel)
+	if helps.CodexAPIServiceCompatibilityEnabled(e.cfg, auth) {
+		applyCodexCloakingHeaders(wsHeaders, e.cfg, false)
+	}
 	removeCodexResponsesLiteHeaderForFullResponse(wsHeaders, useFullResponses)
 	removeCodexResponsesLiteHeaderForAPIKey(wsHeaders, auth)
 	applyCodexIdentityConfuseHeaders(wsHeaders, &identityState)
@@ -166,7 +172,11 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 			cliproxyexecutor.MarkUpstreamAttempt(ctx)
 		}
 		if respHS != nil && respHS.StatusCode > 0 {
-			return resp, newCodexStatusErr(respHS.StatusCode, bodyErr)
+			handshakeErr := newCodexStatusErr(respHS.StatusCode, bodyErr)
+			if helps.CodexAPIServiceCompatibilityEnabled(e.cfg, auth) {
+				return resp, helps.NormalizeCodexCapacityError(handshakeErr, respHS.Header)
+			}
+			return resp, handshakeErr
 		}
 		helps.RecordAPIWebsocketError(ctx, e.cfg, "dial", errDial)
 		return resp, errDial

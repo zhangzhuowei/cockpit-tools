@@ -1,6 +1,44 @@
 // Codex Local Access 测试：Takeover reconciliation, gateway configuration and remaining integration cases。
 // 测试与生产实现共享 super 作用域，验证真实网关、持久化和请求协议行为。
     #[tokio::test]
+    async fn sidecar_capacity_recovery_is_scoped_to_api_service() {
+        let collection = test_local_access_collection(Vec::new());
+        for api_service in [false, true] {
+            let dir = make_temp_dir("codex-sidecar-capacity-scope");
+            let launch = if api_service {
+                super::prepare_sidecar_launch_config_in_dir_sync(
+                    &collection,
+                    dir.clone(),
+                    HashMap::new(),
+                    None,
+                    HashMap::new(),
+                    true,
+                    None,
+                )
+            } else {
+                prepare_sidecar_launch_config_in_dir(
+                    &collection,
+                    dir.clone(),
+                    HashMap::new(),
+                    None,
+                    HashMap::new(),
+                )
+                .await
+            }
+            .expect("prepare scoped sidecar config");
+            let config: Value = serde_json::from_str(
+                &fs::read_to_string(launch.config_path).expect("read config"),
+            )
+            .expect("parse config");
+            assert_eq!(config["codex"]["api-service-compatibility"], json!(api_service));
+            assert_eq!(config["codex"]["stream-bootstrap-buffering"], json!(api_service));
+            assert_eq!(config["request-retry"], json!(super::MAX_REQUEST_RETRY_ATTEMPTS));
+            assert_eq!(config["disable-cooling"], json!(collection.disable_cooling));
+            fs::remove_dir_all(dir).expect("cleanup test config");
+        }
+    }
+
+    #[tokio::test]
     async fn local_access_takeover_writes_a_complete_model_catalog() {
         let profile_dir = make_temp_dir("codex-local-access-model-catalog-test");
         let mut collection = test_local_access_collection(Vec::new());

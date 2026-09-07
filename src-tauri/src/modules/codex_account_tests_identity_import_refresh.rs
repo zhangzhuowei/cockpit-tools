@@ -1271,6 +1271,69 @@ fn token_refresh_file_lock_respects_custom_timeout() {
 }
 
 #[test]
+fn token_refresh_file_lock_clears_dead_owner_without_waiting() {
+    let _lock = crate::modules::test_support::env_lock()
+        .lock()
+        .unwrap_or_else(|err| err.into_inner());
+    let env = TestEnvGuard::new("codex-token-refresh-lock-dead-pid-test");
+    let path = super::codex_token_refresh_file_lock_path("codex-account-id");
+    fs::create_dir_all(&path).expect("create occupied lock dir");
+    fs::write(
+        path.join("owner"),
+        "pid=4294967295\naccount_id=codex-account-id\nreason=dead-pid\ncreated_at=0\n",
+    )
+    .expect("write dead owner");
+
+    let runtime = tokio::runtime::Runtime::new().expect("create runtime");
+    let result = runtime.block_on(super::acquire_codex_token_refresh_file_lock_with_timeout(
+        "codex-account-id",
+        "dead-pid-test",
+        Duration::from_millis(50),
+    ));
+    assert!(
+        result.is_ok(),
+        "dead owner pid should be treated as stale"
+    );
+
+    drop(env);
+}
+
+#[test]
+fn token_refresh_file_lock_waits_for_live_owner() {
+    let _lock = crate::modules::test_support::env_lock()
+        .lock()
+        .unwrap_or_else(|err| err.into_inner());
+    let env = TestEnvGuard::new("codex-token-refresh-lock-live-pid-test");
+    let path = super::codex_token_refresh_file_lock_path("codex-account-id");
+    fs::create_dir_all(&path).expect("create occupied lock dir");
+    fs::write(
+        path.join("owner"),
+        format!(
+            "pid={}\naccount_id=codex-account-id\nreason=live-pid\ncreated_at=0\n",
+            std::process::id()
+        ),
+    )
+    .expect("write live owner");
+
+    let runtime = tokio::runtime::Runtime::new().expect("create runtime");
+    let result = runtime.block_on(super::acquire_codex_token_refresh_file_lock_with_timeout(
+        "codex-account-id",
+        "live-pid-test",
+        Duration::from_millis(20),
+    ));
+    let error = match result {
+        Ok(_) => panic!("live owner pid must not be stolen"),
+        Err(error) => error,
+    };
+    assert!(
+        error.contains("等待 Codex Token 刷新锁超时"),
+        "unexpected error: {error}"
+    );
+
+    drop(env);
+}
+
+#[test]
 fn profile_mutation_lock_is_shared_by_installations_and_scoped_by_profile() {
     let first = std::path::PathBuf::from("/Users/tester/.codex");
     let second = std::path::PathBuf::from("/Users/tester/.codex");

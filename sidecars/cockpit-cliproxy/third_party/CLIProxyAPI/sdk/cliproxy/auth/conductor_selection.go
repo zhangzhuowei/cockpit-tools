@@ -1231,6 +1231,19 @@ func (m *Manager) shouldRetryAfterErrorWithAttempted(ctx context.Context, opts c
 	if !isCredentialRetryRoundStatus(status) || !m.retryAllowed(attempt, providers, model, eligibility, pinnedAuthID, defaultRequestRetry) {
 		return 0, false
 	}
+	if isTransientRequestScopedError(err) {
+		// There is deliberately no credential cooldown to wait on. Still back off
+		// between rounds, within the caller's existing retry and wait budgets.
+		wait := 300 * time.Millisecond * time.Duration(1<<min(max(attempt, 0), 3))
+		wait = min(wait, 1500*time.Millisecond)
+		if retryAfter := retryAfterFromError(err); retryAfter != nil && *retryAfter > wait {
+			wait = *retryAfter
+		}
+		if maxWait <= 0 || wait > maxWait {
+			return 0, false
+		}
+		return wait, true
+	}
 	wait, found := m.closestCooldownWaitWithAttempted(providers, model, attempt, eligibility, pinnedAuthID, defaultRequestRetry, status, attempted)
 	if found {
 		if wait > 0 && (maxWait <= 0 || wait > maxWait) {

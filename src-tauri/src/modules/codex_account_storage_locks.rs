@@ -430,7 +430,7 @@ pub(crate) fn try_acquire_profile_mutation_lease(
     ))
 }
 
-fn codex_profile_mutation_lock_owner_pid(path: &Path) -> Option<u32> {
+fn lock_owner_pid(path: &Path) -> Option<u32> {
     fs::read_to_string(path.join("owner"))
         .ok()
         .and_then(|content| {
@@ -439,6 +439,10 @@ fn codex_profile_mutation_lock_owner_pid(path: &Path) -> Option<u32> {
                     .and_then(|value| value.trim().parse::<u32>().ok())
             })
         })
+}
+
+fn codex_profile_mutation_lock_owner_pid(path: &Path) -> Option<u32> {
+    lock_owner_pid(path)
 }
 
 fn codex_profile_mutation_lock_is_stale(path: &Path) -> bool {
@@ -461,15 +465,19 @@ pub(crate) fn profile_mutation_lease_held_by_other_process(profile_dir: &Path) -
     owner_pid != Some(std::process::id())
 }
 
+fn codex_token_refresh_file_lock_age(path: &Path) -> Option<Duration> {
+    let metadata = fs::metadata(path).ok()?;
+    let modified = metadata.modified().ok()?;
+    SystemTime::now().duration_since(modified).ok()
+}
+
 fn codex_token_refresh_file_lock_is_stale(path: &Path) -> bool {
-    let Ok(metadata) = fs::metadata(path) else {
-        return false;
-    };
-    let Ok(modified) = metadata.modified() else {
-        return false;
-    };
-    SystemTime::now()
-        .duration_since(modified)
+    if let Some(pid) = lock_owner_pid(path) {
+        if !crate::modules::process::is_pid_running(pid) {
+            return true;
+        }
+    }
+    codex_token_refresh_file_lock_age(path)
         .map(|age| age >= Duration::from_secs(CODEX_TOKEN_REFRESH_FILE_LOCK_STALE_SECONDS))
         .unwrap_or(false)
 }

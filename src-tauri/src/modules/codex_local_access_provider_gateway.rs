@@ -2058,13 +2058,7 @@ fn write_local_access_profile_model_override(
         return Ok(());
     }
     let config_path = profile_config_path(profile_dir);
-    let existing = std::fs::read_to_string(&config_path).unwrap_or_default();
-    let mut doc = if existing.trim().is_empty() {
-        Document::new()
-    } else {
-        crate::modules::codex_config_format::read_codex_config_doc_from_str(&existing)
-            .map_err(|e| format!("解析 Codex config.toml 失败: {}", e))?
-    };
+    let mut doc = crate::modules::codex_config_format::load_codex_config_doc(&config_path)?;
     doc["model"] = value(model);
     let content = crate::modules::codex_config_format::codex_config_doc_to_string(&mut doc);
     crate::modules::codex_config_format::write_codex_config_toml_atomic(&config_path, &content)
@@ -2114,13 +2108,7 @@ fn write_provider_gateway_model_catalog_with_templates(
     codex_account::cleanup_legacy_managed_model_catalogs(profile_dir);
     invalidate_codex_model_cache(profile_dir)?;
 
-    let existing = std::fs::read_to_string(&config_path).unwrap_or_default();
-    let mut doc = if existing.trim().is_empty() {
-        Document::new()
-    } else {
-        crate::modules::codex_config_format::read_codex_config_doc_from_str(&existing)
-            .map_err(|e| format!("解析 Codex config.toml 失败: {}", e))?
-    };
+    let mut doc = crate::modules::codex_config_format::load_codex_config_doc(&config_path)?;
     doc["model_catalog_json"] = value(CODEX_PROVIDER_MODEL_CATALOG_FILE);
     let content = crate::modules::codex_config_format::codex_config_doc_to_string(&mut doc);
     crate::modules::codex_config_format::write_codex_config_toml_atomic(&config_path, &content)
@@ -2204,12 +2192,10 @@ fn backup_current_profile_model_before_provider_gateway(
     provider_models: &[String],
 ) -> Result<(), String> {
     let config_path = profile_config_path(profile_dir);
-    let existing = std::fs::read_to_string(&config_path).unwrap_or_default();
-    if existing.trim().is_empty() {
+    let doc = crate::modules::codex_config_format::load_codex_config_doc(&config_path)?;
+    if !config_path.exists() && doc.as_table().is_empty() {
         return save_provider_model_backup(profile_dir, None, provider_models);
     }
-    let doc = crate::modules::codex_config_format::read_codex_config_doc_from_str(&existing)
-        .map_err(|e| format!("解析 Codex config.toml 失败: {}", e))?;
     let current_model = doc
         .get("model")
         .and_then(|item| item.as_str())
@@ -2275,11 +2261,8 @@ pub fn cleanup_provider_gateway_profile_model_overrides(profile_dir: &Path) -> R
     }
 
     let config_path = profile_config_path(profile_dir);
-    let existing = std::fs::read_to_string(&config_path).unwrap_or_default();
-    if !existing.trim().is_empty() {
-        let mut doc =
-            crate::modules::codex_config_format::read_codex_config_doc_from_str(&existing)
-                .map_err(|e| format!("解析 Codex config.toml 失败: {}", e))?;
+    let mut doc = crate::modules::codex_config_format::load_codex_config_doc(&config_path)?;
+    if config_path.exists() {
         let mut changed = false;
         let uses_managed_catalog = doc
             .get("model_catalog_json")

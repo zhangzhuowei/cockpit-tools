@@ -1118,7 +1118,7 @@ func TestRelayServerResetAuthStateClearsSelectedAccountCooldown(t *testing.T) {
 	}
 }
 
-func TestRelayServerDoesNotResetQuotaExhaustedAccount(t *testing.T) {
+func TestRelayServerResetsQuotaExhaustedAccount(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	manager := coreauth.NewManager(nil, &coreauth.RoundRobinSelector{}, nil)
 	if _, err := manager.Register(context.Background(), &coreauth.Auth{
@@ -1142,6 +1142,7 @@ func TestRelayServerDoesNotResetQuotaExhaustedAccount(t *testing.T) {
 		AuthID:         "auth-quota.json",
 		AuthKind:       "oauth",
 		RemainingQuota: &zero,
+		QuotaCooldown:  &quotaCooldownState{Exhausted: true, UpdatedAtMS: time.Now().UnixMilli()},
 	}
 	m := &manifest{
 		APIKeys:         []apiKeySpec{*spec},
@@ -1164,16 +1165,15 @@ func TestRelayServerDoesNotResetQuotaExhaustedAccount(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	if w.Code != http.StatusConflict {
+	if w.Code != http.StatusOK {
 		t.Fatalf("quota-exhausted account reset status = %d body=%s", w.Code, w.Body.String())
 	}
 	updated, ok := manager.GetByID("auth-quota.json")
-	if !ok || updated == nil || len(updated.ModelStates) != 1 {
-		t.Fatalf("quota-exhausted account was reset unexpectedly: %#v", updated)
+	if !ok || updated == nil || len(updated.ModelStates) != 0 || updated.Unavailable {
+		t.Fatalf("quota-exhausted account was not reset: %#v", updated)
 	}
-	modelState := updated.ModelStates["gpt-5.5"]
-	if modelState == nil || !modelState.Unavailable {
-		t.Fatalf("quota-exhausted account model state was reset unexpectedly: %#v", updated)
+	if accountQuotaExhausted(m, account, time.Now()) {
+		t.Fatal("quota cooldown should be cleared after manual recovery")
 	}
 }
 

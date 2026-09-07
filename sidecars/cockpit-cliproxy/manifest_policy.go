@@ -29,6 +29,7 @@ import (
 	codexmodels "github.com/router-for-me/CLIProxyAPI/v7/internal/client/codex/models"
 	internallogging "github.com/router-for-me/CLIProxyAPI/v7/internal/logging"
 
+	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	coreusage "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/usage"
 
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
@@ -108,6 +109,7 @@ type manifest struct {
 	aliasToSource     map[string]string
 	originalIndexByID map[string]int
 	quotaCooldowns    *quotaCooldownStateStore
+	authManager       *coreauth.Manager
 }
 
 type apiKeySpec struct {

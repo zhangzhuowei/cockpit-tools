@@ -460,6 +460,9 @@ func (s *cockpitSelector) Pick(ctx context.Context, provider, model string, opts
 	}
 	selectionStats.availableAuths = len(available)
 	if len(available) == 0 {
+		if nextCtx, recovered := maybeAutoRecoverAuthPool(ctx, s.manifest, model, auths); recovered {
+			return s.Pick(nextCtx, provider, model, opts, auths)
+		}
 		err := authPoolUnavailableError(s.locale, selectionStats, noAuthAvailableError(quotaReserveReasons).Error())
 		s.emitAuthPoolUnavailable(ctx, provider, model, selectionStats, err)
 		return nil, err

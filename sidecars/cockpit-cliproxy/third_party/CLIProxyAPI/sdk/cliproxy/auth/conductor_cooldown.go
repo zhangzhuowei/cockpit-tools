@@ -1417,6 +1417,9 @@ func resultErrorFromError(err error) *Error {
 		resultErr.HTTPStatus = statusCodeFromError(err)
 	}
 	switch {
+	case isTransientRequestScopedError(err):
+		resultErr.Code = ErrorCodeTransientRequestScoped
+		resultErr.Retryable = true
 	case isRequestScopedError(err) || isRequestInvalidError(err):
 		// Prefer true request-scoped faults (including Claude OAuth cancellation)
 		// over the broader connection-lifecycle classification.
@@ -1438,7 +1441,13 @@ func shouldSkipCredentialCooldown(err *Error) bool {
 	if err != nil && err.Code == ErrorCodeForceCooldown {
 		return false
 	}
-	return isRequestScopedResultError(err) || isConnectionLifecycleResultError(err)
+	return (err != nil && err.Code == ErrorCodeTransientRequestScoped) ||
+		isRequestScopedResultError(err) || isConnectionLifecycleResultError(err)
+}
+
+func isTransientRequestScopedError(err error) bool {
+	var transient interface{ IsTransientRequestScoped() bool }
+	return errors.As(err, &transient) && transient.IsTransientRequestScoped()
 }
 
 // isConnectionLifecycleError reports transport/session lifecycle failures that must

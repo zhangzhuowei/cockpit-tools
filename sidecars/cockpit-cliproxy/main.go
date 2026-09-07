@@ -153,6 +153,7 @@ func main() {
 		tracker:    usageTracker,
 	}
 	coreManager := buildCoreAuthManager(cfg, selector, hook, m, quotaState, usageTracker)
+	m.authManager = coreManager
 
 	signalCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

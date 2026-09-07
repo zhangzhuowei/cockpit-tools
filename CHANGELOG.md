@@ -7,6 +7,18 @@ All notable changes to Cockpit Tools will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
+## [1.3.42] - 2026-09-07
+
+### Fixed
+
+- **Recover Codex API Service capacity failures before output starts**: HTTP and WebSocket requests retain their initial handshake events while retrying temporary model-capacity failures within the existing retry budget. Failures after output starts are reported without replaying generated content.
+- **Keep capacity failures separate from account quota exhaustion**: temporary capacity failures no longer cool down healthy accounts and are returned as retryable server errors; quota, authentication, and policy failures retain their existing handling.
+- **Keep Codex API Service OAuth identity headers consistent**: the outgoing `Version` header now matches the `User-Agent` version. API Key passthrough and instance-specific provider gateways remain unchanged.
+- **Recover Codex accounts with usable Credits**: accounts with positive or unlimited Credits remain eligible when regular quota windows report zero, while accounts with confirmed exhausted regular quota and no usable Credits enter API Service cooldown.
+- **Expand local account-pool recovery**: recoverable scheduler and quota-cooldown states can be restored when the pool has no selectable account, manual recovery can clear the selected account's local cooldown state, and removing an account from API Service clears its runtime scheduler and quota state.
+- **Repair Codex profile configuration safely**: invalid `config.toml` files are restored from a valid sibling backup when possible, quarantined when recovery is unavailable, and valid UTF-16 files are rewritten as UTF-8 so account switching, launch, and provider configuration can continue.
+- **Release abandoned Codex refresh locks promptly**: a token-refresh lock whose owner process has exited is reclaimed immediately, while a live owner is still protected from lock stealing.
+
 ## [1.3.41] - 2026-09-06
 
 ### Changed
@@ -24,7 +36,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
-- **Put quota-exhausted accounts into API Service cooldown**: when an OAuth account with a confirmed zero regular quota is added to API Service, it immediately enters quota cooldown and is skipped by request routing; manual recovery cannot clear it, and it re-enters routing only after quota recovery.
 - **Fixed single-account recovery clearing every account's health state**: recovering one account from the abnormal-account dialog now clears only that account's scheduler and pool diagnostics while leaving other abnormal accounts visible.
 - **Update Codex client identity fallback and preserve API Key passthrough headers**: OAuth fallback headers now use the current `0.153.4` baseline, while API Key HTTP and WebSocket requests retain the downstream client's `User-Agent` and `Originator` instead of being rewritten to the old `0.146.0` identity.
 - **Automatically recover accounts blocked by Sidecar scheduler state**: API Service now treats `auth_available=false` scheduler cooldowns as recoverable pool failures, so an all-unavailable account pool can enter the automatic recovery path instead of requiring manual reset.
