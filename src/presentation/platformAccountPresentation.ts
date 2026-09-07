@@ -1809,7 +1809,7 @@ export function buildCursorAccountPresentation(
       label: t("cursor.quota.onDemand", "On-Demand"),
       percentage: 0,
       quotaClass: "high",
-      valueText: "Unlimited",
+      valueText: t("common.shared.quota.unlimited", "Unlimited"),
       resetText: formatCursorUsageDollars(onDemand.usedCents),
     });
   } else if (usage.onDemandEnabled != null || usage.onDemandLimitType != null) {

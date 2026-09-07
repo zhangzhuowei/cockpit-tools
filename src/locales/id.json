@@ -4970,6 +4970,7 @@
     "quota": {
       "totalUsage": "Total penggunaan",
       "cursorModels": "Model Cursor",
+      "usageDetails": "Detail penggunaan",
       "otherModels": "Model lain",
       "grokBotWeekly": "Grok Bot (mingguan)",
       "onDemand": "Sesuai permintaan"

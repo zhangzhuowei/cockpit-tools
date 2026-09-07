@@ -4817,6 +4817,7 @@
     "quota": {
       "totalUsage": "Tổng sử dụng",
       "cursorModels": "Mô hình Cursor",
+      "usageDetails": "Chi tiết sử dụng",
       "otherModels": "Mô hình khác",
       "grokBotWeekly": "Grok Bot (hàng tuần)",
       "onDemand": "Theo yêu cầu"

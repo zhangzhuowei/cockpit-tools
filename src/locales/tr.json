@@ -4817,6 +4817,7 @@
     "quota": {
       "totalUsage": "Toplam kullanım",
       "cursorModels": "Cursor modelleri",
+      "usageDetails": "Kullanım ayrıntıları",
       "otherModels": "Diğer modeller",
       "grokBotWeekly": "Grok Bot (haftalık)",
       "onDemand": "İsteğe bağlı"

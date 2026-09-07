@@ -4817,6 +4817,7 @@
     "quota": {
       "totalUsage": "總用量",
       "cursorModels": "Cursor 模型",
+      "usageDetails": "用量明細",
       "otherModels": "其他模型",
       "grokBotWeekly": "Grok Bot（週用量）",
       "onDemand": "按需使用"

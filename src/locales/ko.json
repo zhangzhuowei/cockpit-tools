@@ -4817,6 +4817,7 @@
     "quota": {
       "totalUsage": "총 사용량",
       "cursorModels": "Cursor 모델",
+      "usageDetails": "사용량 상세",
       "otherModels": "기타 모델",
       "grokBotWeekly": "Grok Bot (주간)",
       "onDemand": "온디맨드"

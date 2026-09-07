@@ -69,10 +69,13 @@ function formatNumber(value?: number | null, suffix = ''): string {
   return suffix ? `${formatted} ${suffix}` : formatted;
 }
 
-function usagePrimaryValue(summary: ModelProviderUsageSummary | null): string {
+function usagePrimaryValue(
+  summary: ModelProviderUsageSummary | null,
+  unlimitedLabel: string,
+): string {
   if (!summary) return '--';
   const unit = summary.unit ?? '';
-  if (summary.quotaUnlimited) return 'Unlimited';
+  if (summary.quotaUnlimited) return unlimitedLabel;
   if (typeof summary.remaining === 'number') return formatNumber(summary.remaining, unit);
   if (typeof summary.quotaRemaining === 'number') return formatNumber(summary.quotaRemaining, unit);
   if (typeof summary.balance === 'number') return formatNumber(summary.balance, unit);
@@ -142,6 +145,7 @@ function isClaudeModelId(value: string): boolean {
 
 export function ApiKeyFunPage() {
   const { t } = useTranslation();
+  const unlimitedLabel = t('common.shared.quota.unlimited', 'Unlimited');
   const [apiKey, setApiKey] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
   const [usage, setUsage] = useState<ModelProviderUsageSummary | null>(null);
@@ -249,7 +253,7 @@ export function ApiKeyFunPage() {
         .then((nextUsage) => {
           if (cancelled) return;
           const nextStatus = usageValidityTone(nextUsage);
-          const nextRemaining = usagePrimaryValue(nextUsage);
+          const nextRemaining = usagePrimaryValue(nextUsage, unlimitedLabel);
           setUsage(nextUsage);
           setManagedKeys((items) => items.map((item) => (
             item.key === key
@@ -328,7 +332,7 @@ export function ApiKeyFunPage() {
     }
     const now = Date.now();
     const nextStatus = usageValidityTone(usage);
-    const nextRemaining = usagePrimaryValue(usage);
+    const nextRemaining = usagePrimaryValue(usage, unlimitedLabel);
     setManagedKeys((items) => {
       const existing = items.find((item) => item.key === key);
       if (existing) {
@@ -636,7 +640,7 @@ export function ApiKeyFunPage() {
               {queryingUsage ? (
                 <div className="apikey-fun-skeleton-text" />
               ) : (
-                <strong>{usagePrimaryValue(usage)}</strong>
+                <strong>{usagePrimaryValue(usage, unlimitedLabel)}</strong>
               )}
             </div>
             <div className={`apikey-fun-usage-card ${queryingUsage ? 'loading' : ''}`}>

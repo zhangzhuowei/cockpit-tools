@@ -4817,6 +4817,7 @@
     "quota": {
       "totalUsage": "Celkové využití",
       "cursorModels": "Modely Cursor",
+      "usageDetails": "Podrobnosti využití",
       "otherModels": "Ostatní modely",
       "grokBotWeekly": "Grok Bot (týdenní)",
       "onDemand": "Na vyžádání"

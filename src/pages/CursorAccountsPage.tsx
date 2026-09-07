@@ -345,7 +345,7 @@ export function CursorAccountsPage() {
         return {
           percentage: 0,
           quotaClass: 'normal',
-          valueText: 'Unlimited',
+          valueText: t('common.shared.quota.unlimited', 'Unlimited'),
           costText: formatCursorUsageDollars(onDemand.usedCents),
           disabled: false,
         };
@@ -1202,7 +1202,7 @@ export function CursorAccountsPage() {
                 <th style={{ width: 240 }}>{t('common.shared.columns.email', '邮箱')}</th>
                 <th style={{ width: 120 }}>{t('common.shared.columns.plan', '计划')}</th>
                 <th>{t('cursor.quota.totalUsage', 'Total Usage')}</th>
-                <th>Usage Details</th>
+                <th>{t('cursor.quota.usageDetails', 'Usage Details')}</th>
                 <th className="sticky-action-header table-action-header">{t('common.shared.columns.actions', '操作')}</th>
               </tr>
             </thead>
@@ -1234,7 +1234,7 @@ export function CursorAccountsPage() {
                 <th style={{ width: 240 }}>{t('common.shared.columns.email', '邮箱')}</th>
                 <th style={{ width: 120 }}>{t('common.shared.columns.plan', '计划')}</th>
                 <th>{t('cursor.quota.totalUsage', 'Total Usage')}</th>
-                <th>Usage Details</th>
+                <th>{t('cursor.quota.usageDetails', 'Usage Details')}</th>
                 <th className="sticky-action-header table-action-header">{t('common.shared.columns.actions', '操作')}</th>
               </tr>
             </thead>

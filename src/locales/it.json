@@ -4817,6 +4817,7 @@
     "quota": {
       "totalUsage": "Utilizzo totale",
       "cursorModels": "Modelli Cursor",
+      "usageDetails": "Dettagli utilizzo",
       "otherModels": "Altri modelli",
       "grokBotWeekly": "Grok Bot (settimanale)",
       "onDemand": "Su richiesta"

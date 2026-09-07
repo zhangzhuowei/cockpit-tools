@@ -1499,7 +1499,7 @@
                     rows.push(QuotaRow {
                         label: translate_or(lang, "cursor.quota.onDemand", "On-Demand", &[]),
                         value: if value == "Unlimited" {
-                            translate_or(lang, "common.shared.unlimited", "Unlimited", &[])
+                            translate_or(lang, "common.shared.quota.unlimited", "Unlimited", &[])
                         } else if value == "Disabled" {
                             translate_or(lang, "common.disabled", "Disabled", &[])
                         } else {

@@ -4864,6 +4864,7 @@
     "quota": {
       "totalUsage": "إجمالي الاستخدام",
       "cursorModels": "نماذج Cursor",
+      "usageDetails": "تفاصيل الاستخدام",
       "otherModels": "نماذج أخرى",
       "grokBotWeekly": "Grok Bot (أسبوعي)",
       "onDemand": "حسب الطلب"
