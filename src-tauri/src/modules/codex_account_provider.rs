@@ -1100,7 +1100,6 @@ fn write_deepseek_official_model_catalog_file(
             base_dir,
         )),
     )?;
-    let content = decorate_managed_model_catalog_for_profile(base_dir, &content)?;
     let catalog_path = deepseek_official_model_catalog_path(base_dir);
     if let Some(parent) = catalog_path.parent() {
         fs::create_dir_all(parent).map_err(|e| {
@@ -1456,7 +1455,6 @@ fn sync_deepseek_shell_remap_catalog_to_dir(
             base_dir,
         )),
     )?;
-    let content = decorate_managed_model_catalog_for_profile(base_dir, &content)?;
     let catalog_path = deepseek_official_model_catalog_path(base_dir);
     if let Some(parent) = catalog_path.parent() {
         fs::create_dir_all(parent).map_err(|e| {

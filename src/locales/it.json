@@ -1,5 +1,12 @@
 {
   "common": {
+    "quotaRefreshScheduler": {
+      "busy": "La coda di aggiornamento è piena. Riprova tra poco.",
+      "timeout": "Tempo scaduto per l’aggiornamento della quota. Riprova.",
+      "interrupted": "L’aggiornamento della quota è terminato in modo imprevisto. Riprova.",
+      "deferred": "Gli aggiornamenti in background in attesa sono stati rimandati per dare priorità all’aggiornamento manuale.",
+      "invalidAccountId": "È richiesto un ID account."
+    },
     "confirm": "Conferma",
     "cancel": "Annulla",
     "cancelling": "Annullamento...",
@@ -545,6 +552,7 @@
         "runningSaveMessage": "Questa istanza di Codex è in esecuzione. Sostituire il servizio locale ora interromperà la conversazione corrente.\n\nScegli «Salva e riavvia Codex» per applicare subito, oppure «Salva per dopo» per mantenere invariata la sessione corrente.",
         "saveAndRestart": "Salva e riavvia Codex",
         "saveForLater": "Salva per dopo",
+        "savedForNextLaunch": "Salvato. La modifica verrà applicata al prossimo avvio di Codex tramite Cockpit; la sessione corrente resterà invariata.",
         "restartRollbackFailed": "Impossibile avviare la nuova route e impossibile riavviare la configurazione originale: ",
         "restartRolledBack": "Impossibile avviare la nuova route. La configurazione originale è stata ripristinata e Codex è stato riavviato: {{error}}"
       }
@@ -1334,6 +1342,10 @@
     "copyToken": "Copia Token",
     "deleteAccount": "Elimina Account",
     "confirmDelete": "Sei sicuro di voler eliminare l'account {{email}}?",
+    "badge": {
+      "gcpTos": "Account GCP ToS",
+      "gcpTosTitle": "Account GCP ToS"
+    },
     "columns": {
       "email": "E-mail",
       "subscription": "Abbonamento",
@@ -1992,6 +2004,14 @@
     "other_group": "Altri modelli"
   },
   "codex": {
+    "teamHistory": {
+      "title": "Quota Team precedente (istantanea locale)",
+      "unknown": "Nessun orario di ripristino precedente",
+      "hint": "Quota residua prima della rimozione del posto, non la quota attualmente disponibile",
+      "elapsed": "Ripristino probabilmente avvenuto; verifica dopo aver riattivato il posto",
+      "resetIn": "Ripristino previsto: {{duration}}",
+      "observed": "Istantanea acquisita: {{time}}"
+    },
     "oauthPolicy": {
       "globalTitle": "Consenti app-server di terze parti",
       "globalDescription": "L'attivazione mostra il riepilogo delle policy attuali; usa Gestisci per configurare gli account in blocco o singolarmente.",
@@ -2021,6 +2041,30 @@
       "applyBatch": "Applica alla selezione"
     },
     "title": "Gestione account Codex",
+    "contextOverride": {
+      "title": "Gestione del contesto",
+      "description": "Modelli, ordine, modello predefinito e livelli di ragionamento seguono il catalogo ufficiale. Il contesto viene sostituito solo manualmente.",
+      "dialogDescription": "L’impostazione si applica a tutti gli account dell’istanza Codex corrente e resta invariata al cambio di account. Scegli le impostazioni ufficiali, un preset o un contesto personalizzato.",
+      "followOfficial": "Segui ufficiale",
+      "custom": "Contesto personalizzato",
+      "automatic": "Automatico",
+      "adjust": "Regola contesto",
+      "manage": "Gestisci contesto",
+      "apply": "Applica contesto"
+    },
+    "modelManagement": {
+      "title": "Gestione modelli",
+      "enabled": "Attiva",
+      "disabled": "Segui ufficiale",
+      "enable": "Attiva gestione modelli",
+      "disable": "Disattiva gestione modelli",
+      "manage": "Gestisci modelli",
+      "disabledDescription": "Disattivata per impostazione predefinita. Modelli, ordine e livelli di ragionamento seguono il catalogo ufficiale.",
+      "enabledDescription": "Il catalogo configurato è attivo. Puoi aggiungere o rimuovere modelli e l’elenco non si aggiorna più con il catalogo ufficiale.",
+      "enableConfirmTitle": "Attivare la gestione modelli?",
+      "enableConfirmDescription": "Codex userà il catalogo configurato qui. Puoi regolare i modelli, ma l’elenco non si aggiornerà più automaticamente.",
+      "enableConfirmAction": "Attiva e configura"
+    },
     "experimentalModelCatalog": {
       "title": "Modelli visibili",
       "description": "Gestisci insieme modelli visibili, livello di ragionamento, contesto e soglia di compattazione.",
@@ -2039,6 +2083,7 @@
         "followOfficial": "Segui quello ufficiale",
         "operation": "Azioni",
         "manage": "Gestisci",
+        "resetDefaults": "Ripristina predefiniti",
         "inheritHint": "I modelli ufficiali mantengono le proprie capacità; quelli personalizzati usano un modello generale. Puoi aggiungere o rimuovere i modelli visibili.",
         "validation": {
           "required": "Mantieni almeno un modello.",

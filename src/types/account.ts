@@ -47,6 +47,8 @@ export interface QuotaData {
     subscription_tier?: string;
     credits?: CreditInfo[];
     tier_id?: string;
+    is_gcp_tos?: boolean;
+    project_id?: string;
 }
 
 export interface CreditInfo {

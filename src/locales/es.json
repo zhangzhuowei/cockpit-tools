@@ -1,5 +1,12 @@
 {
   "common": {
+    "quotaRefreshScheduler": {
+      "busy": "La cola de actualización está llena. Inténtalo en unos momentos.",
+      "timeout": "Se agotó el tiempo de actualización de la cuota. Inténtalo de nuevo.",
+      "interrupted": "La actualización de la cuota terminó inesperadamente. Inténtalo de nuevo.",
+      "deferred": "Las actualizaciones pendientes en segundo plano se aplazaron para priorizar la actualización manual.",
+      "invalidAccountId": "Se requiere un ID de cuenta."
+    },
     "confirm": "Confirmar",
     "cancel": "Cancelar",
     "cancelling": "Cancelando...",
@@ -545,6 +552,7 @@
         "runningSaveMessage": "Esta instancia de Codex se está ejecutando. Reemplazar el servicio local ahora interrumpirá la conversación actual.\n\nElija «Guardar y reiniciar Codex» para aplicar ahora, o «Guardar para más tarde» para mantener la sesión actual sin cambios.",
         "saveAndRestart": "Guardar y reiniciar Codex",
         "saveForLater": "Guardar para más tarde",
+        "savedForNextLaunch": "Guardado. Se aplicará la próxima vez que inicies Codex desde Cockpit; la sesión actual no cambiará.",
         "restartRollbackFailed": "No se pudo iniciar la nueva ruta y no se pudo reiniciar la configuración original: ",
         "restartRolledBack": "No se pudo iniciar la nueva ruta. Se restauró la configuración original y se reinició Codex: {{error}}"
       }
@@ -1334,6 +1342,10 @@
     "copyToken": "Copiar Token",
     "deleteAccount": "Eliminar Cuenta",
     "confirmDelete": "¿Estás seguro de que quieres eliminar la cuenta {{email}}?",
+    "badge": {
+      "gcpTos": "Cuenta GCP ToS",
+      "gcpTosTitle": "Cuenta de GCP ToS"
+    },
     "columns": {
       "email": "Correo",
       "subscription": "Suscripción",
@@ -1992,6 +2004,14 @@
     "other_group": "Otros modelos"
   },
   "codex": {
+    "teamHistory": {
+      "title": "Cuota Team anterior (instantánea local)",
+      "unknown": "No hay una hora de restablecimiento anterior",
+      "hint": "Cuota restante antes de retirar el puesto; no es la cuota disponible actualmente",
+      "elapsed": "Probablemente ya se restableció; compruébalo al restaurar el puesto",
+      "resetIn": "Restablecimiento previsto: {{duration}}",
+      "observed": "Instantánea capturada: {{time}}"
+    },
     "oauthPolicy": {
       "globalTitle": "Permitir app-server de terceros",
       "globalDescription": "Al activarlo se muestra un resumen de las políticas actuales; usa Administrar para configurarlas de forma masiva o individual.",
@@ -2021,6 +2041,30 @@
       "applyBatch": "Aplicar a seleccionadas"
     },
     "title": "Gestión de cuentas de Codex",
+    "contextOverride": {
+      "title": "Gestión del contexto",
+      "description": "Los modelos, el orden, el modelo predeterminado y los niveles de razonamiento siguen el catálogo oficial. El contexto solo se reemplaza manualmente.",
+      "dialogDescription": "La configuración se aplica a todas las cuentas de la instancia actual de Codex y se conserva al cambiar de cuenta. Elige la configuración oficial, un ajuste preestablecido o un contexto personalizado.",
+      "followOfficial": "Seguir oficial",
+      "custom": "Contexto personalizado",
+      "automatic": "Automático",
+      "adjust": "Ajustar contexto",
+      "manage": "Gestionar contexto",
+      "apply": "Aplicar contexto"
+    },
+    "modelManagement": {
+      "title": "Gestión de modelos",
+      "enabled": "Activada",
+      "disabled": "Seguir oficial",
+      "enable": "Activar gestión de modelos",
+      "disable": "Desactivar gestión de modelos",
+      "manage": "Gestionar modelos",
+      "disabledDescription": "Desactivada de forma predeterminada. Los modelos, el orden y los niveles de razonamiento siguen el catálogo oficial.",
+      "enabledDescription": "El catálogo configurado está activo. Puedes añadir o quitar modelos y la lista dejará de actualizarse con el catálogo oficial.",
+      "enableConfirmTitle": "¿Activar la gestión de modelos?",
+      "enableConfirmDescription": "Codex usará el catálogo configurado aquí. Puedes añadir, quitar y ajustar modelos, pero la lista dejará de actualizarse automáticamente con el catálogo oficial.",
+      "enableConfirmAction": "Activar y configurar"
+    },
     "experimentalModelCatalog": {
       "title": "Modelos visibles",
       "description": "Administra en un solo lugar los modelos visibles, el nivel de razonamiento, el contexto y el límite de compactación.",
@@ -2039,6 +2083,7 @@
         "followOfficial": "Seguir el oficial",
         "operation": "Acciones",
         "manage": "Gestionar",
+        "resetDefaults": "Restaurar valores",
         "inheritHint": "Los modelos oficiales conservan sus capacidades; los personalizados usan una plantilla general. Puedes añadir o eliminar modelos visibles.",
         "validation": {
           "required": "Conserva al menos un modelo.",

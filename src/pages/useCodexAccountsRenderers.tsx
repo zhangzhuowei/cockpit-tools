@@ -4,6 +4,7 @@ import { isCodexGroupQuotaRefreshInherit, resolveCodexGroupQuotaAutoRefreshMinut
 import { isCodexApiKeyAccount, isCodexAgentIdentityAccount, isCodexChatCompletionsApiKeyAccount, isCodexNewApiAccount } from "../types/codex";
 import { isVerboseCodexQuotaErrorMessage, summarizeCodexQuotaErrorMessage } from "../utils/codexQuotaError";
 import { CodexQuotaMiniRows } from "../components/codex/CodexQuotaMiniRows";
+import { CodexTeamQuotaHistory } from "../components/codex/CodexTeamQuotaHistory";
 import { isCodexClientReauthNoticeOnly, isCodexRefreshTokenNoticeOnly, isCodexRefreshTokenReusedAccount, isCodexServerRevokedReauth } from "../utils/codexSwitchAuthFailure";
 import { DEFAULT_CODEX_INSTANCE_ID } from "../components/codex/CodexLaunchPreviewModal";
 import { isDeepSeekAccount, isCodexTokenPlanAccount, shouldShowCodexApiKeyUsagePanel } from "../utils/codexDeepSeekAccess";
@@ -487,7 +488,7 @@ export function useCodexAccountsRenderers(context: Pick<ReturnType<typeof useCod
                 </>
               ) : (
                 !isChatCompletionsApiKey && (
-                  <CodexQuotaMiniRows items={compactOfficialQuotaItems} t={t} />
+                  <>{account.plan_type !== 'self_serve_business_usage_based' && <CodexQuotaMiniRows items={compactOfficialQuotaItems} t={t} />}<CodexTeamQuotaHistory account={account} /></>
                 )
               )}
               {showCompactExpiry && (
@@ -999,7 +1000,8 @@ export function useCodexAccountsRenderers(context: Pick<ReturnType<typeof useCod
                         <strong>{cockpitApiAccountBalanceText}</strong>
                       </div>
                     )}
-                    <CodexQuotaMiniRows items={quotaItems} t={t} />
+                    {account.plan_type !== 'self_serve_business_usage_based' && <CodexQuotaMiniRows items={quotaItems} t={t} />}
+                    <CodexTeamQuotaHistory account={account} />
                     {quotaItems.length === 0 && !cockpitApiAccountBalanceText && (
                       <div className="quota-empty">
                         {t("common.shared.quota.noData", "暂无配额数据")}
@@ -2379,7 +2381,8 @@ export function useCodexAccountsRenderers(context: Pick<ReturnType<typeof useCod
                         <strong>{cockpitApiAccountBalanceText}</strong>
                       </div>
                     )}
-                    <CodexQuotaMiniRows items={quotaItems} t={t} />
+                    {account.plan_type !== 'self_serve_business_usage_based' && <CodexQuotaMiniRows items={quotaItems} t={t} />}
+                    <CodexTeamQuotaHistory account={account} />
                     {quotaItems.length === 0 && !cockpitApiAccountBalanceText && (
                       <span style={{ color: "var(--text-muted)", fontSize: 13 }}>
                         {t("common.shared.quota.noData", "暂无配额数据")}

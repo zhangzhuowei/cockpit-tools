@@ -2948,7 +2948,7 @@ pub fn confirm_codex_batch_import(
                 } => upsert_account_from_access_token_with_hints(access_token, hints)?,
             };
             if let Some(quota) = cached.quota.clone() {
-                account.quota = Some(quota);
+                account.replace_quota_preserving_team_history(quota, chrono::Utc::now().timestamp());
                 account.quota_error = None;
                 account.usage_updated_at = Some(chrono::Utc::now().timestamp());
                 save_account(&account)?;
@@ -3157,4 +3157,3 @@ fn extract_codex_tokens_from_credentials_value(
 
     None
 }
-

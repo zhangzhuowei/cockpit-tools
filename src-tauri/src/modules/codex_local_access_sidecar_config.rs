@@ -1441,6 +1441,10 @@ fn sidecar_quota_pool_state_value(collection: &CodexLocalAccessCollection) -> Va
         accounts.insert(
             account_id,
             json!({
+                "planType": account
+                    .plan_type
+                    .clone()
+                    .or_else(|| account.auth_file_plan_type.clone()),
                 "primary": sidecar_quota_pool_window_value(
                     quota.hourly_percentage,
                     quota.hourly_window_minutes,
@@ -2016,6 +2020,8 @@ async fn start_legacy_gateway_locked(
     runtime.last_error = None;
     runtime.shutdown_sender = Some(shutdown_sender);
     runtime.task = Some(task);
+    runtime.sidecar_monitor_task = None;
+    runtime.sidecar_generation = None;
     runtime.sidecar_child = None;
     Ok(())
 }

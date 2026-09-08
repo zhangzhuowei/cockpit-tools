@@ -7,6 +7,49 @@ All notable changes to Cockpit Tools will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
+## [1.3.45] - 2026-09-08
+
+### Fixed
+
+- **Keep DCP-injected quota data aligned with the Cockpit account pool**: quota snapshots now carry account plan types, transient account-file refresh or read failures preserve the last valid quota, and `0/0` is shown only when the account pool is confirmed empty. This prevents the injected quota panel from flickering between valid data and “no quota stats”.
+- **Prevent Windows crashes from stack overflow during Codex quota refreshes**: reduce main-thread stack usage during quota refreshes to prevent unexpected application exits during manual or automatic refreshes. Quota history and existing post-refresh behavior are preserved.
+- **Show the usage statistics area only on the Statistics & Logs tab**: the Service Overview, Client Key, Account Pool, and Models & Capabilities tabs no longer repeat the range picker, metric cards, or trend chart.
+- **Show account recovery feedback inside the account-issues dialog**: successful recovery now reports its result in the active dialog. Recovering the full collection also clears stale aggregate pool diagnostics left by older Sidecars, while single-account recovery preserves unrelated account issues.
+
+### Changed
+
+- **Prioritize manual Codex quota refreshes with bounded resource usage**: manual and background refreshes have independent lanes, each with at most one active account and sixteen queued accounts; duplicate requests for the same account share one refresh. Manual refreshes defer not-yet-started background work from the current round until the next round without interrupting requests already running. Queue waits and execution each have a two-minute timeout, task resources and waiters are released on completion, and busy, timeout, and interruption messages are localized.
+- **Run mixed-routing monitoring only for enabled instances**: enable monitoring when mixed routing is configured, stop its background checks and automatic recovery when disabled, and leave unrelated instances and the independent API Service untouched. Disabling a route does not interrupt an active Codex session; its configuration changes take effect on the next launch through Cockpit.
+- **Restore API Service process monitoring and guarded recovery**: detect unexpected Sidecar exits and retry recovery within the existing limits while the service is enabled. Port cleanup checks the Sidecar command line and parent ownership before stopping a process; manual restart, request retries, and account-pool failover remain available.
+- **Restore mixed-routing configuration cleanup on exit**: restore inactive previously managed profiles on Cockpit exit while preserving profiles still used by running Codex sessions. Ordinary profiles without mixed routing are not included in its process checks.
+
+## [1.3.44] - 2026-09-08
+
+### Changed
+
+- **Restore earlier API Service behavior following Windows crash reports**: return Sidecar exit handling and port cleanup to their 1.3.42 behavior in response to reports of the main application exiting while API Service was running in 1.3.43.
+- **Restore Codex API Service process-status behavior from 1.3.42**: remove the per-second Sidecar exit monitor and automatic restart triggered by process exits or status reads. An unexpected Sidecar exit is reported when status is read; manual restart, existing request retries, and account-pool failover remain available.
+- **Restore API Service port cleanup behavior from 1.3.42**: remove Sidecar command-line and parent-process ownership checks. Startup handles a detected old service as before; the existing Clear Port action terminates processes occupying the configured port and restarts the service if enabled, retaining the existing port-fallback behavior and confirmation text.
+
+### Added
+
+- **Separate Codex context settings from model management**: ordinary accounts follow the official model catalog by default and use the Cockpit catalog only after the user explicitly enables and confirms model management. Enabled catalogs can add, remove, reorder, and adjust models but no longer update automatically with the official catalog; a one-click reset restores the current release's Cockpit default model list, order, reasoning levels, and default model, with no disk changes until Apply Configuration is confirmed. Model management no longer sets per-model context windows or compaction thresholds, and legacy overrides are removed automatically. The standalone compact Context Management dialog offers Follow official, `516K / 460K`, `1M / 900K`, and Custom options, writes overrides through the current Codex instance's official top-level settings for every account in that instance, preserves them across account switches, and removes them when returning to official defaults.
+- **Custom ordering for Codex visible models**: model rows can now be reordered by dragging, and newly added models are inserted after models from the same source. The Codex model picker follows the saved order after the next launch through Cockpit.
+- **Preserve Team quota history for Business accounts** ([#2293](https://github.com/jlcodes99/cockpit-tools/pull/2293)): after an account moves to usage-based Business mode, the last Team quota and expected reset times remain visible. Historical data is isolated by user and workspace and is clearly marked as a local snapshot rather than currently available quota.
+
+### Fixed
+
+- **Support the Homebrew 6 Cask installation flow** ([#2279](https://github.com/jlcodes99/cockpit-tools/pull/2279)): remove the deprecated URL verification argument and migrate post-install quarantine cleanup to `postflight_steps`, preserving existing installation behavior without deprecation warnings.
+- **Preserve per-execution WebSocket usage accounting** ([#2292](https://github.com/jlcodes99/cockpit-tools/pull/2292)): every execution on a long-lived Responses WebSocket connection records and deduplicates its own token usage while retaining account attribution; failed handshakes and token-limit blocks continue through the existing diagnostics path.
+- **Fix Antigravity GCP ToS account eligibility and state loss during switching** ([#2286](https://github.com/jlcodes99/cockpit-tools/pull/2286)): account switches and instance launches prepare GCP ToS and project metadata before injection, encode the OAuth metadata correctly, and preserve existing IDE model, feature, and history caches. GCP ToS accounts are identified in the account UI, and switching synchronizes credentials to existing Antigravity and Antigravity IDE data directories.
+- **Fixed Codex API Service account recovery remaining unavailable or appearing stuck**: account recovery no longer waits on durable state writes, ignores stale failures from requests that started before recovery, uses per-account progress feedback, and returns a visible timeout instead of leaving the dialog busy. Accounts and API keys are preserved. Normal Sidecar stops prefer a graceful exit where supported.
+- **Fixed third-party API routing being impossible to disable**: disabling routing now persists an explicit off state while retaining channel configuration, so reopening settings or changing the bound account no longer enables it again. Running instances apply the change on the next launch through Cockpit without interrupting the current session.
+- **Fixed instant voice under mixed routing**: voice call setup and realtime control connections now use the same local gateway and account. Exiting Cockpit no longer restores profiles for Codex instances that are still running, avoiding subsequent `401` failures in the active session.
+- **Fixed missing Fast and Ultra options for third-party GPT models**: known GPT models with a channel prefix retain the corresponding reasoning levels, speed tiers, and context capabilities while continuing to follow the user-saved model order.
+- **Fixed draft and notice state in model-routing configuration**: refreshing accounts no longer overwrites unsaved channel configuration, channels with no selected models can be saved, and the account-switch preview now shows its save-success notice correctly.
+
+Thanks [@we1jia](https://github.com/we1jia) for the contribution ([#2259](https://github.com/jlcodes99/cockpit-tools/pull/2259)).
+
 ## [1.3.42] - 2026-09-07
 
 ### Fixed

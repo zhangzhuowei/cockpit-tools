@@ -1609,12 +1609,20 @@ pub async fn switch_account_internal(account_id: &str) -> Result<Account, String
         modules::logger::log_warn(&format!("[Switch] 更新默认实例绑定账号失败: {}", e));
     }
 
-    // 6. 对齐默认实例启动逻辑：按默认实例目录关闭受管进程，再注入默认实例目录
+    // 6. 对齐默认实例启动逻辑：按默认实例目录关闭受管进程，再同步注入所有存在的 Antigravity 目录
     let default_dir = modules::instance::get_default_user_data_dir()?;
     let default_dir_str = default_dir.to_string_lossy().to_string();
     modules::process::close_antigravity_instances(&[default_dir_str], 20)?;
     let _ = modules::instance::update_default_pid(None);
     modules::instance::inject_account_to_profile(&default_dir, account_id)?;
+    for target_dir in modules::instance::get_all_antigravity_user_data_dirs() {
+        if target_dir == default_dir {
+            continue;
+        }
+        if let Err(e) = modules::instance::inject_account_to_profile(&target_dir, account_id) {
+            modules::logger::log_warn(&format!("[Switch] 注入目录 {} 失败: {}", target_dir.display(), e));
+        }
+    }
 
     // 7. 启动 Antigravity IDE（带默认实例自定义启动参数；启动失败不阻断切号，保持原行为）
     modules::logger::log_info("[Switch] 正在启动 Antigravity IDE 默认实例...");
@@ -1923,6 +1931,18 @@ pub async fn switch_account_local_no_restart(account_id: &str) -> Result<Account
 
     let default_dir = modules::instance::get_default_user_data_dir()?;
     modules::instance::inject_account_to_profile(&default_dir, account_id)?;
+    for target_dir in modules::instance::get_all_antigravity_user_data_dirs() {
+        if target_dir == default_dir {
+            continue;
+        }
+        if let Err(e) = modules::instance::inject_account_to_profile(&target_dir, account_id) {
+            modules::logger::log_warn(&format!(
+                "[Switch][NoRestart] 注入目录 {} 失败: {}",
+                target_dir.display(),
+                e
+            ));
+        }
+    }
 
     modules::logger::log_info(&format!(
         "[Switch][NoRestart] 本地切号完成: {}",

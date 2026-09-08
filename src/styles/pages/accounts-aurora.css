@@ -696,6 +696,13 @@
   border-color: var(--plan-free-border);
 }
 
+/* GCP ToS shared-project account badge (aicode-consumers) */
+.accounts-page .tier-badge.gcp-tos {
+  background: var(--plan-team-bg);
+  color: var(--plan-team-color);
+  border-color: var(--plan-team-border);
+}
+
 .accounts-page .tier-badge.unknown {
   background: var(--plan-unknown-bg);
   color: var(--plan-unknown-color);

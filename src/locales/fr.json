@@ -1,5 +1,12 @@
 {
   "common": {
+    "quotaRefreshScheduler": {
+      "busy": "La file d’actualisation est pleine. Réessayez dans un instant.",
+      "timeout": "L’actualisation du quota a expiré. Veuillez réessayer.",
+      "interrupted": "L’actualisation du quota s’est arrêtée de façon inattendue. Veuillez réessayer.",
+      "deferred": "Les actualisations en arrière-plan en attente ont été différées au profit de l’actualisation manuelle.",
+      "invalidAccountId": "Un identifiant de compte est requis."
+    },
     "confirm": "Confirmer",
     "cancel": "Annuler",
     "cancelling": "Annulation...",
@@ -545,6 +552,7 @@
         "runningSaveMessage": "Cette instance Codex est en cours d'exécution. Remplacer le service local maintenant interrompra la conversation en cours.\n\nChoisissez « Enregistrer et redémarrer Codex » pour appliquer maintenant, ou « Enregistrer pour plus tard » pour conserver la session actuelle inchangée.",
         "saveAndRestart": "Enregistrer et redémarrer Codex",
         "saveForLater": "Enregistrer pour plus tard",
+        "savedForNextLaunch": "Enregistré. La modification s’appliquera au prochain démarrage de Codex via Cockpit ; la session actuelle reste inchangée.",
         "restartRollbackFailed": "La nouvelle route n'a pas pu démarrer et la configuration d'origine n'a pas pu être redémarrée : ",
         "restartRolledBack": "La nouvelle route n'a pas pu démarrer. La configuration d'origine a été restaurée et Codex a redémarré : {{error}}"
       }
@@ -1334,6 +1342,10 @@
     "copyToken": "Copier le token",
     "deleteAccount": "Supprimer le compte",
     "confirmDelete": "Êtes-vous sûr de vouloir supprimer le compte {{email}} ?",
+    "badge": {
+      "gcpTos": "Compte GCP ToS",
+      "gcpTosTitle": "Compte GCP ToS"
+    },
     "columns": {
       "email": "E-mail",
       "subscription": "Abonnement",
@@ -1992,6 +2004,14 @@
     "other_group": "Autres modèles"
   },
   "codex": {
+    "teamHistory": {
+      "title": "Quota Team précédent (instantané local)",
+      "unknown": "Aucune heure de réinitialisation antérieure",
+      "hint": "Quota restant avant le retrait du siège, et non quota actuellement disponible",
+      "elapsed": "Réinitialisation probablement effectuée ; vérifiez après avoir restauré le siège",
+      "resetIn": "Réinitialisation prévue : {{duration}}",
+      "observed": "Instantané pris : {{time}}"
+    },
     "oauthPolicy": {
       "globalTitle": "Autoriser l’app-server tiers",
       "globalDescription": "L’activation affiche le résumé des stratégies actuelles ; utilisez Gérer pour configurer les comptes en groupe ou individuellement.",
@@ -2021,6 +2041,30 @@
       "applyBatch": "Appliquer à la sélection"
     },
     "title": "Gestion des comptes Codex",
+    "contextOverride": {
+      "title": "Gestion du contexte",
+      "description": "Les modèles, leur ordre, le modèle par défaut et les niveaux de raisonnement suivent le catalogue officiel. Le contexte n’est remplacé que manuellement.",
+      "dialogDescription": "Ce réglage s’applique à tous les comptes de l’instance Codex actuelle et reste inchangé lors d’un changement de compte. Choisissez les réglages officiels, un préréglage ou un contexte personnalisé.",
+      "followOfficial": "Suivre l’officiel",
+      "custom": "Contexte personnalisé",
+      "automatic": "Automatique",
+      "adjust": "Ajuster le contexte",
+      "manage": "Gérer le contexte",
+      "apply": "Appliquer le contexte"
+    },
+    "modelManagement": {
+      "title": "Gestion des modèles",
+      "enabled": "Activée",
+      "disabled": "Suivre l’officiel",
+      "enable": "Activer la gestion",
+      "disable": "Désactiver la gestion",
+      "manage": "Gérer les modèles",
+      "disabledDescription": "Désactivée par défaut. Les modèles, leur ordre et les niveaux de raisonnement suivent le catalogue officiel.",
+      "enabledDescription": "Le catalogue configuré est actif. Vous pouvez ajouter ou retirer des modèles, et la liste ne suit plus automatiquement le catalogue officiel.",
+      "enableConfirmTitle": "Activer la gestion des modèles ?",
+      "enableConfirmDescription": "Codex utilisera le catalogue configuré ici. Vous pourrez ajuster les modèles, mais la liste ne sera plus mise à jour automatiquement.",
+      "enableConfirmAction": "Activer et configurer"
+    },
     "experimentalModelCatalog": {
       "title": "Modèles visibles",
       "description": "Gérez au même endroit les modèles visibles, le niveau de raisonnement, le contexte et le seuil de compression.",
@@ -2039,6 +2083,7 @@
         "followOfficial": "Suivre l’officiel",
         "operation": "Actions",
         "manage": "Gérer",
+        "resetDefaults": "Valeurs par défaut",
         "inheritHint": "Les modèles officiels conservent leurs capacités ; les modèles personnalisés utilisent un modèle général. Vous pouvez ajouter ou supprimer des modèles visibles.",
         "validation": {
           "required": "Conservez au moins un modèle.",

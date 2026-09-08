@@ -172,7 +172,7 @@
         ];
         runtime.account_pool_health.insert("key-1".to_string(), pool);
 
-        super::clear_runtime_account_health(&mut runtime, &["account-1".to_string()]);
+        super::clear_runtime_account_health(&mut runtime, &["account-1".to_string()], false);
 
         let remaining = &runtime.account_pool_health["key-1"].account_statuses;
         assert_eq!(remaining.len(), 1);
@@ -203,12 +203,29 @@
             super::RuntimeAccountPoolHealth::default(),
         );
 
-        super::clear_runtime_account_health(&mut runtime, &["account-1".to_string()]);
+        super::clear_runtime_account_health(&mut runtime, &["account-1".to_string()], false);
 
         assert!(!runtime.account_health.contains_key("account-1"));
         assert!(runtime.account_health.contains_key("account-2"));
         assert!(runtime.model_cooldowns.is_empty());
         assert!(runtime.account_pool_health.contains_key("key-1"));
+    }
+
+    #[test]
+    fn full_manual_recovery_clears_aggregate_pool_health() {
+        let mut runtime = super::GatewayRuntime::default();
+        runtime.account_pool_health.insert(
+            "key-1".to_string(),
+            super::RuntimeAccountPoolHealth::default(),
+        );
+
+        super::clear_runtime_account_health(
+            &mut runtime,
+            &["account-1".to_string(), "account-2".to_string()],
+            true,
+        );
+
+        assert!(runtime.account_pool_health.is_empty());
     }
 
     #[test]
@@ -261,7 +278,7 @@
             },
         );
 
-        super::clear_runtime_account_health(&mut runtime, &["account-1".to_string()]);
+        super::clear_runtime_account_health(&mut runtime, &["account-1".to_string()], false);
         super::clear_runtime_quota_cooldowns(&mut runtime, &["account-1".to_string()]);
 
         assert!(!runtime.account_health.contains_key("account-1"));
@@ -678,7 +695,8 @@
         tool_declares_image_generation_capability, usage_event_from_row,
         validate_api_key_account_scope_update, validate_client_model_visible,
         validate_loaded_local_access_bound_oauth_account, visible_codex_model_ids_for_api_key,
-        visible_codex_model_ids_for_api_key_with_accounts, websocket_accept_value,
+        visible_codex_model_ids_for_api_key_with_accounts,
+        visible_codex_model_ids_for_api_key_with_supported_models, websocket_accept_value,
         websocket_connect_error_from_http_response, windows_proxy_url_from_server,
         windows_reg_dword_enabled, windows_reg_query_map,
         write_local_access_profile_model_override, write_local_access_profile_takeover,

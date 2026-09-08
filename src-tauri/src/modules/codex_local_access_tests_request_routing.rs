@@ -890,7 +890,13 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
             token_used: 0,
         };
 
-        let models = visible_codex_model_ids_for_api_key(&collection, &api_key, None);
+        let models = visible_codex_model_ids_for_api_key_with_supported_models(
+            &collection,
+            &api_key,
+            None,
+            None,
+            supported_codex_model_ids(),
+        );
         assert!(models
             .iter()
             .any(|model| model == CODEX_AUTO_REVIEW_MODEL_ID));
@@ -923,7 +929,13 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
             token_used: 0,
         };
 
-        let models = visible_codex_model_ids_for_api_key(&collection, &api_key, None);
+        let models = visible_codex_model_ids_for_api_key_with_supported_models(
+            &collection,
+            &api_key,
+            None,
+            None,
+            supported_codex_model_ids(),
+        );
         for model in [
             "gpt-5.6-sol",
             "gpt-5.6-terra",
@@ -934,7 +946,13 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
         }
 
         api_key.allowed_models = vec!["gpt-5.4".to_string()];
-        let restricted = visible_codex_model_ids_for_api_key(&collection, &api_key, None);
+        let restricted = visible_codex_model_ids_for_api_key_with_supported_models(
+            &collection,
+            &api_key,
+            None,
+            None,
+            supported_codex_model_ids(),
+        );
         assert!(restricted.iter().any(|model| model == "gpt-5.4"));
         assert!(!restricted.iter().any(|model| model.starts_with("gpt-5.6-")));
     }

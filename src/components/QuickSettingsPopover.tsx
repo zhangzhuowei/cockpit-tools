@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
-import { open } from '@tauri-apps/plugin-dialog';
+import { confirm as confirmDialog, open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import {
   Settings,
@@ -415,23 +415,19 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
   const [pathDetecting, setPathDetecting] = useState(false);
   const [appLaunchCandidates, setAppLaunchCandidates] = useState<AppLaunchCandidate[]>([]);
   const [openingCodexConfig, setOpeningCodexConfig] = useState(false);
-  const [codexQuickConfig, setCodexQuickConfig] = useState<CodexQuickConfig | null>(null);
-  const [
-    codexExperimentalModelCatalogEnabled,
-    setCodexExperimentalModelCatalogEnabled,
-  ] = useState(false);
-  const [codexExperimentalModels, setCodexExperimentalModels] = useState<
+  const [codexModelManagementConfig, setCodexModelManagementConfig] =
+    useState<CodexQuickConfig | null>(null);
+  const [codexModelManagementLoading, setCodexModelManagementLoading] = useState(false);
+  const [codexModelManagementSaving, setCodexModelManagementSaving] = useState(false);
+  const [codexModelManagementError, setCodexModelManagementError] = useState<string | null>(null);
+  const [codexModelManagementNotice, setCodexModelManagementNotice] = useState<string | null>(null);
+  const [codexModelManagementModels, setCodexModelManagementModels] = useState<
     CodexExperimentalModelDefinition[]
   >([]);
-  const [codexExperimentalDefaultModelId, setCodexExperimentalDefaultModelId] = useState<string | null>(null);
-  const [codexExperimentalModelsEdited, setCodexExperimentalModelsEdited] = useState(false);
-  const [codexExperimentalModelsError, setCodexExperimentalModelsError] = useState<string | null>(
-    null,
-  );
-  const [codexQuickConfigLoading, setCodexQuickConfigLoading] = useState(false);
-  const [codexQuickConfigSaving, setCodexQuickConfigSaving] = useState(false);
-  const [codexQuickConfigError, setCodexQuickConfigError] = useState<string | null>(null);
-  const [codexQuickConfigNotice, setCodexQuickConfigNotice] = useState<string | null>(null);
+  const [codexModelManagementDefaultModelId, setCodexModelManagementDefaultModelId] =
+    useState<string | null>(null);
+  const [codexModelManagementModelsError, setCodexModelManagementModelsError] =
+    useState<string | null>(null);
   const [codexOAuthPolicyModalOpen, setCodexOAuthPolicyModalOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshEditing, setRefreshEditing] = useState(false);
@@ -472,8 +468,6 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
   const configSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const configSaveVersionRef = useRef(0);
   const configLoadVersionRef = useRef(0);
-  const codexQuickConfigSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
-  const codexQuickConfigSaveVersionRef = useRef(0);
   const refreshPresets = ['-1', '2', '5', '10', '15'];
   const thresholdPresets = ['0', '20', '40', '60'];
   const creditsThresholdPresets = ['0', '5', '10', '20'];
@@ -542,150 +536,124 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
     }),
     [t],
   );
-  const applyCodexQuickConfig = useCallback((nextConfig: CodexQuickConfig) => {
-    setCodexQuickConfig(nextConfig);
-    setCodexExperimentalModelCatalogEnabled(
-      nextConfig.experimental_model_catalog_enabled,
-    );
-    setCodexExperimentalModels(nextConfig.experimental_model_catalog_models);
-    setCodexExperimentalDefaultModelId(
-      nextConfig.experimental_model_catalog_default_model_id ?? null,
-    );
-    setCodexExperimentalModelsEdited(false);
-  }, []);
-
-  const loadCodexQuickConfig = useCallback(async () => {
-    if (type !== 'codex') {
-      setCodexQuickConfig(null);
-      setCodexExperimentalModelCatalogEnabled(false);
-      setCodexExperimentalModels([]);
-      setCodexExperimentalDefaultModelId(null);
-      setCodexExperimentalModelsEdited(false);
-      setCodexExperimentalModelsError(null);
-      setCodexQuickConfigError(null);
-      setCodexQuickConfigNotice(null);
-      setCodexQuickConfigLoading(false);
-      setCodexQuickConfigSaving(false);
-      return;
-    }
-
-    setCodexQuickConfigLoading(true);
-    setCodexQuickConfigError(null);
-    setCodexQuickConfigNotice(null);
+  const loadCodexModelManagement = useCallback(async () => {
+    if (type !== 'codex') return;
+    setCodexModelManagementLoading(true);
+    setCodexModelManagementError(null);
+    setCodexModelManagementNotice(null);
     try {
-      const quickConfig = await codexService.getCodexQuickConfig();
-      applyCodexQuickConfig(quickConfig);
-    } catch (err) {
-      setCodexQuickConfigError(
+      const loaded = await codexService.getCodexQuickConfig();
+      setCodexModelManagementConfig(loaded);
+      setCodexModelManagementModels(loaded.experimental_model_catalog_models);
+      setCodexModelManagementDefaultModelId(
+        loaded.experimental_model_catalog_default_model_id ?? null,
+      );
+      setCodexModelManagementModelsError(null);
+    } catch (loadError) {
+      setCodexModelManagementError(
         t('quickSettings.codex.quickConfig.loadFailed', {
-          defaultValue: '加载当前 Codex 配置失败：{{error}}',
-          error: String(err),
+          error: String(loadError),
         }),
       );
     } finally {
-      setCodexQuickConfigLoading(false);
+      setCodexModelManagementLoading(false);
     }
-  }, [applyCodexQuickConfig, t, type]);
+  }, [t, type]);
 
-  const codexExperimentalModelUnavailableMessage = useMemo(() => {
-    const reason = codexQuickConfig?.experimental_model_catalog_unavailable_reason;
-    if (!reason) return null;
-    if (reason === 'catalog_conflict') {
-      return t(
-        'codex.experimentalModelCatalog.unavailable.catalogConflict',
-        '已有其他 model_catalog_json，禁止覆盖。',
+  const toggleCodexModelManagement = useCallback(async () => {
+    if (!codexModelManagementConfig || codexModelManagementSaving) return;
+    const enabled = !codexModelManagementConfig.experimental_model_catalog_enabled;
+    if (enabled) {
+      const confirmed = await confirmDialog(
+        t('codex.modelManagement.enableConfirmDescription'),
+        {
+          title: t('codex.modelManagement.enableConfirmTitle'),
+          okLabel: t('codex.modelManagement.enable'),
+          cancelLabel: t('common.cancel'),
+          kind: 'warning',
+        },
       );
+      if (!confirmed) return;
     }
-    return null;
-  }, [codexQuickConfig, t]);
+    setCodexModelManagementSaving(true);
+    setCodexModelManagementError(null);
+    setCodexModelManagementNotice(null);
+    try {
+      const saved = await codexService.saveCodexModelCatalog(
+        enabled,
+        codexModelManagementModels,
+        codexModelManagementDefaultModelId,
+      );
+      setCodexModelManagementConfig(saved);
+      setCodexModelManagementModels(saved.experimental_model_catalog_models);
+      setCodexModelManagementDefaultModelId(
+        saved.experimental_model_catalog_default_model_id ?? null,
+      );
+      setCodexModelManagementModelsError(null);
+      setCodexModelManagementNotice(t('quickSettings.codex.quickConfig.saveSuccess'));
+      window.dispatchEvent(new Event('config-updated'));
+    } catch (saveError) {
+      setCodexModelManagementError(
+        getCodexExperimentalModelErrorMessage(t, saveError) ??
+          t('quickSettings.codex.quickConfig.saveFailed', {
+            error: String(saveError),
+          }),
+      );
+    } finally {
+      setCodexModelManagementSaving(false);
+    }
+  }, [
+    codexModelManagementConfig,
+    codexModelManagementDefaultModelId,
+    codexModelManagementModels,
+    codexModelManagementSaving,
+    t,
+  ]);
 
-  const persistCodexQuickConfig = useCallback(
-    (
-      experimentalModelCatalogEnabled: boolean,
-      experimentalModels: CodexExperimentalModelDefinition[],
-      experimentalDefaultModelId: string | null,
-    ) => {
-      if (type !== 'codex' || codexQuickConfigLoading) return;
-
-      const saveVersion = codexQuickConfigSaveVersionRef.current + 1;
-      codexQuickConfigSaveVersionRef.current = saveVersion;
-      setCodexQuickConfigError(null);
-      setCodexQuickConfigNotice(null);
-      setCodexQuickConfigSaving(true);
-
-      const save = async () => {
-        try {
-          const saved = await codexService.saveCodexModelCatalog(
-            experimentalModelCatalogEnabled,
-            experimentalModels,
-            experimentalDefaultModelId,
-          );
-          if (saveVersion === codexQuickConfigSaveVersionRef.current) {
-            applyCodexQuickConfig(saved);
-            setCodexQuickConfigNotice(
-              t(
-                'quickSettings.codex.quickConfig.saveSuccess',
-                '当前 Codex 配置已保存',
-              ),
-            );
-            window.dispatchEvent(new Event('config-updated'));
-          }
-        } catch (err) {
-          if (saveVersion === codexQuickConfigSaveVersionRef.current) {
-            setCodexQuickConfigError(
-              getCodexExperimentalModelErrorMessage(t, err) ??
-                t('quickSettings.codex.quickConfig.saveFailed', {
-                  defaultValue: '保存当前 Codex 配置失败：{{error}}',
-                  error: String(err),
-                }),
-            );
-          }
-        } finally {
-          if (saveVersion === codexQuickConfigSaveVersionRef.current) {
-            setCodexQuickConfigSaving(false);
-          }
-        }
-      };
-
-      codexQuickConfigSaveQueueRef.current = codexQuickConfigSaveQueueRef.current
-        .catch(() => undefined)
-        .then(save);
-    },
-    [applyCodexQuickConfig, codexQuickConfigLoading, t, type],
-  );
-
-  useEffect(() => {
+  const saveCodexManagedModels = useCallback(async () => {
     if (
-      type !== 'codex' ||
-      codexQuickConfigLoading ||
-      !codexQuickConfig ||
-      !codexExperimentalModelsEdited ||
-      codexExperimentalModelsError ||
-      JSON.stringify(codexQuickConfig.experimental_model_catalog_models) ===
-        JSON.stringify(codexExperimentalModels) &&
-      (codexQuickConfig.experimental_model_catalog_default_model_id ?? null) ===
-        codexExperimentalDefaultModelId
+      !codexModelManagementConfig?.experimental_model_catalog_enabled ||
+      codexModelManagementSaving
     ) {
       return;
     }
-    const timer = window.setTimeout(() => {
-      persistCodexQuickConfig(
-        codexExperimentalModelCatalogEnabled,
-        codexExperimentalModels,
-        codexExperimentalDefaultModelId,
+    if (codexModelManagementModelsError) {
+      setCodexModelManagementError(codexModelManagementModelsError);
+      return;
+    }
+    setCodexModelManagementSaving(true);
+    setCodexModelManagementError(null);
+    setCodexModelManagementNotice(null);
+    try {
+      const saved = await codexService.saveCodexModelCatalog(
+        true,
+        codexModelManagementModels,
+        codexModelManagementDefaultModelId,
       );
-    }, 500);
-    return () => window.clearTimeout(timer);
+      setCodexModelManagementConfig(saved);
+      setCodexModelManagementModels(saved.experimental_model_catalog_models);
+      setCodexModelManagementDefaultModelId(
+        saved.experimental_model_catalog_default_model_id ?? null,
+      );
+      setCodexModelManagementNotice(t('quickSettings.codex.quickConfig.saveSuccess'));
+      window.dispatchEvent(new Event('config-updated'));
+    } catch (saveError) {
+      setCodexModelManagementError(
+        getCodexExperimentalModelErrorMessage(t, saveError) ??
+          t('quickSettings.codex.quickConfig.saveFailed', {
+            error: String(saveError),
+          }),
+      );
+    } finally {
+      setCodexModelManagementSaving(false);
+    }
   }, [
-    codexExperimentalModelCatalogEnabled,
-    codexExperimentalDefaultModelId,
-    codexExperimentalModels,
-    codexExperimentalModelsEdited,
-    codexExperimentalModelsError,
-    codexQuickConfig,
-    codexQuickConfigLoading,
-    persistCodexQuickConfig,
-    type,
+    codexModelManagementConfig,
+    codexModelManagementDefaultModelId,
+    codexModelManagementModels,
+    codexModelManagementModelsError,
+    codexModelManagementSaving,
+    t,
   ]);
 
   const handleOverviewFilterPersistenceToggle = useCallback(
@@ -700,9 +668,7 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
   useEffect(() => {
     if (isOpen) {
       loadConfig();
-      if (type === 'codex') {
-        void loadCodexQuickConfig();
-      }
+      if (type === 'codex') void loadCodexModelManagement();
       setCodexShowCodeReviewQuota(isCodexCodeReviewQuotaVisibleByDefault());
       setAntigravitySeamlessSwitchUnlocked(isAntigravitySeamlessSwitchFeatureUnlocked());
       setOverviewFilterPersistenceEnabledState(
@@ -713,7 +679,7 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
       configRef.current = null;
       setConfig(null);
     }
-  }, [isOpen, loadCodexQuickConfig, overviewFilterScope, type]);
+  }, [isOpen, loadCodexModelManagement, overviewFilterScope, type]);
 
   useEffect(() => {
     const handleFeatureUnlockChanged = (event: Event) => {
@@ -2033,106 +1999,89 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
                   <div className="qs-row qs-row--top">
                     <div className="qs-row-label">
                       <Zap size={15} />
-                      <span>
-                        {t(
-                          'codex.experimentalModelCatalog.title',
-                          '可见模型',
-                        )}
-                      </span>
+                      <span>{t('codex.modelManagement.title')}</span>
                     </div>
                     <div className="qs-row-control">
-                      <label className="qs-switch">
-                        <input
-                          type="checkbox"
-                          checked={codexExperimentalModelCatalogEnabled}
-                          onChange={(event) => {
-                            if (!codexQuickConfig) return;
-                            const enabled = event.target.checked;
-                            setCodexQuickConfigError(null);
-                            setCodexQuickConfigNotice(null);
-                            setCodexExperimentalModelCatalogEnabled(enabled);
-                            persistCodexQuickConfig(
-                              enabled,
-                              codexExperimentalModelsError
-                                ? (codexQuickConfig?.experimental_model_catalog_models ?? [])
-                                : codexExperimentalModels,
-                              codexExperimentalDefaultModelId,
-                            );
-                          }}
-                          disabled={
-                            codexQuickConfigLoading ||
-                            (!codexExperimentalModelCatalogEnabled &&
-                              !codexQuickConfig?.experimental_model_catalog_available)
-                          }
-                          aria-label={t(
-                            'codex.experimentalModelCatalog.title',
-                          '可见模型',
-                          )}
-                        />
-                        <span className="qs-switch-slider" />
-                      </label>
+                      <button
+                        type="button"
+                        className={`btn btn-sm ${
+                          codexModelManagementConfig?.experimental_model_catalog_enabled
+                            ? 'btn-outline'
+                            : 'btn-primary'
+                        }`}
+                        onClick={() => void toggleCodexModelManagement()}
+                        disabled={
+                          codexModelManagementLoading ||
+                          codexModelManagementSaving ||
+                          !codexModelManagementConfig ||
+                          (!codexModelManagementConfig.experimental_model_catalog_enabled &&
+                            !codexModelManagementConfig.experimental_model_catalog_available)
+                        }
+                      >
+                        {codexModelManagementSaving
+                          ? t('common.saving')
+                          : codexModelManagementConfig?.experimental_model_catalog_enabled
+                            ? t('codex.modelManagement.disable')
+                            : t('codex.modelManagement.enable')}
+                      </button>
                     </div>
                   </div>
                   <div className="qs-hint">
-                    {t(
-                      'codex.experimentalModelCatalog.description',
-                      '统一管理可见模型、推理强度、上下文窗口和压缩阈值。',
-                    )}
+                    {codexModelManagementConfig?.experimental_model_catalog_enabled
+                      ? t('codex.modelManagement.enabledDescription')
+                      : t('codex.modelManagement.disabledDescription')}
                   </div>
-                  {!codexExperimentalModelCatalogEnabled && (
-                    <div className="qs-hint">
-                      {t(
-                        'codex.experimentalModelCatalog.disabledHint',
-                        '关闭后会移除 Cockpit 受管模型目录，恢复官方模型可见性；具体可用模型由官方账号权限决定。',
-                      )}
-                    </div>
-                  )}
-                  {codexExperimentalModelCatalogEnabled && (
-                    <>
-                      <div className="qs-hint">
-                        {t(
-                          'codex.experimentalModelCatalog.enabledHint',
-                          '启用后使用当前可见模型列表，重启 Codex 生效。',
-                        )}
+                  {!codexModelManagementConfig?.experimental_model_catalog_enabled &&
+                    codexModelManagementConfig?.experimental_model_catalog_unavailable_reason ===
+                      'catalog_conflict' && (
+                      <div className="qs-codex-quick-status error">
+                        {t('codex.experimentalModelCatalog.unavailable.catalogConflict')}
                       </div>
+                    )}
+                  {codexModelManagementConfig?.experimental_model_catalog_enabled && (
+                    <>
                       <CodexExperimentalModelEditor
-                        models={codexExperimentalModels}
-                        defaultModelId={codexExperimentalDefaultModelId}
+                        models={codexModelManagementModels}
+                        defaultModelId={codexModelManagementDefaultModelId}
                         mode="summary"
                         onChange={(models) => {
-                          setCodexExperimentalModels(models);
-                          setCodexExperimentalModelsEdited(true);
-                          setCodexQuickConfigError(null);
+                          setCodexModelManagementModels(models);
+                          setCodexModelManagementError(null);
+                          setCodexModelManagementNotice(null);
                         }}
                         onDefaultModelChange={(modelId) => {
-                          setCodexExperimentalDefaultModelId(modelId);
-                          setCodexExperimentalModelsEdited(true);
-                          setCodexQuickConfigError(null);
+                          setCodexModelManagementDefaultModelId(modelId);
+                          setCodexModelManagementError(null);
+                          setCodexModelManagementNotice(null);
                         }}
-                        onValidationChange={setCodexExperimentalModelsError}
-                        disabled={codexQuickConfigLoading}
+                        onValidationChange={setCodexModelManagementModelsError}
+                        disabled={codexModelManagementSaving}
                       />
+                      <div className="qs-codex-model-management-actions">
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-sm"
+                          onClick={() => void saveCodexManagedModels()}
+                          disabled={
+                            codexModelManagementSaving ||
+                            Boolean(codexModelManagementModelsError)
+                          }
+                        >
+                          {codexModelManagementSaving
+                            ? t('common.saving')
+                            : t('common.save')}
+                        </button>
+                      </div>
                     </>
                   )}
-                  {codexExperimentalModelUnavailableMessage && (
+                  {codexModelManagementError && (
                     <div className="qs-codex-quick-status error">
-                      {codexExperimentalModelUnavailableMessage}
+                      {codexModelManagementError}
                     </div>
                   )}
-                  {(codexQuickConfigError || codexQuickConfigSaving || codexQuickConfigNotice) && (
-                    <div
-                      className={`qs-codex-quick-status ${
-                        codexQuickConfigError
-                          ? 'error'
-                          : codexQuickConfigNotice
-                            ? 'success'
-                            : ''
-                      }`}
-                    >
-                      {codexQuickConfigError ||
-                        (codexQuickConfigSaving
-                          ? t('common.saving', '保存中...')
-                          : codexQuickConfigNotice)}
+                  {codexModelManagementNotice && (
+                    <div className="qs-codex-quick-status success">
+                      {codexModelManagementNotice}
                     </div>
                   )}
                   <div className="qs-row qs-row--top qs-codex-oauth-policy-row">

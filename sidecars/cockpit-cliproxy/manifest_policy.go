@@ -28,6 +28,7 @@ import (
 
 	codexmodels "github.com/router-for-me/CLIProxyAPI/v7/internal/client/codex/models"
 	internallogging "github.com/router-for-me/CLIProxyAPI/v7/internal/logging"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
 
 	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	coreusage "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/usage"
@@ -1042,6 +1043,13 @@ func (p *requestPolicy) middleware() gin.HandlerFunc {
 		startedAt := time.Now()
 		requestID := ensureRequestID(c)
 		spec := p.lookupAPIKey(c.Request)
+		if diagnosticTransport(c.Request) == "websocket" && p.emitter != nil {
+			sink := newWebsocketUsageSink(requestID, func(payload usagePayload) {
+				p.tokenLimiter.addUsage(spec, effectiveUsageTotalTokens(payload.Usage))
+				p.emitter.emit(payload)
+			})
+			c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), websocketUsageContextKey, sink))
+		}
 		requestKind := requestKindFromPath(c.Request.URL.Path)
 		clientInstanceID := extractClientInstanceID(c.Request)
 		if clientInstanceID != "" {
@@ -1251,6 +1259,17 @@ func (p *requestPolicy) emitRequestCompleted(c *gin.Context, requestID string, s
 		return
 	}
 	p.tracker.releaseImageJobs(requestID)
+	if _, ok := c.Request.Context().Value(websocketUsageContextKey).(*websocketUsageSink); ok && status < http.StatusBadRequest {
+		// Gorilla writes the 101 handshake after hijacking, leaving Gin's
+		// status at 200. Rejected handshakes must still reach finalization.
+		// Transport completion is diagnostic-only. Per-execution callbacks own
+		// usage and may arrive after this handler returns.
+		p.tracker.mu.Lock()
+		delete(p.tracker.records, requestID)
+		delete(p.tracker.selectedAccounts, requestID)
+		p.tracker.mu.Unlock()
+		return
+	}
 	if payload, ok := p.tracker.finalize(requestID, usageFinalizeInput{
 		spec:          spec,
 		requestKind:   requestKind,
@@ -1589,6 +1608,25 @@ func buildCodexClientModelsResponse(models []string, spec *apiKeySpec, windows m
 	}, false))
 	if data, ok := response["models"].([]map[string]any); ok {
 		hydrateCodexCompatibilityModels(data)
+		// Only declared routes to a known GPT template inherit capabilities.
+		var catalog struct { Models []map[string]any `json:"models"` }
+		_ = json.Unmarshal(registry.GetCodexClientModelsJSON(), &catalog)
+		for _, model := range data {
+			slug, _ := model["slug"].(string)
+			_, upstream, status := resolveModelRouting(spec, slug)
+			if status != "matched" || !strings.HasPrefix(upstream, "gpt-") { continue }
+			for _, template := range catalog.Models {
+				if template["slug"] != upstream { continue }
+				for _, field := range []string{
+					"supported_reasoning_levels", "default_reasoning_level",
+					"service_tiers", "additional_speed_tiers",
+					"context_window", "max_context_window",
+				} {
+					if value, exists := template[field]; exists { model[field] = value }
+				}
+				break
+			}
+		}
 		preferWebsockets := spec != nil && spec.ProviderGateway == nil && spec.ResponsesWebsockets
 		for _, model := range data {
 			model["prefer_websockets"] = preferWebsockets

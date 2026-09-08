@@ -1,5 +1,12 @@
 {
   "common": {
+    "quotaRefreshScheduler": {
+      "busy": "Die Aktualisierungswarteschlange ist voll. Bitte später erneut versuchen.",
+      "timeout": "Zeitüberschreitung bei der Kontingentaktualisierung. Bitte erneut versuchen.",
+      "interrupted": "Die Kontingentaktualisierung wurde unerwartet beendet. Bitte erneut versuchen.",
+      "deferred": "Ausstehende Hintergrundaktualisierungen wurden zugunsten der manuellen Aktualisierung verschoben.",
+      "invalidAccountId": "Eine Konto-ID ist erforderlich."
+    },
     "confirm": "Bestätigen",
     "cancel": "Abbrechen",
     "cancelling": "Wird abgebrochen...",
@@ -545,6 +552,7 @@
         "runningSaveMessage": "Diese Codex-Instanz wird ausgeführt. Das Ersetzen des lokalen Dienstes unterbricht die aktuelle Unterhaltung.\n\nWählen Sie „Speichern und Codex neu starten“, um die Änderungen jetzt anzuwenden, oder „Speichern für später“, um die aktuelle Sitzung unverändert beizubehalten.",
         "saveAndRestart": "Speichern und Codex neu starten",
         "saveForLater": "Speichern für später",
+        "savedForNextLaunch": "Gespeichert. Die Änderung wird beim nächsten Start von Codex über Cockpit wirksam; die aktuelle Sitzung bleibt unverändert.",
         "restartRollbackFailed": "Die neue Route konnte nicht gestartet werden und die ursprüngliche Konfiguration konnte nicht neu gestartet werden: ",
         "restartRolledBack": "Die neue Route konnte nicht gestartet werden. Die ursprüngliche Konfiguration wurde wiederhergestellt und Codex neu gestartet: {{error}}"
       }
@@ -1334,6 +1342,10 @@
     "copyToken": "Token kopieren",
     "deleteAccount": "Konto löschen",
     "confirmDelete": "Sind Sie sicher, dass Sie das Konto {{email}} löschen möchten?",
+    "badge": {
+      "gcpTos": "GCP-ToS-Konto",
+      "gcpTosTitle": "GCP-ToS-Konto"
+    },
     "columns": {
       "email": "E-Mail",
       "subscription": "Abonnement",
@@ -1992,6 +2004,14 @@
     "other_group": "Andere Modelle"
   },
   "codex": {
+    "teamHistory": {
+      "title": "Früheres Team-Kontingent (lokaler Stand)",
+      "unknown": "Keine frühere Rücksetzzeit verfügbar",
+      "hint": "Restkontingent vor dem Entfernen des Sitzes, nicht das aktuell verfügbare Kontingent",
+      "elapsed": "Vermutlich zurückgesetzt; nach Wiederherstellung des Sitzes prüfen",
+      "resetIn": "Voraussichtliche Rücksetzung: {{duration}}",
+      "observed": "Stand erfasst: {{time}}"
+    },
     "oauthPolicy": {
       "globalTitle": "Drittanbieter-app-server erlauben",
       "globalDescription": "Nach der Aktivierung wird eine Zusammenfassung angezeigt; über Verwalten lassen sich die Konten gesammelt oder einzeln konfigurieren.",
@@ -2021,6 +2041,30 @@
       "applyBatch": "Auf Auswahl anwenden"
     },
     "title": "Codex-Konten verwalten",
+    "contextOverride": {
+      "title": "Kontextverwaltung",
+      "description": "Modelle, Reihenfolge, Standardmodell und Denkstufen folgen dem offiziellen Katalog. Der Kontext wird nur manuell überschrieben.",
+      "dialogDescription": "Die Einstellung gilt für alle Konten der aktuellen Codex-Instanz und bleibt beim Kontowechsel erhalten. Wählen Sie die offiziellen Einstellungen, eine Voreinstellung oder einen eigenen Kontext.",
+      "followOfficial": "Offiziell folgen",
+      "custom": "Eigener Kontext",
+      "automatic": "Automatisch",
+      "adjust": "Kontext anpassen",
+      "manage": "Kontext verwalten",
+      "apply": "Kontext anwenden"
+    },
+    "modelManagement": {
+      "title": "Modellverwaltung",
+      "enabled": "Aktiviert",
+      "disabled": "Offiziell folgen",
+      "enable": "Modellverwaltung aktivieren",
+      "disable": "Modellverwaltung deaktivieren",
+      "manage": "Modelle verwalten",
+      "disabledDescription": "Standardmäßig deaktiviert. Modelle, Reihenfolge, Standardmodell und Denkstufen folgen dem offiziellen Katalog.",
+      "enabledDescription": "Der konfigurierte Modellkatalog ist aktiv. Modelle können hinzugefügt oder entfernt werden; die Liste folgt nicht mehr automatisch dem offiziellen Katalog.",
+      "enableConfirmTitle": "Modellverwaltung aktivieren?",
+      "enableConfirmDescription": "Codex verwendet danach den hier konfigurierten Modellkatalog. Modelle können angepasst werden, die Liste wird jedoch nicht mehr automatisch aktualisiert.",
+      "enableConfirmAction": "Aktivieren und einrichten"
+    },
     "experimentalModelCatalog": {
       "title": "Sichtbare Modelle",
       "description": "Sichtbare Modelle, Denkstufe, Kontextfenster und Komprimierungsgrenze zentral verwalten.",
@@ -2039,6 +2083,7 @@
         "followOfficial": "Offizieller Vorgabe folgen",
         "operation": "Aktionen",
         "manage": "Verwalten",
+        "resetDefaults": "Standardwerte",
         "inheritHint": "Offizielle Modelle behalten ihre Funktionsfelder; eigene Modelle verwenden eine allgemeine Vorlage. Sichtbare Modelle können hinzugefügt oder gelöscht werden.",
         "validation": {
           "required": "Mindestens ein Modell muss erhalten bleiben.",

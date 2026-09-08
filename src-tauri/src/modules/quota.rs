@@ -411,11 +411,15 @@ struct AllowedTier {
     id: Option<String>,
     #[serde(rename = "isDefault")]
     is_default: Option<bool>,
+    #[serde(rename = "usesGcpTos")]
+    uses_gcp_tos: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
 struct Tier {
     id: Option<String>,
+    #[serde(rename = "usesGcpTos")]
+    uses_gcp_tos: Option<bool>,
     #[serde(rename = "availableCredits", default)]
     available_credits: Option<Vec<AvailableCreditRaw>>,
 }
@@ -614,13 +618,29 @@ fn extract_credits_from_tier(tier: &Tier) -> Vec<CreditInfo> {
         .unwrap_or_default()
 }
 
+#[derive(Debug, Clone)]
+pub struct ProjectMetadataResult {
+    pub project_id: Option<String>,
+    pub subscription_tier: Option<String>,
+    pub credits: Vec<CreditInfo>,
+    pub is_gcp_tos: Option<bool>,
+}
+
 /// 获取项目 ID、订阅类型和积分信息（优先使用 token 中的 project_id / is_gcp_tos 上下文）
 pub async fn fetch_project_id_for_token(
     token: &TokenData,
     email: &str,
 ) -> (Option<String>, Option<String>, Vec<CreditInfo>) {
+    let meta = fetch_project_metadata_for_token(token, email).await;
+    (meta.project_id, meta.subscription_tier, meta.credits)
+}
+
+pub async fn fetch_project_metadata_for_token(
+    token: &TokenData,
+    email: &str,
+) -> ProjectMetadataResult {
     let ctx = QuotaCloudCodeContext::from_token(token);
-    fetch_project_id_with_context(&token.access_token, email, &ctx).await
+    fetch_project_metadata_with_context(&token.access_token, email, &ctx).await
 }
 
 pub async fn fetch_project_id_with_context(
@@ -628,11 +648,21 @@ pub async fn fetch_project_id_with_context(
     email: &str,
     ctx: &QuotaCloudCodeContext,
 ) -> (Option<String>, Option<String>, Vec<CreditInfo>) {
+    let meta = fetch_project_metadata_with_context(access_token, email, ctx).await;
+    (meta.project_id, meta.subscription_tier, meta.credits)
+}
+
+pub async fn fetch_project_metadata_with_context(
+    access_token: &str,
+    email: &str,
+    ctx: &QuotaCloudCodeContext,
+) -> ProjectMetadataResult {
     let client = create_client();
     let mut subscription_tier: Option<String> = None;
     let mut allowed_tiers: Vec<AllowedTier> = Vec::new();
     let mut last_error: Option<String> = None;
     let mut credits: Vec<CreditInfo> = Vec::new();
+    let mut resolved_is_gcp_tos: Option<bool> = if ctx.is_gcp_tos { Some(true) } else { None };
     let base_url = resolve_cloud_code_base_url(ctx);
     let ua = load_code_assist_user_agent();
     let x_goog_api_client = load_code_assist_x_goog_api_client();
@@ -686,6 +716,33 @@ pub async fn fetch_project_id_with_context(
                                     subscription_tier =
                                         paid_tier_id.clone().or(current_tier_id.clone());
 
+                                    // 从 currentTier / allowedTiers 中解析 usesGcpTos
+                                    let detected_gcp_tos = data
+                                        .current_tier
+                                        .as_ref()
+                                        .and_then(|t| t.uses_gcp_tos)
+                                        .or_else(|| {
+                                            data.allowed_tiers.as_ref().and_then(|tiers| {
+                                                tiers
+                                                    .iter()
+                                                    .find(|t| t.is_default.unwrap_or(false))
+                                                    .and_then(|t| t.uses_gcp_tos)
+                                            })
+                                        })
+                                        .or_else(|| {
+                                            // standard-tier 订阅必定属于 GCP ToS 体系
+                                            if current_tier_id.as_deref() == Some("standard-tier")
+                                                || paid_tier_id.as_deref() == Some("standard-tier")
+                                            {
+                                                Some(true)
+                                            } else {
+                                                None
+                                            }
+                                        });
+                                    if detected_gcp_tos.is_some() {
+                                        resolved_is_gcp_tos = detected_gcp_tos;
+                                    }
+
                                     // 提取积分数据
                                     if let Some(ref paid_tier) = data.paid_tier {
                                         credits = extract_credits_from_tier(paid_tier);
@@ -706,7 +763,6 @@ pub async fn fetch_project_id_with_context(
                                             ));
                                         }
                                     }
-
                                     if subscription_tier.is_some() {
                                         log_subscription_tier_result(
                                             email,
@@ -726,12 +782,12 @@ pub async fn fetch_project_id_with_context(
                                             })
                                             .unwrap_or_else(|| "-".to_string());
                                         let reason = format!(
-                                        "loadCodeAssist 成功但无 tier: paidTier={:?}, currentTier={:?}, allowedTiers=[{}], hasProject={}",
-                                        paid_tier_id,
-                                        current_tier_id,
-                                        allowed_tier_preview,
-                                        data.project.is_some()
-                                    );
+                                            "loadCodeAssist 成功但无 tier: paidTier={:?}, currentTier={:?}, allowedTiers=[{}], hasProject={}",
+                                            paid_tier_id,
+                                            current_tier_id,
+                                            allowed_tier_preview,
+                                            data.project.is_some()
+                                        );
                                         log_subscription_tier_result(
                                             email,
                                             subscription_tier.as_ref(),
@@ -742,7 +798,12 @@ pub async fn fetch_project_id_with_context(
                                     let response_project_id =
                                         data.project.as_ref().and_then(extract_project_id);
                                     if let Some(project_id) = response_project_id.clone() {
-                                        return (Some(project_id), subscription_tier, credits);
+                                        return ProjectMetadataResult {
+                                            project_id: Some(project_id),
+                                            subscription_tier,
+                                            credits,
+                                            is_gcp_tos: resolved_is_gcp_tos,
+                                        };
                                     }
 
                                     if let Some(tiers) = data.allowed_tiers {
@@ -766,11 +827,12 @@ pub async fn fetch_project_id_with_context(
                                         {
                                             Ok(project_id) => {
                                                 if let Some(project_id) = project_id {
-                                                    return (
-                                                        Some(project_id),
+                                                    return ProjectMetadataResult {
+                                                        project_id: Some(project_id),
                                                         subscription_tier,
                                                         credits,
-                                                    );
+                                                        is_gcp_tos: resolved_is_gcp_tos,
+                                                    };
                                                 }
                                             }
                                             Err(err) => {
@@ -782,7 +844,12 @@ pub async fn fetch_project_id_with_context(
                                         }
                                     }
 
-                                    return (None, subscription_tier, credits);
+                                    return ProjectMetadataResult {
+                                        project_id: None,
+                                        subscription_tier,
+                                        credits,
+                                        is_gcp_tos: resolved_is_gcp_tos,
+                                    };
                                 }
                                 Err(err) => {
                                     last_error = Some(format!("loadCodeAssist 解析失败: {}", err));
@@ -815,7 +882,7 @@ pub async fn fetch_project_id_with_context(
                                 header_value(&headers, reqwest::header::CONTENT_LENGTH)
                             );
                             crate::modules::logger::log_error(&format!(
-                                "❌ [{}] loadCodeAssist 响应读取失败: {}, {}",
+                                "❌ [{}] loadCodeAssist 请求失败: {}, {}",
                                 email, err, header_info
                             ));
                         }
@@ -830,7 +897,12 @@ pub async fn fetch_project_id_with_context(
                         text.len()
                     );
                     log_subscription_tier_result(email, subscription_tier.as_ref(), &reason);
-                    return (None, subscription_tier, credits);
+                    return ProjectMetadataResult {
+                        project_id: None,
+                        subscription_tier,
+                        credits,
+                        is_gcp_tos: resolved_is_gcp_tos,
+                    };
                 } else if status == reqwest::StatusCode::FORBIDDEN {
                     let text = res.text().await.unwrap_or_default();
                     let reason = format!(
@@ -841,7 +913,12 @@ pub async fn fetch_project_id_with_context(
                         text.len()
                     );
                     log_subscription_tier_result(email, subscription_tier.as_ref(), &reason);
-                    return (None, subscription_tier, credits);
+                    return ProjectMetadataResult {
+                        project_id: None,
+                        subscription_tier,
+                        credits,
+                        is_gcp_tos: resolved_is_gcp_tos,
+                    };
                 } else {
                     let text = res.text().await.unwrap_or_default();
                     let retryable =
@@ -886,7 +963,12 @@ pub async fn fetch_project_id_with_context(
         log_subscription_tier_result(email, subscription_tier.as_ref(), "未知错误");
     }
 
-    (None, subscription_tier, credits)
+    ProjectMetadataResult {
+        project_id: None,
+        subscription_tier,
+        credits,
+        is_gcp_tos: resolved_is_gcp_tos,
+    }
 }
 
 fn build_quota_data_from_response(
@@ -894,6 +976,8 @@ fn build_quota_data_from_response(
     subscription_tier: Option<String>,
     credits: Vec<CreditInfo>,
     quota_summary: Option<serde_json::Value>,
+    is_gcp_tos: Option<bool>,
+    project_id: Option<String>,
 ) -> QuotaData {
     let mut quota_data = QuotaData::new();
 
@@ -949,6 +1033,8 @@ fn build_quota_data_from_response(
 
     quota_data.subscription_tier = subscription_tier;
     quota_data.credits = credits;
+    quota_data.is_gcp_tos = is_gcp_tos;
+    quota_data.project_id = project_id;
     quota_data
 }
 
@@ -970,8 +1056,11 @@ pub async fn fetch_quota_with_context(
     use crate::error::AppError;
 
     let base_url = resolve_cloud_code_base_url(ctx);
-    let (resolved_project_id, subscription_tier, credits) =
-        fetch_project_id_with_context(access_token, email, ctx).await;
+    let meta = fetch_project_metadata_with_context(access_token, email, ctx).await;
+    let resolved_project_id = meta.project_id;
+    let subscription_tier = meta.subscription_tier;
+    let credits = meta.credits;
+    let is_gcp_tos = meta.is_gcp_tos;
     let effective_project_id = resolved_project_id
         .clone()
         .or_else(|| ctx.preferred_project_id.clone());
@@ -994,6 +1083,8 @@ pub async fn fetch_quota_with_context(
                         subscription_tier.clone(),
                         credits.clone(),
                         quota_summary,
+                        is_gcp_tos,
+                        resolved_project_id.clone(),
                     );
                     return Ok(QuotaFetchResult {
                         quota: quota_data,
@@ -1042,6 +1133,8 @@ pub async fn fetch_quota_with_context(
                         let mut q = QuotaData::new();
                         q.is_forbidden = true;
                         q.subscription_tier = subscription_tier.clone();
+                        q.is_gcp_tos = is_gcp_tos;
+                        q.project_id = resolved_project_id.clone();
                         let message = if text.trim().is_empty() {
                             "API returned 403 Forbidden".to_string()
                         } else {
@@ -1152,6 +1245,8 @@ pub async fn fetch_quota_with_context(
                     subscription_tier.clone(),
                     credits.clone(),
                     quota_summary_val,
+                    is_gcp_tos,
+                    resolved_project_id.clone(),
                 );
 
                 return Ok(QuotaFetchResult {

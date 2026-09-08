@@ -276,6 +276,48 @@ fn read_experimental_model_catalog_config(
     serde_json::from_str::<ExperimentalModelCatalogConfig>(&content).ok()
 }
 
+fn strip_legacy_model_context_fields(base_dir: &Path) -> Result<bool, String> {
+    let path = experimental_model_config_path(base_dir);
+    let Ok(content) = fs::read_to_string(&path) else {
+        return Ok(false);
+    };
+    let mut config = serde_json::from_str::<serde_json::Value>(&content).map_err(|error| {
+        format!(
+            "解析 Codex 模型配置缓存失败: path={}, error={}",
+            path.display(),
+            error
+        )
+    })?;
+    let mut changed = false;
+    if let Some(models) = config
+        .get_mut("models")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        for model in models {
+            let Some(model) = model.as_object_mut() else {
+                continue;
+            };
+            changed |= model.remove("context_window").is_some();
+            changed |= model.remove("max_context_window").is_some();
+            changed |= model.remove("auto_compact_token_limit").is_some();
+        }
+    }
+    if !changed {
+        return Ok(false);
+    }
+    let mut content = serde_json::to_string_pretty(&config)
+        .map_err(|error| format!("序列化 Codex 模型配置缓存失败: {}", error))?;
+    content.push('\n');
+    write_string_atomic(&path, &content).map_err(|error| {
+        format!(
+            "清理 Codex 模型级上下文配置失败: path={}, error={}",
+            path.display(),
+            error
+        )
+    })?;
+    Ok(true)
+}
+
 fn experimental_model_catalog_has_migration(base_dir: &Path, migration_id: &str) -> bool {
     read_experimental_model_catalog_config(base_dir)
         .is_some_and(|config| config.migrations.iter().any(|item| item == migration_id))
@@ -579,8 +621,6 @@ fn default_experimental_model_definitions(
                         model_id: model_id.to_string(),
                         display_name: model_catalog_display_name(model_id, display_name),
                         reasoning_efforts: None,
-                        context_window: None,
-                        auto_compact_token_limit: None,
                     })
                 })
                 .collect::<Vec<_>>()
@@ -593,8 +633,6 @@ fn default_experimental_model_definitions(
                 display_name: model_id.clone(),
                 model_id,
                 reasoning_efforts: None,
-                context_window: None,
-                auto_compact_token_limit: None,
             })
             .collect()
     } else {
@@ -682,7 +720,7 @@ fn normalize_reasoning_efforts(
     Ok(Some(normalized))
 }
 
-fn normalize_experimental_model_definitions(
+pub(crate) fn normalize_experimental_model_definitions(
     models: Vec<CodexExperimentalModelDefinition>,
 ) -> Result<Vec<CodexExperimentalModelDefinition>, String> {
     if models.is_empty() {
@@ -704,67 +742,24 @@ fn normalize_experimental_model_definitions(
         if !seen.insert(key) {
             return Err("EXPERIMENTAL_MODEL_CATALOG_MODEL_ID_DUPLICATE".to_string());
         }
-        let context_window = model.context_window.filter(|value| *value > 0);
-        if model.context_window.is_some() && context_window.is_none() {
-            return Err("EXPERIMENTAL_MODEL_CATALOG_CONTEXT_WINDOW_INVALID".to_string());
-        }
-        let auto_compact_token_limit = model.auto_compact_token_limit.filter(|value| *value > 0);
-        if model.auto_compact_token_limit.is_some() && auto_compact_token_limit.is_none() {
-            return Err("EXPERIMENTAL_MODEL_CATALOG_AUTO_COMPACT_INVALID".to_string());
-        }
-        if let (Some(context_window), Some(auto_compact_token_limit)) =
-            (context_window, auto_compact_token_limit)
-        {
-            if auto_compact_token_limit >= context_window {
-                return Err("EXPERIMENTAL_MODEL_CATALOG_AUTO_COMPACT_RANGE_INVALID".to_string());
-            }
-        }
         normalized.push(CodexExperimentalModelDefinition {
             model_id: model_id.to_string(),
             display_name: display_name.to_string(),
             reasoning_efforts: normalize_reasoning_efforts(model.reasoning_efforts.clone())?,
-            context_window,
-            auto_compact_token_limit,
         });
     }
     Ok(normalized)
 }
 
-fn apply_model_context_config_to_catalog(
-    catalog: &mut serde_json::Value,
-    models: &[CodexExperimentalModelDefinition],
-) {
-    let definitions = models
-        .iter()
-        .map(|model| {
-            (
-                model.model_id.clone(),
-                model.context_window,
-                model.auto_compact_token_limit,
-            )
-        })
-        .collect::<Vec<_>>();
-    crate::modules::codex_protocol::apply_model_context_overrides(catalog, &definitions);
-}
-
-pub(crate) fn decorate_managed_model_catalog_for_profile(
-    base_dir: &Path,
-    catalog_json: &str,
-) -> Result<String, String> {
-    if !experimental_model_policy_enabled(base_dir) {
-        return Ok(catalog_json.to_string());
-    }
-    let mut catalog = serde_json::from_str::<serde_json::Value>(catalog_json)
-        .map_err(|error| format!("解析 Codex 受管模型目录失败: {}", error))?;
-    let models = read_experimental_model_definitions(base_dir);
-    apply_model_context_config_to_catalog(&mut catalog, &models);
-    serde_json::to_string_pretty(&catalog)
-        .map_err(|error| format!("序列化 Codex 受管模型目录失败: {}", error))
-}
-
 pub(crate) fn read_experimental_model_definitions(
     base_dir: &Path,
 ) -> Vec<CodexExperimentalModelDefinition> {
+    if let Err(error) = strip_legacy_model_context_fields(base_dir) {
+        logger::log_warn(&format!(
+            "[Codex模型管理] 清理历史模型级上下文配置失败，已忽略该字段: {}",
+            error
+        ));
+    }
     let path = experimental_model_config_path(base_dir);
     let Ok(content) = fs::read_to_string(&path) else {
         return default_experimental_model_definitions(base_dir);
@@ -808,8 +803,6 @@ pub(crate) fn read_experimental_model_definitions(
             model_id: "gpt-reserve".to_string(),
             display_name: "Luna Reserve".to_string(),
             reasoning_efforts: None,
-            context_window: None,
-            auto_compact_token_limit: None,
         });
     }
     models
@@ -914,7 +907,6 @@ fn build_experimental_model_catalog(base_dir: &Path) -> Result<String, String> {
         .collect::<Vec<_>>();
     let mut catalog =
         crate::modules::codex_protocol::build_codex_client_models_response_with_model_definitions_and_reasoning(&definitions);
-    apply_model_context_config_to_catalog(&mut catalog, &model_definitions);
     crate::modules::codex_protocol::ensure_codex_reserve_fallback(&mut catalog);
     serde_json::to_string_pretty(&catalog)
         .map(|mut content| {
@@ -1043,41 +1035,10 @@ fn read_catalog_model_definitions(
                 .map(str::trim)
                 .filter(|value| !value.is_empty() && value.chars().count() <= 100)
                 .unwrap_or(model_id);
-            let official_model =
-                crate::modules::codex_protocol::build_codex_client_models_response(&[
-                    model_id.to_string()
-                ])
-                .get("models")
-                .and_then(serde_json::Value::as_array)
-                .and_then(|models| models.first())
-                .cloned();
-            let official_context_window = official_model
-                .as_ref()
-                .and_then(|model| model.get("context_window"))
-                .and_then(serde_json::Value::as_i64);
-            let official_auto_compact_token_limit = official_model
-                .as_ref()
-                .and_then(|model| model.get("auto_compact_token_limit"))
-                .and_then(serde_json::Value::as_i64);
-            let context_window = model
-                .get("context_window")
-                .and_then(serde_json::Value::as_i64)
-                .filter(|value| *value > 0 && Some(*value) != official_context_window);
-            let auto_compact_token_limit = model
-                .get("auto_compact_token_limit")
-                .and_then(serde_json::Value::as_i64)
-                .filter(|value| *value > 0 && Some(*value) != official_auto_compact_token_limit)
-                .or_else(|| match context_window {
-                    Some(1_000_000) => Some(900_000),
-                    Some(516_000) => Some(460_000),
-                    _ => None,
-                });
             Some(CodexExperimentalModelDefinition {
                 model_id: model_id.to_string(),
                 display_name: model_catalog_display_name(model_id, display_name),
                 reasoning_efforts: None,
-                context_window,
-                auto_compact_token_limit,
             })
         })
         .collect()
@@ -1088,17 +1049,10 @@ fn merge_model_definitions(
     extra: Vec<CodexExperimentalModelDefinition>,
 ) -> Vec<CodexExperimentalModelDefinition> {
     for model in extra {
-        if let Some(existing) = definitions
-            .iter_mut()
-            .find(|existing| existing.model_id.eq_ignore_ascii_case(&model.model_id))
+        if !definitions
+            .iter()
+            .any(|existing| existing.model_id.eq_ignore_ascii_case(&model.model_id))
         {
-            if model.context_window.is_some() {
-                existing.context_window = model.context_window;
-            }
-            if model.auto_compact_token_limit.is_some() {
-                existing.auto_compact_token_limit = model.auto_compact_token_limit;
-            }
-        } else {
             definitions.push(model);
         }
     }
@@ -1335,6 +1289,8 @@ pub fn read_quick_config_from_config_toml(base_dir: &Path) -> Result<CodexQuickC
         experimental_model_catalog_conflict: experimental.conflict,
         experimental_model_catalog_models: experimental_models,
         experimental_model_catalog_default_model_id: experimental_default_model_id,
+        experimental_model_catalog_reset_models: default_experimental_model_definitions(base_dir),
+        experimental_model_catalog_reset_default_model_id: Some(DEFAULT_CODEX_MODEL_ID.to_string()),
         context_management_experimental_mode,
     })
 }
@@ -1936,7 +1892,6 @@ fn sync_api_key_model_catalog_to_dir(
         account,
         crate::modules::codex_local_access::read_toml_model_context_window(&doc),
     )?;
-    let content = decorate_managed_model_catalog_for_profile(base_dir, &content)?;
     let catalog_path = base_dir.join(CODEX_MANAGED_MODEL_CATALOG_FILE);
     write_string_atomic(&catalog_path, &content).map_err(|e| {
         format!(

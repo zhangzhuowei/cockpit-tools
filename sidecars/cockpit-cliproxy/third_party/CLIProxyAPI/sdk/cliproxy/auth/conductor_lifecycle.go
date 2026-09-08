@@ -400,6 +400,11 @@ func (m *Manager) persist(ctx context.Context, auth *Auth) error {
 	if IsPluginVirtualAuth(auth) {
 		return nil
 	}
+	// Runtime-only recovery must not wait behind a slow filesystem write. Its
+	// caller schedules a newer durable snapshot after publishing runtime state.
+	if shouldSkipPersistWithoutWatermark(ctx) {
+		return nil
+	}
 	// Skip persistence when metadata is absent (e.g., runtime-only auths).
 	if auth.Metadata == nil {
 		return nil

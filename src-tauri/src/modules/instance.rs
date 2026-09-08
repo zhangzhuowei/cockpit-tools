@@ -6,7 +6,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::models::{DefaultInstanceSettings, InstanceProfile, InstanceStore};
+use crate::models::{Account, DefaultInstanceSettings, InstanceProfile, InstanceStore};
 use crate::modules;
 use crate::modules::instance_store;
 
@@ -78,6 +78,10 @@ pub fn update_default_settings(
 
 pub fn get_default_user_data_dir() -> Result<PathBuf, String> {
     modules::antigravity_paths::default_user_data_dir()
+}
+
+pub fn get_all_antigravity_user_data_dirs() -> Vec<PathBuf> {
+    modules::antigravity_paths::all_antigravity_user_data_dirs()
 }
 
 pub fn get_default_instances_root_dir() -> Result<PathBuf, String> {
@@ -167,8 +171,15 @@ fn ensure_state_db_for_injection(profile_dir: &Path) -> Result<PathBuf, String> 
 
 pub fn inject_account_to_profile(profile_dir: &Path, account_id: &str) -> Result<(), String> {
     let account = modules::load_account(account_id)?;
+    inject_account_to_profile_with_account(profile_dir, &account)
+}
+
+pub fn inject_account_to_profile_with_account(
+    profile_dir: &Path,
+    account: &Account,
+) -> Result<(), String> {
     let db_path = ensure_state_db_for_injection(profile_dir)?;
-    modules::db::inject_account_token_to_path(&db_path, &account).map(|_| ())
+    modules::db::inject_account_token_to_path(&db_path, account).map(|_| ())
 }
 
 pub fn create_instance(params: CreateInstanceParams) -> Result<InstanceProfile, String> {

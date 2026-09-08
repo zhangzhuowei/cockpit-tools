@@ -1,5 +1,12 @@
 {
   "common": {
+    "quotaRefreshScheduler": {
+      "busy": "Antrean pembaruan penuh. Coba lagi sebentar.",
+      "timeout": "Pembaruan kuota kehabisan waktu. Silakan coba lagi.",
+      "interrupted": "Pembaruan kuota berhenti secara tak terduga. Silakan coba lagi.",
+      "deferred": "Pembaruan latar belakang yang menunggu ditunda untuk mendahulukan pembaruan manual.",
+      "invalidAccountId": "ID akun wajib diisi."
+    },
     "confirm": "Konfirmasi",
     "cancel": "Batal",
     "cancelling": "Membatalkan...",
@@ -604,6 +611,7 @@
         "runningSaveMessage": "Instans Codex ini sedang berjalan. Mengganti layanan lokal sekarang akan memutus percakapan saat ini.\n\nPilih «Simpan dan mulai ulang Codex» untuk menerapkan sekarang, atau «Simpan untuk nanti» untuk mempertahankan sesi saat ini.",
         "saveAndRestart": "Simpan dan mulai ulang Codex",
         "saveForLater": "Simpan untuk nanti",
+        "savedForNextLaunch": "Tersimpan. Perubahan akan berlaku saat Codex berikutnya dijalankan melalui Cockpit; sesi saat ini tetap tidak berubah.",
         "restartRollbackFailed": "Rute baru gagal dimulai dan konfigurasi asli tidak dapat dimulai ulang: ",
         "restartRolledBack": "Rute baru gagal dimulai. Konfigurasi asli telah dipulihkan dan Codex dimulai ulang: {{error}}"
       }
@@ -1381,6 +1389,10 @@
     "copyToken": "Salin Token",
     "deleteAccount": "Hapus Akun",
     "confirmDelete": "Yakin ingin menghapus akun {{email}}?",
+    "badge": {
+      "gcpTos": "Akun GCP ToS",
+      "gcpTosTitle": "Akun GCP ToS"
+    },
     "columns": {
       "email": "Email​",
       "subscription": "Langganan",
@@ -2039,6 +2051,14 @@
     "other_group": "Model Lainnya"
   },
   "codex": {
+    "teamHistory": {
+      "title": "Kuota Team sebelumnya (snapshot lokal)",
+      "unknown": "Tidak ada waktu reset sebelumnya",
+      "hint": "Sisa kuota sebelum kursi dihapus, bukan kuota yang tersedia saat ini",
+      "elapsed": "Diperkirakan sudah direset; verifikasi setelah kursi dipulihkan",
+      "resetIn": "Perkiraan reset: {{duration}}",
+      "observed": "Snapshot diambil: {{time}}"
+    },
     "oauthPolicy": {
       "globalTitle": "Izinkan app-server pihak ketiga",
       "globalDescription": "Saat diaktifkan, ringkasan kebijakan saat ini ditampilkan; gunakan Kelola untuk mengatur akun secara massal atau per akun.",
@@ -2068,6 +2088,30 @@
       "applyBatch": "Terapkan ke pilihan"
     },
     "title": "Codex Account​",
+    "contextOverride": {
+      "title": "Manajemen konteks",
+      "description": "Model, urutan, model default, dan tingkat penalaran mengikuti katalog resmi. Konteks hanya ditimpa secara manual.",
+      "dialogDescription": "Pengaturan ini berlaku untuk semua akun dalam instans Codex saat ini dan tetap sama saat berganti akun. Pilih pengaturan resmi, preset, atau konteks kustom.",
+      "followOfficial": "Ikuti resmi",
+      "custom": "Konteks kustom",
+      "automatic": "Otomatis",
+      "adjust": "Sesuaikan konteks",
+      "manage": "Kelola konteks",
+      "apply": "Terapkan konteks"
+    },
+    "modelManagement": {
+      "title": "Manajemen model",
+      "enabled": "Aktif",
+      "disabled": "Ikuti resmi",
+      "enable": "Aktifkan manajemen model",
+      "disable": "Nonaktifkan manajemen model",
+      "manage": "Kelola model",
+      "disabledDescription": "Nonaktif secara default. Model, urutan, model default, dan tingkat penalaran mengikuti katalog resmi.",
+      "enabledDescription": "Katalog yang dikonfigurasi sedang aktif. Anda dapat menambah atau menghapus model dan daftar tidak lagi diperbarui mengikuti katalog resmi.",
+      "enableConfirmTitle": "Aktifkan manajemen model?",
+      "enableConfirmDescription": "Codex akan menggunakan katalog yang dikonfigurasi di sini. Anda dapat menyesuaikan model, tetapi daftar tidak lagi diperbarui otomatis.",
+      "enableConfirmAction": "Aktifkan dan atur"
+    },
     "experimentalModelCatalog": {
       "title": "Model yang terlihat",
       "description": "Kelola model yang terlihat, tingkat penalaran, konteks, dan ambang pemadatan di satu tempat.",
@@ -2086,6 +2130,7 @@
         "followOfficial": "Ikuti resmi",
         "operation": "Tindakan",
         "manage": "Kelola",
+        "resetDefaults": "Pulihkan default",
         "inheritHint": "Model resmi mempertahankan bidang kemampuannya; model khusus menggunakan templat umum. Model yang terlihat dapat ditambah atau dihapus.",
         "validation": {
           "required": "Pertahankan setidaknya satu model.",

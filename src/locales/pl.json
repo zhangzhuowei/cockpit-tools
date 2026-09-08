@@ -1,5 +1,12 @@
 {
   "common": {
+    "quotaRefreshScheduler": {
+      "busy": "Kolejka odświeżania jest pełna. Spróbuj za chwilę.",
+      "timeout": "Upłynął czas odświeżania limitu. Spróbuj ponownie.",
+      "interrupted": "Odświeżanie limitu zakończyło się nieoczekiwanie. Spróbuj ponownie.",
+      "deferred": "Oczekujące odświeżenia w tle zostały odłożone, aby nadać priorytet ręcznemu odświeżaniu.",
+      "invalidAccountId": "Identyfikator konta jest wymagany."
+    },
     "confirm": "Potwierdź",
     "cancel": "Anuluj",
     "cancelling": "Anulowanie...",
@@ -545,6 +552,7 @@
         "runningSaveMessage": "Ta instancja Codex jest uruchomiona. Zastąpienie lokalnej usługi teraz przerwie bieżącą rozmowę.\n\nWybierz „Zapisz i zrestartuj Codex”, aby zastosować teraz, lub „Zapisz na później”, aby zachować bieżącą sesję bez zmian.",
         "saveAndRestart": "Zapisz i zrestartuj Codex",
         "saveForLater": "Zapisz na później",
+        "savedForNextLaunch": "Zapisano. Zmiana zostanie zastosowana przy następnym uruchomieniu Codex przez Cockpit; bieżąca sesja pozostanie bez zmian.",
         "restartRollbackFailed": "Nie udało się uruchomić nowej trasy i nie można zrestartować pierwotnej konfiguracji: ",
         "restartRolledBack": "Nie udało się uruchomić nowej trasy. Przywrócono pierwotną konfigurację i zrestartowano Codex: {{error}}"
       }
@@ -1334,6 +1342,10 @@
     "copyToken": "Kopiuj token",
     "deleteAccount": "Usuń konto",
     "confirmDelete": "Czy na pewno chcesz usunąć konto {{email}}?",
+    "badge": {
+      "gcpTos": "Konto GCP ToS",
+      "gcpTosTitle": "Konto GCP ToS"
+    },
     "columns": {
       "email": "E-mail",
       "subscription": "Subskrypcja",
@@ -1992,6 +2004,14 @@
     "other_group": "Inne modele"
   },
   "codex": {
+    "teamHistory": {
+      "title": "Poprzedni limit Team (lokalna migawka)",
+      "unknown": "Brak poprzedniego czasu resetu",
+      "hint": "Pozostały limit przed usunięciem miejsca, a nie limit dostępny obecnie",
+      "elapsed": "Prawdopodobnie zresetowano; sprawdź po przywróceniu miejsca",
+      "resetIn": "Przewidywany reset: {{duration}}",
+      "observed": "Migawka wykonana: {{time}}"
+    },
     "oauthPolicy": {
       "globalTitle": "Zezwalaj na zewnętrzny app-server",
       "globalDescription": "Po włączeniu pojawi się podsumowanie zasad; wybierz Zarządzaj, aby skonfigurować konta Codex OAuth zbiorczo lub pojedynczo.",
@@ -2021,6 +2041,30 @@
       "applyBatch": "Zastosuj do wybranych"
     },
     "title": "Zarządzanie kontami Codex",
+    "contextOverride": {
+      "title": "Zarządzanie kontekstem",
+      "description": "Modele, kolejność, model domyślny i poziomy rozumowania są zgodne z oficjalnym katalogiem. Kontekst jest zastępowany tylko ręcznie.",
+      "dialogDescription": "Ustawienie dotyczy wszystkich kont w bieżącej instancji Codex i pozostaje bez zmian po przełączeniu konta. Wybierz ustawienia oficjalne, ustawienie wstępne lub własny kontekst.",
+      "followOfficial": "Zgodnie z oficjalnym",
+      "custom": "Własny kontekst",
+      "automatic": "Automatycznie",
+      "adjust": "Dostosuj kontekst",
+      "manage": "Zarządzaj kontekstem",
+      "apply": "Zastosuj kontekst"
+    },
+    "modelManagement": {
+      "title": "Zarządzanie modelami",
+      "enabled": "Włączone",
+      "disabled": "Zgodnie z oficjalnym",
+      "enable": "Włącz zarządzanie modelami",
+      "disable": "Wyłącz zarządzanie modelami",
+      "manage": "Zarządzaj modelami",
+      "disabledDescription": "Domyślnie wyłączone. Modele, kolejność i poziomy rozumowania są zgodne z oficjalnym katalogiem.",
+      "enabledDescription": "Skonfigurowany katalog jest aktywny. Możesz dodawać i usuwać modele, a lista nie będzie już automatycznie aktualizowana.",
+      "enableConfirmTitle": "Włączyć zarządzanie modelami?",
+      "enableConfirmDescription": "Codex użyje skonfigurowanego tutaj katalogu. Możesz dostosowywać modele, ale lista nie będzie automatycznie aktualizowana.",
+      "enableConfirmAction": "Włącz i skonfiguruj"
+    },
     "experimentalModelCatalog": {
       "title": "Widoczne modele",
       "description": "Zarządzaj w jednym miejscu widocznymi modelami, poziomem rozumowania, kontekstem i progiem kompresji.",
@@ -2039,6 +2083,7 @@
         "followOfficial": "Zgodnie z oficjalnym",
         "operation": "Działania",
         "manage": "Zarządzaj",
+        "resetDefaults": "Przywróć domyślne",
         "inheritHint": "Oficjalne modele zachowują swoje możliwości, a własne używają ogólnego szablonu. Widoczne modele można dodawać i usuwać.",
         "validation": {
           "required": "Pozostaw co najmniej jeden model.",

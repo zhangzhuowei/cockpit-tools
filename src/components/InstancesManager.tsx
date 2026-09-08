@@ -40,6 +40,11 @@ import {
   InstanceProfile,
 } from "../types/instance";
 import type { PlatformId } from "../types/platform";
+import {
+  areCodexModelRoutingsEqual,
+  buildCodexModelRoutingValue,
+  resolveRoutingCatalog,
+} from "../utils/codexModelRoutingValue";
 import type {
   CodexExperimentalModelDefinition,
   CodexQuickConfig,
@@ -747,7 +752,7 @@ export function InstancesManager<TAccount extends AccountLike>({
     [accounts, formModelRoutes, getAccountDisplayText, t],
   );
   const formAvailableChannels = useMemo(() => {
-    if (!isCodexApp) return [];
+    if (!isCodexApp || !formModelRoutingEnabled) return [];
     const providerAccounts = eligibleCodexModelRoutingAccounts(accounts);
     return formModelRoutes
       .filter((route) => route.enabled)
@@ -768,7 +773,7 @@ export function InstancesManager<TAccount extends AccountLike>({
         };
       })
       .filter((group) => group.models.length > 0);
-  }, [accounts, formModelRoutes, getAccountDisplayText, isCodexApp]);
+  }, [accounts, formModelRoutes, formModelRoutingEnabled, getAccountDisplayText, isCodexApp]);
   const resolveInstanceLaunchMode = (
     instance?: InstanceProfile | null,
   ): InstanceLaunchMode => {
@@ -1328,7 +1333,8 @@ export function InstancesManager<TAccount extends AccountLike>({
       editing &&
       isCodexApp &&
       formExperimentalModelCatalogEnabled &&
-      formExperimentalModelsError
+      formExperimentalModelsError &&
+      formExperimentalModels.length > 0
     ) {
       setFormError(formExperimentalModelsError);
       setFormErrorTick((prev) => prev + 1);
@@ -1433,20 +1439,6 @@ export function InstancesManager<TAccount extends AccountLike>({
           setFormErrorTick((prev) => prev + 1);
           return;
         }
-        if (
-          route.enabled &&
-          route.selectedModels !== undefined &&
-          route.selectedModels.filter((model) => model.trim()).length === 0
-        ) {
-          setFormError(
-            t(
-              "instances.form.modelRouting.modelRequired",
-              "每个已启用的 API 路由至少需要选择一个模型。",
-            ),
-          );
-          setFormErrorTick((prev) => prev + 1);
-          return;
-        }
         normalizedRoutes.push({
           ...route,
           namespace,
@@ -1464,11 +1456,7 @@ export function InstancesManager<TAccount extends AccountLike>({
         return;
       }
 
-      nextModelRouting = {
-        enabled: true,
-        version: 1,
-        routes: normalizedRoutes,
-      };
+      nextModelRouting = buildCodexModelRoutingValue(true, normalizedRoutes);
       nextExperimentalModels = syncExperimentalModelsWithRouting(
         formExperimentalModels,
         normalizedRoutes,
@@ -1477,6 +1465,7 @@ export function InstancesManager<TAccount extends AccountLike>({
       );
       nextExperimentalModelCatalogEnabled = true;
     } else if (editing && isCodexApp && editing.modelRouting?.enabled) {
+      nextModelRouting = buildCodexModelRoutingValue(false, formModelRoutes);
       nextExperimentalModels = syncExperimentalModelsWithRouting(
         formExperimentalModels,
         [],
@@ -1484,11 +1473,16 @@ export function InstancesManager<TAccount extends AccountLike>({
         false,
       );
     }
+    if (editing && isCodexApp && !formModelRoutingEnabled) {
+      nextModelRouting = buildCodexModelRoutingValue(false, formModelRoutes);
+    }
+    const nextCatalog = resolveRoutingCatalog(
+      nextExperimentalModels, nextExperimentalModelCatalogEnabled, formExperimentalDefaultModelId,
+    );
     const modelRoutingChanged = Boolean(
       editing &&
         isCodexApp &&
-        JSON.stringify(editing.modelRouting ?? null) !==
-          JSON.stringify(nextModelRouting),
+        !areCodexModelRoutingsEqual(editing.modelRouting, nextModelRouting),
     );
 
     try {
@@ -1567,10 +1561,10 @@ export function InstancesManager<TAccount extends AccountLike>({
           await saveCodexInstanceConfiguration({
             ...updatePayload,
             experimentalModelCatalogEnabled:
-              nextExperimentalModelCatalogEnabled,
-            experimentalModelCatalogModels: nextExperimentalModels,
+              nextCatalog.enabled,
+            experimentalModelCatalogModels: nextCatalog.models,
             experimentalModelCatalogDefaultModelId:
-              formExperimentalDefaultModelId,
+              nextCatalog.defaultModelId,
           });
           await refreshInstances();
         } else {
@@ -1586,7 +1580,7 @@ export function InstancesManager<TAccount extends AccountLike>({
               await saveCodexInstanceConfiguration({
                 instanceId: editing.id,
                 bindAccountId: editing.bindAccountId ?? null,
-                modelRouting: editing.modelRouting ?? null,
+                modelRouting: editing.modelRouting ?? buildCodexModelRoutingValue(false, []),
                 deferBindAccountApplication: true,
                 experimentalModelCatalogEnabled:
                   formCodexQuickConfig.experimental_model_catalog_enabled,
@@ -3538,6 +3532,13 @@ export function InstancesManager<TAccount extends AccountLike>({
                     }
                     onEnabledChange={(enabled) => {
                       setFormModelRoutingEnabled(enabled);
+                      const catalog = resolveRoutingCatalog(
+                        syncExperimentalModelsWithRouting(formExperimentalModels, formModelRoutes, accounts, enabled),
+                        enabled || formExperimentalModelCatalogEnabled,
+                        formExperimentalDefaultModelId,
+                      );
+                      setFormExperimentalModelCatalogEnabled(catalog.enabled);
+                      setFormExperimentalDefaultModelId(catalog.defaultModelId);
                       if (
                         !editing &&
                         enabled &&
@@ -3601,9 +3602,7 @@ export function InstancesManager<TAccount extends AccountLike>({
               {isCodexApp && editing && (
                 <div className="form-group instance-codex-quick-config">
                   <div className="instance-codex-quick-header">
-                    <label>
-                      {t("codex.experimentalModelCatalog.title", "可见模型")}
-                    </label>
+                    <label>{t("codex.modelManagement.title", "模型管理")}</label>
                     <button
                       type="button"
                       className="btn btn-secondary instance-codex-quick-open-btn"
@@ -3631,25 +3630,13 @@ export function InstancesManager<TAccount extends AccountLike>({
                       <div className="instance-codex-experimental-model">
                         <div className="instance-codex-experimental-model__copy">
                           <label htmlFor="instance-codex-experimental-model-catalog">
-                            {t(
-                              "codex.experimentalModelCatalog.title",
-                              "可见模型",
-                            )}
+                            {t("codex.modelManagement.title", "模型管理")}
                           </label>
                           <p className="form-hint">
-                            {t(
-                              "codex.experimentalModelCatalog.description",
-                              "统一管理可见模型、推理强度、上下文窗口和压缩阈值。",
-                            )}
+                            {formExperimentalModelCatalogEnabled
+                              ? t("codex.modelManagement.enabledDescription")
+                              : t("codex.modelManagement.disabledDescription")}
                           </p>
-                          {formExperimentalModelCatalogEnabled && (
-                            <p className="form-hint">
-                              {t(
-                                "codex.experimentalModelCatalog.enabledHint",
-                                "启用后使用当前可见模型列表，重启 Codex 生效。",
-                              )}
-                            </p>
-                          )}
                           {formExperimentalModelUnavailableMessage && (
                             <div className="form-error instance-codex-experimental-model__error">
                               {formExperimentalModelUnavailableMessage}
@@ -3663,9 +3650,33 @@ export function InstancesManager<TAccount extends AccountLike>({
                             checked={formExperimentalModelCatalogEnabled}
                             onChange={(event) => {
                               setFormCodexQuickConfigError(null);
-                              setFormExperimentalModelCatalogEnabled(
-                                event.target.checked,
-                              );
+                              const enabled = event.target.checked;
+                              if (enabled) {
+                                void confirmDialog(
+                                  t(
+                                    "codex.modelManagement.enableConfirmDescription",
+                                    "开启后，Codex 将以这里配置的模型目录为准。你可以添加、删除和调整模型，但模型列表不会再自动跟随官方变化。",
+                                  ),
+                                  {
+                                    title: t(
+                                      "codex.modelManagement.enableConfirmTitle",
+                                      "开启模型管理？",
+                                    ),
+                                    okLabel: t(
+                                      "codex.modelManagement.enableConfirmAction",
+                                      "开启并配置",
+                                    ),
+                                    cancelLabel: t("common.cancel", "取消"),
+                                    kind: "warning",
+                                  },
+                                ).then((confirmed) => {
+                                  if (confirmed) {
+                                    setFormExperimentalModelCatalogEnabled(true);
+                                  }
+                                });
+                                return;
+                              }
+                              setFormExperimentalModelCatalogEnabled(false);
                             }}
                             disabled={
                               actionLoading === editing.id ||

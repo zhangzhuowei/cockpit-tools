@@ -1,5 +1,12 @@
 {
   "common": {
+    "quotaRefreshScheduler": {
+      "busy": "The refresh queue is full. Try again shortly.",
+      "timeout": "Quota refresh timed out. Please retry.",
+      "interrupted": "Quota refresh ended unexpectedly. Please retry.",
+      "deferred": "Pending background refreshes were deferred for manual refresh.",
+      "invalidAccountId": "An account ID is required."
+    },
     "confirm": "Confirm",
     "cancel": "Cancel",
     "cancelling": "Cancelling...",
@@ -749,6 +756,7 @@
         "runningSaveMessage": "This Codex instance is running. Replacing the local service now will interrupt the current conversation.\n\nChoose Save and restart Codex to apply now, or Save for later to keep the current session unchanged.",
         "saveAndRestart": "Save and restart Codex",
         "saveForLater": "Save for later",
+        "savedForNextLaunch": "Saved. It will take effect the next time you start Codex through Cockpit; the current session remains unchanged.",
         "restartRollbackFailed": "The new route failed to start and the original configuration could not be restarted: ",
         "restartRolledBack": "The new route failed to start. The original configuration was restored and Codex restarted: {{error}}"
       },
@@ -1533,6 +1541,10 @@
     "copyToken": "Copy Token",
     "deleteAccount": "Delete Account",
     "confirmDelete": "Are you sure you want to delete account {{email}}?",
+    "badge": {
+      "gcpTos": "GCP ToS",
+      "gcpTosTitle": "GCP ToS account"
+    },
     "columns": {
       "email": "Email",
       "subscription": "Subscription",
@@ -2191,6 +2203,14 @@
     "other_group": "Other Models"
   },
   "codex": {
+    "teamHistory": {
+      "title": "Previous Team quota (local snapshot)",
+      "unknown": "No historical reset time",
+      "hint": "Remaining quota before seat removal, not current available quota",
+      "elapsed": "Expected to reset; verify after restoring the seat",
+      "resetIn": "Expected reset: {{duration}}",
+      "observed": "Snapshot captured: {{time}}"
+    },
     "title": "Codex Account",
     "oauthPolicy": {
       "globalTitle": "Allow third-party clients",
@@ -2220,6 +2240,30 @@
       "fingerprintOff": "Fingerprint: off",
       "applyBatch": "Apply to selected"
     },
+    "contextOverride": {
+      "title": "Context management",
+      "description": "Models, ordering, the default model, and reasoning levels follow the official catalog. Context is overridden only when you set it manually.",
+      "dialogDescription": "This setting applies to every account in the current Codex instance and stays unchanged when accounts switch. Choose official settings, a preset, or Custom context.",
+      "followOfficial": "Follow official",
+      "custom": "Custom context",
+      "automatic": "Automatic",
+      "adjust": "Adjust context",
+      "manage": "Manage context",
+      "apply": "Apply context"
+    },
+    "modelManagement": {
+      "title": "Model management",
+      "enabled": "Enabled",
+      "disabled": "Follow official",
+      "enable": "Enable model management",
+      "disable": "Disable model management",
+      "manage": "Manage models",
+      "disabledDescription": "Off by default. When off, models, ordering, the default model, and reasoning levels follow the official catalog.",
+      "enabledDescription": "The configured model catalog is active. You can add or remove models, and the list no longer updates with the official catalog.",
+      "enableConfirmTitle": "Enable model management?",
+      "enableConfirmDescription": "After enabling, Codex uses the model catalog configured here. You can add, remove, and adjust models, but the list will no longer update automatically with the official catalog.",
+      "enableConfirmAction": "Enable and configure"
+    },
     "experimentalModelCatalog": {
       "title": "Visible models",
       "description": "Manage visible models, reasoning effort, context windows, and compact limits in one place.",
@@ -2238,6 +2282,7 @@
         "followOfficial": "Follow official",
         "operation": "Actions",
         "manage": "Manage",
+        "resetDefaults": "Reset to defaults",
         "inheritHint": "Official models keep their capability fields; custom models use a general capability template. Visible models can be added or removed.",
         "validation": {
           "required": "Keep at least one model.",

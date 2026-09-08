@@ -738,6 +738,9 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 	if result.AuthID == "" {
 		return
 	}
+	if result.AttemptStartedAt.IsZero() {
+		result.AttemptStartedAt = upstreamAttemptStartedAt(ctx)
+	}
 	modelKey := canonicalModelKey(result.Model)
 
 	var authSnapshot *Auth
@@ -746,6 +749,10 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 
 	m.mu.Lock()
 	if auth, ok := m.auths[result.AuthID]; ok && auth != nil {
+		if barrier := m.authRecoveryBarriers[result.AuthID]; !barrier.IsZero() && !result.AttemptStartedAt.IsZero() && result.AttemptStartedAt.Before(barrier) {
+			m.mu.Unlock()
+			return
+		}
 		if modelKey == "" && strings.TrimSpace(result.RouteModel) != "" {
 			if m != nil {
 				modelKey = m.selectionModelKeyForAuth(auth, result.RouteModel)

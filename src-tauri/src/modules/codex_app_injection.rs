@@ -2695,11 +2695,14 @@ async fn run_auth_diagnostic_loop(
     }
 }
 
-async fn api_service_quota_refresh_targets() -> Result<(usize, Vec<String>), String> {
+async fn api_service_quota_refresh_targets() -> Result<Option<(usize, Vec<String>)>, String> {
     let state = codex_local_access::get_local_access_state().await?;
     let Some(collection) = state.collection else {
-        return Ok((0, Vec::new()));
+        return Ok(None);
     };
+    if collection.account_ids.is_empty() {
+        return Ok(Some((0, Vec::new())));
+    }
     let mut existing_account_count = 0;
     let mut target_ids = Vec::new();
     for account_id in collection.account_ids {
@@ -2711,34 +2714,57 @@ async fn api_service_quota_refresh_targets() -> Result<(usize, Vec<String>), Str
             target_ids.push(account_id);
         }
     }
-    Ok((existing_account_count, target_ids))
+    if existing_account_count == 0 {
+        // Account files can be briefly unavailable while Cockpit atomically
+        // refreshes or rewrites them. Do not turn that transient read miss
+        // into a real empty pool in the injected UI.
+        return Ok(None);
+    }
+    Ok(Some((existing_account_count, target_ids)))
 }
 
-async fn refresh_api_service_quota_pool(app: &AppHandle) -> Result<(i32, usize), String> {
-    let (existing_account_count, target_ids) = api_service_quota_refresh_targets().await?;
+async fn api_service_account_pool_is_empty() -> Result<Option<bool>, String> {
+    let state = codex_local_access::get_local_access_state().await?;
+    Ok(state
+        .collection
+        .map(|collection| collection.account_ids.is_empty()))
+}
+
+async fn refresh_api_service_quota_pool(
+    app: &AppHandle,
+) -> Result<Option<(i32, usize)>, String> {
+    let Some((existing_account_count, target_ids)) = api_service_quota_refresh_targets().await? else {
+        return Ok(None);
+    };
     if existing_account_count == 0 {
-        return Ok((0, 0));
+        return Ok(Some((0, 0)));
     }
     if target_ids.is_empty() {
         return Err("API 服务账号池暂无可刷新的额度".to_string());
     }
     let total = target_ids.len();
-    let success_count =
-        crate::commands::codex::refresh_codex_quotas_batch(app.clone(), target_ids, Some(true))
-            .await?;
+    let success_count = crate::commands::codex::refresh_codex_quotas_batch(
+        app.clone(),
+        target_ids,
+        Some(true),
+        Some(false),
+    )
+    .await?;
     if success_count <= 0 {
         return Err("API 服务账号池额度刷新失败".to_string());
     }
-    Ok((success_count, total))
+    Ok(Some((success_count, total)))
 }
 
 async fn run_quota_refresh_singleflight(app: &AppHandle) -> Result<Option<(i32, usize)>, String> {
     let lock = quota_refresh_lock();
     match lock.try_lock() {
-        Ok(_guard) => refresh_api_service_quota_pool(app).await.map(Some),
+        Ok(_guard) => refresh_api_service_quota_pool(app).await,
         Err(_) => {
             let _guard = lock.lock().await;
-            let (existing_account_count, _) = api_service_quota_refresh_targets().await?;
+            let Some((existing_account_count, _)) = api_service_quota_refresh_targets().await? else {
+                return Ok(None);
+            };
             Ok((existing_account_count == 0).then_some((0, 0)))
         }
     }
@@ -2859,7 +2885,19 @@ async fn run_injection_loop(
         if refresh_finished || last_quota_at.elapsed() >= QUOTA_REFRESH_INTERVAL {
             let gateway = read_profile_gateway_config(&profile_dir);
             if let Some(value) = fetch_quota(&client, gateway.as_ref()).await {
-                quota = value;
+                let value_is_empty = value.account_count == Some(0);
+                let confirmed_empty = if value_is_empty {
+                    api_service_account_pool_is_empty()
+                        .await
+                        .ok()
+                        .flatten()
+                        .unwrap_or(false)
+                } else {
+                    false
+                };
+                if !value_is_empty || confirmed_empty || refreshed_empty_pool {
+                    quota = value;
+                }
             }
             if refreshed_empty_pool {
                 quota = QuotaResponse::empty_pool();

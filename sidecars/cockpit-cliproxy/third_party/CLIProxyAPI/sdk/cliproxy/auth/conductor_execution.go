@@ -23,9 +23,20 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+type upstreamAttemptStartedAtContextKey struct{}
+
 func newUpstreamAttemptContext(ctx context.Context) context.Context {
 	ctx = logging.WithFreshResponseHeadersHolder(ctx)
-	return cliproxyexecutor.WithUpstreamAttemptTracker(ctx)
+	ctx = cliproxyexecutor.WithUpstreamAttemptTracker(ctx)
+	return context.WithValue(ctx, upstreamAttemptStartedAtContextKey{}, time.Now())
+}
+
+func upstreamAttemptStartedAt(ctx context.Context) time.Time {
+	if ctx == nil {
+		return time.Time{}
+	}
+	startedAt, _ := ctx.Value(upstreamAttemptStartedAtContextKey{}).(time.Time)
+	return startedAt
 }
 
 func claudeOAuthRequestCancellation(ctx context.Context, auth *Auth, err error) error {

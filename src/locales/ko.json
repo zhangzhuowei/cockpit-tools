@@ -1,5 +1,12 @@
 {
   "common": {
+    "quotaRefreshScheduler": {
+      "busy": "새로고침 대기열이 가득 찼습니다. 잠시 후 다시 시도하세요.",
+      "timeout": "할당량 새로고침 시간이 초과되었습니다. 다시 시도하세요.",
+      "interrupted": "할당량 새로고침이 예기치 않게 종료되었습니다. 다시 시도하세요.",
+      "deferred": "수동 새로고침을 우선 처리하기 위해 대기 중인 백그라운드 새로고침을 미뤘습니다.",
+      "invalidAccountId": "계정 ID가 필요합니다."
+    },
     "confirm": "확인",
     "cancel": "취소",
     "cancelling": "취소 중...",
@@ -545,6 +552,7 @@
         "runningSaveMessage": "이 Codex 인스턴스가 실행 중입니다. 지금 로컬 서비스를 교체하면 현재 대화가 중단됩니다.\n\n지금 적용하려면 \"저장 후 Codex 재시작\"을 선택하고, 현재 세션을 유지하려면 \"저장 후 나중에 적용\"을 선택하세요.",
         "saveAndRestart": "저장 후 Codex 재시작",
         "saveForLater": "저장 후 나중에 적용",
+        "savedForNextLaunch": "저장했습니다. 다음에 Cockpit에서 Codex를 시작할 때 적용되며 현재 세션은 변경되지 않습니다.",
         "restartRollbackFailed": "새 경로를 시작하지 못했고 원래 구성을 다시 시작할 수 없습니다: ",
         "restartRolledBack": "새 경로를 시작하지 못했습니다. 원래 구성이 복원되고 Codex가 다시 시작되었습니다: {{error}}"
       }
@@ -1334,6 +1342,10 @@
     "copyToken": "토큰 복사",
     "deleteAccount": "계정 삭제",
     "confirmDelete": "{{email}} 계정을 삭제하시겠습니까?",
+    "badge": {
+      "gcpTos": "GCP ToS 계정",
+      "gcpTosTitle": "GCP ToS 계정"
+    },
     "columns": {
       "email": "이메일",
       "subscription": "구독 유형",
@@ -1992,6 +2004,14 @@
     "other_group": "기타 모델"
   },
   "codex": {
+    "teamHistory": {
+      "title": "이전 Team 할당량(로컬 스냅샷)",
+      "unknown": "이전 재설정 시간이 없습니다",
+      "hint": "좌석 제거 전 남은 할당량이며 현재 사용 가능한 할당량이 아닙니다",
+      "elapsed": "이미 재설정되었을 수 있습니다. 좌석 복원 후 확인하세요",
+      "resetIn": "재설정 예정: {{duration}}",
+      "observed": "스냅샷 시간: {{time}}"
+    },
     "oauthPolicy": {
       "globalTitle": "타사 app-server 허용",
       "globalDescription": "활성화하면 현재 정책 요약이 표시되며, 관리를 눌러 Codex OAuth 계정을 일괄 또는 개별로 구성할 수 있습니다.",
@@ -2021,6 +2041,30 @@
       "applyBatch": "선택 항목에 적용"
     },
     "title": "Codex 계정 관리",
+    "contextOverride": {
+      "title": "컨텍스트 관리",
+      "description": "모델, 정렬, 기본 모델 및 추론 수준은 공식 카탈로그를 따릅니다. 수동 설정 시에만 컨텍스트를 재정의합니다.",
+      "dialogDescription": "현재 Codex 인스턴스의 모든 계정에 적용되며 계정을 전환해도 유지됩니다. 공식 설정, 프리셋 또는 사용자 지정 컨텍스트를 선택하세요.",
+      "followOfficial": "공식 설정 따르기",
+      "custom": "사용자 지정 컨텍스트",
+      "automatic": "자동",
+      "adjust": "컨텍스트 조정",
+      "manage": "컨텍스트 관리",
+      "apply": "컨텍스트 적용"
+    },
+    "modelManagement": {
+      "title": "모델 관리",
+      "enabled": "사용 중",
+      "disabled": "공식 설정 따르기",
+      "enable": "모델 관리 켜기",
+      "disable": "모델 관리 끄기",
+      "manage": "모델 관리",
+      "disabledDescription": "기본적으로 꺼져 있습니다. 끄면 모델, 정렬, 기본 모델 및 추론 수준이 공식 카탈로그를 따릅니다.",
+      "enabledDescription": "구성된 모델 카탈로그를 사용 중입니다. 모델을 추가하거나 제거할 수 있으며 목록은 공식 카탈로그를 자동으로 따르지 않습니다.",
+      "enableConfirmTitle": "모델 관리를 켤까요?",
+      "enableConfirmDescription": "켜면 Codex가 여기에서 구성한 모델 카탈로그를 사용합니다. 모델을 조정할 수 있지만 목록은 공식 카탈로그를 자동으로 따르지 않습니다.",
+      "enableConfirmAction": "켜고 구성"
+    },
     "experimentalModelCatalog": {
       "title": "표시 모델",
       "description": "표시 모델, 추론 강도, 컨텍스트 창 및 압축 임계값을 한곳에서 관리합니다.",
@@ -2039,6 +2083,7 @@
         "followOfficial": "공식 설정 따르기",
         "operation": "작업",
         "manage": "관리",
+        "resetDefaults": "기본값 복원",
         "inheritHint": "공식 모델은 기능 필드를 유지하고 사용자 지정 모델은 일반 템플릿을 사용합니다. 표시 모델을 추가하거나 삭제할 수 있습니다.",
         "validation": {
           "required": "모델을 하나 이상 유지하세요.",

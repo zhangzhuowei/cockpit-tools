@@ -45,12 +45,6 @@ pub struct CodexExperimentalModelDefinition {
     /// None 表示跟随官方推理强度；Some 表示用户自定义可选推理强度集合。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_efforts: Option<Vec<String>>,
-    /// None 表示跟随模型目录元数据；Some 表示用户为该模型指定上下文窗口。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub context_window: Option<i64>,
-    /// None 表示跟随模型目录元数据；Some 表示用户为该模型指定自动压缩阈值。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub auto_compact_token_limit: Option<i64>,
 }
 
 /// Codex config.toml 快捷配置
@@ -75,6 +69,12 @@ pub struct CodexQuickConfig {
     /// 当前可见模型目录中写入 Codex config.toml 的默认模型；None 表示不强制指定。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub experimental_model_catalog_default_model_id: Option<String>,
+    /// 当前版本内置的模型目录，用于在编辑器中恢复 Cockpit 默认配置。
+    #[serde(default)]
+    pub experimental_model_catalog_reset_models: Vec<CodexExperimentalModelDefinition>,
+    /// 恢复 Cockpit 默认配置时使用的默认模型。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub experimental_model_catalog_reset_default_model_id: Option<String>,
     /// 官方 Codex 实验性上下文管理开关；缺失时严格按官方默认关闭处理。
     #[serde(default)]
     pub context_management_experimental_mode: bool,
@@ -245,6 +245,8 @@ pub struct CodexAccount {
     pub last_client_auth_instance_id: Option<String>,
     pub quota: Option<CodexQuota>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team_quota_history: Option<CodexTeamQuotaHistory>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quota_error: Option<CodexQuotaErrorInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage_updated_at: Option<i64>,
@@ -289,6 +291,19 @@ pub struct CodexAgentIdentity {
     pub plan_type: Option<String>,
     #[serde(default, alias = "chatgptAccountIsFedramp")]
     pub chatgpt_account_is_fedramp: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodexTeamQuotaHistory {
+    pub user_id: String,
+    pub account_id: String,
+    pub observed_at: i64,
+    pub hourly_reset_time: Option<i64>,
+    pub weekly_reset_time: Option<i64>,
+    #[serde(default)]
+    pub hourly_percentage: Option<i32>,
+    #[serde(default)]
+    pub weekly_percentage: Option<i32>,
 }
 
 /// Codex 配额数据（5小时配额 + 周配额）
@@ -471,6 +486,64 @@ pub struct CodexAuthData {
 }
 
 impl CodexAccount {
+    pub fn remember_team_quota(&mut self) {
+        let (Some(user_id), Some(account_id)) = (&self.user_id, &self.account_id) else {
+            self.team_quota_history = None;
+            return;
+        };
+        if self
+            .team_quota_history
+            .as_ref()
+            .is_some_and(|h| h.user_id != *user_id || h.account_id != *account_id)
+        {
+            self.team_quota_history = None;
+            return;
+        }
+        let Some(quota) = &self.quota else { return };
+        let Some(raw) = &quota.raw_data else { return };
+        // The usage response identifies the plan but does not consistently include
+        // user/workspace IDs. The quota belongs to this already validated account;
+        // scope the snapshot with the account identity stored alongside it.
+        if raw.get("plan_type").and_then(|v| v.as_str()) != Some("team") {
+            return;
+        }
+        let Some(observed_at) = self.usage_updated_at.filter(|v| *v > 0) else {
+            return;
+        };
+        if self
+            .team_quota_history
+            .as_ref()
+            .is_some_and(|h| h.observed_at > observed_at)
+        {
+            return;
+        }
+        let hourly = quota
+            .hourly_reset_time
+            .filter(|v| *v > 0 && quota.hourly_window_present != Some(false));
+        let weekly = quota
+            .weekly_reset_time
+            .filter(|v| *v > 0 && quota.weekly_window_present != Some(false));
+        if hourly.is_none() && weekly.is_none() {
+            return;
+        }
+        self.team_quota_history = Some(CodexTeamQuotaHistory {
+            user_id: user_id.clone(),
+            account_id: account_id.clone(),
+            observed_at,
+            hourly_reset_time: hourly,
+            weekly_reset_time: weekly,
+            hourly_percentage: hourly.map(|_| quota.hourly_percentage.clamp(0, 100)),
+            weekly_percentage: weekly.map(|_| quota.weekly_percentage.clamp(0, 100)),
+        });
+    }
+
+    pub fn replace_quota_preserving_team_history(&mut self, quota: CodexQuota, observed_at: i64) {
+        self.remember_team_quota();
+        self.quota = Some(quota);
+        self.usage_updated_at = Some(observed_at);
+        self.remember_team_quota();
+    }
+
     pub fn new(id: String, email: String, tokens: CodexTokens) -> Self {
         let now = chrono::Utc::now().timestamp();
         Self {
@@ -526,6 +599,7 @@ impl CodexAccount {
             last_client_launch_at: None,
             last_client_auth_instance_id: None,
             quota: None,
+            team_quota_history: None,
             quota_error: None,
             usage_updated_at: None,
             subscription_query_last_attempt_at: None,
@@ -595,6 +669,115 @@ impl CodexAccount {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn history_account() -> CodexAccount {
+        let mut account = CodexAccount::new_api_key(
+            "test".into(),
+            "test@example.invalid".into(),
+            "test-only".into(),
+            CodexApiProviderMode::Custom,
+            None,
+            None,
+            None,
+            Vec::new(),
+        );
+        account.user_id = Some("user-a".into());
+        account.account_id = Some("space-a".into());
+        account
+    }
+
+    fn history_quota(plan: &str, reset: Option<i64>) -> CodexQuota {
+        serde_json::from_value(serde_json::json!({
+            "hourly_percentage": 0, "weekly_percentage": 10,
+            "hourly_reset_time": reset, "weekly_reset_time": reset.map(|v| v + 1000),
+            "hourly_window_present": reset.is_some(), "weekly_window_present": reset.is_some(),
+            "raw_data": {"plan_type": plan}
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn team_history_survives_usage_based_transition_and_serialization() {
+        let mut account = history_account();
+        account.replace_quota_preserving_team_history(history_quota("team", Some(200)), 100);
+        account.replace_quota_preserving_team_history(
+            history_quota("self_serve_business_usage_based", None),
+            150,
+        );
+        let restored: CodexAccount =
+            serde_json::from_value(serde_json::to_value(account).unwrap()).unwrap();
+        let history = restored.team_quota_history.unwrap();
+        assert_eq!(history.hourly_reset_time, Some(200));
+        assert_eq!(history.observed_at, 100);
+        assert_eq!(restored.quota.unwrap().hourly_reset_time, None);
+    }
+
+    #[test]
+    fn team_history_recalibrates_but_rejects_other_spaces_and_old_samples() {
+        let mut account = history_account();
+        account.replace_quota_preserving_team_history(history_quota("team", Some(200)), 100);
+        account.replace_quota_preserving_team_history(history_quota("team", Some(300)), 150);
+        account.replace_quota_preserving_team_history(history_quota("team", Some(180)), 90);
+        assert_eq!(
+            account
+                .team_quota_history
+                .as_ref()
+                .unwrap()
+                .hourly_reset_time,
+            Some(300)
+        );
+        account.account_id = Some("space-b".into());
+        account.remember_team_quota();
+        assert!(account.team_quota_history.is_none());
+    }
+
+    #[test]
+    fn team_history_seeds_existing_quota_before_first_business_refresh() {
+        let mut account = history_account();
+        account.quota = Some(history_quota("team", Some(200)));
+        account.usage_updated_at = Some(100);
+        account.replace_quota_preserving_team_history(
+            history_quota("self_serve_business_usage_based", None),
+            150,
+        );
+        assert_eq!(
+            account.team_quota_history.unwrap().hourly_reset_time,
+            Some(200)
+        );
+        let mut unknown = history_account();
+        unknown.replace_quota_preserving_team_history(
+            history_quota("self_serve_business_usage_based", None),
+            150,
+        );
+        assert!(unknown.team_quota_history.is_none());
+    }
+
+    #[test]
+    fn team_history_requires_account_identity_and_reset_windows() {
+        let mut missing_identity = history_account();
+        missing_identity.user_id = None;
+        missing_identity.replace_quota_preserving_team_history(
+            history_quota("team", Some(200)),
+            100,
+        );
+        assert!(missing_identity.team_quota_history.is_none());
+
+        let mut account = history_account();
+        account.replace_quota_preserving_team_history(history_quota("team", None), 110);
+        assert!(account.team_quota_history.is_none());
+    }
+
+    #[test]
+    fn team_history_survives_quota_loss_without_inventing_a_new_window() {
+        let mut account = history_account();
+        account.replace_quota_preserving_team_history(history_quota("team", Some(200)), 100);
+        account.quota = None;
+        account.usage_updated_at = Some(500);
+        account.remember_team_quota();
+        let history = account.team_quota_history.unwrap();
+        assert_eq!(history.hourly_reset_time, Some(200));
+        assert_eq!(history.observed_at, 100);
+    }
 
     #[test]
     fn legacy_account_without_websocket_field_defaults_to_false() {

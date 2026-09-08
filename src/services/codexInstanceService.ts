@@ -215,6 +215,9 @@ export async function saveCodexInstanceConfiguration(payload: {
   appSpeed?: CodexAppSpeed;
   autoSyncThreads?: boolean;
   deferBindAccountApplication?: boolean;
+  updateContextOverride?: boolean;
+  modelContextWindow?: number | null;
+  autoCompactTokenLimit?: number | null;
   experimentalModelCatalogEnabled: boolean;
   experimentalModelCatalogModels: CodexExperimentalModelDefinition[];
   experimentalModelCatalogDefaultModelId?: string | null;
@@ -241,6 +244,9 @@ export async function saveCodexInstanceConfiguration(payload: {
     appSpeed: payload.appSpeed,
     autoSyncThreads: payload.autoSyncThreads,
     deferBindAccountApplication: payload.deferBindAccountApplication,
+    updateContextOverride: payload.updateContextOverride,
+    modelContextWindow: payload.modelContextWindow,
+    autoCompactTokenLimit: payload.autoCompactTokenLimit,
   })) {
     if (value !== undefined) body[key] = value;
   }

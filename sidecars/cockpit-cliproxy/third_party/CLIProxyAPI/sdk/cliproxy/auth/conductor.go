@@ -70,6 +70,10 @@ type Result struct {
 	AuthAvailable        bool
 	NextRetryAt          time.Time
 	AuthStateReason      string
+	// AttemptStartedAt identifies results from requests that began before a
+	// manual scheduler reset. Such stale results must not restore the state that
+	// the user just cleared.
+	AttemptStartedAt time.Time
 }
 
 // Selector chooses an auth candidate for execution.
@@ -135,6 +139,7 @@ type Manager struct {
 	configCooldownMu          sync.Mutex
 	auths                     map[string]*Auth
 	authEpochs                map[string]uint64
+	authRecoveryBarriers      map[string]time.Time
 	scheduler                 *authScheduler
 	// pluginScheduler runs outside m.mu before falling back to native selection.
 	pluginScheduler PluginScheduler
@@ -199,6 +204,7 @@ func NewManager(store Store, selector Selector, hook Hook) *Manager {
 		hook:                  hook,
 		auths:                 make(map[string]*Auth),
 		authEpochs:            make(map[string]uint64),
+		authRecoveryBarriers:  make(map[string]time.Time),
 		homeRuntimeAuths:      make(map[string]map[string]*Auth),
 		homeRuntimeAuthOwners: make(map[string]map[string]*HomeDispatchSelection),
 		homeSessionSelections: make(map[string]map[homeSessionSelectionKey]*HomeDispatchSelection),

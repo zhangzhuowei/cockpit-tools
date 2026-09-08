@@ -1,5 +1,12 @@
 {
   "common": {
+    "quotaRefreshScheduler": {
+      "busy": "Yenileme kuyruğu dolu. Biraz sonra tekrar deneyin.",
+      "timeout": "Kota yenilemesi zaman aşımına uğradı. Tekrar deneyin.",
+      "interrupted": "Kota yenilemesi beklenmedik şekilde sona erdi. Tekrar deneyin.",
+      "deferred": "Bekleyen arka plan yenilemeleri, elle yenilemeye öncelik vermek için ertelendi.",
+      "invalidAccountId": "Hesap kimliği gereklidir."
+    },
     "confirm": "Onayla",
     "cancel": "İptal",
     "cancelling": "İptal ediliyor...",
@@ -545,6 +552,7 @@
         "runningSaveMessage": "Bu Codex örneği çalışıyor. Yerel hizmeti şimdi değiştirmek mevcut görüşmeyi kesintiye uğratacaktır.\n\nŞimdi uygulamak için «Kaydet ve Codex'i yeniden başlat»ı veya mevcut oturumu değiştirmemek için «Daha sonra kaydet»i seçin.",
         "saveAndRestart": "Kaydet ve Codex'i yeniden başlat",
         "saveForLater": "Daha sonra kaydet",
+        "savedForNextLaunch": "Kaydedildi. Değişiklik, Codex'i bir sonraki kez Cockpit üzerinden başlattığınızda uygulanacak; mevcut oturum değişmeyecek.",
         "restartRollbackFailed": "Yeni rota başlatılamadı ve orijinal yapılandırma yeniden başlatılamadı: ",
         "restartRolledBack": "Yeni rota başlatılamadı. Orijinal yapılandırma geri yüklendi ve Codex yeniden başlatıldı: {{error}}"
       }
@@ -1334,6 +1342,10 @@
     "copyToken": "Token'ı Kopyala",
     "deleteAccount": "Hesabı Sil",
     "confirmDelete": "{{email}} hesabını silmek istediğinizden emin misiniz?",
+    "badge": {
+      "gcpTos": "GCP ToS hesabı",
+      "gcpTosTitle": "GCP ToS hesabı"
+    },
     "columns": {
       "email": "E-posta",
       "subscription": "Abonelik",
@@ -1992,6 +2004,14 @@
     "other_group": "Diğer modeller"
   },
   "codex": {
+    "teamHistory": {
+      "title": "Önceki Team kotası (yerel anlık görüntü)",
+      "unknown": "Önceki sıfırlama zamanı yok",
+      "hint": "Koltuk kaldırılmadan önce kalan kota; mevcut kullanılabilir kota değildir",
+      "elapsed": "Sıfırlanmış olması bekleniyor; koltuğu geri yükledikten sonra doğrulayın",
+      "resetIn": "Tahmini sıfırlama: {{duration}}",
+      "observed": "Anlık görüntü zamanı: {{time}}"
+    },
     "oauthPolicy": {
       "globalTitle": "Üçüncü taraf app-server'a izin ver",
       "globalDescription": "Etkinleştirildiğinde mevcut politika özeti gösterilir; hesapları toplu veya tek tek yapılandırmak için Yönet'i kullanın.",
@@ -2021,6 +2041,30 @@
       "applyBatch": "Seçilenlere uygula"
     },
     "title": "Codex Hesap Yönetimi",
+    "contextOverride": {
+      "title": "Bağlam yönetimi",
+      "description": "Modeller, sıralama, varsayılan model ve akıl yürütme düzeyleri resmi kataloğu izler. Bağlam yalnızca elle ayarlanırsa geçersiz kılınır.",
+      "dialogDescription": "Bu ayar mevcut Codex örneğindeki tüm hesaplara uygulanır ve hesap değiştirildiğinde korunur. Resmi ayarları, bir ön ayarı veya özel bağlamı seçin.",
+      "followOfficial": "Resmiyi izle",
+      "custom": "Özel bağlam",
+      "automatic": "Otomatik",
+      "adjust": "Bağlamı ayarla",
+      "manage": "Bağlamı yönet",
+      "apply": "Bağlamı uygula"
+    },
+    "modelManagement": {
+      "title": "Model yönetimi",
+      "enabled": "Etkin",
+      "disabled": "Resmiyi izle",
+      "enable": "Model yönetimini aç",
+      "disable": "Model yönetimini kapat",
+      "manage": "Modelleri yönet",
+      "disabledDescription": "Varsayılan olarak kapalıdır. Modeller, sıralama ve akıl yürütme düzeyleri resmi kataloğu izler.",
+      "enabledDescription": "Yapılandırılmış katalog etkin. Model ekleyip kaldırabilirsiniz; liste artık resmi katalogla otomatik güncellenmez.",
+      "enableConfirmTitle": "Model yönetimi açılsın mı?",
+      "enableConfirmDescription": "Codex burada yapılandırılan kataloğu kullanır. Modelleri ayarlayabilirsiniz; ancak liste artık otomatik güncellenmez.",
+      "enableConfirmAction": "Aç ve yapılandır"
+    },
     "experimentalModelCatalog": {
       "title": "Görünür modeller",
       "description": "Görünür modelleri, akıl yürütme düzeyini, bağlamı ve sıkıştırma eşiğini tek yerden yönetin.",
@@ -2039,6 +2083,7 @@
         "followOfficial": "Resmiyi takip et",
         "operation": "İşlemler",
         "manage": "Yönet",
+        "resetDefaults": "Varsayılanlar",
         "inheritHint": "Resmi modeller yetenek alanlarını korur; özel modeller genel bir şablon kullanır. Görünür modeller eklenebilir veya silinebilir.",
         "validation": {
           "required": "En az bir model bırakın.",

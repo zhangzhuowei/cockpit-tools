@@ -1,5 +1,12 @@
 {
   "common": {
+    "quotaRefreshScheduler": {
+      "busy": "刷新队列繁忙，请稍后重试。",
+      "timeout": "额度刷新等待或执行超时，请重试。",
+      "interrupted": "额度刷新意外结束，请重试。",
+      "deferred": "本轮未开始的后台刷新已让位给手动刷新。",
+      "invalidAccountId": "账号 ID 不能为空。"
+    },
     "confirm": "确认",
     "cancel": "取消",
     "cancelling": "正在取消...",
@@ -749,6 +756,7 @@
         "runningSaveMessage": "此 Codex 实例正在运行。立即替换本地服务会中断当前对话。\n\n选择“保存并重启 Codex”立即生效；选择“仅保存，稍后生效”不会影响当前会话。",
         "saveAndRestart": "保存并重启 Codex",
         "saveForLater": "仅保存，稍后生效",
+        "savedForNextLaunch": "已保存，下次通过 Cockpit 启动 Codex 时生效；当前会话保持不变。",
         "restartRollbackFailed": "新路由启动失败，恢复原配置后仍无法启动：",
         "restartRolledBack": "新路由启动失败，已恢复原配置并重新启动 Codex：{{error}}"
       },
@@ -1533,6 +1541,10 @@
     "copyToken": "复制 Token",
     "deleteAccount": "删除账号",
     "confirmDelete": "确定要删除账号 {{email}} 吗？",
+    "badge": {
+      "gcpTos": "GCP ToS 账号",
+      "gcpTosTitle": "GCP ToS 账号"
+    },
     "columns": {
       "email": "邮箱",
       "subscription": "订阅类型",
@@ -2191,6 +2203,14 @@
     "other_group": "其他模型"
   },
   "codex": {
+    "teamHistory": {
+      "title": "原 Team 席位额度（本地快照）",
+      "unknown": "暂无历史重置时间",
+      "hint": "移除席位前的剩余额度，不代表当前可用额度",
+      "elapsed": "预计已重置，恢复席位后验证",
+      "resetIn": "预计重置：{{duration}}",
+      "observed": "快照时间：{{time}}"
+    },
     "title": "Codex 账号管理",
     "oauthPolicy": {
       "globalTitle": "允许第三方客户端",
@@ -2220,6 +2240,30 @@
       "fingerprintOff": "指纹：关闭",
       "applyBatch": "应用到所选"
     },
+    "contextOverride": {
+      "title": "上下文管理",
+      "description": "模型列表、排序、默认模型和推理强度跟随官方；仅手动设置时覆盖上下文。",
+      "dialogDescription": "对当前 Codex 实例的所有账号生效，切号后保持不变；可选择跟随官方、预设或自定义。",
+      "followOfficial": "跟随官方",
+      "custom": "自定义上下文",
+      "automatic": "自动",
+      "adjust": "调整上下文",
+      "manage": "管理上下文",
+      "apply": "应用上下文"
+    },
+    "modelManagement": {
+      "title": "模型管理",
+      "enabled": "已开启",
+      "disabled": "跟随官方",
+      "enable": "开启模型管理",
+      "disable": "关闭模型管理",
+      "manage": "管理模型",
+      "disabledDescription": "默认关闭；关闭时模型列表、顺序、默认模型和推理强度均跟随官方。",
+      "enabledDescription": "当前以配置模型目录为准，可添加或减少模型，不再自动跟随官方目录。",
+      "enableConfirmTitle": "开启模型管理？",
+      "enableConfirmDescription": "开启后，Codex 将以这里配置的模型目录为准。你可以添加、删除和调整模型，但模型列表不会再自动跟随官方变化。",
+      "enableConfirmAction": "开启并配置"
+    },
     "experimentalModelCatalog": {
       "title": "可见模型",
       "description": "统一管理可见模型、推理强度、上下文窗口和压缩阈值。",
@@ -2238,6 +2282,7 @@
         "followOfficial": "跟随官方",
         "operation": "操作",
         "manage": "管理",
+        "resetDefaults": "恢复默认",
         "inheritHint": "官方模型保留原有能力字段；自定义模型使用通用能力模板。可见模型可直接新增或删除。",
         "validation": {
           "required": "至少保留一个模型。",

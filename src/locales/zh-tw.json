@@ -1,5 +1,12 @@
 {
   "common": {
+    "quotaRefreshScheduler": {
+      "busy": "重新整理佇列忙碌，請稍後再試。",
+      "timeout": "額度重新整理等候或執行逾時，請重試。",
+      "interrupted": "額度重新整理意外結束，請重試。",
+      "deferred": "本輪尚未開始的背景重新整理已延後，優先處理手動重新整理。",
+      "invalidAccountId": "帳號 ID 不可為空。"
+    },
     "confirm": "確認",
     "cancel": "取消",
     "cancelling": "正在取消...",
@@ -545,6 +552,7 @@
         "runningSaveMessage": "此 Codex 執行個體正在執行。立即取代本地服務會中斷目前對話。\n\n選擇「儲存並重啟 Codex」立即生效；選擇「僅儲存，稍後生效」不會影響目前工作階段。",
         "saveAndRestart": "儲存並重啟 Codex",
         "saveForLater": "僅儲存，稍後生效",
+        "savedForNextLaunch": "已儲存，下次透過 Cockpit 啟動 Codex 時生效；目前工作階段維持不變。",
         "restartRollbackFailed": "新路由啟動失敗，恢復原配置後仍無法啟動：",
         "restartRolledBack": "新路由啟動失敗，已恢復原配置並重新啟動 Codex：{{error}}"
       }
@@ -1334,6 +1342,10 @@
     "copyToken": "複製 Token",
     "deleteAccount": "刪除帳號",
     "confirmDelete": "確定要刪除帳號 {{email}} 嗎？",
+    "badge": {
+      "gcpTos": "GCP ToS 帳號",
+      "gcpTosTitle": "GCP ToS 帳號"
+    },
     "columns": {
       "email": "電子郵件",
       "subscription": "訂閱類型",
@@ -1992,6 +2004,14 @@
     "other_group": "其他模型"
   },
   "codex": {
+    "teamHistory": {
+      "title": "原 Team 席位額度（本機快照）",
+      "unknown": "沒有歷史重設時間",
+      "hint": "移除席位前的剩餘額度，不代表目前可用額度",
+      "elapsed": "預計已重設，恢復席位後請再確認",
+      "resetIn": "預計重設：{{duration}}",
+      "observed": "快照時間：{{time}}"
+    },
     "oauthPolicy": {
       "globalTitle": "允許第三方 app-server",
       "globalDescription": "啟用後會顯示目前帳號策略摘要，點擊「管理」可批次或個別設定。",
@@ -2021,6 +2041,30 @@
       "applyBatch": "套用至所選項目"
     },
     "title": "Codex 帳號管理",
+    "contextOverride": {
+      "title": "上下文管理",
+      "description": "模型、排序、預設模型與推理強度跟隨官方目錄；只有手動設定時才覆寫上下文。",
+      "dialogDescription": "對目前 Codex 執行個體的所有帳號生效，切換帳號後保持不變；可選擇跟隨官方、預設值或自訂。",
+      "followOfficial": "跟隨官方",
+      "custom": "自訂上下文",
+      "automatic": "自動",
+      "adjust": "調整上下文",
+      "manage": "管理上下文",
+      "apply": "套用上下文"
+    },
+    "modelManagement": {
+      "title": "模型管理",
+      "enabled": "已啟用",
+      "disabled": "跟隨官方",
+      "enable": "啟用模型管理",
+      "disable": "停用模型管理",
+      "manage": "管理模型",
+      "disabledDescription": "預設關閉；關閉時模型、排序、預設模型與推理強度皆跟隨官方目錄。",
+      "enabledDescription": "目前以設定的模型目錄為準，可新增或移除模型，不再自動跟隨官方目錄。",
+      "enableConfirmTitle": "啟用模型管理？",
+      "enableConfirmDescription": "啟用後，Codex 將以這裡設定的模型目錄為準。你可以新增、刪除及調整模型，但清單不會再自動跟隨官方變更。",
+      "enableConfirmAction": "啟用並設定"
+    },
     "experimentalModelCatalog": {
       "title": "可見模型",
       "description": "統一管理可見模型、推理強度、上下文視窗和壓縮門檻。",
@@ -2039,6 +2083,7 @@
         "followOfficial": "跟隨官方",
         "operation": "操作",
         "manage": "管理",
+        "resetDefaults": "恢復預設",
         "inheritHint": "官方模型保留原有能力欄位；自訂模型使用通用能力範本。可見模型可直接新增或刪除。",
         "validation": {
           "required": "至少保留一個模型。",

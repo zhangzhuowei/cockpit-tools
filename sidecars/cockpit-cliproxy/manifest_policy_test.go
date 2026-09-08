@@ -520,17 +520,19 @@ func TestBuildCockpitQuotaResponseGroupsPlansAndPoolHealth(t *testing.T) {
 	weeklyMinutes := int64(10080)
 	state := quotaPoolStateFile{Accounts: map[string]quotaPoolAccountState{
 		"plus-1": {
+			PlanType:  "plus",
 			Primary:   &quotaPoolWindowState{Present: &present, RemainingPercent: intPtrForTest(80), WindowMinutes: &fiveHourMinutes},
 			Secondary: &quotaPoolWindowState{Present: &present, RemainingPercent: intPtrForTest(40), WindowMinutes: &weeklyMinutes},
 		},
 		"team-1": {
-			Primary: &quotaPoolWindowState{Present: &present, RemainingPercent: intPtrForTest(75), WindowMinutes: &weeklyMinutes},
+			PlanType: "team",
+			Primary:  &quotaPoolWindowState{Present: &present, RemainingPercent: intPtrForTest(75), WindowMinutes: &weeklyMinutes},
 		},
 	}}
 	accounts := map[string]*accountSpec{
-		"plus-1":    {ID: "plus-1", PlanType: "plus"},
+		"plus-1":    {ID: "plus-1"},
 		"plus-2":    {ID: "plus-2", PlanType: "plus"},
-		"team-1":    {ID: "team-1", PlanType: "team"},
+		"team-1":    {ID: "team-1"},
 		"api-key-1": {ID: "api-key-1", AuthKind: "api_key", PlanType: "custom"},
 	}
 	response := buildCockpitQuotaResponseWithAccounts(
@@ -2969,6 +2971,21 @@ func TestResolveModelRoutingRejectsRouteWithoutProviderGateway(t *testing.T) {
 
 	if gateway, upstream, status := resolveModelRouting(spec, "cpa/gpt-5.5"); gateway != nil || upstream != "" || status != "missing" {
 		t.Fatalf("route without provider gateway should fail strictly: gateway=%v model=%q status=%q", gateway, upstream, status)
+	}
+}
+
+func TestMixedRoutingCatalogPreservesGPTCapabilities(t *testing.T) {
+	spec := mixedRoutingAPIKey(&providerGatewaySpec{
+		UpstreamModels: []string{"gpt-6-astra"},
+		WireAPI: "responses",
+	})
+	catalog := buildCodexClientModelsResponse([]string{"gpt-6-astra", "cpa/gpt-6-astra"}, spec, nil)
+	models := catalog["models"].([]map[string]any)
+	if models[1]["slug"] != "cpa/gpt-6-astra" { t.Fatal("lost routing identity") }
+	for _, field := range []string{"service_tiers", "additional_speed_tiers", "supported_reasoning_levels", "context_window"} {
+		a, _ := json.Marshal(models[0][field])
+		b, _ := json.Marshal(models[1][field])
+		if string(a) != string(b) { t.Fatalf("%s differs: %s != %s", field, a, b) }
 	}
 }
 

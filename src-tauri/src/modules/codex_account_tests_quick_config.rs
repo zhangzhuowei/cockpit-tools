@@ -279,8 +279,6 @@
             model_id: "gpt-5".to_string(),
             display_name: "GPT-5".to_string(),
             reasoning_efforts: None,
-            context_window: None,
-            auto_compact_token_limit: None,
         }];
 
         let result = super::save_model_catalog_for_base_dir_preserving_context(
@@ -365,6 +363,18 @@
 
         assert!(result.experimental_model_catalog_enabled);
         assert!(result.experimental_model_catalog_available);
+        assert_eq!(
+            result.experimental_model_catalog_reset_default_model_id.as_deref(),
+            Some("gpt-5.6-sol")
+        );
+        assert_eq!(
+            result
+                .experimental_model_catalog_reset_models
+                .iter()
+                .map(|model| model.model_id.as_str())
+                .collect::<Vec<_>>(),
+            super::SHIPPED_VISIBLE_CODEX_MODEL_IDS
+        );
         assert!(base_dir
             .join(super::CODEX_EXPERIMENTAL_MODEL_POLICY_FILE)
             .is_file());
@@ -520,8 +530,6 @@
             model_id: model_id.to_string(),
             display_name: model_id.to_string(),
             reasoning_efforts: None,
-            context_window: None,
-            auto_compact_token_limit: None,
         })
         .collect::<Vec<_>>();
         let saved = serde_json::json!({
@@ -638,15 +646,11 @@
                 model_id: "custom-model-a".to_string(),
                 display_name: "Custom Model A".to_string(),
                 reasoning_efforts: None,
-                context_window: None,
-                auto_compact_token_limit: None,
             },
             CodexExperimentalModelDefinition {
                 model_id: "custom-model-b".to_string(),
                 display_name: "Custom Model B".to_string(),
                 reasoning_efforts: None,
-                context_window: None,
-                auto_compact_token_limit: None,
             },
         ];
 
@@ -664,10 +668,19 @@
             model_id: "gpt-reserve".to_string(),
             display_name: "Luna Reserve".to_string(),
             reasoning_efforts: None,
-            context_window: None,
-            auto_compact_token_limit: None,
         });
         assert_eq!(result.experimental_model_catalog_models, expected);
+        assert_eq!(
+            result
+                .experimental_model_catalog_reset_models
+                .first()
+                .map(|model| model.model_id.as_str()),
+            Some("gpt-6-astra")
+        );
+        assert!(!result
+            .experimental_model_catalog_reset_models
+            .iter()
+            .any(|model| model.model_id.starts_with("custom-model")));
         let config = fs::read_to_string(base_dir.join("config.toml")).expect("read config");
         assert!(!config.contains("model = \"custom-model-a\""));
         let catalog: serde_json::Value = serde_json::from_str(
@@ -700,8 +713,6 @@
             model_id: "custom-reasoning-model".to_string(),
             display_name: "Custom Reasoning Model".to_string(),
             reasoning_efforts: Some(vec!["low".to_string(), "high".to_string()]),
-            context_window: None,
-            auto_compact_token_limit: None,
         }];
 
         write_quick_config_to_config_toml(&base_dir, None, None, Some(true), Some(models))
@@ -731,7 +742,7 @@
     }
 
     #[test]
-    fn quick_config_writes_context_settings_per_visible_model() {
+    fn quick_config_discards_legacy_context_settings_per_visible_model() {
         let base_dir = make_temp_dir("codex-visible-model-context-test");
         fs::write(
             base_dir.join("config.toml"),
@@ -742,17 +753,21 @@
             model_id: "gpt-5.6-sol".to_string(),
             display_name: "5.6 Sol".to_string(),
             reasoning_efforts: None,
-            context_window: Some(1_000_000),
-            auto_compact_token_limit: Some(900_000),
         }];
 
         write_quick_config_to_config_toml(&base_dir, None, None, Some(true), Some(models))
-            .expect("write per-model context configuration");
+            .expect("write model configuration without per-model context overrides");
 
         let config = fs::read_to_string(base_dir.join("config.toml")).expect("read config");
         assert!(config.contains("model_catalog_json = \"cockpit-model-catalog.json\""));
         assert!(!config.contains("model_context_window"));
         assert!(!config.contains("model_auto_compact_token_limit"));
+        let saved_models = fs::read_to_string(base_dir.join(
+            super::CODEX_EXPERIMENTAL_MODEL_CONFIG_FILE,
+        ))
+        .expect("read saved model definitions");
+        assert!(!saved_models.contains("context_window"));
+        assert!(!saved_models.contains("auto_compact_token_limit"));
         let catalog: serde_json::Value = serde_json::from_str(
             &fs::read_to_string(base_dir.join(super::CODEX_MANAGED_MODEL_CATALOG_FILE))
                 .expect("read unified catalog"),
@@ -762,9 +777,55 @@
             .as_array()
             .and_then(|models| models.iter().find(|model| model["slug"] == "gpt-5.6-sol"))
             .expect("find configured model");
-        assert_eq!(model["context_window"], 1_000_000);
-        assert_eq!(model["max_context_window"], 1_000_000);
-        assert_eq!(model["auto_compact_token_limit"], 900_000);
+        let official = crate::modules::codex_protocol::build_codex_client_models_response(&[
+            "gpt-5.6-sol".to_string(),
+        ]);
+        let official = &official["models"][0];
+        assert_eq!(model["context_window"], official["context_window"]);
+        assert_eq!(model["max_context_window"], official["max_context_window"]);
+        assert_eq!(
+            model["auto_compact_token_limit"],
+            official["auto_compact_token_limit"]
+        );
+
+        fs::remove_dir_all(&base_dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn reading_model_management_removes_saved_legacy_context_overrides() {
+        let base_dir = make_temp_dir("codex-model-context-migration-test");
+        fs::write(
+            base_dir.join(super::CODEX_EXPERIMENTAL_MODEL_CONFIG_FILE),
+            format!(
+                r#"{{
+  "version": {},
+  "models": [{{
+    "model_id": "custom-model",
+    "display_name": "Custom Model",
+    "context_window": 1000000,
+    "max_context_window": 1000000,
+    "auto_compact_token_limit": 900000
+  }}]
+}}
+"#,
+                super::EXPERIMENTAL_MODEL_CATALOG_CONFIG_VERSION
+            ),
+        )
+        .expect("write legacy model configuration");
+
+        let models = super::read_experimental_model_definitions(&base_dir);
+        let model = models
+            .iter()
+            .find(|model| model.model_id == "custom-model")
+            .expect("find migrated model");
+        assert_eq!(model.display_name, "Custom Model");
+
+        let migrated = fs::read_to_string(
+            base_dir.join(super::CODEX_EXPERIMENTAL_MODEL_CONFIG_FILE),
+        )
+        .expect("read migrated model configuration");
+        assert!(!migrated.contains("context_window"));
+        assert!(!migrated.contains("auto_compact_token_limit"));
 
         fs::remove_dir_all(&base_dir).expect("cleanup temp dir");
     }
@@ -777,8 +838,6 @@
             model_id: "custom-model".to_string(),
             display_name: "Custom Model".to_string(),
             reasoning_efforts: None,
-            context_window: None,
-            auto_compact_token_limit: None,
         }];
 
         let result = write_quick_config_to_config_toml_with_default(
@@ -796,8 +855,6 @@
             model_id: "gpt-reserve".to_string(),
             display_name: "Luna Reserve".to_string(),
             reasoning_efforts: None,
-            context_window: None,
-            auto_compact_token_limit: None,
         });
         assert_eq!(result.experimental_model_catalog_models, expected);
         assert_eq!(
@@ -827,8 +884,6 @@
             model_id: "custom-model".to_string(),
             display_name: "Custom Model".to_string(),
             reasoning_efforts: None,
-            context_window: None,
-            auto_compact_token_limit: None,
         }];
 
         write_quick_config_to_config_toml_with_default(
@@ -859,8 +914,6 @@
             model_id: "custom-model".to_string(),
             display_name: "Custom Model".to_string(),
             reasoning_efforts: None,
-            context_window: None,
-            auto_compact_token_limit: None,
         }];
 
         write_quick_config_to_config_toml_with_default(
@@ -920,8 +973,13 @@
             .iter()
             .find(|model| model.model_id == "gpt-5.6-sol")
             .expect("migrated Sol model");
-        assert_eq!(model.context_window, Some(1_000_000));
-        assert_eq!(model.auto_compact_token_limit, Some(900_000));
+        assert_eq!(model.display_name, "5.6 Sol");
+        let saved_models = fs::read_to_string(base_dir.join(
+            super::CODEX_EXPERIMENTAL_MODEL_CONFIG_FILE,
+        ))
+        .expect("read migrated model definitions");
+        assert!(!saved_models.contains("context_window"));
+        assert!(!saved_models.contains("auto_compact_token_limit"));
 
         fs::remove_dir_all(&base_dir).expect("cleanup temp dir");
     }
@@ -985,10 +1043,16 @@
     }
 
     #[test]
-    fn ordinary_oauth_account_switch_preserves_experimental_model_policy() {
+    fn ordinary_oauth_account_switch_preserves_model_policy_and_global_context() {
         let base_dir = make_temp_dir("codex-experimental-oauth-switch-test");
         fs::write(base_dir.join("config.toml"), "model = \"gpt-5.6-sol\"\n").expect("write config");
-        write_quick_config_to_config_toml(&base_dir, None, None, Some(true), None)
+        write_quick_config_to_config_toml(
+            &base_dir,
+            Some(1_000_000),
+            Some(900_000),
+            Some(true),
+            None,
+        )
             .expect("enable experimental catalog");
         let account = CodexAccount::new(
             "oauth-account".to_string(),
@@ -1008,6 +1072,8 @@
         let config = fs::read_to_string(base_dir.join("config.toml")).expect("read config");
         assert!(config.contains("model_catalog_json = \"cockpit-model-catalog.json\""));
         assert!(config.contains("model = \"gpt-5.6-sol\""));
+        assert!(config.contains("model_context_window = 1000000"));
+        assert!(config.contains("model_auto_compact_token_limit = 900000"));
         assert!(base_dir
             .join(super::CODEX_MANAGED_MODEL_CATALOG_FILE)
             .is_file());
@@ -1068,10 +1134,16 @@
     }
 
     #[test]
-    fn api_key_account_switch_preserves_experimental_model_policy() {
+    fn api_key_account_switch_preserves_model_policy_and_global_context() {
         let base_dir = make_temp_dir("codex-experimental-api-key-switch-test");
         fs::write(base_dir.join("config.toml"), "model = \"gpt-5.6-sol\"\n").expect("write config");
-        write_quick_config_to_config_toml(&base_dir, None, None, Some(true), None)
+        write_quick_config_to_config_toml(
+            &base_dir,
+            Some(516_000),
+            Some(460_000),
+            Some(true),
+            None,
+        )
             .expect("enable experimental catalog");
         let account = CodexAccount::new_api_key(
             "api-key-account".to_string(),
@@ -1092,6 +1164,8 @@
         let config = fs::read_to_string(base_dir.join("config.toml")).expect("read config");
         assert!(config.contains("model_catalog_json = \"cockpit-model-catalog.json\""));
         assert!(config.contains("model = \"gpt-5.6-sol\""));
+        assert!(config.contains("model_context_window = 516000"));
+        assert!(config.contains("model_auto_compact_token_limit = 460000"));
         assert!(base_dir
             .join(super::CODEX_MANAGED_MODEL_CATALOG_FILE)
             .is_file());
@@ -1184,8 +1258,6 @@
             model_id: "bad model id".to_string(),
             display_name: String::new(),
             reasoning_efforts: Some(vec!["not-a-real-effort".to_string()]),
-            context_window: None,
-            auto_compact_token_limit: None,
         }];
         write_quick_config_to_config_toml_with_default(
             &base_dir,

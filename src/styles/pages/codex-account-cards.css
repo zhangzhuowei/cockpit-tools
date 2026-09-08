@@ -359,6 +359,39 @@
   color: var(--text-secondary);
 }
 
+.codex-team-quota-history {
+  grid-column: 1 / -1;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.codex-team-history-window {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+  min-width: 0;
+}
+
+.codex-accounts-page .codex-team-history-reset.pending {
+  background: rgba(59, 130, 246, 0.07);
+  border-color: rgba(59, 130, 246, 0.22);
+}
+
+.codex-accounts-page .codex-team-history-reset {
+  flex-wrap: wrap;
+}
+
+.codex-accounts-page .codex-team-history-reset .codex-subscription-footer-main {
+  white-space: normal;
+}
+
+.codex-accounts-page .codex-team-history-reset .codex-subscription-footer-date {
+  margin-left: auto;
+}
+
 .codex-accounts-page .codex-subscription-footer {
   display: flex;
   align-items: center;

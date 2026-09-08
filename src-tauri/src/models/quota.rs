@@ -36,6 +36,12 @@ pub struct QuotaData {
     /// 账号层级 ID（如 free-tier、g1-pro-tier）
     #[serde(default)]
     pub tier_id: Option<String>,
+    /// 是否使用 GCP ToS
+    #[serde(default)]
+    pub is_gcp_tos: Option<bool>,
+    /// GCP / Enterprise 项目 ID
+    #[serde(default)]
+    pub project_id: Option<String>,
 }
 
 impl QuotaData {
@@ -47,6 +53,8 @@ impl QuotaData {
             subscription_tier: None,
             credits: Vec::new(),
             tier_id: None,
+            is_gcp_tos: None,
+            project_id: None,
         }
     }
 

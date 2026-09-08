@@ -102,6 +102,48 @@ pub fn legacy_default_user_data_dir() -> Result<PathBuf, String> {
     Err("无法确定 Antigravity 默认目录".to_string())
 }
 
+/// 获取所有存在的 Antigravity 用户数据目录（同时包含 `Antigravity` 与 `Antigravity IDE`）。
+/// 在切号时同步注入所有存在的目录，确保不同版本客户端均能识别新账号。
+pub fn all_antigravity_user_data_dirs() -> Vec<PathBuf> {
+    let mut results = Vec::new();
+    #[cfg(target_os = "windows")]
+    if let Ok(roaming_dir) = roaming_app_data_dir() {
+        for candidate in windows_user_data_candidates(&roaming_dir) {
+            if candidate.exists() {
+                results.push(candidate);
+            }
+        }
+    }
+    #[cfg(target_os = "macos")]
+    if let Some(home) = dirs::home_dir() {
+        let ide_dir = home.join("Library/Application Support/Antigravity IDE");
+        let app_dir = home.join("Library/Application Support/Antigravity");
+        if ide_dir.exists() {
+            results.push(ide_dir);
+        }
+        if app_dir.exists() {
+            results.push(app_dir);
+        }
+    }
+    #[cfg(target_os = "linux")]
+    if let Some(home) = dirs::home_dir() {
+        let ide_dir = home.join(".config/Antigravity IDE");
+        let app_dir = home.join(".config/Antigravity");
+        if ide_dir.exists() {
+            results.push(ide_dir);
+        }
+        if app_dir.exists() {
+            results.push(app_dir);
+        }
+    }
+    if results.is_empty() {
+        if let Ok(default_dir) = default_user_data_dir() {
+            results.push(default_dir);
+        }
+    }
+    results
+}
+
 pub fn managed_instances_root_dir() -> Result<PathBuf, String> {
     #[cfg(target_os = "macos")]
     {

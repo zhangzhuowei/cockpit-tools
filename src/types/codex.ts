@@ -11,10 +11,6 @@ export interface CodexExperimentalModelDefinition {
   display_name: string;
   /** undefined follows the official model reasoning levels; otherwise custom multi-select. */
   reasoning_efforts?: CodexReasoningEffort[];
-  /** undefined follows the model catalog metadata. */
-  context_window?: number;
-  /** undefined follows the model catalog metadata. */
-  auto_compact_token_limit?: number;
 }
 
 export type CodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
@@ -30,6 +26,8 @@ export interface CodexQuickConfig {
   experimental_model_catalog_conflict?: string;
   experimental_model_catalog_models: CodexExperimentalModelDefinition[];
   experimental_model_catalog_default_model_id?: string | null;
+  experimental_model_catalog_reset_models: CodexExperimentalModelDefinition[];
+  experimental_model_catalog_reset_default_model_id?: string | null;
   /** Official Codex experimental context management; absent/false follows the official default. */
   context_management_experimental_mode: boolean;
 }
@@ -99,6 +97,15 @@ export interface CodexAccount {
   last_client_launch_at?: number | null;
   last_client_auth_instance_id?: string | null;
   quota?: CodexQuota;
+  team_quota_history?: {
+    user_id: string;
+    account_id: string;
+    observed_at: number;
+    hourly_reset_time?: number | null;
+    weekly_reset_time?: number | null;
+    hourly_percentage?: number | null;
+    weekly_percentage?: number | null;
+  };
   quota_error?: CodexQuotaErrorInfo;
   tags?: string[];
   created_at: number;

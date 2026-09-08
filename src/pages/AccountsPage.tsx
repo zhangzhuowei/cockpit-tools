@@ -38,6 +38,7 @@ import { open as openFileDialog } from '@tauri-apps/plugin-dialog'
 import { useModalErrorState } from '../components/ModalErrorMessage'
 import { useEscClose } from '../hooks/useEscClose'
 import { useEnterConfirm } from '../hooks/useEnterConfirm'
+import { AntigravityGcpTosBadge } from '../components/AntigravityGcpTosBadge'
 import {
   AccountGroup,
   getAccountGroups,
@@ -3175,6 +3176,7 @@ export function useAccountsPageController({ onNavigate }: AccountsPageProps) {
             <span className={`tier-badge ${tierBadge.className}`}>
               {tierBadge.label}
             </span>
+            <AntigravityGcpTosBadge account={account} />
             {isPendingAntigravityAccount(account) && (
               <span className="status-pill warning">{t('codex.pendingAuth.badge', '待授权')}</span>
             )}
@@ -3824,6 +3826,7 @@ export function useAccountsPageController({ onNavigate }: AccountsPageProps) {
                 <span className={`tier-badge ${tierBadge.className}`}>
                   {tierBadge.label}
                 </span>
+                <AntigravityGcpTosBadge account={account} />
                 {(() => {
                   const vBadge = getVerificationBadge(account)
                   return vBadge ? (

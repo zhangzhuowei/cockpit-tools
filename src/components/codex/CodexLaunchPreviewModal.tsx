@@ -21,9 +21,10 @@ import {
   type ReactNode,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import { useEscClose } from "../../hooks/useEscClose";
 import {
-  saveCodexInstanceModelCatalog,
+  saveCodexInstanceQuickConfig,
   saveCodexInstanceConfiguration,
   getCodexInstanceQuickConfig,
 } from "../../services/codexInstanceService";
@@ -43,6 +44,7 @@ import {
 } from "./CodexModelRoutingFields";
 import { forceRefreshCodexTokens } from "../../services/codexService";
 import { requestCodexOpenAddAccount } from "../../utils/codexAddAccountRequest";
+import { areCodexModelRoutingsEqual, resolveRoutingCatalog } from "../../utils/codexModelRoutingValue";
 import type {
   CodexAccount,
   CodexExperimentalModelDefinition,
@@ -64,6 +66,10 @@ import {
   type SingleSelectOption,
 } from "../SingleSelectDropdown";
 import { CodexQuotaMiniRows } from "./CodexQuotaMiniRows";
+import {
+  CodexContextOverrideEditor,
+  resolveCodexContextOverridePreset,
+} from "./CodexContextOverrideEditor";
 import { CodexExperimentalModelEditor } from "./CodexExperimentalModelEditor";
 import { CodexSessionVisibilityRepairModal } from "./CodexSessionVisibilityRepairModal";
 import "./CodexLaunchPreviewModal.css";
@@ -131,6 +137,12 @@ interface ModelConfigSnapshot {
   defaultModelId: string | null;
 }
 
+interface ContextConfigSnapshot {
+  enabled: boolean;
+  contextWindowInput: string;
+  compactLimitInput: string;
+}
+
 export function CodexLaunchPreviewModal({
   account,
   accountLabel,
@@ -152,6 +164,9 @@ export function CodexLaunchPreviewModal({
   const [catalogEnabled, setCatalogEnabled] = useState(false);
   const [models, setModels] = useState<CodexExperimentalModelDefinition[]>([]);
   const [defaultModelId, setDefaultModelId] = useState<string | null>(null);
+  const [contextOverrideEnabled, setContextOverrideEnabled] = useState(false);
+  const [contextWindowInput, setContextWindowInput] = useState("");
+  const [compactLimitInput, setCompactLimitInput] = useState("");
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -160,6 +175,7 @@ export function CodexLaunchPreviewModal({
   const [executing, setExecuting] = useState<"switch" | "launch" | null>(null);
   const [repairOpen, setRepairOpen] = useState(false);
   const [modelConfigOpen, setModelConfigOpen] = useState(false);
+  const [contextConfigOpen, setContextConfigOpen] = useState(false);
   const [forceRefreshing, setForceRefreshing] = useState(false);
   const [manualRefreshResult, setManualRefreshResult] = useState<{
     status: "running" | "success" | "error";
@@ -169,6 +185,8 @@ export function CodexLaunchPreviewModal({
     useState<CodexAccount | null>(null);
   const [modelConfigSnapshot, setModelConfigSnapshot] =
     useState<ModelConfigSnapshot | null>(null);
+  const [contextConfigSnapshot, setContextConfigSnapshot] =
+    useState<ContextConfigSnapshot | null>(null);
   const [routingEnabled, setRoutingEnabled] = useState(false);
   const persistRoutingDisableRef = useRef(false);
   const [routingRoutes, setRoutingRoutes] = useState<CodexInstanceApiRoute[]>(
@@ -197,6 +215,7 @@ export function CodexLaunchPreviewModal({
     [accounts, routingRoutes, t],
   );
   const availableChannels = useMemo(() => {
+    if (!routingEnabled) return [];
     const providerAccounts = eligibleCodexModelRoutingAccounts(accounts);
     return normalizeCodexModelRoutingRoutes(routingRoutes, accounts)
       .filter((route) => route.enabled)
@@ -217,7 +236,7 @@ export function CodexLaunchPreviewModal({
         };
       })
       .filter((group) => group.models.length > 0);
-  }, [accounts, routingRoutes]);
+  }, [accounts, routingRoutes, routingEnabled]);
   const {
     message: error,
     scrollKey: errorScrollKey,
@@ -240,7 +259,11 @@ export function CodexLaunchPreviewModal({
     if (!hasStackedModal) onClose();
   }, [onClose]);
   useEscClose(
-    !busy && !repairOpen && !modelConfigOpen && !manualRefreshResult,
+    !busy &&
+      !repairOpen &&
+      !modelConfigOpen &&
+      !contextConfigOpen &&
+      !manualRefreshResult,
     requestClose,
   );
 
@@ -251,6 +274,13 @@ export function CodexLaunchPreviewModal({
     setDefaultModelId(
       config.experimental_model_catalog_default_model_id ?? null,
     );
+    const contextWindow = config.detected_model_context_window;
+    const compactLimit = config.detected_auto_compact_token_limit;
+    setContextOverrideEnabled(
+      contextWindow !== undefined || compactLimit !== undefined,
+    );
+    setContextWindowInput(contextWindow?.toString() ?? "");
+    setCompactLimitInput(compactLimit?.toString() ?? "");
     setModelsError(null);
   }, []);
 
@@ -261,6 +291,9 @@ export function CodexLaunchPreviewModal({
     setCatalogEnabled(false);
     setModels([]);
     setDefaultModelId(null);
+    setContextOverrideEnabled(false);
+    setContextWindowInput("");
+    setCompactLimitInput("");
     setModelsError(null);
     setNotice(null);
     setManualRefreshResult(null);
@@ -303,7 +336,7 @@ export function CodexLaunchPreviewModal({
     return () => {
       active = false;
     };
-  }, [account?.id, accounts, applyLoadedConfig, instanceId, selectedInstance, setError, t]);
+  }, [account?.id, applyLoadedConfig, instanceId, selectedInstance, setError, t]);
 
   const normalizedRoutingRoutes = useMemo(
     () => normalizeCodexModelRoutingRoutes(routingRoutes, accounts),
@@ -323,6 +356,11 @@ export function CodexLaunchPreviewModal({
       : undefined;
   const routingBindingNeedsRepair =
     routingEnabled && mixedRoutingOAuthAccount == null;
+  const contextOverridePreset = resolveCodexContextOverridePreset(
+    contextOverrideEnabled,
+    contextWindowInput,
+    compactLimitInput,
+  );
 
   const nextModelRouting = useMemo(
     () => buildCodexModelRoutingValue(routingEnabled, normalizedRoutingRoutes),
@@ -330,8 +368,7 @@ export function CodexLaunchPreviewModal({
   );
   const routingDirty = useMemo(
     () =>
-      JSON.stringify(selectedInstance?.modelRouting ?? null) !==
-        JSON.stringify(nextModelRouting) ||
+      !areCodexModelRoutingsEqual(selectedInstance?.modelRouting, nextModelRouting) ||
       routingBindingNeedsRepair ||
       mixedRoutingBindAccountId !== undefined,
     [
@@ -343,7 +380,18 @@ export function CodexLaunchPreviewModal({
   );
   const dirty = useMemo(() => {
     if (!loadedConfig && !routingDirty) return false;
+    const contextDirty =
+      loadedConfig != null &&
+      (contextOverrideEnabled !==
+        (loadedConfig.detected_model_context_window !== undefined ||
+          loadedConfig.detected_auto_compact_token_limit !== undefined) ||
+        (contextOverrideEnabled &&
+          (contextWindowInput !==
+            (loadedConfig.detected_model_context_window?.toString() ?? "") ||
+            compactLimitInput !==
+              (loadedConfig.detected_auto_compact_token_limit?.toString() ?? ""))));
     return (
+      contextDirty ||
       routingDirty ||
       (loadedConfig != null &&
         (loadedConfig.experimental_model_catalog_enabled !== catalogEnabled ||
@@ -354,6 +402,9 @@ export function CodexLaunchPreviewModal({
     );
   }, [
     catalogEnabled,
+    compactLimitInput,
+    contextOverrideEnabled,
+    contextWindowInput,
     defaultModelId,
     loadedConfig,
     models,
@@ -361,11 +412,38 @@ export function CodexLaunchPreviewModal({
   ]);
 
   const persistDraft = useCallback(async () => {
-    if (!loadedConfig || (catalogEnabled && modelsError && !routingEnabled)) {
+    if (!loadedConfig || (catalogEnabled && modelsError && models.length > 0 && !routingEnabled)) {
       if (catalogEnabled && modelsError) setError(modelsError);
       return false;
     }
     if (!dirty) return true;
+    const contextWindow = Number.parseInt(contextWindowInput, 10);
+    const compactLimit = compactLimitInput.trim()
+      ? Number.parseInt(compactLimitInput, 10)
+      : undefined;
+    if (
+      contextOverrideEnabled &&
+      (!Number.isSafeInteger(contextWindow) || contextWindow <= 0)
+    ) {
+      setError(t("codex.experimentalModelCatalog.models.validation.contextWindow"));
+      return false;
+    }
+    if (
+      contextOverrideEnabled &&
+      compactLimit !== undefined &&
+      (!Number.isSafeInteger(compactLimit) || compactLimit <= 0)
+    ) {
+      setError(t("codex.experimentalModelCatalog.models.validation.autoCompact"));
+      return false;
+    }
+    if (
+      contextOverrideEnabled &&
+      compactLimit !== undefined &&
+      compactLimit >= contextWindow
+    ) {
+      setError(t("codex.experimentalModelCatalog.models.validation.autoCompactRange"));
+      return false;
+    }
     if (routingEnabled) {
       if (routingRoutes.length === 0) {
         setError(
@@ -406,19 +484,6 @@ export function CodexLaunchPreviewModal({
           );
           return false;
         }
-        if (
-          route.enabled &&
-          route.selectedModels !== undefined &&
-          route.selectedModels.filter((model) => model.trim()).length === 0
-        ) {
-          setError(
-            t(
-              "instances.form.modelRouting.modelRequired",
-              "每个已启用的 API 路由至少需要选择一个模型。",
-            ),
-          );
-          return false;
-        }
       }
     }
     setSaving(true);
@@ -436,6 +501,7 @@ export function CodexLaunchPreviewModal({
         );
         nextCatalogEnabled = true;
       }
+      const nextCatalog = resolveRoutingCatalog(nextModels, nextCatalogEnabled, defaultModelId);
       const saved = routingDirty
         ? (
             await saveCodexInstanceConfiguration({
@@ -443,20 +509,27 @@ export function CodexLaunchPreviewModal({
               bindAccountId: mixedRoutingBindAccountId,
               modelRouting: nextModelRouting,
               deferBindAccountApplication: true,
-              experimentalModelCatalogEnabled: nextCatalogEnabled,
-              experimentalModelCatalogModels: nextModels,
-              experimentalModelCatalogDefaultModelId: defaultModelId,
+              updateContextOverride: true,
+              modelContextWindow: contextOverrideEnabled ? contextWindow : null,
+              autoCompactTokenLimit: contextOverrideEnabled ? (compactLimit ?? null) : null,
+              experimentalModelCatalogEnabled: nextCatalog.enabled,
+              experimentalModelCatalogModels: nextCatalog.models,
+              experimentalModelCatalogDefaultModelId: nextCatalog.defaultModelId,
             })
           ).quickConfig
-        : await saveCodexInstanceModelCatalog(
+        : await saveCodexInstanceQuickConfig(
             instanceId,
-            nextCatalogEnabled,
-            nextModels,
-            defaultModelId,
+            contextOverrideEnabled ? contextWindow : undefined,
+            contextOverrideEnabled ? compactLimit : undefined,
+            nextCatalog.enabled,
+            nextCatalog.models,
+            nextCatalog.defaultModelId,
           );
       applyLoadedConfig(saved);
       setRoutingRoutes(normalizedRoutingRoutes);
-      setNotice(
+      setNotice(routingDirty
+        ? t("instances.form.modelRouting.savedForNextLaunch", "已保存，下次通过 Cockpit 启动 Codex 时生效；当前会话保持不变。")
+        :
         t(
           "codex.modelProviders.quickConfig.saveSuccess",
           "当前 Codex 配置已保存",
@@ -478,6 +551,9 @@ export function CodexLaunchPreviewModal({
     accounts,
     applyLoadedConfig,
     catalogEnabled,
+    compactLimitInput,
+    contextOverrideEnabled,
+    contextWindowInput,
     defaultModelId,
     dirty,
     loadedConfig,
@@ -716,8 +792,23 @@ export function CodexLaunchPreviewModal({
       <UserRound size={19} />
     );
 
-  const openModelConfig = useCallback(() => {
+  const openModelConfig = useCallback(async () => {
     if (busy || unavailable) return;
+    if (!catalogEnabled) {
+      const confirmed = await confirmDialog(
+        t(
+          "codex.modelManagement.enableConfirmDescription",
+          "开启后，Codex 将以这里配置的模型目录为准。你可以添加、删除和调整模型，但模型列表不会再自动跟随官方变化。",
+        ),
+        {
+          title: t("codex.modelManagement.enableConfirmTitle", "开启模型管理？"),
+          okLabel: t("codex.modelManagement.enableConfirmAction", "开启并配置"),
+          cancelLabel: t("common.cancel", "取消"),
+          kind: "warning",
+        },
+      );
+      if (!confirmed) return;
+    }
     setModelConfigSnapshot({
       enabled: catalogEnabled,
       models: models.map((model) => ({
@@ -732,7 +823,14 @@ export function CodexLaunchPreviewModal({
     setNotice(null);
     setError(null);
     setModelConfigOpen(true);
-  }, [busy, catalogEnabled, defaultModelId, models, setError, unavailable]);
+  }, [
+    busy,
+    catalogEnabled,
+    defaultModelId,
+    models,
+    setError,
+    unavailable,
+  ]);
 
   const handleInstanceChange = useCallback(
     async (nextInstanceId: string) => {
@@ -774,6 +872,31 @@ export function CodexLaunchPreviewModal({
       setModelsError(null);
     },
     [modelConfigSnapshot],
+  );
+
+  const openContextConfig = useCallback(() => {
+    if (busy) return;
+    setContextConfigSnapshot({
+      enabled: contextOverrideEnabled,
+      contextWindowInput,
+      compactLimitInput,
+    });
+    setNotice(null);
+    setError(null);
+    setContextConfigOpen(true);
+  }, [busy, compactLimitInput, contextOverrideEnabled, contextWindowInput, setError]);
+
+  const closeContextConfig = useCallback(
+    (apply: boolean) => {
+      if (!apply && contextConfigSnapshot) {
+        setContextOverrideEnabled(contextConfigSnapshot.enabled);
+        setContextWindowInput(contextConfigSnapshot.contextWindowInput);
+        setCompactLimitInput(contextConfigSnapshot.compactLimitInput);
+      }
+      setContextConfigSnapshot(null);
+      setContextConfigOpen(false);
+    },
+    [contextConfigSnapshot],
   );
 
   const handleAuxiliaryAction = useCallback(
@@ -1084,6 +1207,13 @@ export function CodexLaunchPreviewModal({
                     accounts={accounts}
                     running={Boolean(selectedInstance?.running)}
                     onEnabledChange={(nextEnabled) => {
+                      const catalog = resolveRoutingCatalog(
+                        syncExperimentalModelsWithRouting(models, routingRoutes, accounts, nextEnabled),
+                        nextEnabled || catalogEnabled,
+                        defaultModelId,
+                      );
+                      setCatalogEnabled(catalog.enabled);
+                      setDefaultModelId(catalog.defaultModelId);
                       if (!nextEnabled) {
                         persistRoutingDisableRef.current = true;
                       }
@@ -1143,25 +1273,79 @@ export function CodexLaunchPreviewModal({
                 </div>
                 <div className="codex-launch-preview-tool-copy">
                   <h3>
-                    {t(
-                      "codex.experimentalModelCatalog.models.contextConfig",
-                      "上下文与压缩",
-                    )}
+                    {t("codex.contextOverride.title", "上下文管理")}
                   </h3>
-                  <p>{t("codex.launchPreview.modelConfigDialogDescription")}</p>
+                  <p>
+                    {t(
+                      "codex.contextOverride.dialogDescription",
+                      "对当前 Codex 实例的所有账号生效，切号后保持不变；可选择跟随官方、预设或自定义。",
+                    )}
+                  </p>
+                  <div className="codex-launch-preview-tool-meta">
+                    <span className={contextOverrideEnabled ? "is-enabled" : ""}>
+                      {loading
+                        ? t("common.loading", "加载中...")
+                        : contextOverridePreset === "preset_516k"
+                          ? "516K / 460K"
+                          : contextOverridePreset === "preset_1m"
+                            ? "1M / 900K"
+                            : contextOverridePreset === "custom"
+                              ? t("codex.contextOverride.custom", "自定义上下文")
+                              : t("codex.contextOverride.followOfficial", "跟随官方")}
+                    </span>
+                    {contextOverridePreset === "custom" && contextWindowInput && (
+                      <span>
+                        {t(
+                          "codex.experimentalModelCatalog.models.contextWindow",
+                          "上下文窗口",
+                        )}：{contextWindowInput}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm codex-launch-preview-tool-action"
+                  onClick={openContextConfig}
+                  disabled={busy}
+                >
+                  {contextOverrideEnabled
+                    ? t("codex.contextOverride.manage", "管理上下文")
+                    : t("codex.contextOverride.adjust", "调整上下文")}
+                </button>
+              </section>
+              <section className="codex-launch-preview-tool-row">
+                <div className="codex-launch-preview-tool-icon">
+                  <SlidersHorizontal size={16} />
+                </div>
+                <div className="codex-launch-preview-tool-copy">
+                  <h3>{t("codex.modelManagement.title", "模型管理")}</h3>
+                  <p>
+                    {catalogEnabled
+                      ? t(
+                          "codex.modelManagement.enabledDescription",
+                          "当前以配置模型目录为准，可添加或减少模型，不再自动跟随官方目录。",
+                        )
+                      : t(
+                          "codex.modelManagement.disabledDescription",
+                          "默认关闭；关闭时模型列表、顺序、默认模型和推理强度均跟随官方。",
+                        )}
+                  </p>
                   <div className="codex-launch-preview-tool-meta">
                     <span className={catalogEnabled ? "is-enabled" : ""}>
                       {loading
                         ? t("common.loading", "加载中...")
                         : catalogEnabled
-                          ? t("codex.launchPreview.modelConfigEnabled")
-                          : t("codex.launchPreview.modelConfigDisabled")}
+                          ? t("codex.modelManagement.enabled", "已开启")
+                          : t("codex.modelManagement.disabled", "跟随官方")}
                     </span>
-                    <span>
-                      {t("codex.launchPreview.defaultModel", "默认模型")}：
-                      {defaultModelLabel}
-                    </span>
-                    {models.length > 0 && (
+                    {catalogEnabled && (
+                      <span>
+                        {t("codex.launchPreview.defaultModel", "默认模型")}：
+                        {defaultModelLabel}
+                      </span>
+                    )}
+                    {catalogEnabled && models.length > 0 && (
                       <span>
                         {t("codex.api.modelCatalog.count", {
                           count: models.length,
@@ -1174,12 +1358,12 @@ export function CodexLaunchPreviewModal({
                 <button
                   type="button"
                   className="btn btn-outline btn-sm codex-launch-preview-tool-action"
-                  onClick={openModelConfig}
+                  onClick={() => void openModelConfig()}
                   disabled={busy || Boolean(unavailable)}
                 >
                   {catalogEnabled
-                    ? t("codex.launchPreview.manageModelConfig")
-                    : t("codex.launchPreview.enablePerModel")}
+                    ? t("codex.modelManagement.manage", "管理模型")
+                    : t("codex.modelManagement.enable", "开启模型管理")}
                 </button>
               </section>
 
@@ -1225,7 +1409,7 @@ export function CodexLaunchPreviewModal({
             </div>
 
             {notice && (
-              <div className="add-status success">
+              <div className="codex-launch-preview-notice">
                 <Save size={14} />
                 <span>{notice}</span>
               </div>
@@ -1290,7 +1474,7 @@ export function CodexLaunchPreviewModal({
                   type="button"
                   className="btn btn-primary"
                   onClick={() => void handleExecute(mode !== "instance")}
-                  disabled={busy || (catalogEnabled && Boolean(modelsError))}
+                  disabled={busy || (catalogEnabled && models.length > 0 && Boolean(modelsError))}
                 >
                   {mode !== "instance" && <Play size={15} />}
                   {executing !== null
@@ -1401,8 +1585,8 @@ export function CodexLaunchPreviewModal({
           <div className="modal codex-launch-preview-model-config-modal">
             <div className="modal-header">
               <div>
-                <h2>{t("codex.launchPreview.modelConfigTitle")}</h2>
-                <p>{t("codex.launchPreview.modelConfigDialogDescription")}</p>
+                <h2>{t("codex.modelManagement.title", "模型管理")}</h2>
+                <p>{t("codex.modelManagement.enabledDescription")}</p>
               </div>
               <button
                 type="button"
@@ -1422,6 +1606,10 @@ export function CodexLaunchPreviewModal({
               <CodexExperimentalModelEditor
                 models={models}
                 defaultModelId={defaultModelId}
+                resetModels={loadedConfig?.experimental_model_catalog_reset_models}
+                resetDefaultModelId={
+                  loadedConfig?.experimental_model_catalog_reset_default_model_id ?? null
+                }
                 mode="inline"
                 availableChannels={availableChannels}
                 resolveModelSource={resolveModelSource}
@@ -1452,6 +1640,19 @@ export function CodexLaunchPreviewModal({
             <div className="modal-footer">
               <button
                 type="button"
+                className="btn btn-outline"
+                onClick={() => {
+                  setCatalogEnabled(false);
+                  setModelConfigSnapshot(null);
+                  setModelConfigOpen(false);
+                  setModelsError(null);
+                }}
+                disabled={busy}
+              >
+                {t("codex.modelManagement.disable", "关闭模型管理")}
+              </button>
+              <button
+                type="button"
                 className="btn btn-secondary"
                 onClick={() => closeModelConfig(false)}
                 disabled={busy}
@@ -1465,6 +1666,59 @@ export function CodexLaunchPreviewModal({
                 disabled={busy || (catalogEnabled && Boolean(modelsError))}
               >
                 {t("codex.launchPreview.applyModelConfig")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {contextConfigOpen && (
+        <div className="modal-overlay codex-launch-preview-model-config-overlay">
+          <div className="modal codex-launch-preview-model-config-modal codex-launch-preview-context-config-modal">
+            <div className="modal-header">
+              <div>
+                <h2>{t("codex.contextOverride.title", "上下文管理")}</h2>
+                <p>{t("codex.contextOverride.dialogDescription")}</p>
+              </div>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => closeContextConfig(false)}
+                disabled={busy}
+                aria-label={t("common.close", "关闭")}
+              >
+                <X />
+              </button>
+            </div>
+            <div className="modal-body">
+              <CodexContextOverrideEditor
+                enabled={contextOverrideEnabled}
+                contextWindow={contextWindowInput}
+                compactLimit={compactLimitInput}
+                disabled={busy}
+                onChange={(value) => {
+                  setContextOverrideEnabled(value.enabled);
+                  setContextWindowInput(value.contextWindow);
+                  setCompactLimitInput(value.compactLimit);
+                }}
+              />
+            </div>
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => closeContextConfig(false)}
+                disabled={busy}
+              >
+                {t("common.cancel", "取消")}
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => closeContextConfig(true)}
+                disabled={busy}
+              >
+                {t("codex.contextOverride.apply", "应用上下文")}
               </button>
             </div>
           </div>
