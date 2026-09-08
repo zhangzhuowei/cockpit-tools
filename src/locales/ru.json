@@ -4884,7 +4884,12 @@
       "total": "Итого {{amount}}",
       "empty": "В этом цикле использования не было",
       "tokens": "Ввод {{input}} · Вывод {{output}} · Чтение кэша {{cacheRead}}",
-      "others": "Ещё {{count}} моделей, итого {{amount}}"
+      "others": "Ещё {{count}} моделей, итого {{amount}}",
+      "charged": "Списано по запросу {{amount}}",
+      "chargedInline": "списано {{amount}}",
+      "grokCharged": "Списано по запросу (Grok) {{amount}}",
+      "grokChargedHint": "Сумма событий, у которых имя модели содержит «grok» или тип — Grok Bot; модели Grok, использованные в IDE, тоже учитываются.",
+      "partial": "(частично)"
     },
     "onDemand": {
       "title": "Настройки использования по запросу",

@@ -4884,7 +4884,12 @@
       "total": "Toplam {{amount}}",
       "empty": "Bu dönemde kullanım kaydı yok",
       "tokens": "Giriş {{input}} · Çıkış {{output}} · Önbellek okuma {{cacheRead}}",
-      "others": "Diğer {{count}} model toplam {{amount}}"
+      "others": "Diğer {{count}} model toplam {{amount}}",
+      "charged": "İsteğe bağlı tahsil edilen {{amount}}",
+      "chargedInline": "tahsil {{amount}}",
+      "grokCharged": "Grok ile ilgili isteğe bağlı tahsil {{amount}}",
+      "grokChargedHint": "Model adı \"grok\" içeren veya türü Grok Bot olan kullanım olaylarının toplamı; IDE içinde kullanılan Grok modelleri de dahildir.",
+      "partial": "(kısmi)"
     },
     "onDemand": {
       "title": "İsteğe Bağlı Ayarlar",

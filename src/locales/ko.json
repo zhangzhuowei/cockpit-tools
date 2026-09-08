@@ -4884,7 +4884,12 @@
       "total": "합계 {{amount}}",
       "empty": "이번 주기 사용 기록이 없습니다",
       "tokens": "입력 {{input}} · 출력 {{output}} · 캐시 읽기 {{cacheRead}}",
-      "others": "기타 {{count}}개 모델 합계 {{amount}}"
+      "others": "기타 {{count}}개 모델 합계 {{amount}}",
+      "charged": "온디맨드 청구 합계 {{amount}}",
+      "chargedInline": "청구 {{amount}}",
+      "grokCharged": "Grok 관련 온디맨드 청구 {{amount}}",
+      "grokChargedHint": "모델명에 grok이 포함되거나 종류가 Grok Bot인 사용 이벤트를 합산합니다. IDE에서 사용한 Grok 모델도 포함됩니다.",
+      "partial": "(일부)"
     },
     "onDemand": {
       "title": "온디맨드 설정",

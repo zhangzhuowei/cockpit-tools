@@ -4884,7 +4884,12 @@
       "total": "Totale {{amount}}",
       "empty": "Nessun utilizzo registrato in questo ciclo",
       "tokens": "Input {{input}} · Output {{output}} · Lettura cache {{cacheRead}}",
-      "others": "Altri {{count}} modelli, totale {{amount}}"
+      "others": "Altri {{count}} modelli, totale {{amount}}",
+      "charged": "Addebitato a consumo {{amount}}",
+      "chargedInline": "addebitato {{amount}}",
+      "grokCharged": "Addebitato a consumo relativo a Grok {{amount}}",
+      "grokChargedHint": "Somma degli eventi il cui nome modello contiene “grok” o il cui tipo è Grok Bot; sono inclusi anche i modelli Grok usati nell'IDE.",
+      "partial": "(parziale)"
     },
     "onDemand": {
       "title": "Impostazioni a consumo",

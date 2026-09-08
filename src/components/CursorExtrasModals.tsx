@@ -64,6 +64,7 @@ export function CursorUsageBreakdownModal({ accountId, accountLabel, locale, onC
   const shown = models.slice(0, TOP_MODELS);
   const restCents = models.slice(TOP_MODELS).reduce((sum, item) => sum + item.total_cents, 0);
   const maxCents = shown.reduce((max, item) => Math.max(max, item.total_cents), 0);
+  const hasCharged = data?.charged_cents != null;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -79,7 +80,7 @@ export function CursorUsageBreakdownModal({ accountId, accountLabel, locale, onC
           )}
           {!loading && data && (
             <>
-              <div className="windsurf-credit-meta-row" style={{ justifyContent: 'space-between', marginBottom: 10 }}>
+              <div className="windsurf-credit-meta-row" style={{ justifyContent: 'space-between', marginBottom: 6 }}>
                 <span className="windsurf-credit-used">
                   {t('cursor.usageBreakdown.period', '周期：{{start}} – {{end}}', {
                     start: formatDateTime(data.start_ms, locale),
@@ -90,6 +91,21 @@ export function CursorUsageBreakdownModal({ accountId, accountLabel, locale, onC
                   {t('cursor.usageBreakdown.total', '合计 {{amount}}', { amount: formatCursorUsageDollars(data.total_cents) })}
                 </span>
               </div>
+              {hasCharged && (
+                <div className="windsurf-credit-meta-row" style={{ justifyContent: 'space-between', marginBottom: 10 }}>
+                  <span className="windsurf-credit-used" title={t('cursor.usageBreakdown.grokChargedHint', '按事件日志中模型名含 grok 或事件类型为 Grok Bot 的记录汇总，IDE 内调用的 Grok 模型也计入。')}>
+                    {t('cursor.usageBreakdown.grokCharged', 'Grok 相关按需实付 {{amount}}', {
+                      amount: formatCursorUsageDollars(data.grok_charged_cents ?? 0),
+                    })}
+                  </span>
+                  <span className="windsurf-credit-used">
+                    {t('cursor.usageBreakdown.charged', '按需实付合计 {{amount}}', {
+                      amount: formatCursorUsageDollars(data.charged_cents ?? 0),
+                    })}
+                    {!data.events_complete && ` ${t('cursor.usageBreakdown.partial', '(部分)')}`}
+                  </span>
+                </div>
+              )}
               {shown.length === 0 && (
                 <div className="quota-empty">{t('cursor.usageBreakdown.empty', '本周期暂无用量记录')}</div>
               )}
@@ -99,7 +115,16 @@ export function CursorUsageBreakdownModal({ accountId, accountLabel, locale, onC
                   <div key={item.model} className="quota-item windsurf-credit-item" style={{ marginBottom: 8 }}>
                     <div className="quota-header">
                       <span className="quota-label" title={item.model}>{item.model}</span>
-                      <span className="quota-pct">{formatCursorUsageDollars(item.total_cents)}</span>
+                      <span className="quota-pct">
+                        {formatCursorUsageDollars(item.total_cents)}
+                        {item.charged_cents != null && item.charged_cents > 0 && (
+                          <span className="windsurf-credit-used" style={{ marginLeft: 6, fontWeight: 400 }}>
+                            {t('cursor.usageBreakdown.chargedInline', '实付 {{amount}}', {
+                              amount: formatCursorUsageDollars(item.charged_cents),
+                            })}
+                          </span>
+                        )}
+                      </span>
                     </div>
                     <div className="windsurf-credit-meta-row">
                       <span className="windsurf-credit-used">

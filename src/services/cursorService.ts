@@ -105,12 +105,16 @@ export interface CursorModelUsage {
   cache_read_tokens: number;
   cache_write_tokens: number;
   total_cents: number;
+  charged_cents?: number | null;
 }
 
 export interface CursorUsageBreakdown {
   start_ms: number;
   end_ms: number;
   total_cents: number;
+  charged_cents?: number | null;
+  grok_charged_cents?: number | null;
+  events_complete: boolean;
   models: CursorModelUsage[];
 }
 

@@ -4884,7 +4884,12 @@
       "total": "Gesamt {{amount}}",
       "empty": "In diesem Zyklus keine Nutzung erfasst",
       "tokens": "Eingabe {{input}} · Ausgabe {{output}} · Cache-Lesen {{cacheRead}}",
-      "others": "{{count}} weitere Modelle gesamt {{amount}}"
+      "others": "{{count}} weitere Modelle gesamt {{amount}}",
+      "charged": "On-Demand berechnet {{amount}}",
+      "chargedInline": "berechnet {{amount}}",
+      "grokCharged": "Grok-bezogen On-Demand berechnet {{amount}}",
+      "grokChargedHint": "Summe der Nutzungsereignisse, deren Modellname „grok“ enthält oder deren Art Grok Bot ist; in der IDE genutzte Grok-Modelle zählen mit.",
+      "partial": "(teilweise)"
     },
     "onDemand": {
       "title": "On-Demand-Einstellungen",

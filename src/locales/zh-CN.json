@@ -5189,7 +5189,12 @@
       "total": "合计 {{amount}}",
       "empty": "本周期暂无用量记录",
       "tokens": "输入 {{input}} · 输出 {{output}} · 缓存读 {{cacheRead}}",
-      "others": "其余 {{count}} 个模型合计 {{amount}}"
+      "others": "其余 {{count}} 个模型合计 {{amount}}",
+      "charged": "按需实付合计 {{amount}}",
+      "chargedInline": "实付 {{amount}}",
+      "grokCharged": "Grok 相关按需实付 {{amount}}",
+      "grokChargedHint": "按事件日志中模型名含 grok 或事件类型为 Grok Bot 的记录汇总，IDE 内调用的 Grok 模型也计入。",
+      "partial": "（部分）"
     },
     "onDemand": {
       "title": "按需使用设置",

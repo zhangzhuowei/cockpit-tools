@@ -5189,7 +5189,12 @@
       "total": "Total {{amount}}",
       "empty": "No usage recorded this cycle",
       "tokens": "In {{input}} · Out {{output}} · Cache read {{cacheRead}}",
-      "others": "{{count}} more models total {{amount}}"
+      "others": "{{count}} more models total {{amount}}",
+      "charged": "On-demand charged {{amount}}",
+      "chargedInline": "charged {{amount}}",
+      "grokCharged": "Grok-related on-demand charged {{amount}}",
+      "grokChargedHint": "Summed from usage events whose model name contains \"grok\" or whose kind is Grok Bot; Grok models used inside the IDE are included too.",
+      "partial": "(partial)"
     },
     "onDemand": {
       "title": "On-Demand Settings",

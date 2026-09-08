@@ -4884,7 +4884,12 @@
       "total": "合計 {{amount}}",
       "empty": "今期の使用記録はありません",
       "tokens": "入力 {{input}} · 出力 {{output}} · キャッシュ読取 {{cacheRead}}",
-      "others": "その他 {{count}} モデル 合計 {{amount}}"
+      "others": "その他 {{count}} モデル 合計 {{amount}}",
+      "charged": "オンデマンド課金合計 {{amount}}",
+      "chargedInline": "課金 {{amount}}",
+      "grokCharged": "Grok 関連のオンデマンド課金 {{amount}}",
+      "grokChargedHint": "モデル名に grok を含む、または種別が Grok Bot の使用イベントを合計。IDE 内で使った Grok モデルも含みます。",
+      "partial": "（一部）"
     },
     "onDemand": {
       "title": "オンデマンド設定",

@@ -4931,7 +4931,12 @@
       "total": "الإجمالي {{amount}}",
       "empty": "لا يوجد استخدام مسجل في هذه الدورة",
       "tokens": "إدخال {{input}} · إخراج {{output}} · قراءة الذاكرة المؤقتة {{cacheRead}}",
-      "others": "{{count}} نماذج أخرى بإجمالي {{amount}}"
+      "others": "{{count}} نماذج أخرى بإجمالي {{amount}}",
+      "charged": "المحتسب عند الطلب {{amount}}",
+      "chargedInline": "محتسب {{amount}}",
+      "grokCharged": "المحتسب عند الطلب المتعلق بـ Grok {{amount}}",
+      "grokChargedHint": "مجموع أحداث الاستخدام التي يحتوي اسم نموذجها على \"grok\" أو نوعها Grok Bot؛ تُحتسب أيضًا نماذج Grok المستخدمة داخل IDE.",
+      "partial": "(جزئي)"
     },
     "onDemand": {
       "title": "إعدادات الاستخدام عند الطلب",

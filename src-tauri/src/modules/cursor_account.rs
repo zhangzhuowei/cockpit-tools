@@ -2047,7 +2047,10 @@ pub struct CursorModelUsage {
     pub output_tokens: i64,
     pub cache_read_tokens: i64,
     pub cache_write_tokens: i64,
+    /// 该模型本周期的成本（含套餐内抵扣部分）。
     pub total_cents: f64,
+    /// 该模型本周期实际按需计费的金额；事件日志不可用时为 None。
+    pub charged_cents: Option<f64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -2055,6 +2058,12 @@ pub struct CursorUsageBreakdown {
     pub start_ms: i64,
     pub end_ms: i64,
     pub total_cents: f64,
+    /// 本周期按需实付合计；事件日志不可用时为 None。
+    pub charged_cents: Option<f64>,
+    /// Grok 相关事件（Grok Bot，以及 IDE 内 grok 模型）的按需实付合计。
+    pub grok_charged_cents: Option<f64>,
+    /// 事件日志是否完整拉取；超过分页上限时为 false，金额为下限。
+    pub events_complete: bool,
     pub models: Vec<CursorModelUsage>,
 }
 
@@ -2064,6 +2073,143 @@ fn parse_token_count(value: Option<&Value>) -> i64 {
         Some(Value::String(s)) => s.trim().parse::<i64>().unwrap_or(0),
         _ => 0,
     }
+}
+
+fn parse_cents(value: Option<&Value>) -> f64 {
+    match value {
+        Some(Value::Number(n)) => n.as_f64().unwrap_or(0.0),
+        Some(Value::String(s)) => s.trim().parse::<f64>().unwrap_or(0.0),
+        _ => 0.0,
+    }
+}
+
+const CURSOR_FILTERED_USAGE_EVENTS_URL: &str =
+    "https://cursor.com/api/dashboard/get-filtered-usage-events";
+const CURSOR_USAGE_EVENTS_PAGE_SIZE: usize = 500;
+const CURSOR_USAGE_EVENTS_MAX_PAGES: usize = 20;
+
+#[derive(Debug, Default)]
+struct ChargedUsageSummary {
+    by_model: HashMap<String, f64>,
+    total_cents: f64,
+    grok_cents: f64,
+    complete: bool,
+    kinds: HashSet<String>,
+}
+
+fn is_grok_related_event(model: &str, kind: &str) -> bool {
+    let model = model.to_ascii_lowercase();
+    let kind = kind.to_ascii_lowercase();
+    model.contains("grok") || kind.contains("grok") || kind.contains("sand")
+}
+
+/// 逐页拉取本周期的用量事件，按模型汇总 `chargedCents`（按需实付）。
+/// 聚合接口只有 totalCents（成本），区分"套餐内"与"按需实付"只能靠事件日志。
+async fn fetch_charged_usage(
+    client: &reqwest::Client,
+    access_token: &str,
+    start_ms: i64,
+    end_ms: i64,
+) -> Result<ChargedUsageSummary, String> {
+    let mut summary = ChargedUsageSummary::default();
+    let mut page = 1usize;
+    let mut fetched = 0usize;
+    let mut expected_total: Option<usize> = None;
+
+    loop {
+        let body = serde_json::json!({
+            "teamId": -1,
+            "startDate": start_ms.to_string(),
+            "endDate": end_ms.to_string(),
+            "page": page,
+            "pageSize": CURSOR_USAGE_EVENTS_PAGE_SIZE,
+        });
+        let value = dashboard_post_json(
+            client,
+            access_token,
+            CURSOR_FILTERED_USAGE_EVENTS_URL,
+            body,
+            "用量事件接口",
+        )
+        .await?;
+
+        if expected_total.is_none() {
+            expected_total = value
+                .get("totalUsageEventsCount")
+                .and_then(|v| match v {
+                    Value::Number(n) => n.as_u64().map(|n| n as usize),
+                    Value::String(s) => s.trim().parse::<usize>().ok(),
+                    _ => None,
+                });
+        }
+
+        let events = value
+            .get("usageEventsDisplay")
+            .or_else(|| value.get("usageEvents"))
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        if events.is_empty() {
+            summary.complete = true;
+            break;
+        }
+
+        for event in &events {
+            let model = event
+                .get("model")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            let kind = event
+                .get("kind")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if !kind.is_empty() {
+                summary.kinds.insert(kind.clone());
+            }
+            let charged = parse_cents(event.get("chargedCents"));
+            if charged <= 0.0 {
+                continue;
+            }
+            summary.total_cents += charged;
+            *summary.by_model.entry(model.clone()).or_insert(0.0) += charged;
+            if is_grok_related_event(&model, &kind) {
+                summary.grok_cents += charged;
+            }
+        }
+
+        fetched += events.len();
+        if let Some(total) = expected_total {
+            if fetched >= total {
+                summary.complete = true;
+                break;
+            }
+        }
+        if events.len() < CURSOR_USAGE_EVENTS_PAGE_SIZE {
+            summary.complete = true;
+            break;
+        }
+        page += 1;
+        if page > CURSOR_USAGE_EVENTS_MAX_PAGES {
+            summary.complete = false;
+            break;
+        }
+    }
+
+    if !summary.kinds.is_empty() {
+        let mut kinds: Vec<&String> = summary.kinds.iter().collect();
+        kinds.sort();
+        logger::log_info(&format!(
+            "[Cursor Usage] 本周期事件类型: {} (events={}, charged=${:.2}, grok_charged=${:.2})",
+            kinds.iter().map(|k| k.as_str()).collect::<Vec<_>>().join(", "),
+            fetched,
+            summary.total_cents / 100.0,
+            summary.grok_cents / 100.0
+        ));
+    }
+    Ok(summary)
 }
 
 /// 当前计费周期的按模型用量。周期取 usage-summary 里的 billingCycleStart/End，缺失时退回最近 30 天。
@@ -2123,15 +2269,55 @@ pub async fn fetch_usage_breakdown(account_id: &str) -> Result<CursorUsageBreakd
                             .get("totalCents")
                             .and_then(|v| v.as_f64())
                             .unwrap_or(0.0),
+                        charged_cents: None,
                     })
                 })
                 .collect()
         })
         .unwrap_or_default();
+
+    // 事件日志是附加信息：拉不到就只给成本，不让整个明细失败。
+    let charged = match fetch_charged_usage(&client, &account.access_token, start_ms, end_ms).await
+    {
+        Ok(summary) => Some(summary),
+        Err(err) => {
+            logger::log_warn(&format!(
+                "[Cursor Usage] 用量事件拉取失败，按需实付不可用: id={}, error={}",
+                account_id, err
+            ));
+            None
+        }
+    };
+    if let Some(summary) = charged.as_ref() {
+        for model in &mut models {
+            model.charged_cents = Some(summary.by_model.get(&model.model).copied().unwrap_or(0.0));
+        }
+        // 事件里出现但聚合接口没有的模型（例如只有按需事件），补一行让实付对得上总数。
+        for (model_name, cents) in &summary.by_model {
+            if *cents > 0.0 && !models.iter().any(|m| &m.model == model_name) {
+                models.push(CursorModelUsage {
+                    model: model_name.clone(),
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    cache_read_tokens: 0,
+                    cache_write_tokens: 0,
+                    total_cents: 0.0,
+                    charged_cents: Some(*cents),
+                });
+            }
+        }
+    }
+
     models.sort_by(|a, b| {
         b.total_cents
             .partial_cmp(&a.total_cents)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| {
+                b.charged_cents
+                    .unwrap_or(0.0)
+                    .partial_cmp(&a.charged_cents.unwrap_or(0.0))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
             .then_with(|| {
                 (b.input_tokens + b.output_tokens).cmp(&(a.input_tokens + a.output_tokens))
             })
@@ -2146,6 +2332,9 @@ pub async fn fetch_usage_breakdown(account_id: &str) -> Result<CursorUsageBreakd
         start_ms,
         end_ms,
         total_cents,
+        charged_cents: charged.as_ref().map(|s| s.total_cents),
+        grok_charged_cents: charged.as_ref().map(|s| s.grok_cents),
+        events_complete: charged.as_ref().map(|s| s.complete).unwrap_or(false),
         models,
     })
 }

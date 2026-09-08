@@ -4884,7 +4884,12 @@
       "total": "Tổng {{amount}}",
       "empty": "Chưa có sử dụng trong kỳ này",
       "tokens": "Vào {{input}} · Ra {{output}} · Đọc cache {{cacheRead}}",
-      "others": "{{count}} mô hình khác, tổng {{amount}}"
+      "others": "{{count}} mô hình khác, tổng {{amount}}",
+      "charged": "Đã tính phí theo yêu cầu {{amount}}",
+      "chargedInline": "tính phí {{amount}}",
+      "grokCharged": "Tính phí theo yêu cầu liên quan Grok {{amount}}",
+      "grokChargedHint": "Tổng các sự kiện có tên mô hình chứa \"grok\" hoặc loại là Grok Bot; mô hình Grok dùng trong IDE cũng được tính.",
+      "partial": "(một phần)"
     },
     "onDemand": {
       "title": "Cài đặt theo yêu cầu",

@@ -4884,7 +4884,12 @@
       "total": "Razem {{amount}}",
       "empty": "Brak użycia w tym cyklu",
       "tokens": "Wejście {{input}} · Wyjście {{output}} · Odczyt cache {{cacheRead}}",
-      "others": "Pozostałe {{count}} modele razem {{amount}}"
+      "others": "Pozostałe {{count}} modele razem {{amount}}",
+      "charged": "Naliczone na żądanie {{amount}}",
+      "chargedInline": "naliczone {{amount}}",
+      "grokCharged": "Naliczone na żądanie (Grok) {{amount}}",
+      "grokChargedHint": "Suma zdarzeń, których nazwa modelu zawiera „grok” lub typ to Grok Bot; modele Grok użyte w IDE też się liczą.",
+      "partial": "(częściowo)"
     },
     "onDemand": {
       "title": "Ustawienia na żądanie",

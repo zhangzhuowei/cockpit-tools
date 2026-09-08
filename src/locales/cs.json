@@ -4884,7 +4884,12 @@
       "total": "Celkem {{amount}}",
       "empty": "V tomto cyklu žádné využití",
       "tokens": "Vstup {{input}} · Výstup {{output}} · Čtení cache {{cacheRead}}",
-      "others": "Dalších {{count}} modelů celkem {{amount}}"
+      "others": "Dalších {{count}} modelů celkem {{amount}}",
+      "charged": "Účtováno na vyžádání {{amount}}",
+      "chargedInline": "účtováno {{amount}}",
+      "grokCharged": "Účtováno na vyžádání (Grok) {{amount}}",
+      "grokChargedHint": "Součet událostí, jejichž název modelu obsahuje „grok“ nebo jejichž typ je Grok Bot; započítávají se i modely Grok použité v IDE.",
+      "partial": "(částečně)"
     },
     "onDemand": {
       "title": "Nastavení na vyžádání",

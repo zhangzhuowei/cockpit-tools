@@ -4884,7 +4884,12 @@
       "total": "Total : {{amount}}",
       "empty": "Aucune utilisation enregistrée ce cycle",
       "tokens": "Entrée {{input}} · Sortie {{output}} · Lecture cache {{cacheRead}}",
-      "others": "{{count}} autres modèles, total {{amount}}"
+      "others": "{{count}} autres modèles, total {{amount}}",
+      "charged": "Facturé à la demande {{amount}}",
+      "chargedInline": "facturé {{amount}}",
+      "grokCharged": "Facturé à la demande lié à Grok {{amount}}",
+      "grokChargedHint": "Somme des événements dont le nom de modèle contient « grok » ou dont le type est Grok Bot ; les modèles Grok utilisés dans l'IDE sont inclus.",
+      "partial": "(partiel)"
     },
     "onDemand": {
       "title": "Paramètres à la demande",

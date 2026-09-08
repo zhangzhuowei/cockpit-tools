@@ -4884,7 +4884,12 @@
       "total": "合計 {{amount}}",
       "empty": "本週期暫無用量記錄",
       "tokens": "輸入 {{input}} · 輸出 {{output}} · 快取讀 {{cacheRead}}",
-      "others": "其餘 {{count}} 個模型合計 {{amount}}"
+      "others": "其餘 {{count}} 個模型合計 {{amount}}",
+      "charged": "按需實付合計 {{amount}}",
+      "chargedInline": "實付 {{amount}}",
+      "grokCharged": "Grok 相關按需實付 {{amount}}",
+      "grokChargedHint": "依事件記錄中模型名稱含 grok 或事件類型為 Grok Bot 的記錄彙總，IDE 內呼叫的 Grok 模型也計入。",
+      "partial": "（部分）"
     },
     "onDemand": {
       "title": "按需使用設定",

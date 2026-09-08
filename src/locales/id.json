@@ -5037,7 +5037,12 @@
       "total": "Total: {{amount}}",
       "empty": "Belum ada penggunaan pada siklus ini",
       "tokens": "Masuk {{input}} · Keluar {{output}} · Baca cache {{cacheRead}}",
-      "others": "{{count}} model lainnya total {{amount}}"
+      "others": "{{count}} model lainnya total {{amount}}",
+      "charged": "Ditagih sesuai permintaan {{amount}}",
+      "chargedInline": "ditagih {{amount}}",
+      "grokCharged": "Ditagih sesuai permintaan terkait Grok {{amount}}",
+      "grokChargedHint": "Jumlah dari peristiwa penggunaan yang nama modelnya mengandung \"grok\" atau jenisnya Grok Bot; model Grok yang dipakai di IDE juga dihitung.",
+      "partial": "(sebagian)"
     },
     "onDemand": {
       "title": "Pengaturan Sesuai Permintaan",

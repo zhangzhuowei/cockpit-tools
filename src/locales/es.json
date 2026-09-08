@@ -4884,7 +4884,12 @@
       "total": "Total: {{amount}}",
       "empty": "Sin uso registrado en este ciclo",
       "tokens": "Entrada {{input}} · Salida {{output}} · Lectura caché {{cacheRead}}",
-      "others": "{{count}} modelos más, total {{amount}}"
+      "others": "{{count}} modelos más, total {{amount}}",
+      "charged": "Cobrado bajo demanda {{amount}}",
+      "chargedInline": "cobrado {{amount}}",
+      "grokCharged": "Cobrado bajo demanda relacionado con Grok {{amount}}",
+      "grokChargedHint": "Suma de eventos cuyo nombre de modelo contiene «grok» o cuyo tipo es Grok Bot; también incluye modelos Grok usados en el IDE.",
+      "partial": "(parcial)"
     },
     "onDemand": {
       "title": "Ajustes bajo demanda",
