@@ -5114,6 +5114,9 @@
       "reasonAuto": "Pergantian otomatis",
       "reasonQuotaAlert": "Pergantian cepat dari peringatan",
       "reasonTray": "Menu tray"
+    },
+    "webview": {
+      "open": "Buka Dashboard web"
     }
   },
   "breakout": {

@@ -48,6 +48,7 @@ pub mod cursor_account;
 pub mod cursor_instance;
 pub mod cursor_oauth;
 pub mod cursor_switch_history;
+pub mod cursor_webview;
 pub mod db;
 pub mod deferred_account_rewrite;
 pub mod diagnostics;

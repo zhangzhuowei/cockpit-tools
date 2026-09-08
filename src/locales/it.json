@@ -4961,6 +4961,9 @@
       "reasonAuto": "Cambio automatico",
       "reasonQuotaAlert": "Cambio rapido da avviso",
       "reasonTray": "Menu della barra"
+    },
+    "webview": {
+      "open": "Apri la Dashboard web"
     }
   },
   "breakout": {

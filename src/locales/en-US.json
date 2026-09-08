@@ -5266,6 +5266,9 @@
       "reasonAuto": "Auto switch",
       "reasonQuotaAlert": "Alert quick switch",
       "reasonTray": "Tray menu"
+    },
+    "webview": {
+      "open": "Open web Dashboard"
     }
   },
   "breakout": {

@@ -71,6 +71,11 @@ export async function injectCursorAccount(accountId: string): Promise<string> {
   return await invoke('inject_cursor_account', { accountId });
 }
 
+/** 用账号 token 打开已登录的 cursor.com Dashboard（独立 Cookie 目录的内嵌窗口）。 */
+export async function openCursorWebview(accountId: string): Promise<void> {
+  await invoke('open_cursor_webview', { accountId });
+}
+
 export interface CursorSwitchLowMetric {
   label: string;
   left_percent: number;

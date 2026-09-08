@@ -4961,6 +4961,9 @@
       "reasonAuto": "Bascule automatique",
       "reasonQuotaAlert": "Bascule rapide depuis l'alerte",
       "reasonTray": "Menu de la barre"
+    },
+    "webview": {
+      "open": "Ouvrir le Dashboard web"
     }
   },
   "breakout": {

@@ -1241,6 +1241,7 @@ pub fn run() {
             commands::cursor::get_cursor_usage_breakdown,
             commands::cursor::get_cursor_hard_limit,
             commands::cursor::set_cursor_hard_limit,
+            modules::cursor_webview::open_cursor_webview,
             // Grok Commands
             commands::grok::grok_get_cli_status,
             commands::grok::grok_execute_cli_install_command,

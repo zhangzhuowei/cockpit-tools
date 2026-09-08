@@ -5266,6 +5266,9 @@
       "reasonAuto": "自动切号",
       "reasonQuotaAlert": "预警快捷切换",
       "reasonTray": "托盘菜单"
+    },
+    "webview": {
+      "open": "打开网页版 Dashboard"
     }
   },
   "breakout": {

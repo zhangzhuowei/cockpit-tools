@@ -171,6 +171,7 @@ export function CursorAccountsPage() {
       addWithToken: cursorService.addCursorAccountWithToken,
       exportAccounts: cursorService.exportCursorAccounts,
       injectToVSCode: cursorService.injectCursorAccount,
+      openWebview: cursorService.openCursorWebview,
     },
     getDisplayEmail: (account) => getCursorAccountDisplayEmail(account),
   });
@@ -198,6 +199,7 @@ export function CursorAccountsPage() {
     importing, openAddModal, closeAddModal,
     handleTokenImport, handleImportJsonFile, handleImportFromLocal, handlePickImportFile, importFileInputRef,
     handleInjectToVSCode,
+    handleOpenWebview, webviewing,
     oauthUrl, oauthUrlCopied, oauthUserCode, oauthUserCodeCopied, oauthPolling, oauthTimedOut, oauthPrepareError, oauthCompleteError,
     oauthMeta,
     handleCopyOauthUrl, handleCopyOauthUserCode, handleRetryOauth, handleOpenOauthUrl,
@@ -848,6 +850,9 @@ export function CursorAccountsPage() {
                 title={isBanned ? t('accounts.status.forbidden_msg') : isWebToken ? webTokenTitle : t('cursor.injectToCursor', '切换到 Cursor')}>
                 {injecting === account.id ? <RefreshCw size={14} className="loading-spinner" /> : <Play size={14} />}
               </button>
+              <button className="card-action-btn" onClick={() => handleOpenWebview?.(account.id)} disabled={!!webviewing || isBanned} title={t('cursor.webview.open', '打开网页版 Dashboard')}>
+                {webviewing === account.id ? <RefreshCw size={14} className="loading-spinner" /> : <Globe size={14} />}
+              </button>
               <button className="card-action-btn" onClick={() => setUsageBreakdownAccountId(account.id)} disabled={isBanned || !hasQuotaData} title={t('cursor.usageBreakdown.title', '用量明细')}>
                 <BarChart3 size={14} />
               </button>
@@ -1024,6 +1029,9 @@ export function CursorAccountsPage() {
               <button className="action-btn success" onClick={() => handleInjectToVSCode?.(account.id)} disabled={!!injecting || isBanned || isWebToken}
                 title={isBanned ? t('accounts.status.forbidden_msg') : isWebToken ? webTokenTitle : t('cursor.injectToCursor', '切换到 Cursor')}>
                 {injecting === account.id ? <RefreshCw size={14} className="loading-spinner" /> : <Play size={14} />}
+              </button>
+              <button className="action-btn" onClick={() => handleOpenWebview?.(account.id)} disabled={!!webviewing || isBanned} title={t('cursor.webview.open', '打开网页版 Dashboard')}>
+                {webviewing === account.id ? <RefreshCw size={14} className="loading-spinner" /> : <Globe size={14} />}
               </button>
               <button className="action-btn" onClick={() => setUsageBreakdownAccountId(account.id)} disabled={isBanned || !hasQuotaData} title={t('cursor.usageBreakdown.title', '用量明细')}>
                 <BarChart3 size={14} />

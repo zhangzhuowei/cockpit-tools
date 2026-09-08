@@ -1747,12 +1747,17 @@ fn extract_workos_user_id(jwt: &str) -> Option<String> {
     }
 }
 
-fn build_session_cookie(access_token: &str) -> Option<String> {
+pub(crate) const CURSOR_SESSION_COOKIE_NAME: &str = "WorkosCursorSessionToken";
+
+/// cursor.com 网页登录 Cookie 的值：`user_xxx%3A%3A<jwt>`（`::` 按站点惯例 URL 编码）。
+pub(crate) fn build_session_cookie_value(access_token: &str) -> Option<String> {
     let user_id = extract_workos_user_id(access_token)?;
-    Some(format!(
-        "WorkosCursorSessionToken={}%3A%3A{}",
-        user_id, access_token
-    ))
+    Some(format!("{}%3A%3A{}", user_id, access_token))
+}
+
+fn build_session_cookie(access_token: &str) -> Option<String> {
+    build_session_cookie_value(access_token)
+        .map(|value| format!("{}={}", CURSOR_SESSION_COOKIE_NAME, value))
 }
 
 fn resolve_membership_from_stripe_profile(profile: &CursorStripeProfileResponse) -> Option<String> {

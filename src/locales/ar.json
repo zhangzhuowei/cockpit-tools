@@ -5008,6 +5008,9 @@
       "reasonAuto": "تبديل تلقائي",
       "reasonQuotaAlert": "تبديل سريع من التنبيه",
       "reasonTray": "قائمة شريط النظام"
+    },
+    "webview": {
+      "open": "افتح لوحة الويب"
     }
   },
   "breakout": {
