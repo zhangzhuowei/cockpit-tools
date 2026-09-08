@@ -4944,7 +4944,10 @@
       "enableDesc": "方案額度用完後按量計費繼續使用；關閉則額度耗盡即停止。",
       "limit": "月度上限（美元）",
       "limitDesc": "本週期按需花費達到該金額後停止；必須是正整數。",
-      "notice": "此設定直接寫入 Cursor 官網帳號，與 Dashboard → Spending 頁面一致，儲存後立即生效。"
+      "notice": "此設定直接寫入 Cursor 官網帳號，與 Dashboard → Spending 頁面一致，儲存後立即生效。",
+      "teamBilling": "團隊計費",
+      "usedAmount": "已用 {{amount}}",
+      "teamNotice": "此帳號按團隊計費，按需上限通常由團隊管理員在 Dashboard 統一設定；這裡的修改可能不會生效。"
     },
     "switchHistory": {
       "title": "切換帳號歷史",

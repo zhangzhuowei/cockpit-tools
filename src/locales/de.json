@@ -4944,7 +4944,10 @@
       "enableDesc": "Nach Verbrauch des Kontingents nutzungsbasiert weiterarbeiten; ausgeschaltet stoppt die Nutzung am Limit.",
       "limit": "Monatslimit (USD)",
       "limitDesc": "On-Demand-Ausgaben stoppen in diesem Zyklus bei diesem Betrag; positive Ganzzahl erforderlich.",
-      "notice": "Wird direkt in dein Cursor-Konto geschrieben, wie unter Dashboard → Spending, und gilt sofort."
+      "notice": "Wird direkt in dein Cursor-Konto geschrieben, wie unter Dashboard → Spending, und gilt sofort.",
+      "teamBilling": "Team-Abrechnung",
+      "usedAmount": "Verbraucht {{amount}}",
+      "teamNotice": "Dieses Konto wird über das Team abgerechnet. Das On-Demand-Limit legt normalerweise ein Team-Admin im Dashboard fest; Änderungen hier greifen daher möglicherweise nicht."
     },
     "switchHistory": {
       "title": "Wechselverlauf",

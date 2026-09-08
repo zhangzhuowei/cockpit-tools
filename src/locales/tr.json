@@ -4944,7 +4944,10 @@
       "enableDesc": "Dahil kota bitince kullandıkça öde ile devam et; kapalıysa kullanım limitte durur.",
       "limit": "Aylık limit (USD)",
       "limitDesc": "İsteğe bağlı harcama bu dönemde bu tutarda durur; pozitif tam sayı olmalıdır.",
-      "notice": "Doğrudan Cursor hesabına yazılır, Dashboard → Spending ile aynıdır ve hemen geçerli olur."
+      "notice": "Doğrudan Cursor hesabına yazılır, Dashboard → Spending ile aynıdır ve hemen geçerli olur.",
+      "teamBilling": "Ekip faturalandırması",
+      "usedAmount": "Kullanılan {{amount}}",
+      "teamNotice": "Bu hesap ekip üzerinden faturalandırılır. İsteğe bağlı limit genellikle ekip yöneticisi tarafından Dashboard'da ayarlanır; buradaki değişiklikler geçerli olmayabilir."
     },
     "switchHistory": {
       "title": "Geçiş Geçmişi",

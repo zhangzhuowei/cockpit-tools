@@ -4944,7 +4944,10 @@
       "enableDesc": "Tiếp tục theo hình thức trả theo dùng sau khi hết hạn mức; tắt thì dừng khi hết hạn mức.",
       "limit": "Giới hạn hàng tháng (USD)",
       "limitDesc": "Chi tiêu theo yêu cầu dừng khi đạt số tiền này trong kỳ; phải là số nguyên dương.",
-      "notice": "Ghi trực tiếp vào tài khoản Cursor, giống Dashboard → Spending, và có hiệu lực ngay."
+      "notice": "Ghi trực tiếp vào tài khoản Cursor, giống Dashboard → Spending, và có hiệu lực ngay.",
+      "teamBilling": "Thanh toán theo nhóm",
+      "usedAmount": "Đã dùng {{amount}}",
+      "teamNotice": "Tài khoản này được thanh toán qua nhóm. Giới hạn theo nhu cầu thường do quản trị viên nhóm đặt trong Dashboard, nên thay đổi ở đây có thể không có hiệu lực."
     },
     "switchHistory": {
       "title": "Lịch sử chuyển tài khoản",

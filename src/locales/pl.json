@@ -4944,7 +4944,10 @@
       "enableDesc": "Po wyczerpaniu limitu kontynuuj w modelu płatności za użycie; wyłączone – użycie zatrzymuje się na limicie.",
       "limit": "Limit miesięczny (USD)",
       "limitDesc": "Wydatki na żądanie zatrzymują się na tej kwocie w cyklu; wymagana dodatnia liczba całkowita.",
-      "notice": "Zapisywane bezpośrednio na koncie Cursor, tak jak Dashboard → Spending, i działa natychmiast."
+      "notice": "Zapisywane bezpośrednio na koncie Cursor, tak jak Dashboard → Spending, i działa natychmiast.",
+      "teamBilling": "Rozliczenie zespołowe",
+      "usedAmount": "Zużyto {{amount}}",
+      "teamNotice": "To konto jest rozliczane w ramach zespołu. Limit na żądanie zwykle ustawia administrator zespołu w Dashboardzie, więc zmiany wprowadzone tutaj mogą nie zadziałać."
     },
     "switchHistory": {
       "title": "Historia przełączeń",

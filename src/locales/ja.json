@@ -4944,7 +4944,10 @@
       "enableDesc": "プランの残量を使い切った後も従量課金で続行します。オフの場合は残量がなくなると停止します。",
       "limit": "月間上限（USD）",
       "limitDesc": "今期のオンデマンド費用がこの金額に達すると停止します。正の整数を指定してください。",
-      "notice": "この設定は Cursor アカウントに直接書き込まれ、Dashboard → Spending と同じで、保存後すぐに反映されます。"
+      "notice": "この設定は Cursor アカウントに直接書き込まれ、Dashboard → Spending と同じで、保存後すぐに反映されます。",
+      "teamBilling": "チーム課金",
+      "usedAmount": "使用済み {{amount}}",
+      "teamNotice": "このアカウントはチーム単位で課金されます。オンデマンド上限は通常チーム管理者が Dashboard で設定するため、ここでの変更は反映されない場合があります。"
     },
     "switchHistory": {
       "title": "切り替え履歴",

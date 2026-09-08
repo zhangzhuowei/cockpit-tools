@@ -999,6 +999,40 @@
   letter-spacing: normal;
 }
 
+/* Cursor 卡片动作比其他平台多，底栏拆成两行：日期一行，按钮一行右对齐（同 Codex 卡片） */
+.cursor-accounts-page .ghcp-account-card .card-footer {
+  flex-wrap: wrap;
+  row-gap: 8px;
+  padding-top: 0;
+  border-top: none;
+}
+
+.cursor-accounts-page .ghcp-account-card .card-footer .card-date {
+  flex: 1 0 100%;
+  white-space: nowrap;
+}
+
+.cursor-accounts-page .ghcp-account-card .card-footer .card-actions {
+  flex: 1 0 100%;
+  justify-content: flex-end;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-light);
+}
+
+/* 配额行标题旁的小动作按钮（用量明细 / 按需设置） */
+.cursor-accounts-page .ghcp-account-card .quota-label.with-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cursor-accounts-page .ghcp-account-card .card-action-btn.quota-inline-action {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  flex-shrink: 0;
+}
+
 .windsurf-accounts-page .ghcp-account-card .tier-badge,
 .windsurf-accounts-page .account-table .tier-badge {
   text-transform: none;

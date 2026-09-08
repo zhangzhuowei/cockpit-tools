@@ -4944,7 +4944,10 @@
       "enableDesc": "Seguir con pago por uso al agotar la cuota incluida; desactivado, el uso se detiene en el límite.",
       "limit": "Límite mensual (USD)",
       "limitDesc": "El gasto bajo demanda se detiene en este importe durante el ciclo; entero positivo obligatorio.",
-      "notice": "Se escribe directamente en tu cuenta de Cursor, igual que Dashboard → Spending, y aplica de inmediato."
+      "notice": "Se escribe directamente en tu cuenta de Cursor, igual que Dashboard → Spending, y aplica de inmediato.",
+      "teamBilling": "Facturación del equipo",
+      "usedAmount": "Usado {{amount}}",
+      "teamNotice": "Esta cuenta se factura a través de su equipo. El límite bajo demanda normalmente lo define un administrador del equipo en el Dashboard, por lo que los cambios hechos aquí podrían no aplicarse."
     },
     "switchHistory": {
       "title": "Historial de cambios",

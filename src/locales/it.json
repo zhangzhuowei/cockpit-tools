@@ -4944,7 +4944,10 @@
       "enableDesc": "Prosegui con pagamento a consumo dopo l'esaurimento della quota inclusa; disattivato, l'uso si ferma al limite.",
       "limit": "Limite mensile (USD)",
       "limitDesc": "La spesa a consumo si ferma a questo importo nel ciclo; richiesto intero positivo.",
-      "notice": "Scritto direttamente nel tuo account Cursor, come Dashboard → Spending, con effetto immediato."
+      "notice": "Scritto direttamente nel tuo account Cursor, come Dashboard → Spending, con effetto immediato.",
+      "teamBilling": "Fatturazione del team",
+      "usedAmount": "Usato {{amount}}",
+      "teamNotice": "Questo account viene fatturato tramite il team. Il limite on-demand è di norma impostato da un amministratore del team nel Dashboard, quindi le modifiche fatte qui potrebbero non avere effetto."
     },
     "switchHistory": {
       "title": "Cronologia cambi",

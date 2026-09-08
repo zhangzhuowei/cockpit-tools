@@ -5249,7 +5249,10 @@
       "enableDesc": "套餐额度用完后按量计费继续使用；关闭则额度耗尽即停止。",
       "limit": "月度上限（美元）",
       "limitDesc": "本周期按需花费达到该金额后停止；必须是正整数。",
-      "notice": "此设置直接写入 Cursor 官网账号，与 Dashboard → Spending 页面一致，保存后立即生效。"
+      "notice": "此设置直接写入 Cursor 官网账号，与 Dashboard → Spending 页面一致，保存后立即生效。",
+      "teamBilling": "团队计费",
+      "usedAmount": "已用 {{amount}}",
+      "teamNotice": "此账号按团队计费，按需上限通常由团队管理员在 Dashboard 统一设置；这里的修改可能不会生效。"
     },
     "switchHistory": {
       "title": "切号历史",

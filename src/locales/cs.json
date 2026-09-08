@@ -4944,7 +4944,10 @@
       "enableDesc": "Po vyčerpání zahrnuté kvóty pokračovat s platbou za použití; při vypnutí se využití zastaví na limitu.",
       "limit": "Měsíční limit (USD)",
       "limitDesc": "Útrata na vyžádání se v cyklu zastaví na této částce; vyžadováno kladné celé číslo.",
-      "notice": "Zapisuje se přímo do účtu Cursor, stejně jako Dashboard → Spending, a platí okamžitě."
+      "notice": "Zapisuje se přímo do účtu Cursor, stejně jako Dashboard → Spending, a platí okamžitě.",
+      "teamBilling": "Týmové účtování",
+      "usedAmount": "Využito {{amount}}",
+      "teamNotice": "Tento účet je účtován přes tým. Limit na vyžádání obvykle nastavuje správce týmu v Dashboardu, takže změny provedené zde se nemusí projevit."
     },
     "switchHistory": {
       "title": "Historie přepnutí",

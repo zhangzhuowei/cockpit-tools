@@ -5097,7 +5097,10 @@
       "enableDesc": "Lanjutkan dengan bayar sesuai pakai setelah kuota habis; jika nonaktif, penggunaan berhenti di batas.",
       "limit": "Batas bulanan (USD)",
       "limitDesc": "Pengeluaran sesuai permintaan berhenti pada jumlah ini selama siklus; harus bilangan bulat positif.",
-      "notice": "Ditulis langsung ke akun Cursor Anda, sama seperti Dashboard → Spending, dan berlaku segera."
+      "notice": "Ditulis langsung ke akun Cursor Anda, sama seperti Dashboard → Spending, dan berlaku segera.",
+      "teamBilling": "Penagihan tim",
+      "usedAmount": "Terpakai {{amount}}",
+      "teamNotice": "Akun ini ditagih melalui tim. Batas sesuai permintaan biasanya diatur oleh admin tim di Dashboard, sehingga perubahan di sini mungkin tidak berlaku."
     },
     "switchHistory": {
       "title": "Riwayat Pergantian",

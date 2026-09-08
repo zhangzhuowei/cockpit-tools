@@ -164,11 +164,13 @@ export function CursorUsageBreakdownModal({ accountId, accountLabel, locale, onC
 interface OnDemandModalProps {
   accountId: string | null;
   accountLabel: string;
+  /** 账号按团队口径计费（limitType=team）：上限通常由团队管理员管理，这里的修改可能不生效。 */
+  teamManaged?: boolean;
   onClose: () => void;
   onSaved: () => void | Promise<void>;
 }
 
-export function CursorOnDemandModal({ accountId, accountLabel, onClose, onSaved }: OnDemandModalProps) {
+export function CursorOnDemandModal({ accountId, accountLabel, teamManaged = false, onClose, onSaved }: OnDemandModalProps) {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -228,6 +230,11 @@ export function CursorOnDemandModal({ accountId, accountLabel, onClose, onSaved 
             <div className="quota-empty"><RefreshCw size={14} className="loading-spinner" /> {t('common.loading', '加载中...')}</div>
           ) : (
             <>
+              {teamManaged && (
+                <p className="row-desc" style={{ marginBottom: 12 }}>
+                  {t('cursor.onDemand.teamNotice', '此账号按团队计费，按需上限通常由团队管理员在 Dashboard 统一设置；这里的修改可能不会生效。')}
+                </p>
+              )}
               <div className="settings-row">
                 <div className="row-label">
                   <div className="row-title">{t('cursor.onDemand.enable', '启用按需使用')}</div>

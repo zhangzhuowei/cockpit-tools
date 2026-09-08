@@ -373,15 +373,21 @@ export function CursorAccountsPage() {
     (account: CursorAccount) => {
       const usage = getCursorUsage(account);
       const onDemand = getCursorOnDemandSummary(usage);
+      // 没有"已用 / 上限"这种自解释格式时，裸金额看不出含义，统一标成"已用 $X"。
+      const usedOnlyText = t('cursor.onDemand.usedAmount', {
+        amount: formatCursorUsageDollars(onDemand.usedCents),
+        defaultValue: '已用 {{amount}}',
+      });
 
       if (onDemand.isDisabled) {
+        // Team 账号拿不到团队上限时并不是"关闭"，而是走团队计费；按团队口径标注。
         return {
           percentage: 0,
           quotaClass: 'normal',
-          valueText: onDemand.usedCents > 0
-            ? formatCursorUsageDollars(onDemand.usedCents)
+          valueText: onDemand.isTeamLimit
+            ? t('cursor.onDemand.teamBilling', '团队计费')
             : t('common.disabled', 'Disabled'),
-          costText: null as string | null,
+          costText: onDemand.usedCents > 0 ? usedOnlyText : null,
           disabled: true,
         };
       }
@@ -391,7 +397,7 @@ export function CursorAccountsPage() {
           percentage: 0,
           quotaClass: 'normal',
           valueText: t('common.shared.quota.unlimited', 'Unlimited'),
-          costText: formatCursorUsageDollars(onDemand.usedCents),
+          costText: usedOnlyText,
           disabled: false,
         };
       }
@@ -721,6 +727,13 @@ export function CursorAccountsPage() {
       const statusReason = account.status_reason ?? null;
       const bannedTitle = statusReason || t('accounts.status.forbidden_tooltip');
       const errorTitle = statusReason || t('accounts.status.refreshFailed');
+      const desktopLoginTitle = t('cursor.webview.desktopLogin', '通过网页会话获取桌面登录（在弹出窗口中点击 Yes, Log In）');
+      const switchTitle = isBanned ? t('accounts.status.forbidden_msg') : t('cursor.injectToCursor', '切换到 Cursor');
+      const webviewTitle = t('cursor.webview.open', '打开网页版 Dashboard');
+      const editTagsTitle = t('accounts.editTags', '编辑标签');
+      const refreshTitle = t('common.shared.refreshQuota', '刷新配额');
+      const exportTitle = t('common.shared.export.title', '导出');
+      const deleteTitle = t('common.delete', '删除');
 
       return (
         <div
@@ -782,7 +795,20 @@ export function CursorAccountsPage() {
               <>
                 <div className="quota-item windsurf-credit-item">
                   <div className="quota-header">
-                    <span className="quota-label">{t('cursor.quota.totalUsage', 'Total Usage')}</span>
+                    <span className="quota-label with-action">
+                      {t('cursor.quota.totalUsage', 'Total Usage')}
+                      {!isBanned && (
+                        <button
+                          type="button"
+                          className="card-action-btn quota-inline-action"
+                          onClick={() => setUsageBreakdownAccountId(account.id)}
+                          title={t('cursor.usageBreakdown.title', '用量明细')}
+                          aria-label={t('cursor.usageBreakdown.title', '用量明细')}
+                        >
+                          <BarChart3 size={11} />
+                        </button>
+                      )}
+                    </span>
                     <span className={`quota-pct ${total.quotaClass}`}>{total.valueText}</span>
                   </div>
                   {total.costText && (
@@ -839,13 +865,12 @@ export function CursorAccountsPage() {
 
                 <div className="quota-item windsurf-credit-item">
                   <div className="quota-header">
-                    <span className="quota-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <span className="quota-label with-action">
                       {t('cursor.quota.onDemand', 'On-Demand')}
                       {!isBanned && (
                         <button
                           type="button"
-                          className="card-action-btn"
-                          style={{ width: 18, height: 18, padding: 0 }}
+                          className="card-action-btn quota-inline-action"
                           onClick={() => setOnDemandAccountId(account.id)}
                           title={t('cursor.onDemand.title', '按需使用设置')}
                           aria-label={t('cursor.onDemand.title', '按需使用设置')}
@@ -876,35 +901,33 @@ export function CursorAccountsPage() {
             <div className="card-actions">
               {isWebToken && !isBanned ? (
                 <button className="card-action-btn success" onClick={() => void handleDesktopLoginViaWebview(account.id)} disabled={!!desktopLoginAccountId}
-                  title={t('cursor.webview.desktopLogin', '通过网页会话获取桌面登录（在弹出窗口中点击 Yes, Log In）')}>
+                  title={desktopLoginTitle} aria-label={desktopLoginTitle}>
                   {desktopLoginAccountId === account.id ? <RefreshCw size={14} className="loading-spinner" /> : <KeyRound size={14} />}
                 </button>
               ) : (
                 <button className="card-action-btn success" onClick={() => handleInjectToVSCode?.(account.id)} disabled={!!injecting || isBanned}
-                  title={isBanned ? t('accounts.status.forbidden_msg') : t('cursor.injectToCursor', '切换到 Cursor')}>
+                  title={switchTitle} aria-label={switchTitle}>
                   {injecting === account.id ? <RefreshCw size={14} className="loading-spinner" /> : <Play size={14} />}
                 </button>
               )}
-              <button className="card-action-btn" onClick={() => handleOpenWebview?.(account.id)} disabled={!!webviewing || isBanned} title={t('cursor.webview.open', '打开网页版 Dashboard')}>
+              <button className="card-action-btn" onClick={() => handleOpenWebview?.(account.id)} disabled={!!webviewing || isBanned} title={webviewTitle} aria-label={webviewTitle}>
                 {webviewing === account.id ? <RefreshCw size={14} className="loading-spinner" /> : <Globe size={14} />}
               </button>
-              <button className="card-action-btn" onClick={() => setUsageBreakdownAccountId(account.id)} disabled={isBanned || !hasQuotaData} title={t('cursor.usageBreakdown.title', '用量明细')}>
-                <BarChart3 size={14} />
-              </button>
-              <button className="card-action-btn" onClick={() => openTagModal(account.id)} title={t('accounts.editTags', '编辑标签')}>
+              <button className="card-action-btn" onClick={() => openTagModal(account.id)} title={editTagsTitle} aria-label={editTagsTitle}>
                 <Tag size={14} />
               </button>
-              <button className="card-action-btn" onClick={() => handleRefresh(account.id)} disabled={refreshing === account.id} title={t('common.shared.refreshQuota', '刷新配额')}>
+              <button className="card-action-btn" onClick={() => handleRefresh(account.id)} disabled={refreshing === account.id} title={refreshTitle} aria-label={refreshTitle}>
                 <RotateCw size={14} className={refreshing === account.id ? 'loading-spinner' : ''} />
               </button>
               <button
                 className="card-action-btn export-btn"
                 onClick={() => handleExportByIds([account.id], resolveSingleExportBaseName(account))}
-                title={t('common.shared.export.title', '导出')}
+                title={exportTitle}
+                aria-label={exportTitle}
               >
                 <Upload size={14} />
               </button>
-              <button className="card-action-btn danger" onClick={() => handleDelete(account.id)} title={t('common.delete', '删除')}>
+              <button className="card-action-btn danger" onClick={() => handleDelete(account.id)} title={deleteTitle} aria-label={deleteTitle}>
                 <Trash2 size={14} />
               </button>
             </div>
@@ -941,6 +964,15 @@ export function CursorAccountsPage() {
       const statusReason = account.status_reason ?? null;
       const bannedTitle = statusReason || t('accounts.status.forbidden_tooltip');
       const errorTitle = statusReason || t('accounts.status.refreshFailed');
+      const desktopLoginTitle = t('cursor.webview.desktopLogin', '通过网页会话获取桌面登录（在弹出窗口中点击 Yes, Log In）');
+      const switchTitle = isBanned ? t('accounts.status.forbidden_msg') : t('cursor.injectToCursor', '切换到 Cursor');
+      const webviewTitle = t('cursor.webview.open', '打开网页版 Dashboard');
+      const usageBreakdownTitle = t('cursor.usageBreakdown.title', '用量明细');
+      const onDemandTitle = t('cursor.onDemand.title', '按需使用设置');
+      const editTagsTitle = t('accounts.editTags', '编辑标签');
+      const refreshTitle = t('common.shared.refreshQuota', '刷新配额');
+      const exportTitle = t('common.shared.export.title', '导出');
+      const deleteTitle = t('common.delete', '删除');
 
       return (
         <tr key={groupKey ? `${groupKey}-${account.id}` : account.id} className={`${isCurrent ? 'current' : ''} ${isBanned ? 'disabled' : ''}`}>
@@ -1063,38 +1095,39 @@ export function CursorAccountsPage() {
             <div className="action-buttons">
               {isWebToken && !isBanned ? (
                 <button className="action-btn success" onClick={() => void handleDesktopLoginViaWebview(account.id)} disabled={!!desktopLoginAccountId}
-                  title={t('cursor.webview.desktopLogin', '通过网页会话获取桌面登录（在弹出窗口中点击 Yes, Log In）')}>
+                  title={desktopLoginTitle} aria-label={desktopLoginTitle}>
                   {desktopLoginAccountId === account.id ? <RefreshCw size={14} className="loading-spinner" /> : <KeyRound size={14} />}
                 </button>
               ) : (
                 <button className="action-btn success" onClick={() => handleInjectToVSCode?.(account.id)} disabled={!!injecting || isBanned}
-                  title={isBanned ? t('accounts.status.forbidden_msg') : t('cursor.injectToCursor', '切换到 Cursor')}>
+                  title={switchTitle} aria-label={switchTitle}>
                   {injecting === account.id ? <RefreshCw size={14} className="loading-spinner" /> : <Play size={14} />}
                 </button>
               )}
-              <button className="action-btn" onClick={() => handleOpenWebview?.(account.id)} disabled={!!webviewing || isBanned} title={t('cursor.webview.open', '打开网页版 Dashboard')}>
+              <button className="action-btn" onClick={() => handleOpenWebview?.(account.id)} disabled={!!webviewing || isBanned} title={webviewTitle} aria-label={webviewTitle}>
                 {webviewing === account.id ? <RefreshCw size={14} className="loading-spinner" /> : <Globe size={14} />}
               </button>
-              <button className="action-btn" onClick={() => setUsageBreakdownAccountId(account.id)} disabled={isBanned || !hasQuotaData} title={t('cursor.usageBreakdown.title', '用量明细')}>
+              <button className="action-btn" onClick={() => setUsageBreakdownAccountId(account.id)} disabled={isBanned || !hasQuotaData} title={usageBreakdownTitle} aria-label={usageBreakdownTitle}>
                 <BarChart3 size={14} />
               </button>
-              <button className="action-btn" onClick={() => setOnDemandAccountId(account.id)} disabled={isBanned} title={t('cursor.onDemand.title', '按需使用设置')}>
+              <button className="action-btn" onClick={() => setOnDemandAccountId(account.id)} disabled={isBanned} title={onDemandTitle} aria-label={onDemandTitle}>
                 <SlidersHorizontal size={14} />
               </button>
-              <button className="action-btn" onClick={() => openTagModal(account.id)} title={t('accounts.editTags', '编辑标签')}>
+              <button className="action-btn" onClick={() => openTagModal(account.id)} title={editTagsTitle} aria-label={editTagsTitle}>
                 <Tag size={14} />
               </button>
-              <button className="action-btn" onClick={() => handleRefresh(account.id)} disabled={refreshing === account.id} title={t('common.shared.refreshQuota', '刷新配额')}>
+              <button className="action-btn" onClick={() => handleRefresh(account.id)} disabled={refreshing === account.id} title={refreshTitle} aria-label={refreshTitle}>
                 <RotateCw size={14} className={refreshing === account.id ? 'loading-spinner' : ''} />
               </button>
               <button
                 className="action-btn"
                 onClick={() => handleExportByIds([account.id], resolveSingleExportBaseName(account))}
-                title={t('common.shared.export.title', '导出')}
+                title={exportTitle}
+                aria-label={exportTitle}
               >
                 <Upload size={14} />
               </button>
-              <button className="action-btn danger" onClick={() => handleDelete(account.id)} title={t('common.delete', '删除')}>
+              <button className="action-btn danger" onClick={() => handleDelete(account.id)} title={deleteTitle} aria-label={deleteTitle}>
                 <Trash2 size={14} />
               </button>
             </div>
@@ -1102,6 +1135,10 @@ export function CursorAccountsPage() {
         </tr>
       );
     });
+
+  const onDemandTargetAccount = onDemandAccountId
+    ? accounts.find((a) => a.id === onDemandAccountId) ?? null
+    : null;
 
   return (
     <div className="ghcp-accounts-page cursor-accounts-page">
@@ -1603,11 +1640,8 @@ export function CursorAccountsPage() {
 
       <CursorOnDemandModal
         accountId={onDemandAccountId}
-        accountLabel={maskAccountText(
-          accounts.find((a) => a.id === onDemandAccountId)
-            ? resolveDisplayEmail(accounts.find((a) => a.id === onDemandAccountId)!)
-            : '',
-        )}
+        accountLabel={maskAccountText(onDemandTargetAccount ? resolveDisplayEmail(onDemandTargetAccount) : '')}
+        teamManaged={onDemandTargetAccount ? getCursorOnDemandSummary(getCursorUsage(onDemandTargetAccount)).isTeamLimit : false}
         onClose={() => setOnDemandAccountId(null)}
         onSaved={() => store.fetchAccounts()}
       />

@@ -5249,7 +5249,10 @@
       "enableDesc": "Keep going on pay-as-you-go after the included quota runs out; when off, usage stops at the limit.",
       "limit": "Monthly limit (USD)",
       "limitDesc": "On-demand spend stops at this amount for the cycle; must be a positive integer.",
-      "notice": "This writes directly to your Cursor account, same as Dashboard → Spending, and takes effect immediately."
+      "notice": "This writes directly to your Cursor account, same as Dashboard → Spending, and takes effect immediately.",
+      "teamBilling": "Team billing",
+      "usedAmount": "Used {{amount}}",
+      "teamNotice": "This account is billed through its team. The on-demand limit is normally set by a team admin in the Dashboard, so changes made here may not take effect."
     },
     "switchHistory": {
       "title": "Switch History",

@@ -4944,7 +4944,10 @@
       "enableDesc": "Continuar no pagamento por uso após esgotar a cota incluída; desligado, o uso para no limite.",
       "limit": "Limite mensal (USD)",
       "limitDesc": "O gasto sob demanda para neste valor durante o ciclo; inteiro positivo obrigatório.",
-      "notice": "Gravado diretamente na sua conta Cursor, igual a Dashboard → Spending, com efeito imediato."
+      "notice": "Gravado diretamente na sua conta Cursor, igual a Dashboard → Spending, com efeito imediato.",
+      "teamBilling": "Cobrança da equipe",
+      "usedAmount": "Usado {{amount}}",
+      "teamNotice": "Esta conta é cobrada pela equipe. O limite sob demanda normalmente é definido por um administrador da equipe no Dashboard, então as alterações feitas aqui podem não ter efeito."
     },
     "switchHistory": {
       "title": "Histórico de trocas",
