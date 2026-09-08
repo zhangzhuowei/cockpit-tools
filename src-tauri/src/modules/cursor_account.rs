@@ -1423,11 +1423,32 @@ fn upsert_or_delete_vscdb_item(
 /// Cursor 桌面端的 `cursorAuth/refreshToken` 就是登录时拿到的 session JWT（与 accessToken 相同），
 /// 启动时靠它续期；缺失会被视为未登录。粘贴 token 添加的账号没有单独的 refresh_token，
 /// 只要 access token 是 session 类型就用它自己补位。
-fn access_token_is_session(access_token: &str) -> bool {
+fn access_token_type(access_token: &str) -> Option<String> {
     decode_access_token_payload(access_token)
         .and_then(|payload| payload.get("type").and_then(|v| v.as_str()).map(str::to_string))
+}
+
+fn access_token_is_session(access_token: &str) -> bool {
+    access_token_type(access_token)
         .map(|kind| kind.eq_ignore_ascii_case("session"))
         .unwrap_or(false)
+}
+
+/// Cursor 桌面端只接受 `type=session` 的 JWT；从浏览器 Cookie 复制来的 `type=web` token
+/// 能查配额，但写进 state.vscdb 后 Cursor 会直接弹登录。切号前先拦住，给出可操作的提示。
+pub fn ensure_token_usable_for_desktop(account: &CursorAccount) -> Result<(), String> {
+    match access_token_type(&account.access_token) {
+        Some(kind) if !kind.eq_ignore_ascii_case("session") => Err(format!(
+            "账号 {} 的 token 是 {} 类型（网页会话），Cursor 桌面端无法用它登录。请用 OAuth 重新登录该账号，或改用从 Cursor 客户端导出的 session token（user_xxx::eyJ…）。",
+            display_email(account),
+            kind
+        )),
+        _ => Ok(()),
+    }
+}
+
+pub fn is_token_usable_for_desktop(account: &CursorAccount) -> bool {
+    ensure_token_usable_for_desktop(account).is_ok()
 }
 
 /// 优先级：session 类型的 refresh_token → session 类型的 access_token → 其他 refresh_token。
@@ -1551,6 +1572,7 @@ fn touch_account_last_used(account_id: &str) {
 pub fn inject_to_cursor(account_id: &str) -> Result<(), String> {
     let account =
         load_account(account_id).ok_or_else(|| format!("Cursor 账号不存在: {}", account_id))?;
+    ensure_token_usable_for_desktop(&account)?;
     let db_path = get_default_cursor_state_db_path()?;
     if !db_path.exists() {
         return Err(format!("Cursor state.vscdb 不存在: {}", db_path.display()));
@@ -1580,6 +1602,7 @@ pub fn inject_to_cursor(account_id: &str) -> Result<(), String> {
 pub fn inject_to_cursor_at_path(db_path: &std::path::Path, account_id: &str) -> Result<(), String> {
     let account =
         load_account(account_id).ok_or_else(|| format!("Cursor 账号不存在: {}", account_id))?;
+    ensure_token_usable_for_desktop(&account)?;
     if !db_path.exists() {
         return Err(format!("Cursor state.vscdb 不存在: {}", db_path.display()));
     }
@@ -3128,6 +3151,7 @@ fn pick_quota_alert_recommendation(
         .filter(|account| !is_banned_account(account))
         // 刷新报错的账号（token 失效等）不能推荐，哪怕它还留着上次的用量数据。
         .filter(|account| account.quota_query_last_error.is_none())
+        .filter(|account| is_token_usable_for_desktop(account))
         .filter(|account| !extract_quota_metrics(account).is_empty())
         .cloned()
         .collect();
@@ -3259,6 +3283,7 @@ pub fn pick_auto_switch_target_if_needed() -> Result<Option<CursorAutoSwitchPlan
         .filter(|account| account.id != current_id)
         .filter(|account| !is_banned_account(account))
         .filter(|account| account.quota_query_last_error.is_none())
+        .filter(|account| is_token_usable_for_desktop(account))
         .filter_map(|account| {
             let metrics = extract_quota_metrics(account);
             if metrics.is_empty() {

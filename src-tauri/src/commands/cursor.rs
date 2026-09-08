@@ -282,6 +282,8 @@ async fn switch_cursor_account_inner(
 
     let account = cursor_account::load_account(account_id)
         .ok_or_else(|| format!("Cursor account not found: {}", account_id))?;
+    // 网页会话 token 写进去也只会让 Cursor 弹登录，先拦住，别白白重启一次 Cursor。
+    cursor_account::ensure_token_usable_for_desktop(&account)?;
     let account_id = account_id.to_string();
 
     // 必须先关掉正在运行的默认 Cursor 再写 state.vscdb：Cursor 退出时会把内存里的
