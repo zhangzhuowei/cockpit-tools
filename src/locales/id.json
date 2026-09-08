@@ -2622,7 +2622,7 @@
         "recoverSuccess": "Pemulihan diminta untuk {{count}} akun",
         "dialog": {
           "title": "Masalah Akun",
-      "description": "Setiap akun ditampilkan bersama model, alasan tidak tersedia, dan tindakan pemulihan yang tersedia.",
+          "description": "Setiap akun ditampilkan bersama model, alasan tidak tersedia, dan tindakan pemulihan yang tersedia.",
           "noIssues": "Tidak ada masalah akun",
           "unscopedApiKey": "API Key saat ini",
           "poolUnavailable": "Tidak ada akun pool yang tersedia",
@@ -5011,6 +5011,20 @@
       "quotaFailed": "Permintaan kuota gagal ({{count}})",
       "cleanQuotaFailedAction": "Hapus akun dengan permintaan kuota gagal ({{count}})",
       "cleanQuotaFailedConfirm": "Hapus semua {{count}} akun yang permintaan kuotanya gagal?"
+    },
+    "quotaAlert": {
+      "modeTitle": "Saat kuota menipis",
+      "modeOff": "Nonaktif",
+      "modeNotify": "Hanya beri tahu",
+      "modeAuto": "Ganti otomatis",
+      "modeOffDesc": "Tidak memeriksa kuota akun saat ini.",
+      "modeNotifyDesc": "Saat salah satu pool kuota akun saat ini turun di bawah ambang, kirim notifikasi native dan sarankan akun di aplikasi; Anda yang memutuskan untuk berganti.",
+      "modeAutoDesc": "Saat salah satu pool kuota IDE akun saat ini turun di bawah ambang, otomatis berganti ke akun dengan sisa kuota terbanyak dan mulai ulang Cursor. Jarak antar pergantian otomatis minimal 10 menit. Penggunaan mingguan Grok Bot tidak memicu pergantian.",
+      "thresholdAutoDesc": "Ganti otomatis saat salah satu pool kuota turun di bawah persentase ini"
+    },
+    "autoSwitch": {
+      "notifyTitle": "Akun Cursor diganti otomatis",
+      "notifyBody": "{{from}} turun di bawah {{threshold}}% ({{models}}); berganti ke {{to}} dan Cursor dimulai ulang."
     }
   },
   "breakout": {

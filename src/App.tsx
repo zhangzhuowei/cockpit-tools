@@ -98,6 +98,7 @@ import {
 } from './utils/uiScale';
 import {
   emitActivePlatformFocus,
+  emitCurrentAccountChanged,
   resolvePlatformIdFromPage,
 } from './utils/accountSyncEvents';
 
@@ -2781,6 +2782,28 @@ function MainApp() {
       }
       void changeLanguage(nextLanguage);
       window.dispatchEvent(new CustomEvent('general-language-updated', { detail: { language: nextLanguage } }));
+    }).then((fn) => { unlisten = fn; });
+
+    return () => {
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, []);
+
+  // Cursor 自动切号在后端完成（关闭 → 注入 → 重启），前端只需把账号列表和"当前"标记同步过来。
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined;
+
+    listen<{ to_account_id?: string }>('cursor:auto-switched', async (event) => {
+      const store = useCursorAccountStore.getState();
+      await store.fetchAccounts();
+      const currentId = await store.fetchCurrentAccountId();
+      await emitCurrentAccountChanged({
+        platformId: 'cursor',
+        accountId: currentId ?? event.payload?.to_account_id ?? null,
+        reason: 'auto-switch',
+      });
     }).then((fn) => { unlisten = fn; });
 
     return () => {

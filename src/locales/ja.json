@@ -2572,7 +2572,7 @@
         "recoverSuccess": "{{count}} 件のアカウントの復旧を要求しました",
         "dialog": {
           "title": "アカウントの異常",
-      "description": "各アカウントをモデル、利用不可の理由、実行可能な復旧操作とともに表示します。",
+          "description": "各アカウントをモデル、利用不可の理由、実行可能な復旧操作とともに表示します。",
           "noIssues": "アカウントに異常はありません",
           "unscopedApiKey": "現在の API Key",
           "poolUnavailable": "プールに利用可能なアカウントがありません",
@@ -4858,6 +4858,20 @@
       "quotaFailed": "クォータ照会に失敗（{{count}}）",
       "cleanQuotaFailedAction": "クォータ照会に失敗したアカウントを削除（{{count}}）",
       "cleanQuotaFailedConfirm": "クォータ照会に失敗した{{count}}件のアカウントをすべて削除しますか？"
+    },
+    "quotaAlert": {
+      "modeTitle": "残量が少なくなったとき",
+      "modeOff": "オフ",
+      "modeNotify": "通知のみ",
+      "modeAuto": "自動切り替え",
+      "modeOffDesc": "現在のアカウントの残量を確認しません。",
+      "modeNotifyDesc": "現在のアカウントのいずれかの残量がしきい値を下回ると、ネイティブ通知を送り、アプリ内で推奨アカウントを表示します。切り替えるかはあなたが決めます。",
+      "modeAutoDesc": "現在のアカウントのいずれかの IDE 残量がしきい値を下回ると、残量が最も多いアカウントへ自動で切り替えて Cursor を再起動します。自動切り替えの間隔は 10 分以上です。Grok Bot の週間使用量では切り替えません。",
+      "thresholdAutoDesc": "いずれかの残量がこの割合を下回ると自動で切り替えます"
+    },
+    "autoSwitch": {
+      "notifyTitle": "Cursor アカウントを自動で切り替えました",
+      "notifyBody": "{{from}} の残量が {{threshold}}% を下回りました（{{models}}）。{{to}} に切り替えて Cursor を再起動しました。"
     }
   },
   "breakout": {

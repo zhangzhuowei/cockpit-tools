@@ -2572,7 +2572,7 @@
         "recoverSuccess": "Wiederherstellung für {{count}} Konto/Konten angefordert",
         "dialog": {
           "title": "Kontoprobleme",
-      "description": "Jedes Konto wird mit Modell, Grund der Nichtverfügbarkeit und möglicher Wiederherstellung angezeigt.",
+          "description": "Jedes Konto wird mit Modell, Grund der Nichtverfügbarkeit und möglicher Wiederherstellung angezeigt.",
           "noIssues": "Keine Kontoprobleme",
           "unscopedApiKey": "Aktueller API Key",
           "poolUnavailable": "Kein verfügbares Pool-Konto",
@@ -4858,6 +4858,20 @@
       "quotaFailed": "Kontingentabfrage fehlgeschlagen ({{count}})",
       "cleanQuotaFailedAction": "Kontingentabfrage-fehlgeschlagene Konten löschen ({{count}})",
       "cleanQuotaFailedConfirm": "Alle {{count}} Konto/Konten mit fehlgeschlagener Kontingentabfrage löschen?"
+    },
+    "quotaAlert": {
+      "modeTitle": "Bei knappem Kontingent",
+      "modeOff": "Aus",
+      "modeNotify": "Nur benachrichtigen",
+      "modeAuto": "Automatisch wechseln",
+      "modeOffDesc": "Kontingent des aktuellen Kontos nicht prüfen.",
+      "modeNotifyDesc": "Fällt ein Kontingent-Pool des aktuellen Kontos unter den Schwellenwert, wird eine Systembenachrichtigung gesendet und in der App ein Konto vorgeschlagen; du entscheidest über den Wechsel.",
+      "modeAutoDesc": "Fällt ein IDE-Kontingent-Pool des aktuellen Kontos unter den Schwellenwert, wird automatisch zum Konto mit dem größten Restkontingent gewechselt und Cursor neu gestartet. Zwischen automatischen Wechseln liegen mindestens 10 Minuten. Die wöchentliche Grok-Bot-Nutzung löst keinen Wechsel aus.",
+      "thresholdAutoDesc": "Automatisch wechseln, wenn ein Kontingent-Pool unter diesen Prozentsatz fällt"
+    },
+    "autoSwitch": {
+      "notifyTitle": "Cursor-Konto automatisch gewechselt",
+      "notifyBody": "{{from}} fiel unter {{threshold}}% ({{models}}); gewechselt zu {{to}} und Cursor neu gestartet."
     }
   },
   "breakout": {

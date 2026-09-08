@@ -362,6 +362,10 @@ pub struct UserConfig {
     /// Cursor 配额预警阈值（百分比）
     #[serde(default = "default_cursor_quota_alert_threshold")]
     pub cursor_quota_alert_threshold: i32,
+    /// Cursor 配额触发阈值后的动作：`notify` 仅通知并推荐账号，`auto` 自动切换到最优账号。
+    /// 仅在 `cursor_quota_alert_enabled` 为 true 时生效；三档模式 关闭/仅提示/自动切号 由两者共同表达。
+    #[serde(default = "default_cursor_quota_alert_mode")]
+    pub cursor_quota_alert_mode: String,
     /// 是否启用 CodeBuddy 配额预警通知
     #[serde(default = "default_codebuddy_quota_alert_enabled")]
     pub codebuddy_quota_alert_enabled: bool,
@@ -750,6 +754,19 @@ fn default_cursor_quota_alert_enabled() -> bool {
 fn default_cursor_quota_alert_threshold() -> i32 {
     20
 }
+fn default_cursor_quota_alert_mode() -> String {
+    CURSOR_QUOTA_ALERT_MODE_NOTIFY.to_string()
+}
+
+pub const CURSOR_QUOTA_ALERT_MODE_NOTIFY: &str = "notify";
+pub const CURSOR_QUOTA_ALERT_MODE_AUTO: &str = "auto";
+
+pub fn normalize_cursor_quota_alert_mode(raw: &str) -> String {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        CURSOR_QUOTA_ALERT_MODE_AUTO => CURSOR_QUOTA_ALERT_MODE_AUTO.to_string(),
+        _ => CURSOR_QUOTA_ALERT_MODE_NOTIFY.to_string(),
+    }
+}
 fn default_codebuddy_quota_alert_enabled() -> bool {
     false
 }
@@ -899,6 +916,7 @@ impl Default for UserConfig {
             kiro_quota_alert_threshold: default_kiro_quota_alert_threshold(),
             cursor_quota_alert_enabled: default_cursor_quota_alert_enabled(),
             cursor_quota_alert_threshold: default_cursor_quota_alert_threshold(),
+            cursor_quota_alert_mode: default_cursor_quota_alert_mode(),
             codebuddy_quota_alert_enabled: default_codebuddy_quota_alert_enabled(),
             codebuddy_quota_alert_threshold: default_codebuddy_quota_alert_threshold(),
             codebuddy_cn_quota_alert_enabled: default_codebuddy_cn_quota_alert_enabled(),

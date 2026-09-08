@@ -2572,7 +2572,7 @@
         "recoverSuccess": "Ripristino richiesto per {{count}} account",
         "dialog": {
           "title": "Problemi account",
-      "description": "Ogni account mostra il modello, il motivo dell’indisponibilità e l’azione di ripristino disponibile.",
+          "description": "Ogni account mostra il modello, il motivo dell’indisponibilità e l’azione di ripristino disponibile.",
           "noIssues": "Nessun problema negli account",
           "unscopedApiKey": "API Key corrente",
           "poolUnavailable": "Nessun account disponibile nel pool",
@@ -4858,6 +4858,20 @@
       "quotaFailed": "Query della quota non riuscita ({{count}})",
       "cleanQuotaFailedAction": "Elimina account con query della quota non riuscita ({{count}})",
       "cleanQuotaFailedConfirm": "Eliminare tutti i {{count}} account con query della quota non riuscita?"
+    },
+    "quotaAlert": {
+      "modeTitle": "Quando la quota è bassa",
+      "modeOff": "Disattivato",
+      "modeNotify": "Solo notifica",
+      "modeAuto": "Cambio automatico",
+      "modeOffDesc": "Non controllare la quota dell'account corrente.",
+      "modeNotifyDesc": "Quando un pool di quota dell'account corrente scende sotto la soglia, invia una notifica nativa e suggerisce un account nell'app; decidi tu se cambiare.",
+      "modeAutoDesc": "Quando un pool di quota IDE dell'account corrente scende sotto la soglia, passa automaticamente all'account con più quota residua e riavvia Cursor. Almeno 10 minuti tra due cambi automatici. L'uso settimanale di Grok Bot non attiva mai il cambio.",
+      "thresholdAutoDesc": "Cambia automaticamente quando un pool di quota scende sotto questa percentuale"
+    },
+    "autoSwitch": {
+      "notifyTitle": "Account Cursor cambiato automaticamente",
+      "notifyBody": "{{from}} è sceso sotto il {{threshold}}% ({{models}}); passato a {{to}} e Cursor riavviato."
     }
   },
   "breakout": {

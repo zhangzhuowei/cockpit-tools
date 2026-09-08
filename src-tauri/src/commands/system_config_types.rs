@@ -307,6 +307,8 @@ pub struct GeneralConfig {
     pub cursor_quota_alert_enabled: bool,
     /// Cursor 配额预警阈值（百分比）
     pub cursor_quota_alert_threshold: i32,
+    /// Cursor 触发阈值后的动作：notify / auto
+    pub cursor_quota_alert_mode: String,
     /// 是否启用 Grok CLI 配额预警通知
     pub grok_quota_alert_enabled: bool,
     /// Grok CLI 配额预警阈值（百分比）
@@ -1250,6 +1252,7 @@ fn is_general_config_patch_field(key: &str) -> bool {
             | "kiro_quota_alert_threshold"
             | "cursor_quota_alert_enabled"
             | "cursor_quota_alert_threshold"
+            | "cursor_quota_alert_mode"
             | "grok_quota_alert_enabled"
             | "grok_quota_alert_threshold"
             | "claude_quota_alert_enabled"
@@ -1325,6 +1328,10 @@ fn apply_general_config_updates(
     }
     if updates.contains_key("theme_color") {
         next.theme_color = config::normalize_theme_color(&next.theme_color);
+    }
+    if updates.contains_key("cursor_quota_alert_mode") {
+        next.cursor_quota_alert_mode =
+            config::normalize_cursor_quota_alert_mode(&next.cursor_quota_alert_mode);
     }
     if updates.contains_key("menu_bar_quota_platform") {
         let platform = next.menu_bar_quota_platform.trim();

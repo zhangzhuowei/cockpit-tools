@@ -2572,7 +2572,7 @@
         "recoverSuccess": "Đã yêu cầu khôi phục {{count}} tài khoản",
         "dialog": {
           "title": "Lỗi tài khoản",
-      "description": "Mỗi tài khoản được hiển thị cùng model, lý do không khả dụng và thao tác khôi phục nếu có.",
+          "description": "Mỗi tài khoản được hiển thị cùng model, lý do không khả dụng và thao tác khôi phục nếu có.",
           "noIssues": "Tài khoản không có lỗi",
           "unscopedApiKey": "API Key hiện tại",
           "poolUnavailable": "Không có tài khoản khả dụng trong nhóm",
@@ -4858,6 +4858,20 @@
       "quotaFailed": "Truy vấn hạn ngạch thất bại ({{count}})",
       "cleanQuotaFailedAction": "Xóa tài khoản có truy vấn hạn ngạch thất bại ({{count}})",
       "cleanQuotaFailedConfirm": "Xóa tất cả {{count}} tài khoản có truy vấn hạn ngạch thất bại?"
+    },
+    "quotaAlert": {
+      "modeTitle": "Khi hạn mức sắp hết",
+      "modeOff": "Tắt",
+      "modeNotify": "Chỉ thông báo",
+      "modeAuto": "Tự động chuyển",
+      "modeOffDesc": "Không kiểm tra hạn mức của tài khoản hiện tại.",
+      "modeNotifyDesc": "Khi bất kỳ nhóm hạn mức nào của tài khoản hiện tại xuống dưới ngưỡng, gửi thông báo hệ thống và gợi ý tài khoản trong ứng dụng; bạn quyết định có chuyển hay không.",
+      "modeAutoDesc": "Khi bất kỳ nhóm hạn mức IDE nào của tài khoản hiện tại xuống dưới ngưỡng, tự động chuyển sang tài khoản còn nhiều hạn mức nhất và khởi động lại Cursor. Hai lần tự động chuyển cách nhau ít nhất 10 phút. Mức dùng hàng tuần của Grok Bot không kích hoạt chuyển.",
+      "thresholdAutoDesc": "Tự động chuyển khi bất kỳ nhóm hạn mức nào xuống dưới tỷ lệ này"
+    },
+    "autoSwitch": {
+      "notifyTitle": "Đã tự động chuyển tài khoản Cursor",
+      "notifyBody": "{{from}} xuống dưới {{threshold}}% ({{models}}); đã chuyển sang {{to}} và khởi động lại Cursor."
     }
   },
   "breakout": {

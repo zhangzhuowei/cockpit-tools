@@ -2572,7 +2572,7 @@
         "recoverSuccess": "Obnova vyžádána pro {{count}} účtů",
         "dialog": {
           "title": "Problémy účtů",
-      "description": "Každý účet je zobrazen s modelem, důvodem nedostupnosti a dostupnou akcí obnovení.",
+          "description": "Každý účet je zobrazen s modelem, důvodem nedostupnosti a dostupnou akcí obnovení.",
           "noIssues": "Účty jsou bez problémů",
           "unscopedApiKey": "Aktuální API Key",
           "poolUnavailable": "Ve fondu není dostupný účet",
@@ -4858,6 +4858,20 @@
       "quotaFailed": "Dotaz kvóty selhal ({{count}})",
       "cleanQuotaFailedAction": "Smazat účty s neúspěšným dotazem kvóty ({{count}})",
       "cleanQuotaFailedConfirm": "Odstranit všech {{count}} účtů, u kterých selhal dotaz kvóty?"
+    },
+    "quotaAlert": {
+      "modeTitle": "Když je kvóta nízká",
+      "modeOff": "Vypnuto",
+      "modeNotify": "Pouze upozornit",
+      "modeAuto": "Přepnout automaticky",
+      "modeOffDesc": "Nekontrolovat kvótu aktuálního účtu.",
+      "modeNotifyDesc": "Když jakýkoli fond kvóty aktuálního účtu klesne pod prahovou hodnotu, odeslat systémové oznámení a navrhnout účet v aplikaci; o přepnutí rozhodujete vy.",
+      "modeAutoDesc": "Když jakýkoli fond kvóty IDE aktuálního účtu klesne pod prahovou hodnotu, automaticky přepnout na účet s největší zbývající kvótou a restartovat Cursor. Mezi automatickými přepnutími alespoň 10 minut. Týdenní využití Grok Bot přepnutí nespouští.",
+      "thresholdAutoDesc": "Přepnout automaticky, když jakýkoli fond kvóty klesne pod toto procento"
+    },
+    "autoSwitch": {
+      "notifyTitle": "Účet Cursor byl automaticky přepnut",
+      "notifyBody": "{{from}} klesl pod {{threshold}} % ({{models}}); přepnuto na {{to}} a Cursor restartován."
     }
   },
   "breakout": {

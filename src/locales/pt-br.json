@@ -2572,7 +2572,7 @@
         "recoverSuccess": "Recuperação solicitada para {{count}} conta(s)",
         "dialog": {
           "title": "Problemas de contas",
-      "description": "Cada conta é exibida com o modelo, o motivo da indisponibilidade e a ação de recuperação disponível.",
+          "description": "Cada conta é exibida com o modelo, o motivo da indisponibilidade e a ação de recuperação disponível.",
           "noIssues": "Nenhum problema de contas",
           "unscopedApiKey": "API Key atual",
           "poolUnavailable": "Nenhuma conta disponível no pool",
@@ -4858,6 +4858,20 @@
       "quotaFailed": "Falha na consulta de cota ({{count}})",
       "cleanQuotaFailedAction": "Excluir contas com falha na consulta de cota ({{count}})",
       "cleanQuotaFailedConfirm": "Excluir todas as {{count}} conta(s) com falha na consulta de cota?"
+    },
+    "quotaAlert": {
+      "modeTitle": "Quando a cota ficar baixa",
+      "modeOff": "Desligado",
+      "modeNotify": "Apenas notificar",
+      "modeAuto": "Trocar automaticamente",
+      "modeOffDesc": "Não verificar a cota da conta atual.",
+      "modeNotifyDesc": "Quando qualquer pool de cota da conta atual ficar abaixo do limite, enviar uma notificação nativa e sugerir uma conta no app; você decide se troca.",
+      "modeAutoDesc": "Quando qualquer pool de cota do IDE da conta atual ficar abaixo do limite, trocar automaticamente para a conta com mais cota restante e reiniciar o Cursor. Pelo menos 10 minutos entre trocas automáticas. O uso semanal do Grok Bot nunca aciona uma troca.",
+      "thresholdAutoDesc": "Trocar automaticamente quando qualquer pool de cota ficar abaixo desta porcentagem"
+    },
+    "autoSwitch": {
+      "notifyTitle": "Conta do Cursor trocada automaticamente",
+      "notifyBody": "{{from}} ficou abaixo de {{threshold}}% ({{models}}); trocado para {{to}} e Cursor reiniciado."
     }
   },
   "breakout": {

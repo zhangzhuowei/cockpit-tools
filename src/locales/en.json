@@ -2336,8 +2336,8 @@
       "modelConfigDialogDescription": "Configure visible models, reasoning levels, context windows, and compact limits for each model.",
       "applyModelConfig": "Apply settings",
       "defaultModel": "Default model",
-      "repairCompleted": "Session visibility repair completed"
-      ,"forceRefreshTitle": "Force-refresh Token",
+      "repairCompleted": "Session visibility repair completed",
+      "forceRefreshTitle": "Force-refresh Token",
       "forceRefreshReady": "OAuth tokens can be refreshed manually",
       "forceRefreshDescription": "Use refresh_token to obtain new access_token and id_token values. This may rotate the current refresh token.",
       "forceRefreshUnavailable": "Unavailable for this account type",
@@ -5163,6 +5163,20 @@
       "quotaFailed": "Quota query failed ({{count}})",
       "cleanQuotaFailedAction": "Delete quota-failed accounts ({{count}})",
       "cleanQuotaFailedConfirm": "Delete all {{count}} account(s) with quota query failures?"
+    },
+    "quotaAlert": {
+      "modeTitle": "When quota runs low",
+      "modeOff": "Off",
+      "modeNotify": "Notify only",
+      "modeAuto": "Auto switch",
+      "modeOffDesc": "Do not check the current account's quota.",
+      "modeNotifyDesc": "When any quota pool of the current account drops below the threshold, send a native notification and suggest an account in the app; you decide whether to switch.",
+      "modeAutoDesc": "When any IDE quota pool of the current account drops below the threshold, automatically switch to the account with the most remaining quota and restart Cursor. Auto switches are at least 10 minutes apart. Grok Bot weekly usage never triggers a switch.",
+      "thresholdAutoDesc": "Auto switch when any quota pool falls below this percentage"
+    },
+    "autoSwitch": {
+      "notifyTitle": "Cursor account switched automatically",
+      "notifyBody": "{{from}} dropped below {{threshold}}% ({{models}}); switched to {{to}} and restarted Cursor."
     }
   },
   "breakout": {

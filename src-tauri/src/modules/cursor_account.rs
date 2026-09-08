@@ -2610,6 +2610,127 @@ fn clear_quota_alert_cooldown(account_id: &str, threshold: i32) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Auto switch
+// ---------------------------------------------------------------------------
+
+/// 自动切号会关闭并重启 Cursor，两次之间留出间隔，避免刷新抖动或候选账号也濒临耗尽时来回切。
+const CURSOR_AUTO_SWITCH_COOLDOWN_SECONDS: i64 = 10 * 60;
+
+lazy_static::lazy_static! {
+    static ref CURSOR_AUTO_SWITCH_LAST_PERFORMED: Mutex<Option<i64>> = Mutex::new(None);
+}
+
+#[derive(Debug, Clone)]
+pub struct CursorAutoSwitchPlan {
+    pub current: CursorAccount,
+    pub target: CursorAccount,
+    pub threshold: i32,
+    pub low_metrics: Vec<(String, i32)>,
+}
+
+pub fn is_auto_switch_mode_enabled() -> bool {
+    let cfg = crate::modules::config::get_user_config();
+    cfg.cursor_quota_alert_enabled
+        && crate::modules::config::normalize_cursor_quota_alert_mode(&cfg.cursor_quota_alert_mode)
+            == crate::modules::config::CURSOR_QUOTA_ALERT_MODE_AUTO
+}
+
+/// 判断当前账号是否命中阈值并挑出切换目标。只看 IDE 额度池（Total / Cursor Models / Other Models），
+/// Grok Bot 是独立产品，它耗尽不应该重启 IDE。候选账号要求所有池都在阈值之上，按平均剩余从高到低取第一个。
+pub fn pick_auto_switch_target_if_needed() -> Result<Option<CursorAutoSwitchPlan>, String> {
+    if !is_auto_switch_mode_enabled() {
+        return Ok(None);
+    }
+    let cfg = crate::modules::config::get_user_config();
+    let threshold = normalize_quota_alert_threshold(cfg.cursor_quota_alert_threshold);
+
+    let now = now_ts();
+    if let Ok(last) = CURSOR_AUTO_SWITCH_LAST_PERFORMED.lock() {
+        if let Some(last_ts) = *last {
+            if now - last_ts < CURSOR_AUTO_SWITCH_COOLDOWN_SECONDS {
+                logger::log_info(&format!(
+                    "[AutoSwitch][Cursor] 冷却中，跳过本次检查: elapsed={}s",
+                    now - last_ts
+                ));
+                return Ok(None);
+            }
+        }
+    }
+
+    let accounts = list_accounts();
+    let Some(current_id) = resolve_current_account_id(&accounts) else {
+        return Ok(None);
+    };
+    let Some(current) = accounts.iter().find(|account| account.id == current_id) else {
+        return Ok(None);
+    };
+    if is_banned_account(current) {
+        return Ok(None);
+    }
+
+    let current_metrics = extract_quota_metrics(current);
+    if current_metrics.is_empty() {
+        return Ok(None);
+    }
+    let low_metrics: Vec<(String, i32)> = current_metrics
+        .iter()
+        .filter(|(_, pct)| *pct <= threshold)
+        .cloned()
+        .collect();
+    if low_metrics.is_empty() {
+        return Ok(None);
+    }
+
+    let mut candidates: Vec<(&CursorAccount, f64, i32)> = accounts
+        .iter()
+        .filter(|account| account.id != current_id)
+        .filter(|account| !is_banned_account(account))
+        .filter(|account| account.quota_query_last_error.is_none())
+        .filter_map(|account| {
+            let metrics = extract_quota_metrics(account);
+            if metrics.is_empty() {
+                return None;
+            }
+            let min_left = metrics.iter().map(|(_, pct)| *pct).min().unwrap_or(0);
+            if min_left <= threshold {
+                return None;
+            }
+            Some((account, average_quota_percentage(&metrics), min_left))
+        })
+        .collect();
+
+    if candidates.is_empty() {
+        logger::log_warn(&format!(
+            "[AutoSwitch][Cursor] 当前账号命中阈值 (<= {}%)，但没有可切换候选账号: current={}",
+            threshold,
+            display_email(current)
+        ));
+        return Ok(None);
+    }
+
+    candidates.sort_by(|a, b| {
+        b.1.partial_cmp(&a.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| b.2.cmp(&a.2))
+            .then_with(|| a.0.last_used.cmp(&b.0.last_used))
+    });
+
+    let target = candidates[0].0.clone();
+    Ok(Some(CursorAutoSwitchPlan {
+        current: current.clone(),
+        target,
+        threshold,
+        low_metrics,
+    }))
+}
+
+pub fn mark_auto_switch_performed() {
+    if let Ok(mut last) = CURSOR_AUTO_SWITCH_LAST_PERFORMED.lock() {
+        *last = Some(now_ts());
+    }
+}
+
 pub fn run_quota_alert_if_needed(
 ) -> Result<Option<crate::modules::account::QuotaAlertPayload>, String> {
     let cfg = crate::modules::config::get_user_config();

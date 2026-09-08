@@ -2572,7 +2572,7 @@
         "recoverSuccess": "{{count}} hesap için kurtarma istendi",
         "dialog": {
           "title": "Hesap Sorunları",
-      "description": "Her hesap model, kullanılamama nedeni ve varsa kurtarma işlemiyle birlikte gösterilir.",
+          "description": "Her hesap model, kullanılamama nedeni ve varsa kurtarma işlemiyle birlikte gösterilir.",
           "noIssues": "Hesaplarda sorun yok",
           "unscopedApiKey": "Geçerli API Key",
           "poolUnavailable": "Havuzda kullanılabilir hesap yok",
@@ -4858,6 +4858,20 @@
       "quotaFailed": "Kota sorgusu başarısız ({{count}})",
       "cleanQuotaFailedAction": "Kota sorgusu başarısız olan hesapları sil ({{count}})",
       "cleanQuotaFailedConfirm": "Kota sorgusu başarısız olan {{count}} hesabın tümü silinsin mi?"
+    },
+    "quotaAlert": {
+      "modeTitle": "Kota azaldığında",
+      "modeOff": "Kapalı",
+      "modeNotify": "Yalnızca bildir",
+      "modeAuto": "Otomatik geçiş",
+      "modeOffDesc": "Mevcut hesabın kotasını kontrol etme.",
+      "modeNotifyDesc": "Mevcut hesabın herhangi bir kota havuzu eşiğin altına düştüğünde yerel bildirim gönder ve uygulamada bir hesap öner; geçiş kararı sende.",
+      "modeAutoDesc": "Mevcut hesabın herhangi bir IDE kota havuzu eşiğin altına düştüğünde en fazla kotası kalan hesaba otomatik geç ve Cursor'ı yeniden başlat. Otomatik geçişler arasında en az 10 dakika olur. Grok Bot haftalık kullanımı geçişi tetiklemez.",
+      "thresholdAutoDesc": "Herhangi bir kota havuzu bu yüzdenin altına düştüğünde otomatik geç"
+    },
+    "autoSwitch": {
+      "notifyTitle": "Cursor hesabı otomatik olarak değiştirildi",
+      "notifyBody": "{{from}} %{{threshold}} altına düştü ({{models}}); {{to}} hesabına geçildi ve Cursor yeniden başlatıldı."
     }
   },
   "breakout": {

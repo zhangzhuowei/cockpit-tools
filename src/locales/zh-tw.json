@@ -2572,7 +2572,7 @@
         "recoverSuccess": "已提交 {{count}} 個帳號的恢復操作",
         "dialog": {
           "title": "帳號異常",
-      "description": "以下狀態按帳號顯示，包含對應模型、無法使用原因及可執行的復原操作。",
+          "description": "以下狀態按帳號顯示，包含對應模型、無法使用原因及可執行的復原操作。",
           "noIssues": "目前沒有異常帳號",
           "unscopedApiKey": "目前 API Key",
           "poolUnavailable": "帳號池無可用帳號",
@@ -4858,6 +4858,20 @@
       "quotaFailed": "配額查詢失敗 ({{count}})",
       "cleanQuotaFailedAction": "刪除配額查詢失敗的帳號 ({{count}})",
       "cleanQuotaFailedConfirm": "確定要刪除全部 {{count}} 個配額查詢失敗的帳號嗎？"
+    },
+    "quotaAlert": {
+      "modeTitle": "額度耗盡處理",
+      "modeOff": "關閉",
+      "modeNotify": "僅提示",
+      "modeAuto": "自動切換帳號",
+      "modeOffDesc": "不檢查目前帳號額度。",
+      "modeNotifyDesc": "目前帳號任一額度池低於閾值時，發送原生通知並在頁面提示推薦帳號，由你決定是否切換。",
+      "modeAutoDesc": "目前帳號任一 IDE 額度池低於閾值時，自動切換到剩餘最多的帳號並重新啟動 Cursor；兩次自動切換間隔至少 10 分鐘。Grok Bot 週用量不觸發自動切換。",
+      "thresholdAutoDesc": "任一額度池剩餘低於此百分比時自動切換帳號"
+    },
+    "autoSwitch": {
+      "notifyTitle": "Cursor 已自動切換帳號",
+      "notifyBody": "{{from}} 剩餘低於 {{threshold}}%（{{models}}），已切換到 {{to}} 並重新啟動 Cursor。"
     }
   },
   "breakout": {

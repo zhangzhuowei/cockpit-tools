@@ -81,6 +81,7 @@ export function SettingsGeneralPanel(props: SettingsPageViewProps) {
     cursorQuotaAlertThreshold,
     cursorQuotaAlertThresholdCustomMode,
     cursorQuotaAlertThresholdIsPreset,
+    cursorQuotaAlertAutoSwitch,
     defaultTerminal,
     errorReportingEnabled,
     errorReportingSaving,
@@ -204,6 +205,7 @@ export function SettingsGeneralPanel(props: SettingsPageViewProps) {
     setCursorQuotaAlertEnabled,
     setCursorQuotaAlertThreshold,
     setCursorQuotaAlertThresholdCustomMode,
+    setCursorQuotaAlertAutoSwitch,
     setDefaultTerminal,
     setExternalNetworkEnabled,
     setFloatingCardAlwaysOnTop,
@@ -3813,25 +3815,40 @@ export function SettingsGeneralPanel(props: SettingsPageViewProps) {
 
               <div className="settings-row">
                 <div className="row-label">
-                  <div className="row-title">{t('quickSettings.quotaAlert.enable', '超额预警')}</div>
-                  <div className="row-desc">{t('quickSettings.quotaAlert.hint', '当当前账号任意模型配额低于阈值时，发送原生通知并在页面提示快捷切号。')}</div>
+                  <div className="row-title">{t('cursor.quotaAlert.modeTitle', '额度耗尽处理')}</div>
+                  <div className="row-desc">
+                    {!cursorQuotaAlertEnabled
+                      ? t('cursor.quotaAlert.modeOffDesc', '不检查当前账号额度。')
+                      : cursorQuotaAlertAutoSwitch
+                        ? t('cursor.quotaAlert.modeAutoDesc', '当前账号任意 IDE 额度池低于阈值时，自动切换到剩余最多的账号并重启 Cursor；两次自动切换间隔至少 10 分钟。Grok Bot 周用量不触发自动切换。')
+                        : t('cursor.quotaAlert.modeNotifyDesc', '当前账号任意额度池低于阈值时，发送原生通知并在页面提示推荐账号，由你决定是否切换。')}
+                  </div>
                 </div>
                 <div className="row-control">
-                  <label className="switch">
-                    <input
-                      type="checkbox"
-                      checked={cursorQuotaAlertEnabled}
-                      onChange={(e) => setCursorQuotaAlertEnabled(e.target.checked)}
-                    />
-                    <span className="slider"></span>
-                  </label>
+                  <select
+                    className="settings-select"
+                    value={!cursorQuotaAlertEnabled ? 'off' : cursorQuotaAlertAutoSwitch ? 'auto' : 'notify'}
+                    onChange={(e) => {
+                      const mode = e.target.value;
+                      setCursorQuotaAlertEnabled(mode !== 'off');
+                      setCursorQuotaAlertAutoSwitch(mode === 'auto');
+                    }}
+                  >
+                    <option value="off">{t('cursor.quotaAlert.modeOff', '关闭')}</option>
+                    <option value="notify">{t('cursor.quotaAlert.modeNotify', '仅提示')}</option>
+                    <option value="auto">{t('cursor.quotaAlert.modeAuto', '自动切号')}</option>
+                  </select>
                 </div>
               </div>
               {cursorQuotaAlertEnabled && (
                 <div className="settings-row" style={{ animation: 'fadeUp 0.3s ease both' }}>
                   <div className="row-label">
                     <div className="row-title">{t('quickSettings.quotaAlert.threshold', '预警阈值')}</div>
-                    <div className="row-desc">{t('quickSettings.quotaAlert.thresholdDesc', '任意模型配额低于此百分比时触发预警')}</div>
+                    <div className="row-desc">
+                      {cursorQuotaAlertAutoSwitch
+                        ? t('cursor.quotaAlert.thresholdAutoDesc', '任意额度池剩余低于此百分比时自动切号')
+                        : t('quickSettings.quotaAlert.thresholdDesc', '任意模型配额低于此百分比时触发预警')}
+                    </div>
                   </div>
                   <div className="row-control">
                     {cursorQuotaAlertThresholdCustomMode ? (

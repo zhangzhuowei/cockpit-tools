@@ -2572,7 +2572,7 @@
         "recoverSuccess": "Recuperación solicitada para {{count}} cuenta(s)",
         "dialog": {
           "title": "Problemas de cuentas",
-      "description": "Cada cuenta se muestra con su modelo, motivo de indisponibilidad y acción de recuperación disponible.",
+          "description": "Cada cuenta se muestra con su modelo, motivo de indisponibilidad y acción de recuperación disponible.",
           "noIssues": "No hay problemas de cuentas",
           "unscopedApiKey": "API Key actual",
           "poolUnavailable": "No hay cuentas disponibles en el grupo",
@@ -4858,6 +4858,20 @@
       "quotaFailed": "Error al consultar la cuota ({{count}})",
       "cleanQuotaFailedAction": "Eliminar cuentas con error de cuota ({{count}})",
       "cleanQuotaFailedConfirm": "¿Eliminar las {{count}} cuentas cuya consulta de cuota falló?"
+    },
+    "quotaAlert": {
+      "modeTitle": "Cuando la cuota sea baja",
+      "modeOff": "Desactivado",
+      "modeNotify": "Solo notificar",
+      "modeAuto": "Cambiar automáticamente",
+      "modeOffDesc": "No comprobar la cuota de la cuenta actual.",
+      "modeNotifyDesc": "Cuando cualquier grupo de cuota de la cuenta actual baje del umbral, enviar una notificación nativa y sugerir una cuenta en la app; tú decides si cambiar.",
+      "modeAutoDesc": "Cuando cualquier grupo de cuota del IDE de la cuenta actual baje del umbral, cambiar automáticamente a la cuenta con más cuota restante y reiniciar Cursor. Al menos 10 minutos entre cambios automáticos. El uso semanal de Grok Bot nunca activa un cambio.",
+      "thresholdAutoDesc": "Cambiar automáticamente cuando cualquier grupo de cuota baje de este porcentaje"
+    },
+    "autoSwitch": {
+      "notifyTitle": "Cuenta de Cursor cambiada automáticamente",
+      "notifyBody": "{{from}} bajó del {{threshold}}% ({{models}}); se cambió a {{to}} y se reinició Cursor."
     }
   },
   "breakout": {

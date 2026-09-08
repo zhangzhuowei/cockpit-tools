@@ -183,6 +183,7 @@ interface GeneralConfig {
   kiro_quota_alert_threshold: number;
   cursor_quota_alert_enabled: boolean;
   cursor_quota_alert_threshold: number;
+  cursor_quota_alert_mode?: string;
   grok_quota_alert_enabled: boolean;
   grok_quota_alert_threshold: number;
   claude_quota_alert_enabled: boolean;
@@ -1593,6 +1594,8 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
   const renderQuotaAlertControls = () => {
     const isCodexAlert = type === 'codex';
     const isGrokAlert = type === 'grok';
+    const isCursorAlert = type === 'cursor';
+    const cursorAutoSwitchOn = (config?.cursor_quota_alert_mode ?? 'notify') === 'auto';
     return (
       <>
         <div className="qs-row" style={{ marginTop: type === 'antigravity' ? 10 : 0 }}>
@@ -1760,16 +1763,42 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
                 </div>
               </div>
             )}
+            {isCursorAlert && (
+              <div className="qs-row">
+                <div className="qs-row-label">
+                  <span>{t('cursor.quotaAlert.modeAuto', '自动切号')}</span>
+                </div>
+                <div className="qs-row-control">
+                  <label className="qs-switch">
+                    <input
+                      type="checkbox"
+                      checked={cursorAutoSwitchOn}
+                      onChange={(e) =>
+                        saveConfig({
+                          cursor_quota_alert_mode: e.target.checked ? 'auto' : 'notify',
+                        } as Partial<GeneralConfig>)
+                      }
+                    />
+                    <span className="qs-switch-slider"></span>
+                  </label>
+                </div>
+              </div>
+            )}
             <div className="qs-hint" style={{ marginTop: 6 }}>
               {isGrokAlert
                 ? t(
                     'grok.quotaAlert.hint',
                     '当当前账号任意配额项低于阈值时，发送原生通知并在页面提示快捷切号。',
                   )
-                : t(
-                    'quickSettings.quotaAlert.hint',
-                    '当当前账号任意模型配额低于阈值时，发送原生通知并在页面提示快捷切号。',
-                  )}
+                : isCursorAlert && cursorAutoSwitchOn
+                  ? t(
+                      'cursor.quotaAlert.modeAutoDesc',
+                      '当前账号任意 IDE 额度池低于阈值时，自动切换到剩余最多的账号并重启 Cursor；两次自动切换间隔至少 10 分钟。Grok Bot 周用量不触发自动切换。',
+                    )
+                  : t(
+                      'quickSettings.quotaAlert.hint',
+                      '当当前账号任意模型配额低于阈值时，发送原生通知并在页面提示快捷切号。',
+                    )}
               {isCodexAlert && (
                 <>
                   <div>

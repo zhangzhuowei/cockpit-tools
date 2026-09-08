@@ -2572,7 +2572,7 @@
         "recoverSuccess": "Zażądano przywrócenia {{count}} kont(a)",
         "dialog": {
           "title": "Problemy kont",
-      "description": "Każde konto jest pokazane z modelem, powodem niedostępności i dostępną opcją przywrócenia.",
+          "description": "Każde konto jest pokazane z modelem, powodem niedostępności i dostępną opcją przywrócenia.",
           "noIssues": "Brak problemów z kontami",
           "unscopedApiKey": "Bieżący API Key",
           "poolUnavailable": "Brak dostępnego konta w puli",
@@ -4858,6 +4858,20 @@
       "quotaFailed": "Zapytanie o limit nie powiodło się ({{count}})",
       "cleanQuotaFailedAction": "Usuń konta z nieudanym zapytaniem o limit ({{count}})",
       "cleanQuotaFailedConfirm": "Usunąć wszystkie {{count}} kont, dla których zapytanie o limit nie powiodło się?"
+    },
+    "quotaAlert": {
+      "modeTitle": "Gdy limit jest niski",
+      "modeOff": "Wyłączone",
+      "modeNotify": "Tylko powiadamiaj",
+      "modeAuto": "Przełączaj automatycznie",
+      "modeOffDesc": "Nie sprawdzaj limitu bieżącego konta.",
+      "modeNotifyDesc": "Gdy dowolna pula limitu bieżącego konta spadnie poniżej progu, wyślij powiadomienie systemowe i zaproponuj konto w aplikacji; o przełączeniu decydujesz Ty.",
+      "modeAutoDesc": "Gdy dowolna pula limitu IDE bieżącego konta spadnie poniżej progu, automatycznie przełącz na konto z największym pozostałym limitem i uruchom ponownie Cursor. Między automatycznymi przełączeniami co najmniej 10 minut. Tygodniowe użycie Grok Bot nie wywołuje przełączenia.",
+      "thresholdAutoDesc": "Przełączaj automatycznie, gdy dowolna pula limitu spadnie poniżej tego procentu"
+    },
+    "autoSwitch": {
+      "notifyTitle": "Konto Cursor przełączone automatycznie",
+      "notifyBody": "{{from}} spadło poniżej {{threshold}}% ({{models}}); przełączono na {{to}} i uruchomiono ponownie Cursor."
     }
   },
   "breakout": {

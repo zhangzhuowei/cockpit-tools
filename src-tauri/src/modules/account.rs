@@ -1638,6 +1638,52 @@ pub fn send_quota_alert_native_notification(payload: &QuotaAlertPayload) {
     });
 }
 
+/// 发送一条任意标题/正文的原生通知（供自动切号等非配额预警场景复用）。
+#[cfg(not(target_os = "macos"))]
+pub fn send_native_notification_text(title: &str, body: &str) {
+    let Some(app_handle) = crate::get_app_handle() else {
+        return;
+    };
+
+    use tauri_plugin_notification::NotificationExt;
+
+    if let Err(e) = app_handle
+        .notification()
+        .builder()
+        .title(title)
+        .body(body)
+        .show()
+    {
+        modules::logger::log_warn(&format!("[Notification] 原生通知发送失败: {}", e));
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub fn send_native_notification_text(title: &str, body: &str) {
+    let Some(app_handle) = crate::get_app_handle() else {
+        return;
+    };
+    let bundle_identifier = app_handle.config().identifier.to_string();
+    let title = title.to_string();
+    let body = body.to_string();
+
+    std::thread::spawn(move || {
+        let mut notification = mac_notification_sys::Notification::new();
+        notification
+            .title(title.as_str())
+            .message(body.as_str())
+            .wait_for_click(false)
+            .asynchronous(true);
+
+        if let Err(e) = mac_notification_sys::set_application(&bundle_identifier) {
+            modules::logger::log_warn(&format!("[Notification] 设置通知应用标识失败: {}", e));
+        }
+        if let Err(e) = notification.send() {
+            modules::logger::log_warn(&format!("[Notification] 原生通知发送失败: {}", e));
+        }
+    });
+}
+
 pub fn dispatch_quota_alert(payload: &QuotaAlertPayload) {
     modules::logger::log_warn(&format!(
         "[QuotaAlert] 触发配额预警: platform={}, current_id={}, threshold={}%, lowest={}%",

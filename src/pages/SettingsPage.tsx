@@ -259,6 +259,7 @@ interface GeneralConfig {
   kiro_quota_alert_threshold: number;
   cursor_quota_alert_enabled: boolean;
   cursor_quota_alert_threshold: number;
+  cursor_quota_alert_mode?: string;
   grok_quota_alert_enabled: boolean;
   grok_quota_alert_threshold: number;
 }
@@ -695,6 +696,8 @@ export function useSettingsPageController() {
   const [kiroQuotaAlertThreshold, setKiroQuotaAlertThreshold] = useState('20');
   const [cursorQuotaAlertEnabled, setCursorQuotaAlertEnabled] = useState(false);
   const [cursorQuotaAlertThreshold, setCursorQuotaAlertThreshold] = useState('20');
+  // 三档：off / notify / auto。后端用 enabled + mode 两个字段表达，这里合成一个值给 UI。
+  const [cursorQuotaAlertAutoSwitch, setCursorQuotaAlertAutoSwitch] = useState(false);
   const [grokQuotaAlertEnabled, setGrokQuotaAlertEnabled] = useState(false);
   const [grokQuotaAlertThreshold, setGrokQuotaAlertThreshold] = useState('20');
   const [autoRefreshCustomMode, setAutoRefreshCustomMode] = useState(false);
@@ -1232,7 +1235,9 @@ export function useSettingsPageController() {
       cursor_quota_alert_enabled: cursorQuotaAlertEnabled,
       cursor_quota_alert_threshold: Number.isNaN(parsedCursorQuotaAlertThreshold)
         ? 20
-        : parsedCursorQuotaAlertThreshold,      grok_quota_alert_enabled: grokQuotaAlertEnabled,
+        : parsedCursorQuotaAlertThreshold,
+      cursor_quota_alert_mode: cursorQuotaAlertAutoSwitch ? 'auto' : 'notify',
+      grok_quota_alert_enabled: grokQuotaAlertEnabled,
       grok_quota_alert_threshold: Number.isNaN(parsedGrokQuotaAlertThreshold)
         ? 20
         : parsedGrokQuotaAlertThreshold,
@@ -1428,6 +1433,7 @@ export function useSettingsPageController() {
     zedQuotaAlertThreshold,
     cursorQuotaAlertEnabled,
     cursorQuotaAlertThreshold,
+    cursorQuotaAlertAutoSwitch,
     grokQuotaAlertEnabled,
     grokQuotaAlertThreshold,
     configUpdateSource,
@@ -1802,7 +1808,9 @@ export function useSettingsPageController() {
       setKiroQuotaAlertEnabled(config.kiro_quota_alert_enabled ?? false);
       setKiroQuotaAlertThreshold(String(config.kiro_quota_alert_threshold ?? 20));
       setCursorQuotaAlertEnabled(config.cursor_quota_alert_enabled ?? false);
-      setCursorQuotaAlertThreshold(String(config.cursor_quota_alert_threshold ?? 20));      setGrokQuotaAlertEnabled(config.grok_quota_alert_enabled ?? false);
+      setCursorQuotaAlertThreshold(String(config.cursor_quota_alert_threshold ?? 20));
+      setCursorQuotaAlertAutoSwitch((config.cursor_quota_alert_mode ?? 'notify') === 'auto');
+      setGrokQuotaAlertEnabled(config.grok_quota_alert_enabled ?? false);
       setGrokQuotaAlertThreshold(String(config.grok_quota_alert_threshold ?? 20));
       setAutoRefreshCustomMode(false);
       setCodexAutoRefreshCustomMode(false);
@@ -3298,6 +3306,7 @@ export function useSettingsPageController() {
     cursorQuotaAlertThreshold,
     cursorQuotaAlertThresholdCustomMode,
     cursorQuotaAlertThresholdIsPreset,
+    cursorQuotaAlertAutoSwitch,
     defaultPort,
     defaultTerminal,
     errorReportingEnabled,
@@ -3480,6 +3489,7 @@ export function useSettingsPageController() {
     setCursorAutoRefreshCustomMode,
     setCursorQuotaAlertEnabled,
     setCursorQuotaAlertThreshold,
+    setCursorQuotaAlertAutoSwitch,
     setCursorQuotaAlertThresholdCustomMode,
     setDefaultTerminal,
     setExternalNetworkEnabled,

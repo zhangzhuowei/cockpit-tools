@@ -432,6 +432,9 @@ pub fn get_general_config(app: tauri::AppHandle) -> Result<GeneralConfig, String
         kiro_quota_alert_threshold: user_config.kiro_quota_alert_threshold,
         cursor_quota_alert_enabled: user_config.cursor_quota_alert_enabled,
         cursor_quota_alert_threshold: user_config.cursor_quota_alert_threshold,
+        cursor_quota_alert_mode: config::normalize_cursor_quota_alert_mode(
+            &user_config.cursor_quota_alert_mode,
+        ),
         grok_quota_alert_enabled: user_config.grok_quota_alert_enabled,
         grok_quota_alert_threshold: user_config.grok_quota_alert_threshold,
         claude_quota_alert_enabled: user_config.claude_quota_alert_enabled,

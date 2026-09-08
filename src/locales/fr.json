@@ -2572,7 +2572,7 @@
         "recoverSuccess": "Rétablissement demandé pour {{count}} compte(s)",
         "dialog": {
           "title": "Problèmes de comptes",
-      "description": "Chaque compte affiche son modèle, la raison de son indisponibilité et l’action de récupération disponible.",
+          "description": "Chaque compte affiche son modèle, la raison de son indisponibilité et l’action de récupération disponible.",
           "noIssues": "Aucun problème de comptes",
           "unscopedApiKey": "API Key actuelle",
           "poolUnavailable": "Aucun compte disponible dans le pool",
@@ -4858,6 +4858,20 @@
       "quotaFailed": "Échec de la requête de quota ({{count}})",
       "cleanQuotaFailedAction": "Supprimer les comptes dont la requête de quota a échoué ({{count}})",
       "cleanQuotaFailedConfirm": "Supprimer les {{count}} compte(s) dont la requête de quota a échoué ?"
+    },
+    "quotaAlert": {
+      "modeTitle": "Quand le quota devient faible",
+      "modeOff": "Désactivé",
+      "modeNotify": "Notifier seulement",
+      "modeAuto": "Basculer automatiquement",
+      "modeOffDesc": "Ne pas vérifier le quota du compte actuel.",
+      "modeNotifyDesc": "Quand un pool de quota du compte actuel passe sous le seuil, envoyer une notification native et suggérer un compte dans l'application ; vous décidez de basculer.",
+      "modeAutoDesc": "Quand un pool de quota IDE du compte actuel passe sous le seuil, basculer automatiquement vers le compte ayant le plus de quota restant et redémarrer Cursor. Au moins 10 minutes entre deux bascules automatiques. L'usage hebdomadaire de Grok Bot ne déclenche jamais de bascule.",
+      "thresholdAutoDesc": "Basculer automatiquement quand un pool de quota passe sous ce pourcentage"
+    },
+    "autoSwitch": {
+      "notifyTitle": "Compte Cursor basculé automatiquement",
+      "notifyBody": "{{from}} est passé sous {{threshold}} % ({{models}}) ; basculé vers {{to}} et Cursor redémarré."
     }
   },
   "breakout": {
