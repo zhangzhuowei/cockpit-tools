@@ -195,12 +195,6 @@ fn decode_jwt_exp(token: &str) -> Option<i64> {
     payload.get("exp").and_then(Value::as_i64)
 }
 
-fn jwt_token_expires_soon(token: &str, skew_seconds: i64) -> bool {
-    decode_jwt_exp(token)
-        .map(|exp| exp <= now_ts() + skew_seconds)
-        .unwrap_or(true)
-}
-
 fn expires_at_seconds_due(expires_at: Option<i64>) -> bool {
     expires_at
         .map(|value| value <= now_ts() + TOKEN_REFRESH_LEAD_SECONDS)
@@ -346,7 +340,12 @@ async fn refresh_due_cursor_accounts() -> bool {
         if reached_platform_refresh_limit(attempted_refreshes) {
             break;
         }
-        if !jwt_token_expires_soon(&account.access_token, TOKEN_REFRESH_LEAD_SECONDS) {
+        // 解不出 exp 的 token 不是有效的 Cursor session JWT，反复刷新只会空转；
+        // 它的失效会由配额刷新那条链路标记出来。
+        let Some(exp) = decode_jwt_exp(&account.access_token) else {
+            continue;
+        };
+        if exp > now_ts() + TOKEN_REFRESH_LEAD_SECONDS {
             continue;
         }
 
@@ -358,6 +357,18 @@ async fn refresh_due_cursor_accounts() -> bool {
         attempted_refreshes += 1;
         match cursor_account::refresh_account_async(&account.id).await {
             Ok(updated) => {
+                // refresh_account_async 在 token 续期失败时仍返回 Ok（配额照常拉取），
+                // 这里必须看 token 是否真的换了；没换就退避，否则每个 tick 都会重写一次
+                // state.vscdb，Cursor 运行中被反复改库会导致登录态抖动。
+                let renewed = updated.access_token != account.access_token;
+                if !renewed {
+                    mark_attempt_failure(&key);
+                    logger::log_warn(&format!(
+                        "[TokenKeeper][Cursor] Token 未能续期（仍将于 {} 过期），进入退避: account_id={}, email={}",
+                        exp, updated.id, updated.email
+                    ));
+                    continue;
+                }
                 clear_attempt_backoff(&key);
                 refreshed_any = true;
                 if current_id.as_deref() == Some(updated.id.as_str()) {

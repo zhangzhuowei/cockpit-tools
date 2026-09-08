@@ -1381,10 +1381,31 @@ fn access_token_is_session(access_token: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// 优先级：session 类型的 refresh_token → session 类型的 access_token → 其他 refresh_token。
+/// Cursor 桌面端的 refreshToken 槽位只认 session JWT；把 web cookie JWT 或别的 token 放进去
+/// 会让它在启动续期时失败。
 fn resolve_refresh_token_for_injection(account: &CursorAccount) -> Option<String> {
-    normalize_non_empty(account.refresh_token.as_deref()).or_else(|| {
-        access_token_is_session(&account.access_token).then(|| account.access_token.clone())
-    })
+    let stored = normalize_non_empty(account.refresh_token.as_deref());
+    if let Some(token) = stored.as_deref() {
+        if access_token_is_session(token) {
+            return stored;
+        }
+    }
+    if access_token_is_session(&account.access_token) {
+        return Some(account.access_token.clone());
+    }
+    stored
+}
+
+/// Cursor 自己写入的 userId/authId 都是 `auth0|user_xxx`；GetUserMeta 给的 workosId 没有前缀，
+/// 写入前统一补齐，避免同一账号在 DB 里出现两种写法。
+fn normalize_auth0_user_id(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.starts_with("user_") {
+        format!("auth0|{}", trimmed)
+    } else {
+        trimmed.to_string()
+    }
 }
 
 /// 切号时删掉的上一账号缓存：套餐/订阅/团队/显示名由 Cursor 启动后用新 token 重新拉取，
@@ -1399,7 +1420,7 @@ const CURSOR_STALE_PROFILE_KEYS: [&str; 5] = [
 
 /// 组装切号需要写入的键值。`None` 表示该键应删除。
 fn build_auth_key_writes(account: &CursorAccount) -> Vec<(&'static str, Option<String>)> {
-    let auth_id = resolve_account_auth_id(account);
+    let auth_id = resolve_account_auth_id(account).map(|id| normalize_auth0_user_id(&id));
     let refresh_token = resolve_refresh_token_for_injection(account);
     // Cursor 自己总会写这个键；未知时按邮箱注册处理，与官方默认一致。
     let sign_up_type = normalize_non_empty(account.sign_up_type.as_deref())
