@@ -4963,7 +4963,10 @@
       "reasonTray": "Nabídka v liště"
     },
     "webview": {
-      "open": "Otevřít webový Dashboard"
+      "open": "Otevřít webový Dashboard",
+      "desktopLogin": "Získat desktopové přihlášení přes webovou relaci (v okně klikněte „Yes, Log In“)",
+      "desktopLoginDone": "Desktopový přihlašovací token pro {{email}} získán; přepnutí je dostupné",
+      "desktopLoginFailed": "Získání desktopového přihlášení selhalo: {{error}}"
     }
   },
   "breakout": {

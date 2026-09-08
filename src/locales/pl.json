@@ -4963,7 +4963,10 @@
       "reasonTray": "Menu zasobnika"
     },
     "webview": {
-      "open": "Otwórz panel webowy"
+      "open": "Otwórz panel webowy",
+      "desktopLogin": "Pobierz logowanie desktopowe przez sesję webową (kliknij „Yes, Log In” w oknie)",
+      "desktopLoginDone": "Uzyskano token logowania desktopowego dla {{email}}; przełączanie dostępne",
+      "desktopLoginFailed": "Nie udało się uzyskać logowania desktopowego: {{error}}"
     }
   },
   "breakout": {

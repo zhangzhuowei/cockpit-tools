@@ -4963,7 +4963,10 @@
       "reasonTray": "Tray-Menü"
     },
     "webview": {
-      "open": "Web-Dashboard öffnen"
+      "open": "Web-Dashboard öffnen",
+      "desktopLogin": "Desktop-Login über Web-Sitzung holen (im Popup „Yes, Log In“ klicken)",
+      "desktopLoginDone": "Desktop-Login-Token für {{email}} erhalten; Wechsel jetzt möglich",
+      "desktopLoginFailed": "Desktop-Login fehlgeschlagen: {{error}}"
     }
   },
   "breakout": {

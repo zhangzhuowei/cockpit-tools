@@ -4963,7 +4963,10 @@
       "reasonTray": "Menu de la barre"
     },
     "webview": {
-      "open": "Ouvrir le Dashboard web"
+      "open": "Ouvrir le Dashboard web",
+      "desktopLogin": "Obtenir la connexion bureau via la session web (cliquez « Yes, Log In » dans la fenêtre)",
+      "desktopLoginDone": "Jeton de connexion bureau obtenu pour {{email}} ; la bascule est disponible",
+      "desktopLoginFailed": "Échec de la connexion bureau : {{error}}"
     }
   },
   "breakout": {

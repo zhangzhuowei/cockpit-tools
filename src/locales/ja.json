@@ -4963,7 +4963,10 @@
       "reasonTray": "トレイメニュー"
     },
     "webview": {
-      "open": "Web ダッシュボードを開く"
+      "open": "Web ダッシュボードを開く",
+      "desktopLogin": "Web セッションからデスクトップログインを取得（ポップアップで「Yes, Log In」をクリック）",
+      "desktopLoginDone": "{{email}} のデスクトップログイントークンを取得しました。切り替えが可能です",
+      "desktopLoginFailed": "デスクトップログインの取得に失敗：{{error}}"
     }
   },
   "breakout": {

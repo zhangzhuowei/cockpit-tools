@@ -5268,7 +5268,10 @@
       "reasonTray": "托盘菜单"
     },
     "webview": {
-      "open": "打开网页版 Dashboard"
+      "open": "打开网页版 Dashboard",
+      "desktopLogin": "通过网页会话获取桌面登录（在弹出窗口中点击 Yes, Log In）",
+      "desktopLoginDone": "已为 {{email}} 获取桌面登录 token，现在可以切号了",
+      "desktopLoginFailed": "获取桌面登录失败：{{error}}"
     }
   },
   "breakout": {

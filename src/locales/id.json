@@ -5116,7 +5116,10 @@
       "reasonTray": "Menu tray"
     },
     "webview": {
-      "open": "Buka Dashboard web"
+      "open": "Buka Dashboard web",
+      "desktopLogin": "Dapatkan login desktop lewat sesi web (klik \"Yes, Log In\" di jendela)",
+      "desktopLoginDone": "Token login desktop untuk {{email}} didapat; kini bisa berganti",
+      "desktopLoginFailed": "Gagal mendapatkan login desktop: {{error}}"
     }
   },
   "breakout": {

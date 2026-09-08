@@ -124,6 +124,7 @@ export function CursorAccountsPage() {
   const [usageBreakdownAccountId, setUsageBreakdownAccountId] = useState<string | null>(null);
   const [onDemandAccountId, setOnDemandAccountId] = useState<string | null>(null);
   const [showSwitchHistory, setShowSwitchHistory] = useState(false);
+  const [desktopLoginAccountId, setDesktopLoginAccountId] = useState<string | null>(null);
   const [filterTypes, setFilterTypes] = useState<string[]>(() =>
     readAccountsOverviewFilterPersistenceEnabled(CURSOR_FILTER_PERSISTENCE_SCOPE)
       ? readAccountsOverviewFilterStringArray(CURSOR_FILTER_PERSISTENCE_SCOPE, FILTER_TYPES_FIELD)
@@ -207,6 +208,33 @@ export function CursorAccountsPage() {
     currentAccountId,
     formatDate, normalizeTag,
   } = page;
+
+  // 网页会话 token 的账号：在带该账号 Cookie 的内嵌窗口里走一次桌面登录确认，换出 session token。
+  const handleDesktopLoginViaWebview = useCallback(async (accountId: string) => {
+    setMessage(null);
+    setDesktopLoginAccountId(accountId);
+    const account = store.accounts.find((item) => item.id === accountId);
+    const displayEmail = account ? getCursorAccountDisplayEmail(account) : accountId;
+    try {
+      await cursorService.cursorWebviewDesktopLogin(accountId);
+      await store.fetchAccounts();
+      setMessage({
+        text: t('cursor.webview.desktopLoginDone', '已为 {{email}} 获取桌面登录 token，现在可以切号了', {
+          email: maskAccountText(displayEmail),
+        }),
+        tone: 'success',
+      });
+    } catch (e: unknown) {
+      setMessage({
+        text: t('cursor.webview.desktopLoginFailed', '获取桌面登录失败：{{error}}', {
+          error: String(e) || t('common.failed', 'Failed'),
+        }),
+        tone: 'error',
+      });
+    } finally {
+      setDesktopLoginAccountId(null);
+    }
+  }, [maskAccountText, setMessage, store, t]);
 
   useEffect(() => {
     if (!filterPersistenceEnabled) {
@@ -846,10 +874,17 @@ export function CursorAccountsPage() {
           <div className="card-footer">
             <span className="card-date">{formatDate(account.created_at)}</span>
             <div className="card-actions">
-              <button className="card-action-btn success" onClick={() => handleInjectToVSCode?.(account.id)} disabled={!!injecting || isBanned || isWebToken}
-                title={isBanned ? t('accounts.status.forbidden_msg') : isWebToken ? webTokenTitle : t('cursor.injectToCursor', '切换到 Cursor')}>
-                {injecting === account.id ? <RefreshCw size={14} className="loading-spinner" /> : <Play size={14} />}
-              </button>
+              {isWebToken && !isBanned ? (
+                <button className="card-action-btn success" onClick={() => void handleDesktopLoginViaWebview(account.id)} disabled={!!desktopLoginAccountId}
+                  title={t('cursor.webview.desktopLogin', '通过网页会话获取桌面登录（在弹出窗口中点击 Yes, Log In）')}>
+                  {desktopLoginAccountId === account.id ? <RefreshCw size={14} className="loading-spinner" /> : <KeyRound size={14} />}
+                </button>
+              ) : (
+                <button className="card-action-btn success" onClick={() => handleInjectToVSCode?.(account.id)} disabled={!!injecting || isBanned}
+                  title={isBanned ? t('accounts.status.forbidden_msg') : t('cursor.injectToCursor', '切换到 Cursor')}>
+                  {injecting === account.id ? <RefreshCw size={14} className="loading-spinner" /> : <Play size={14} />}
+                </button>
+              )}
               <button className="card-action-btn" onClick={() => handleOpenWebview?.(account.id)} disabled={!!webviewing || isBanned} title={t('cursor.webview.open', '打开网页版 Dashboard')}>
                 {webviewing === account.id ? <RefreshCw size={14} className="loading-spinner" /> : <Globe size={14} />}
               </button>
@@ -1026,10 +1061,17 @@ export function CursorAccountsPage() {
           </td>
           <td className="sticky-action-cell table-action-cell">
             <div className="action-buttons">
-              <button className="action-btn success" onClick={() => handleInjectToVSCode?.(account.id)} disabled={!!injecting || isBanned || isWebToken}
-                title={isBanned ? t('accounts.status.forbidden_msg') : isWebToken ? webTokenTitle : t('cursor.injectToCursor', '切换到 Cursor')}>
-                {injecting === account.id ? <RefreshCw size={14} className="loading-spinner" /> : <Play size={14} />}
-              </button>
+              {isWebToken && !isBanned ? (
+                <button className="action-btn success" onClick={() => void handleDesktopLoginViaWebview(account.id)} disabled={!!desktopLoginAccountId}
+                  title={t('cursor.webview.desktopLogin', '通过网页会话获取桌面登录（在弹出窗口中点击 Yes, Log In）')}>
+                  {desktopLoginAccountId === account.id ? <RefreshCw size={14} className="loading-spinner" /> : <KeyRound size={14} />}
+                </button>
+              ) : (
+                <button className="action-btn success" onClick={() => handleInjectToVSCode?.(account.id)} disabled={!!injecting || isBanned}
+                  title={isBanned ? t('accounts.status.forbidden_msg') : t('cursor.injectToCursor', '切换到 Cursor')}>
+                  {injecting === account.id ? <RefreshCw size={14} className="loading-spinner" /> : <Play size={14} />}
+                </button>
+              )}
               <button className="action-btn" onClick={() => handleOpenWebview?.(account.id)} disabled={!!webviewing || isBanned} title={t('cursor.webview.open', '打开网页版 Dashboard')}>
                 {webviewing === account.id ? <RefreshCw size={14} className="loading-spinner" /> : <Globe size={14} />}
               </button>

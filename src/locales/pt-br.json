@@ -4963,7 +4963,10 @@
       "reasonTray": "Menu da bandeja"
     },
     "webview": {
-      "open": "Abrir Dashboard web"
+      "open": "Abrir Dashboard web",
+      "desktopLogin": "Obter login desktop via sessão web (clique em \"Yes, Log In\" na janela)",
+      "desktopLoginDone": "Token de login desktop obtido para {{email}}; a troca está disponível",
+      "desktopLoginFailed": "Falha ao obter login desktop: {{error}}"
     }
   },
   "breakout": {

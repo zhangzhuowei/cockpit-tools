@@ -4963,7 +4963,10 @@
       "reasonTray": "系統匣選單"
     },
     "webview": {
-      "open": "開啟網頁版 Dashboard"
+      "open": "開啟網頁版 Dashboard",
+      "desktopLogin": "透過網頁會話取得桌面登入（在彈出視窗中點擊 Yes, Log In）",
+      "desktopLoginDone": "已為 {{email}} 取得桌面登入 token，現在可以切換了",
+      "desktopLoginFailed": "取得桌面登入失敗：{{error}}"
     }
   },
   "breakout": {

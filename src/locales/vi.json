@@ -4963,7 +4963,10 @@
       "reasonTray": "Menu khay"
     },
     "webview": {
-      "open": "Mở Dashboard web"
+      "open": "Mở Dashboard web",
+      "desktopLogin": "Lấy đăng nhập desktop qua phiên web (bấm \"Yes, Log In\" trong cửa sổ)",
+      "desktopLoginDone": "Đã lấy token đăng nhập desktop cho {{email}}; có thể chuyển ngay",
+      "desktopLoginFailed": "Lấy đăng nhập desktop thất bại: {{error}}"
     }
   },
   "breakout": {

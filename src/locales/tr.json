@@ -4963,7 +4963,10 @@
       "reasonTray": "Tepsi menüsü"
     },
     "webview": {
-      "open": "Web Dashboard'u aç"
+      "open": "Web Dashboard'u aç",
+      "desktopLogin": "Web oturumu ile masaüstü girişi al (açılan pencerede \"Yes, Log In\" tıklayın)",
+      "desktopLoginDone": "{{email}} için masaüstü giriş tokenı alındı; geçiş yapılabilir",
+      "desktopLoginFailed": "Masaüstü girişi alınamadı: {{error}}"
     }
   },
   "breakout": {

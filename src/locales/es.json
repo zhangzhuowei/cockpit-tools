@@ -4963,7 +4963,10 @@
       "reasonTray": "Menú de bandeja"
     },
     "webview": {
-      "open": "Abrir el Dashboard web"
+      "open": "Abrir el Dashboard web",
+      "desktopLogin": "Obtener inicio de sesión de escritorio vía sesión web (pulsa «Yes, Log In» en la ventana)",
+      "desktopLoginDone": "Token de escritorio obtenido para {{email}}; ya puedes cambiar",
+      "desktopLoginFailed": "Error al obtener el inicio de sesión de escritorio: {{error}}"
     }
   },
   "breakout": {

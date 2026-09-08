@@ -4963,7 +4963,10 @@
       "reasonTray": "트레이 메뉴"
     },
     "webview": {
-      "open": "웹 대시보드 열기"
+      "open": "웹 대시보드 열기",
+      "desktopLogin": "웹 세션으로 데스크톱 로그인 받기(팝업에서 \"Yes, Log In\" 클릭)",
+      "desktopLoginDone": "{{email}}의 데스크톱 로그인 토큰을 받았습니다. 이제 전환할 수 있습니다",
+      "desktopLoginFailed": "데스크톱 로그인 가져오기 실패: {{error}}"
     }
   },
   "breakout": {

@@ -5268,7 +5268,10 @@
       "reasonTray": "Tray menu"
     },
     "webview": {
-      "open": "Open web Dashboard"
+      "open": "Open web Dashboard",
+      "desktopLogin": "Get desktop login via web session (click \"Yes, Log In\" in the popup)",
+      "desktopLoginDone": "Desktop login token obtained for {{email}}; switching is now available",
+      "desktopLoginFailed": "Failed to get desktop login: {{error}}"
     }
   },
   "breakout": {

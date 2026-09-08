@@ -331,7 +331,7 @@ fn auth_identity_key(value: &str) -> String {
         .to_ascii_lowercase()
 }
 
-fn auth_ids_match(left: &str, right: &str) -> bool {
+pub(crate) fn auth_ids_match(left: &str, right: &str) -> bool {
     auth_identity_key(left) == auth_identity_key(right)
 }
 
@@ -383,7 +383,7 @@ fn decode_access_token_payload(access_token: &str) -> Option<serde_json::Value> 
     serde_json::from_slice(&decoded).ok()
 }
 
-fn extract_auth_id_from_access_token(access_token: &str) -> Option<String> {
+pub(crate) fn extract_auth_id_from_access_token(access_token: &str) -> Option<String> {
     let value = decode_access_token_payload(access_token)?;
     normalize_non_empty(value.get("sub").and_then(|raw| raw.as_str()))
 }
@@ -468,7 +468,7 @@ fn resolve_payload_auth_id(payload: &CursorImportPayload) -> Option<String> {
         .or_else(|| extract_auth_id_from_access_token(payload.access_token.as_str()))
 }
 
-fn resolve_account_auth_id(account: &CursorAccount) -> Option<String> {
+pub(crate) fn resolve_account_auth_id(account: &CursorAccount) -> Option<String> {
     normalize_auth_identity(account.auth_id.as_deref())
         .or_else(|| extract_auth_id_from_raw_value(account.cursor_auth_raw.as_ref()))
         .or_else(|| extract_auth_id_from_access_token(account.access_token.as_str()))

@@ -76,6 +76,14 @@ export async function openCursorWebview(accountId: string): Promise<void> {
   await invoke('open_cursor_webview', { accountId });
 }
 
+/**
+ * 借助账号的网页会话换取桌面端 session token：在内嵌窗口里打开登录确认页，
+ * 用户点确认后 token 写回同一账号。用于把 web 类型 token 的账号变成可切号。
+ */
+export async function cursorWebviewDesktopLogin(accountId: string): Promise<CursorAccount> {
+  return await invoke('cursor_webview_desktop_login', { accountId });
+}
+
 export interface CursorSwitchLowMetric {
   label: string;
   left_percent: number;
