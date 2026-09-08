@@ -873,6 +873,11 @@ fn apply_payload(
     }
     if payload.refresh_token.is_some() {
         account.refresh_token = payload.refresh_token;
+    } else if token_changed || account.refresh_token.is_none() {
+        // Cursor 桌面端的 refreshToken 就是 session JWT 本身；粘贴 token 添加的账号
+        // 补上它，切号写入和 token 保活才有可用的 refresh 凭据。
+        account.refresh_token =
+            access_token_is_session(&account.access_token).then(|| account.access_token.clone());
     }
     if payload.membership_type.is_some() {
         account.membership_type = payload.membership_type;
@@ -1366,50 +1371,98 @@ fn upsert_or_delete_vscdb_item(
     }
 }
 
-/// Cursor 会用 authId/userId/email 等键判断当前登录身份，切号时必须整组覆盖，
+/// Cursor 桌面端的 `cursorAuth/refreshToken` 就是登录时拿到的 session JWT（与 accessToken 相同），
+/// 启动时靠它续期；缺失会被视为未登录。粘贴 token 添加的账号没有单独的 refresh_token，
+/// 只要 access token 是 session 类型就用它自己补位。
+fn access_token_is_session(access_token: &str) -> bool {
+    decode_access_token_payload(access_token)
+        .and_then(|payload| payload.get("type").and_then(|v| v.as_str()).map(str::to_string))
+        .map(|kind| kind.eq_ignore_ascii_case("session"))
+        .unwrap_or(false)
+}
+
+fn resolve_refresh_token_for_injection(account: &CursorAccount) -> Option<String> {
+    normalize_non_empty(account.refresh_token.as_deref()).or_else(|| {
+        access_token_is_session(&account.access_token).then(|| account.access_token.clone())
+    })
+}
+
+/// 切号时删掉的上一账号缓存：套餐/订阅/团队/显示名由 Cursor 启动后用新 token 重新拉取，
+/// 写旧值只会造成顶栏套餐串号。
+const CURSOR_STALE_PROFILE_KEYS: [&str; 5] = [
+    "cursorAuth/cachedScopedProfile",
+    "cursorAuth/cachedTeam",
+    "cursorAuth/stripeCustomerId",
+    "cursorAuth/stripeMembershipType",
+    "cursorAuth/stripeSubscriptionStatus",
+];
+
+/// 组装切号需要写入的键值。`None` 表示该键应删除。
+fn build_auth_key_writes(account: &CursorAccount) -> Vec<(&'static str, Option<String>)> {
+    let auth_id = resolve_account_auth_id(account);
+    let refresh_token = resolve_refresh_token_for_injection(account);
+    // Cursor 自己总会写这个键；未知时按邮箱注册处理，与官方默认一致。
+    let sign_up_type = normalize_non_empty(account.sign_up_type.as_deref())
+        .unwrap_or_else(|| "Auth_0".to_string());
+
+    let mut writes: Vec<(&'static str, Option<String>)> = vec![
+        ("cursorAuth/accessToken", Some(account.access_token.clone())),
+        ("cursorAuth/refreshToken", refresh_token),
+        ("cursorAuth/cachedEmail", Some(account.email.clone())),
+        ("cursorAuth/email", Some(account.email.clone())),
+        ("cursorAuth/cachedSignUpType", Some(sign_up_type)),
+        ("cursorAuth/authId", auth_id.clone()),
+        ("cursorAuth/userId", auth_id.clone()),
+        ("cursorAuth/cachedUserId", auth_id.clone()),
+        ("cursorAuth/stripeMembershipAuthId", auth_id),
+        ("cursor.accessToken", Some(account.access_token.clone())),
+        ("cursor.email", Some(account.email.clone())),
+    ];
+    for key in CURSOR_STALE_PROFILE_KEYS {
+        writes.push((key, None));
+    }
+    writes
+}
+
+/// Cursor 会用 accessToken/refreshToken/userId 等键判断当前登录身份，切号时必须整组覆盖，
 /// 否则 token 是新账号的、身份键还是旧账号的，导致"当前账号"识别错位、本地导入串号。
 fn write_account_auth_to_vscdb(conn: &Connection, account: &CursorAccount) -> Result<(), String> {
-    let auth_id = resolve_account_auth_id(account);
-
-    upsert_vscdb_item(conn, "cursorAuth/accessToken", &account.access_token)?;
-    upsert_or_delete_vscdb_item(
-        conn,
-        "cursorAuth/refreshToken",
-        account.refresh_token.as_deref(),
-    )?;
-    upsert_vscdb_item(conn, "cursorAuth/cachedEmail", &account.email)?;
-    upsert_vscdb_item(conn, "cursorAuth/email", &account.email)?;
-
-    for key in [
-        "cursorAuth/authId",
-        "cursorAuth/userId",
-        "cursorAuth/cachedUserId",
-        "cursorAuth/stripeMembershipAuthId",
-    ] {
-        upsert_or_delete_vscdb_item(conn, key, auth_id.as_deref())?;
+    for (key, value) in build_auth_key_writes(account) {
+        upsert_or_delete_vscdb_item(conn, key, value.as_deref())?;
     }
-
-    upsert_or_delete_vscdb_item(
-        conn,
-        "cursorAuth/stripeMembershipType",
-        account.membership_type.as_deref(),
-    )?;
-    upsert_or_delete_vscdb_item(
-        conn,
-        "cursorAuth/stripeSubscriptionStatus",
-        account.subscription_status.as_deref(),
-    )?;
-    upsert_or_delete_vscdb_item(
-        conn,
-        "cursorAuth/cachedSignUpType",
-        account.sign_up_type.as_deref(),
-    )?;
-    // 显示名缓存属于上一个账号，删掉让 Cursor 重新拉取。
-    delete_vscdb_item(conn, "cursorAuth/cachedScopedProfile")?;
-
-    upsert_vscdb_item(conn, "cursor.accessToken", &account.access_token)?;
-    upsert_vscdb_item(conn, "cursor.email", &account.email)?;
     Ok(())
+}
+
+/// 部分 Cursor 版本会从 globalStorage/storage.json 恢复登录态；文件存在时同步写入，
+/// 避免 state.vscdb 与它不一致被回滚。文件不存在则跳过。
+fn write_account_auth_to_storage_json(
+    global_storage_dir: &std::path::Path,
+    account: &CursorAccount,
+) -> Result<(), String> {
+    let path = global_storage_dir.join("storage.json");
+    if !path.exists() {
+        return Ok(());
+    }
+    let content =
+        fs::read_to_string(&path).map_err(|e| format!("读取 storage.json 失败: {}", e))?;
+    let mut data = serde_json::from_str::<Value>(&content)
+        .ok()
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default();
+    for (key, value) in build_auth_key_writes(account) {
+        match value {
+            Some(text) => {
+                data.insert(key.to_string(), Value::String(text));
+            }
+            None => {
+                data.remove(key);
+            }
+        }
+    }
+    let serialized = serde_json::to_string_pretty(&Value::Object(data))
+        .map_err(|e| format!("序列化 storage.json 失败: {}", e))?;
+    crate::modules::atomic_write::write_string_atomic(&path, &serialized)
+        .map_err(|e| format!("写入 storage.json 失败: {}", e))
 }
 
 fn touch_account_last_used(account_id: &str) {
@@ -1437,6 +1490,14 @@ pub fn inject_to_cursor(account_id: &str) -> Result<(), String> {
         Connection::open(&db_path).map_err(|e| format!("打开 Cursor 本地数据库失败: {}", e))?;
 
     write_account_auth_to_vscdb(&conn, &account)?;
+    if let Some(dir) = db_path.parent() {
+        if let Err(err) = write_account_auth_to_storage_json(dir, &account) {
+            logger::log_warn(&format!(
+                "[Cursor Account] storage.json 同步失败（state.vscdb 已写入）: id={}, error={}",
+                account.id, err
+            ));
+        }
+    }
     touch_account_last_used(account_id);
 
     logger::log_info(&format!(
@@ -1457,6 +1518,16 @@ pub fn inject_to_cursor_at_path(db_path: &std::path::Path, account_id: &str) -> 
         Connection::open(db_path).map_err(|e| format!("打开 Cursor 本地数据库失败: {}", e))?;
 
     write_account_auth_to_vscdb(&conn, &account)?;
+    if let Some(dir) = db_path.parent() {
+        if let Err(err) = write_account_auth_to_storage_json(dir, &account) {
+            logger::log_warn(&format!(
+                "[Cursor Account] storage.json 同步失败（state.vscdb 已写入）: id={}, path={}, error={}",
+                account.id,
+                db_path.display(),
+                err
+            ));
+        }
+    }
 
     logger::log_info(&format!(
         "[Cursor Account] 注入成功(自定义路径): id={}, email={}, path={}",
@@ -1958,6 +2029,10 @@ async fn refresh_account_async_once(account_id: &str) -> Result<CursorAccount, S
 
     let client = build_cursor_http_client()?;
     let mut account = existing.clone();
+    // 老数据里粘贴 token 添加的账号没有 refresh_token，顺手补上 session JWT。
+    if account.refresh_token.is_none() && access_token_is_session(&account.access_token) {
+        account.refresh_token = Some(account.access_token.clone());
+    }
 
     if access_token_needs_refresh(&account.access_token) {
         match refresh_account_access_token_with_client(&client, &mut account).await {
@@ -2759,6 +2834,75 @@ mod import_token_tests {
         assert!(auth_ids_match("auth0|user_ABC", "user_abc"));
         assert!(auth_ids_match("user_abc", "auth0|user_abc"));
         assert!(!auth_ids_match("auth0|user_abc", "auth0|user_xyz"));
+    }
+
+    fn fake_jwt_typed(sub: &str, exp: i64, kind: &str) -> String {
+        let engine = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        let header = engine.encode(br#"{"alg":"HS256","typ":"JWT"}"#);
+        let payload = engine.encode(
+            format!(r#"{{"sub":"{}","exp":{},"type":"{}"}}"#, sub, exp, kind).as_bytes(),
+        );
+        format!("{}.{}.sig", header, payload)
+    }
+
+    fn account_with(access: &str, refresh: Option<&str>) -> CursorAccount {
+        CursorAccount {
+            id: "cursor_test".to_string(),
+            email: "a@example.com".to_string(),
+            auth_id: Some("auth0|user_1".to_string()),
+            name: None,
+            tags: None,
+            access_token: access.to_string(),
+            refresh_token: refresh.map(str::to_string),
+            membership_type: Some("pro".to_string()),
+            subscription_status: Some("active".to_string()),
+            sign_up_type: None,
+            cursor_auth_raw: None,
+            cursor_usage_raw: None,
+            status: None,
+            status_reason: None,
+            quota_query_last_error: None,
+            quota_query_last_error_at: None,
+            quota_query_auth_failures: None,
+            usage_updated_at: None,
+            created_at: 0,
+            last_used: 0,
+        }
+    }
+
+    fn write_of<'a>(writes: &'a [(&str, Option<String>)], key: &str) -> &'a Option<String> {
+        &writes.iter().find(|(k, _)| *k == key).expect("key present").1
+    }
+
+    #[test]
+    fn injection_uses_session_access_token_as_refresh_token_fallback() {
+        let session = fake_jwt_typed("auth0|user_1", 4_000_000_000, "session");
+        let writes = build_auth_key_writes(&account_with(&session, None));
+        assert_eq!(write_of(&writes, "cursorAuth/refreshToken"), &Some(session.clone()));
+        assert_eq!(write_of(&writes, "cursorAuth/accessToken"), &Some(session));
+        // Cursor 自己总写 cachedSignUpType；未知时给默认值而不是删键
+        assert_eq!(write_of(&writes, "cursorAuth/cachedSignUpType"), &Some("Auth_0".to_string()));
+    }
+
+    #[test]
+    fn injection_drops_refresh_token_for_non_session_jwt_without_refresh() {
+        let web = fake_jwt_typed("auth0|user_1", 4_000_000_000, "web");
+        let writes = build_auth_key_writes(&account_with(&web, None));
+        assert_eq!(write_of(&writes, "cursorAuth/refreshToken"), &None);
+    }
+
+    #[test]
+    fn injection_prefers_explicit_refresh_token_and_clears_stale_profile_keys() {
+        let session = fake_jwt_typed("auth0|user_1", 4_000_000_000, "session");
+        let writes = build_auth_key_writes(&account_with(&session, Some("explicit-refresh")));
+        assert_eq!(
+            write_of(&writes, "cursorAuth/refreshToken"),
+            &Some("explicit-refresh".to_string())
+        );
+        for key in CURSOR_STALE_PROFILE_KEYS {
+            assert_eq!(write_of(&writes, key), &None, "{} should be deleted", key);
+        }
+        assert!(writes.iter().all(|(k, _)| *k != "cursorAuth/isLoggedIn"));
     }
 
     #[test]
