@@ -5177,6 +5177,11 @@
     "autoSwitch": {
       "notifyTitle": "Cursor 已自动切换账号",
       "notifyBody": "{{from}} 剩余低于 {{threshold}}%（{{models}}），已切换到 {{to}} 并重启 Cursor。"
+    },
+    "sort": {
+      "cursorModelsLeft": "按 Cursor 模型剩余",
+      "otherModelsLeft": "按其他模型剩余",
+      "grokBotLeft": "按 Grok Bot 剩余"
     }
   },
   "breakout": {

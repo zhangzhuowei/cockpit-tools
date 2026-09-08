@@ -4872,6 +4872,11 @@
     "autoSwitch": {
       "notifyTitle": "Cursor hesabı otomatik olarak değiştirildi",
       "notifyBody": "{{from}} %{{threshold}} altına düştü ({{models}}); {{to}} hesabına geçildi ve Cursor yeniden başlatıldı."
+    },
+    "sort": {
+      "cursorModelsLeft": "Kalan Cursor modellerine göre",
+      "otherModelsLeft": "Kalan diğer modellere göre",
+      "grokBotLeft": "Kalan Grok Bot'a göre"
     }
   },
   "breakout": {

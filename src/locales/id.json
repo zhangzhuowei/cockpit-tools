@@ -5025,6 +5025,11 @@
     "autoSwitch": {
       "notifyTitle": "Akun Cursor diganti otomatis",
       "notifyBody": "{{from}} turun di bawah {{threshold}}% ({{models}}); berganti ke {{to}} dan Cursor dimulai ulang."
+    },
+    "sort": {
+      "cursorModelsLeft": "Menurut sisa Model Cursor",
+      "otherModelsLeft": "Menurut sisa Model lain",
+      "grokBotLeft": "Menurut sisa Grok Bot"
     }
   },
   "breakout": {

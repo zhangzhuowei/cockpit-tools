@@ -972,6 +972,7 @@ pub fn upsert_account(payload: CursorImportPayload) -> Result<CursorAccount, Str
         status_reason: payload.status_reason.clone(),
         quota_query_last_error: None,
         quota_query_last_error_at: None,
+        quota_query_auth_failures: None,
         usage_updated_at: None,
         created_at,
         last_used: now,
@@ -1470,6 +1471,13 @@ pub fn inject_to_cursor_at_path(db_path: &std::path::Path, account_id: &str) -> 
 // Cursor usage API
 // ---------------------------------------------------------------------------
 
+const CURSOR_AUTH_ERROR: &str = "Cursor 会话已过期或未认证，请重新导入账号";
+/// 连续这么多次刷新在 Bearer 与 Cookie 两条鉴权路径上都被 401/403 拒绝，才把账号标成 error。
+/// 单次失败可能只是网络抖动或 token 刚过期、下一轮就会由 refresh_token 续上。
+const CURSOR_AUTH_FAILURE_MARK_THRESHOLD: u32 = 3;
+const CURSOR_AUTH_FAILURE_STATUS_REASON: &str =
+    "token auth failed repeatedly (HTTP 401/403); re-login or update the token";
+
 const CURSOR_USAGE_SUMMARY_URL: &str = "https://cursor.com/api/usage-summary";
 const CURSOR_SAND_USAGE_STATUS_URL: &str = "https://cursor.com/api/dashboard/get-sand-usage-status";
 const CURSOR_GET_SAND_USAGE_STATUS_URL: &str =
@@ -1637,7 +1645,7 @@ async fn fetch_user_meta_with_client(
 
     let status = response.status().as_u16();
     if status == 401 || status == 403 {
-        return Err("Cursor 会话已过期或未认证，请重新导入账号".to_string());
+        return Err(CURSOR_AUTH_ERROR.to_string());
     }
     if status != 200 {
         return Err(format!("Cursor user meta API 返回异常状态码: {}", status));
@@ -1666,7 +1674,7 @@ async fn fetch_stripe_profile_with_client(
 
     let full_status = full_response.status().as_u16();
     if full_status == 401 || full_status == 403 {
-        return Err("Cursor 会话已过期或未认证，请重新导入账号".to_string());
+        return Err(CURSOR_AUTH_ERROR.to_string());
     }
     if full_status == 200 {
         let body = full_response
@@ -1688,7 +1696,7 @@ async fn fetch_stripe_profile_with_client(
 
     let fallback_status = fallback_response.status().as_u16();
     if fallback_status == 401 || fallback_status == 403 {
-        return Err("Cursor 会话已过期或未认证，请重新导入账号".to_string());
+        return Err(CURSOR_AUTH_ERROR.to_string());
     }
     if fallback_status != 200 {
         return Ok(None);
@@ -1745,7 +1753,7 @@ async fn fetch_usage_summary_with_client(
 
     let status = response.status().as_u16();
     if status == 401 || status == 403 {
-        return Err("Cursor 会话已过期或未认证，请重新导入账号".to_string());
+        return Err(CURSOR_AUTH_ERROR.to_string());
     }
     if status != 200 {
         return Err(format!("Cursor usage API 返回异常状态码: {}", status));
@@ -1805,7 +1813,7 @@ async fn fetch_sand_usage_via_dashboard(
 
     let status = response.status().as_u16();
     if status == 401 || status == 403 {
-        return Err("Cursor 会话已过期或未认证，请重新导入账号".to_string());
+        return Err(CURSOR_AUTH_ERROR.to_string());
     }
     if status != 200 {
         return Err(format!(
@@ -1840,7 +1848,7 @@ async fn fetch_sand_usage_via_rpc(
 
     let status = response.status().as_u16();
     if status == 401 || status == 403 {
-        return Err("Cursor 会话已过期或未认证，请重新导入账号".to_string());
+        return Err(CURSOR_AUTH_ERROR.to_string());
     }
     if status != 200 {
         return Err(format!(
@@ -1902,6 +1910,45 @@ async fn fetch_optional_sand_usage(
 // Refresh (updates our own account storage + fetches usage from official APIs)
 // ---------------------------------------------------------------------------
 
+fn is_auth_error(message: &str) -> bool {
+    message == CURSOR_AUTH_ERROR
+}
+
+fn is_auto_marked_auth_failure(account: &CursorAccount) -> bool {
+    normalize_status_value(account.status.as_deref()).as_deref() == Some("error")
+        && account.status_reason.as_deref() == Some(CURSOR_AUTH_FAILURE_STATUS_REASON)
+}
+
+/// 记一次鉴权失败；累计到阈值就把账号标成 error，让它进入"异常账号"筛选、退出切换候选。
+fn record_auth_failure(account: &mut CursorAccount) {
+    let failures = account.quota_query_auth_failures.unwrap_or(0).saturating_add(1);
+    account.quota_query_auth_failures = Some(failures);
+    if failures < CURSOR_AUTH_FAILURE_MARK_THRESHOLD || is_banned_account(account) {
+        return;
+    }
+    if !is_auto_marked_auth_failure(account) {
+        logger::log_warn(&format!(
+            "[Cursor Refresh] 连续 {} 次鉴权失败，标记账号为 error: id={}, email={}",
+            failures, account.id, account.email
+        ));
+    }
+    account.status = Some("error".to_string());
+    account.status_reason = Some(CURSOR_AUTH_FAILURE_STATUS_REASON.to_string());
+}
+
+/// 刷新成功即清零计数；若 error 状态是我们自动标的，也一并撤销（导入时带来的状态不动）。
+fn clear_auth_failures(account: &mut CursorAccount) {
+    account.quota_query_auth_failures = None;
+    if is_auto_marked_auth_failure(account) {
+        logger::log_info(&format!(
+            "[Cursor Refresh] 鉴权恢复，撤销自动标记的 error 状态: id={}, email={}",
+            account.id, account.email
+        ));
+        account.status = None;
+        account.status_reason = None;
+    }
+}
+
 async fn refresh_account_async_once(account_id: &str) -> Result<CursorAccount, String> {
     let existing = load_account(account_id).ok_or_else(|| "账号不存在".to_string())?;
     logger::log_info(&format!(
@@ -1930,6 +1977,7 @@ async fn refresh_account_async_once(account_id: &str) -> Result<CursorAccount, S
         }
     }
 
+    let mut bearer_auth_rejected = false;
     match fetch_user_meta_with_client(&client, &account.access_token).await {
         Ok(meta) => {
             if let Some(email) = normalize_email_identity(meta.email.as_deref()) {
@@ -1952,6 +2000,7 @@ async fn refresh_account_async_once(account_id: &str) -> Result<CursorAccount, S
             ));
         }
         Err(err) => {
+            bearer_auth_rejected = is_auth_error(&err);
             logger::log_warn(&format!(
                 "[Cursor Refresh] 用户信息拉取失败: id={}, error={}",
                 account.id, err
@@ -2036,6 +2085,7 @@ async fn refresh_account_async_once(account_id: &str) -> Result<CursorAccount, S
             account.cursor_usage_raw = Some(usage);
             account.quota_query_last_error = None;
             account.quota_query_last_error_at = None;
+            clear_auth_failures(&mut account);
             usage_refreshed = true;
             logger::log_info(&format!(
                 "[Cursor Refresh] API 配额拉取成功: id={}",
@@ -2047,6 +2097,11 @@ async fn refresh_account_async_once(account_id: &str) -> Result<CursorAccount, S
                 "[Cursor Refresh] API 配额拉取失败: id={}, error={}",
                 account.id, err
             ));
+            // Cookie 路径与 Bearer 路径同时被拒，才算一次真正的鉴权失败；
+            // 只有一条路径失败更可能是接口抖动，不计入。
+            if is_auth_error(&err) && bearer_auth_rejected {
+                record_auth_failure(&mut account);
+            }
             account.quota_query_last_error = Some(err);
             account.quota_query_last_error_at = Some(chrono::Utc::now().timestamp_millis());
         }
@@ -2433,6 +2488,8 @@ fn pick_quota_alert_recommendation(
         .iter()
         .filter(|account| account.id != current_id)
         .filter(|account| !is_banned_account(account))
+        // 刷新报错的账号（token 失效等）不能推荐，哪怕它还留着上次的用量数据。
+        .filter(|account| account.quota_query_last_error.is_none())
         .filter(|account| !extract_quota_metrics(account).is_empty())
         .cloned()
         .collect();

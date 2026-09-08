@@ -4872,6 +4872,11 @@
     "autoSwitch": {
       "notifyTitle": "Cursor 已自動切換帳號",
       "notifyBody": "{{from}} 剩餘低於 {{threshold}}%（{{models}}），已切換到 {{to}} 並重新啟動 Cursor。"
+    },
+    "sort": {
+      "cursorModelsLeft": "按 Cursor 模型剩餘",
+      "otherModelsLeft": "按其他模型剩餘",
+      "grokBotLeft": "按 Grok Bot 剩餘"
     }
   },
   "breakout": {

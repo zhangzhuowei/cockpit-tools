@@ -19,6 +19,7 @@ export interface CursorAccount {
   status_reason?: string | null;
   quota_query_last_error?: string | null;
   quota_query_last_error_at?: number | null;
+  quota_query_auth_failures?: number | null;
 
   created_at: number;
   last_used: number;

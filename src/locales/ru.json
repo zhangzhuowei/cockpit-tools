@@ -4872,6 +4872,11 @@
     "autoSwitch": {
       "notifyTitle": "Аккаунт Cursor переключён автоматически",
       "notifyBody": "{{from}} опустился ниже {{threshold}}% ({{models}}); переключено на {{to}}, Cursor перезапущен."
+    },
+    "sort": {
+      "cursorModelsLeft": "По остатку моделей Cursor",
+      "otherModelsLeft": "По остатку других моделей",
+      "grokBotLeft": "По остатку Grok Bot"
     }
   },
   "breakout": {

@@ -4872,6 +4872,11 @@
     "autoSwitch": {
       "notifyTitle": "Đã tự động chuyển tài khoản Cursor",
       "notifyBody": "{{from}} xuống dưới {{threshold}}% ({{models}}); đã chuyển sang {{to}} và khởi động lại Cursor."
+    },
+    "sort": {
+      "cursorModelsLeft": "Theo mô hình Cursor còn lại",
+      "otherModelsLeft": "Theo mô hình khác còn lại",
+      "grokBotLeft": "Theo Grok Bot còn lại"
     }
   },
   "breakout": {

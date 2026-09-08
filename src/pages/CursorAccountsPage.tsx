@@ -48,7 +48,7 @@ import {
   hasCursorQuotaQueryError,
   isCursorAccountBanned,
 } from '../types/cursor';
-import type { CursorAccount } from '../types/cursor';
+import type { CursorAccount, CursorUsage } from '../types/cursor';
 import { compareCurrentAccountFirst } from '../utils/currentAccountSort';
 import {
   buildValidAccountsFilterOption,
@@ -495,6 +495,30 @@ export function CursorAccountsPage() {
       const diff = bReset - aReset;
       return sortDirection === 'desc' ? diff : -diff;
     }
+
+    // 按单个额度池剩余排序；没有该池数据的账号排到最后，不受排序方向影响。
+    const poolUsedPercent = (usage: CursorUsage): number | null => {
+      switch (sortBy) {
+        case 'cursor_models':
+          return usage.cursorModelsPercentUsed ?? usage.autoPercentUsed ?? null;
+        case 'other_models':
+          return usage.otherModelsPercentUsed ?? usage.apiPercentUsed ?? null;
+        case 'grok_bot':
+          return usage.grokBotWeeklyPercentUsed ?? null;
+        default:
+          return null;
+      }
+    };
+    if (sortBy === 'cursor_models' || sortBy === 'other_models' || sortBy === 'grok_bot') {
+      const aUsed = poolUsedPercent(getCursorUsage(a));
+      const bUsed = poolUsedPercent(getCursorUsage(b));
+      if (aUsed == null && bUsed == null) return 0;
+      if (aUsed == null) return 1;
+      if (bUsed == null) return -1;
+      const diff = (100 - bUsed) - (100 - aUsed);
+      return sortDirection === 'desc' ? diff : -diff;
+    }
+
     const aUsage = getCursorUsage(a);
     const bUsage = getCursorUsage(b);
     const aValue = 100 - (aUsage.inlineSuggestionsUsedPercent ?? 0);
@@ -1080,6 +1104,9 @@ export function CursorAccountsPage() {
             options={[
               { value: 'created_at', label: t('common.shared.sort.createdAt', '按创建时间') },
               { value: 'credits', label: t('common.shared.sort.credits', '按剩余 Credits') },
+              { value: 'cursor_models', label: t('cursor.sort.cursorModelsLeft', '按 Cursor 模型剩余') },
+              { value: 'other_models', label: t('cursor.sort.otherModelsLeft', '按其他模型剩余') },
+              { value: 'grok_bot', label: t('cursor.sort.grokBotLeft', '按 Grok Bot 剩余') },
               { value: 'plan_end', label: t('common.shared.sort.planEnd', '按配额周期结束时间') },
             ]}
             ariaLabel={t('common.shared.sortLabel', '排序')}

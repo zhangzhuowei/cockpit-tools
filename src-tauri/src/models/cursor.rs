@@ -35,6 +35,9 @@ pub struct CursorAccount {
     pub quota_query_last_error: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quota_query_last_error_at: Option<i64>,
+    /// 连续几次刷新被 401/403 拒绝；达到阈值后自动标记 status=error，刷新成功即清零。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quota_query_auth_failures: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage_updated_at: Option<i64>,
 

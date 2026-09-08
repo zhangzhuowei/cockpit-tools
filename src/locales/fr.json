@@ -4872,6 +4872,11 @@
     "autoSwitch": {
       "notifyTitle": "Compte Cursor basculé automatiquement",
       "notifyBody": "{{from}} est passé sous {{threshold}} % ({{models}}) ; basculé vers {{to}} et Cursor redémarré."
+    },
+    "sort": {
+      "cursorModelsLeft": "Par reste Modèles Cursor",
+      "otherModelsLeft": "Par reste Autres modèles",
+      "grokBotLeft": "Par reste Grok Bot"
     }
   },
   "breakout": {

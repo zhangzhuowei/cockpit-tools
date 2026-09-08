@@ -5177,6 +5177,11 @@
     "autoSwitch": {
       "notifyTitle": "Cursor account switched automatically",
       "notifyBody": "{{from}} dropped below {{threshold}}% ({{models}}); switched to {{to}} and restarted Cursor."
+    },
+    "sort": {
+      "cursorModelsLeft": "By Cursor Models left",
+      "otherModelsLeft": "By Other Models left",
+      "grokBotLeft": "By Grok Bot left"
     }
   },
   "breakout": {

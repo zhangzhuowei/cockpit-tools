@@ -4872,6 +4872,11 @@
     "autoSwitch": {
       "notifyTitle": "Cursor 계정이 자동으로 전환되었습니다",
       "notifyBody": "{{from}}의 잔여량이 {{threshold}}% 아래로 떨어져({{models}}) {{to}}로 전환하고 Cursor를 재시작했습니다."
+    },
+    "sort": {
+      "cursorModelsLeft": "Cursor 모델 잔여량순",
+      "otherModelsLeft": "기타 모델 잔여량순",
+      "grokBotLeft": "Grok Bot 잔여량순"
     }
   },
   "breakout": {

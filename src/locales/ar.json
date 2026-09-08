@@ -4919,6 +4919,11 @@
     "autoSwitch": {
       "notifyTitle": "تم تبديل حساب Cursor تلقائيًا",
       "notifyBody": "انخفض {{from}} دون {{threshold}}% ({{models}})؛ تم التبديل إلى {{to}} وإعادة تشغيل Cursor."
+    },
+    "sort": {
+      "cursorModelsLeft": "حسب المتبقي من نماذج Cursor",
+      "otherModelsLeft": "حسب المتبقي من النماذج الأخرى",
+      "grokBotLeft": "حسب المتبقي من Grok Bot"
     }
   },
   "breakout": {

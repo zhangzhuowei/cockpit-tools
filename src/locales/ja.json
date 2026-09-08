@@ -4872,6 +4872,11 @@
     "autoSwitch": {
       "notifyTitle": "Cursor アカウントを自動で切り替えました",
       "notifyBody": "{{from}} の残量が {{threshold}}% を下回りました（{{models}}）。{{to}} に切り替えて Cursor を再起動しました。"
+    },
+    "sort": {
+      "cursorModelsLeft": "Cursor モデル残量順",
+      "otherModelsLeft": "その他のモデル残量順",
+      "grokBotLeft": "Grok Bot 残量順"
     }
   },
   "breakout": {

@@ -4872,6 +4872,11 @@
     "autoSwitch": {
       "notifyTitle": "Účet Cursor byl automaticky přepnut",
       "notifyBody": "{{from}} klesl pod {{threshold}} % ({{models}}); přepnuto na {{to}} a Cursor restartován."
+    },
+    "sort": {
+      "cursorModelsLeft": "Podle zbytku modelů Cursor",
+      "otherModelsLeft": "Podle zbytku ostatních modelů",
+      "grokBotLeft": "Podle zbytku Grok Bot"
     }
   },
   "breakout": {
