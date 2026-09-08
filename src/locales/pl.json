@@ -4877,6 +4877,38 @@
       "cursorModelsLeft": "Wg pozostałych modeli Cursor",
       "otherModelsLeft": "Wg pozostałych innych modeli",
       "grokBotLeft": "Wg pozostałego Grok Bot"
+    },
+    "usageBreakdown": {
+      "title": "Szczegóły użycia",
+      "period": "Okres: {{start}} – {{end}}",
+      "total": "Razem {{amount}}",
+      "empty": "Brak użycia w tym cyklu",
+      "tokens": "Wejście {{input}} · Wyjście {{output}} · Odczyt cache {{cacheRead}}",
+      "others": "Pozostałe {{count}} modele razem {{amount}}"
+    },
+    "onDemand": {
+      "title": "Ustawienia na żądanie",
+      "enable": "Włącz użycie na żądanie",
+      "enableDesc": "Po wyczerpaniu limitu kontynuuj w modelu płatności za użycie; wyłączone – użycie zatrzymuje się na limicie.",
+      "limit": "Limit miesięczny (USD)",
+      "limitDesc": "Wydatki na żądanie zatrzymują się na tej kwocie w cyklu; wymagana dodatnia liczba całkowita.",
+      "notice": "Zapisywane bezpośrednio na koncie Cursor, tak jak Dashboard → Spending, i działa natychmiast."
+    },
+    "switchHistory": {
+      "title": "Historia przełączeń",
+      "empty": "Brak zapisanych przełączeń",
+      "time": "Czas",
+      "reason": "Powód",
+      "from": "Z",
+      "to": "Na",
+      "result": "Wynik",
+      "success": "Powodzenie",
+      "failed": "Błąd",
+      "clear": "Wyczyść historię",
+      "reasonManual": "Ręcznie",
+      "reasonAuto": "Automatyczne przełączenie",
+      "reasonQuotaAlert": "Szybkie przełączenie z alertu",
+      "reasonTray": "Menu zasobnika"
     }
   },
   "breakout": {

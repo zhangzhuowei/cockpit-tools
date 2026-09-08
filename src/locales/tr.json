@@ -4877,6 +4877,38 @@
       "cursorModelsLeft": "Kalan Cursor modellerine göre",
       "otherModelsLeft": "Kalan diğer modellere göre",
       "grokBotLeft": "Kalan Grok Bot'a göre"
+    },
+    "usageBreakdown": {
+      "title": "Kullanım Dağılımı",
+      "period": "Dönem: {{start}} – {{end}}",
+      "total": "Toplam {{amount}}",
+      "empty": "Bu dönemde kullanım kaydı yok",
+      "tokens": "Giriş {{input}} · Çıkış {{output}} · Önbellek okuma {{cacheRead}}",
+      "others": "Diğer {{count}} model toplam {{amount}}"
+    },
+    "onDemand": {
+      "title": "İsteğe Bağlı Ayarlar",
+      "enable": "İsteğe bağlı kullanımı etkinleştir",
+      "enableDesc": "Dahil kota bitince kullandıkça öde ile devam et; kapalıysa kullanım limitte durur.",
+      "limit": "Aylık limit (USD)",
+      "limitDesc": "İsteğe bağlı harcama bu dönemde bu tutarda durur; pozitif tam sayı olmalıdır.",
+      "notice": "Doğrudan Cursor hesabına yazılır, Dashboard → Spending ile aynıdır ve hemen geçerli olur."
+    },
+    "switchHistory": {
+      "title": "Geçiş Geçmişi",
+      "empty": "Henüz geçiş kaydı yok",
+      "time": "Zaman",
+      "reason": "Neden",
+      "from": "Kimden",
+      "to": "Kime",
+      "result": "Sonuç",
+      "success": "Tamam",
+      "failed": "Başarısız",
+      "clear": "Geçmişi temizle",
+      "reasonManual": "Manuel",
+      "reasonAuto": "Otomatik geçiş",
+      "reasonQuotaAlert": "Uyarıdan hızlı geçiş",
+      "reasonTray": "Tepsi menüsü"
     }
   },
   "breakout": {

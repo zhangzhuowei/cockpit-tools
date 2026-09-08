@@ -4877,6 +4877,38 @@
       "cursorModelsLeft": "Per residuo Modelli Cursor",
       "otherModelsLeft": "Per residuo Altri modelli",
       "grokBotLeft": "Per residuo Grok Bot"
+    },
+    "usageBreakdown": {
+      "title": "Dettaglio utilizzo",
+      "period": "Periodo: {{start}} – {{end}}",
+      "total": "Totale {{amount}}",
+      "empty": "Nessun utilizzo registrato in questo ciclo",
+      "tokens": "Input {{input}} · Output {{output}} · Lettura cache {{cacheRead}}",
+      "others": "Altri {{count}} modelli, totale {{amount}}"
+    },
+    "onDemand": {
+      "title": "Impostazioni a consumo",
+      "enable": "Abilita utilizzo a consumo",
+      "enableDesc": "Prosegui con pagamento a consumo dopo l'esaurimento della quota inclusa; disattivato, l'uso si ferma al limite.",
+      "limit": "Limite mensile (USD)",
+      "limitDesc": "La spesa a consumo si ferma a questo importo nel ciclo; richiesto intero positivo.",
+      "notice": "Scritto direttamente nel tuo account Cursor, come Dashboard → Spending, con effetto immediato."
+    },
+    "switchHistory": {
+      "title": "Cronologia cambi",
+      "empty": "Nessun cambio registrato",
+      "time": "Ora",
+      "reason": "Motivo",
+      "from": "Da",
+      "to": "A",
+      "result": "Esito",
+      "success": "Riuscito",
+      "failed": "Fallito",
+      "clear": "Cancella cronologia",
+      "reasonManual": "Manuale",
+      "reasonAuto": "Cambio automatico",
+      "reasonQuotaAlert": "Cambio rapido da avviso",
+      "reasonTray": "Menu della barra"
     }
   },
   "breakout": {

@@ -5182,6 +5182,38 @@
       "cursorModelsLeft": "By Cursor Models left",
       "otherModelsLeft": "By Other Models left",
       "grokBotLeft": "By Grok Bot left"
+    },
+    "usageBreakdown": {
+      "title": "Usage Breakdown",
+      "period": "Period: {{start}} – {{end}}",
+      "total": "Total {{amount}}",
+      "empty": "No usage recorded this cycle",
+      "tokens": "In {{input}} · Out {{output}} · Cache read {{cacheRead}}",
+      "others": "{{count}} more models total {{amount}}"
+    },
+    "onDemand": {
+      "title": "On-Demand Settings",
+      "enable": "Enable on-demand usage",
+      "enableDesc": "Keep going on pay-as-you-go after the included quota runs out; when off, usage stops at the limit.",
+      "limit": "Monthly limit (USD)",
+      "limitDesc": "On-demand spend stops at this amount for the cycle; must be a positive integer.",
+      "notice": "This writes directly to your Cursor account, same as Dashboard → Spending, and takes effect immediately."
+    },
+    "switchHistory": {
+      "title": "Switch History",
+      "empty": "No switch records yet",
+      "time": "Time",
+      "reason": "Reason",
+      "from": "From",
+      "to": "To",
+      "result": "Result",
+      "success": "OK",
+      "failed": "Failed",
+      "clear": "Clear history",
+      "reasonManual": "Manual",
+      "reasonAuto": "Auto switch",
+      "reasonQuotaAlert": "Alert quick switch",
+      "reasonTray": "Tray menu"
     }
   },
   "breakout": {

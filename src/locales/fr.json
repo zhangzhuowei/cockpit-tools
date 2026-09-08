@@ -4877,6 +4877,38 @@
       "cursorModelsLeft": "Par reste Modèles Cursor",
       "otherModelsLeft": "Par reste Autres modèles",
       "grokBotLeft": "Par reste Grok Bot"
+    },
+    "usageBreakdown": {
+      "title": "Détail de l'utilisation",
+      "period": "Période : {{start}} – {{end}}",
+      "total": "Total : {{amount}}",
+      "empty": "Aucune utilisation enregistrée ce cycle",
+      "tokens": "Entrée {{input}} · Sortie {{output}} · Lecture cache {{cacheRead}}",
+      "others": "{{count}} autres modèles, total {{amount}}"
+    },
+    "onDemand": {
+      "title": "Paramètres à la demande",
+      "enable": "Activer l'utilisation à la demande",
+      "enableDesc": "Continuer en paiement à l'usage après épuisement du quota inclus ; désactivé, l'utilisation s'arrête à la limite.",
+      "limit": "Limite mensuelle (USD)",
+      "limitDesc": "Les dépenses à la demande s'arrêtent à ce montant pour le cycle ; entier positif requis.",
+      "notice": "Écrit directement dans votre compte Cursor, comme Dashboard → Spending, et prend effet immédiatement."
+    },
+    "switchHistory": {
+      "title": "Historique des bascules",
+      "empty": "Aucune bascule enregistrée",
+      "time": "Heure",
+      "reason": "Raison",
+      "from": "De",
+      "to": "Vers",
+      "result": "Résultat",
+      "success": "Réussi",
+      "failed": "Échec",
+      "clear": "Effacer l'historique",
+      "reasonManual": "Manuelle",
+      "reasonAuto": "Bascule automatique",
+      "reasonQuotaAlert": "Bascule rapide depuis l'alerte",
+      "reasonTray": "Menu de la barre"
     }
   },
   "breakout": {

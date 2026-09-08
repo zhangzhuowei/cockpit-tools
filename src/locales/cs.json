@@ -4877,6 +4877,38 @@
       "cursorModelsLeft": "Podle zbytku modelů Cursor",
       "otherModelsLeft": "Podle zbytku ostatních modelů",
       "grokBotLeft": "Podle zbytku Grok Bot"
+    },
+    "usageBreakdown": {
+      "title": "Rozpis využití",
+      "period": "Období: {{start}} – {{end}}",
+      "total": "Celkem {{amount}}",
+      "empty": "V tomto cyklu žádné využití",
+      "tokens": "Vstup {{input}} · Výstup {{output}} · Čtení cache {{cacheRead}}",
+      "others": "Dalších {{count}} modelů celkem {{amount}}"
+    },
+    "onDemand": {
+      "title": "Nastavení na vyžádání",
+      "enable": "Povolit využití na vyžádání",
+      "enableDesc": "Po vyčerpání zahrnuté kvóty pokračovat s platbou za použití; při vypnutí se využití zastaví na limitu.",
+      "limit": "Měsíční limit (USD)",
+      "limitDesc": "Útrata na vyžádání se v cyklu zastaví na této částce; vyžadováno kladné celé číslo.",
+      "notice": "Zapisuje se přímo do účtu Cursor, stejně jako Dashboard → Spending, a platí okamžitě."
+    },
+    "switchHistory": {
+      "title": "Historie přepnutí",
+      "empty": "Žádné záznamy o přepnutí",
+      "time": "Čas",
+      "reason": "Důvod",
+      "from": "Z",
+      "to": "Na",
+      "result": "Výsledek",
+      "success": "Úspěch",
+      "failed": "Selhalo",
+      "clear": "Vymazat historii",
+      "reasonManual": "Ručně",
+      "reasonAuto": "Automatické přepnutí",
+      "reasonQuotaAlert": "Rychlé přepnutí z upozornění",
+      "reasonTray": "Nabídka v liště"
     }
   },
   "breakout": {

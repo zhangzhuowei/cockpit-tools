@@ -3,7 +3,7 @@ use std::time::Instant;
 use tauri::{AppHandle, Emitter};
 
 use crate::models::cursor::CursorAccount;
-use crate::modules::{cursor_account, cursor_oauth, logger};
+use crate::modules::{cursor_account, cursor_oauth, cursor_switch_history, logger};
 
 #[tauri::command]
 pub fn list_cursor_accounts() -> Result<Vec<CursorAccount>, String> {
@@ -188,8 +188,88 @@ pub async fn inject_cursor_account(app: AppHandle, account_id: String) -> Result
     switch_cursor_account(&app, &account_id, "manual").await
 }
 
-/// 手动切号与自动切号共用的完整流程：关 Cursor → 写凭据 → 记当前账号 → 重启 Cursor。
+#[tauri::command]
+pub fn list_cursor_switch_history(
+) -> Result<Vec<cursor_switch_history::CursorSwitchHistoryItem>, String> {
+    cursor_switch_history::load_history()
+}
+
+#[tauri::command]
+pub fn clear_cursor_switch_history() -> Result<(), String> {
+    cursor_switch_history::clear_history()
+}
+
+#[tauri::command]
+pub async fn get_cursor_usage_breakdown(
+    account_id: String,
+) -> Result<cursor_account::CursorUsageBreakdown, String> {
+    cursor_account::fetch_usage_breakdown(&account_id).await
+}
+
+#[tauri::command]
+pub async fn get_cursor_hard_limit(
+    account_id: String,
+) -> Result<cursor_account::CursorHardLimit, String> {
+    cursor_account::fetch_hard_limit(&account_id).await
+}
+
+/// 设置按需使用开关与上限后立刻刷新该账号，让卡片上的"按需使用"行反映新状态。
+#[tauri::command]
+pub async fn set_cursor_hard_limit(
+    app: AppHandle,
+    account_id: String,
+    hard_limit_dollars: f64,
+    no_usage_based_allowed: bool,
+) -> Result<CursorAccount, String> {
+    cursor_account::update_hard_limit(&account_id, hard_limit_dollars, no_usage_based_allowed)
+        .await?;
+    let refreshed = cursor_account::refresh_account_async(&account_id).await?;
+    let _ = crate::modules::tray::update_tray_menu(&app);
+    Ok(refreshed)
+}
+
+/// 手动切号与自动切号共用的完整流程：关 Cursor → 写凭据 → 记当前账号 → 重启 Cursor，
+/// 并把结果写入切号历史。
 async fn switch_cursor_account(
+    app: &AppHandle,
+    account_id: &str,
+    reason: &str,
+) -> Result<String, String> {
+    switch_cursor_account_recorded(app, account_id, reason, Vec::new(), None).await
+}
+
+async fn switch_cursor_account_recorded(
+    app: &AppHandle,
+    account_id: &str,
+    reason: &str,
+    low_metrics: Vec<cursor_switch_history::CursorSwitchLowMetric>,
+    threshold: Option<i32>,
+) -> Result<String, String> {
+    let accounts = cursor_account::list_accounts();
+    let from = cursor_account::resolve_current_account_id(&accounts)
+        .and_then(|id| accounts.iter().find(|account| account.id == id))
+        .map(|account| (account.id.clone(), account.email.clone()));
+    let target_email = accounts
+        .iter()
+        .find(|account| account.id == account_id)
+        .map(|account| account.email.clone())
+        .unwrap_or_default();
+
+    let result = switch_cursor_account_inner(app, account_id, reason).await;
+
+    cursor_switch_history::record_switch(
+        reason,
+        from.as_ref().map(|(id, email)| (id.as_str(), email.as_str())),
+        account_id,
+        &target_email,
+        low_metrics,
+        threshold,
+        &result.as_ref().map(|_| ()).map_err(|e| e.clone()),
+    );
+    result
+}
+
+async fn switch_cursor_account_inner(
     app: &AppHandle,
     account_id: &str,
     reason: &str,
@@ -323,7 +403,23 @@ pub(crate) async fn run_cursor_post_refresh_checks(app: &AppHandle) {
     match cursor_account::pick_auto_switch_target_if_needed() {
         Ok(Some(plan)) => {
             let target_id = plan.target.id.clone();
-            match switch_cursor_account(app, &target_id, "auto").await {
+            let history_metrics = plan
+                .low_metrics
+                .iter()
+                .map(|(label, left)| cursor_switch_history::CursorSwitchLowMetric {
+                    label: label.clone(),
+                    left_percent: *left,
+                })
+                .collect();
+            match switch_cursor_account_recorded(
+                app,
+                &target_id,
+                "auto",
+                history_metrics,
+                Some(plan.threshold),
+            )
+            .await
+            {
                 Ok(_) => {
                     cursor_account::mark_auto_switch_performed();
                     switched = true;

@@ -5182,6 +5182,38 @@
       "cursorModelsLeft": "按 Cursor 模型剩余",
       "otherModelsLeft": "按其他模型剩余",
       "grokBotLeft": "按 Grok Bot 剩余"
+    },
+    "usageBreakdown": {
+      "title": "用量明细",
+      "period": "周期：{{start}} – {{end}}",
+      "total": "合计 {{amount}}",
+      "empty": "本周期暂无用量记录",
+      "tokens": "输入 {{input}} · 输出 {{output}} · 缓存读 {{cacheRead}}",
+      "others": "其余 {{count}} 个模型合计 {{amount}}"
+    },
+    "onDemand": {
+      "title": "按需使用设置",
+      "enable": "启用按需使用",
+      "enableDesc": "套餐额度用完后按量计费继续使用；关闭则额度耗尽即停止。",
+      "limit": "月度上限（美元）",
+      "limitDesc": "本周期按需花费达到该金额后停止；必须是正整数。",
+      "notice": "此设置直接写入 Cursor 官网账号，与 Dashboard → Spending 页面一致，保存后立即生效。"
+    },
+    "switchHistory": {
+      "title": "切号历史",
+      "empty": "暂无切号记录",
+      "time": "时间",
+      "reason": "原因",
+      "from": "从",
+      "to": "到",
+      "result": "结果",
+      "success": "成功",
+      "failed": "失败",
+      "clear": "清空记录",
+      "reasonManual": "手动",
+      "reasonAuto": "自动切号",
+      "reasonQuotaAlert": "预警快捷切换",
+      "reasonTray": "托盘菜单"
     }
   },
   "breakout": {

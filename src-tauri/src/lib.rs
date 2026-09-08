@@ -1236,6 +1236,11 @@ pub fn run() {
             commands::cursor::cursor_oauth_login_complete,
             commands::cursor::cursor_oauth_login_cancel,
             commands::cursor::inject_cursor_account,
+            commands::cursor::list_cursor_switch_history,
+            commands::cursor::clear_cursor_switch_history,
+            commands::cursor::get_cursor_usage_breakdown,
+            commands::cursor::get_cursor_hard_limit,
+            commands::cursor::set_cursor_hard_limit,
             // Grok Commands
             commands::grok::grok_get_cli_status,
             commands::grok::grok_execute_cli_install_command,

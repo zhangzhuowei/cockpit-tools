@@ -4877,6 +4877,38 @@
       "cursorModelsLeft": "Por restante de Modelos Cursor",
       "otherModelsLeft": "Por restante de Outros modelos",
       "grokBotLeft": "Por restante de Grok Bot"
+    },
+    "usageBreakdown": {
+      "title": "Detalhamento de uso",
+      "period": "Período: {{start}} – {{end}}",
+      "total": "Total: {{amount}}",
+      "empty": "Nenhum uso registrado neste ciclo",
+      "tokens": "Entrada {{input}} · Saída {{output}} · Leitura de cache {{cacheRead}}",
+      "others": "Outros {{count}} modelos, total {{amount}}"
+    },
+    "onDemand": {
+      "title": "Configurações sob demanda",
+      "enable": "Ativar uso sob demanda",
+      "enableDesc": "Continuar no pagamento por uso após esgotar a cota incluída; desligado, o uso para no limite.",
+      "limit": "Limite mensal (USD)",
+      "limitDesc": "O gasto sob demanda para neste valor durante o ciclo; inteiro positivo obrigatório.",
+      "notice": "Gravado diretamente na sua conta Cursor, igual a Dashboard → Spending, com efeito imediato."
+    },
+    "switchHistory": {
+      "title": "Histórico de trocas",
+      "empty": "Nenhuma troca registrada",
+      "time": "Hora",
+      "reason": "Motivo",
+      "from": "De",
+      "to": "Para",
+      "result": "Resultado",
+      "success": "Sucesso",
+      "failed": "Falhou",
+      "clear": "Limpar histórico",
+      "reasonManual": "Manualmente",
+      "reasonAuto": "Troca automática",
+      "reasonQuotaAlert": "Troca rápida do alerta",
+      "reasonTray": "Menu da bandeja"
     }
   },
   "breakout": {

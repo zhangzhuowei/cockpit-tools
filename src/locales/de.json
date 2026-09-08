@@ -4877,6 +4877,38 @@
       "cursorModelsLeft": "Nach Rest Cursor-Modelle",
       "otherModelsLeft": "Nach Rest andere Modelle",
       "grokBotLeft": "Nach Rest Grok Bot"
+    },
+    "usageBreakdown": {
+      "title": "Nutzungsaufschlüsselung",
+      "period": "Zeitraum: {{start}} – {{end}}",
+      "total": "Gesamt {{amount}}",
+      "empty": "In diesem Zyklus keine Nutzung erfasst",
+      "tokens": "Eingabe {{input}} · Ausgabe {{output}} · Cache-Lesen {{cacheRead}}",
+      "others": "{{count}} weitere Modelle gesamt {{amount}}"
+    },
+    "onDemand": {
+      "title": "On-Demand-Einstellungen",
+      "enable": "On-Demand-Nutzung aktivieren",
+      "enableDesc": "Nach Verbrauch des Kontingents nutzungsbasiert weiterarbeiten; ausgeschaltet stoppt die Nutzung am Limit.",
+      "limit": "Monatslimit (USD)",
+      "limitDesc": "On-Demand-Ausgaben stoppen in diesem Zyklus bei diesem Betrag; positive Ganzzahl erforderlich.",
+      "notice": "Wird direkt in dein Cursor-Konto geschrieben, wie unter Dashboard → Spending, und gilt sofort."
+    },
+    "switchHistory": {
+      "title": "Wechselverlauf",
+      "empty": "Noch keine Wechsel aufgezeichnet",
+      "time": "Zeit",
+      "reason": "Grund",
+      "from": "Von",
+      "to": "Nach",
+      "result": "Ergebnis",
+      "success": "Erfolgreich",
+      "failed": "Fehlgeschlagen",
+      "clear": "Verlauf löschen",
+      "reasonManual": "Manuell",
+      "reasonAuto": "Automatischer Wechsel",
+      "reasonQuotaAlert": "Schnellwechsel aus Warnung",
+      "reasonTray": "Tray-Menü"
     }
   },
   "breakout": {

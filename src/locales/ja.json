@@ -4877,6 +4877,38 @@
       "cursorModelsLeft": "Cursor モデル残量順",
       "otherModelsLeft": "その他のモデル残量順",
       "grokBotLeft": "Grok Bot 残量順"
+    },
+    "usageBreakdown": {
+      "title": "使用量の内訳",
+      "period": "期間：{{start}} – {{end}}",
+      "total": "合計 {{amount}}",
+      "empty": "今期の使用記録はありません",
+      "tokens": "入力 {{input}} · 出力 {{output}} · キャッシュ読取 {{cacheRead}}",
+      "others": "その他 {{count}} モデル 合計 {{amount}}"
+    },
+    "onDemand": {
+      "title": "オンデマンド設定",
+      "enable": "オンデマンド使用を有効化",
+      "enableDesc": "プランの残量を使い切った後も従量課金で続行します。オフの場合は残量がなくなると停止します。",
+      "limit": "月間上限（USD）",
+      "limitDesc": "今期のオンデマンド費用がこの金額に達すると停止します。正の整数を指定してください。",
+      "notice": "この設定は Cursor アカウントに直接書き込まれ、Dashboard → Spending と同じで、保存後すぐに反映されます。"
+    },
+    "switchHistory": {
+      "title": "切り替え履歴",
+      "empty": "切り替え記録はありません",
+      "time": "時刻",
+      "reason": "理由",
+      "from": "元",
+      "to": "先",
+      "result": "結果",
+      "success": "成功",
+      "failed": "失敗",
+      "clear": "履歴を消去",
+      "reasonManual": "手動",
+      "reasonAuto": "自動切り替え",
+      "reasonQuotaAlert": "アラートからの切り替え",
+      "reasonTray": "トレイメニュー"
     }
   },
   "breakout": {

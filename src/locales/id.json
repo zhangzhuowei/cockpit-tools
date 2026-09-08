@@ -5030,6 +5030,38 @@
       "cursorModelsLeft": "Menurut sisa Model Cursor",
       "otherModelsLeft": "Menurut sisa Model lain",
       "grokBotLeft": "Menurut sisa Grok Bot"
+    },
+    "usageBreakdown": {
+      "title": "Rincian Penggunaan",
+      "period": "Periode: {{start}} – {{end}}",
+      "total": "Total: {{amount}}",
+      "empty": "Belum ada penggunaan pada siklus ini",
+      "tokens": "Masuk {{input}} · Keluar {{output}} · Baca cache {{cacheRead}}",
+      "others": "{{count}} model lainnya total {{amount}}"
+    },
+    "onDemand": {
+      "title": "Pengaturan Sesuai Permintaan",
+      "enable": "Aktifkan penggunaan sesuai permintaan",
+      "enableDesc": "Lanjutkan dengan bayar sesuai pakai setelah kuota habis; jika nonaktif, penggunaan berhenti di batas.",
+      "limit": "Batas bulanan (USD)",
+      "limitDesc": "Pengeluaran sesuai permintaan berhenti pada jumlah ini selama siklus; harus bilangan bulat positif.",
+      "notice": "Ditulis langsung ke akun Cursor Anda, sama seperti Dashboard → Spending, dan berlaku segera."
+    },
+    "switchHistory": {
+      "title": "Riwayat Pergantian",
+      "empty": "Belum ada catatan pergantian",
+      "time": "Waktu",
+      "reason": "Alasan",
+      "from": "Dari",
+      "to": "Ke",
+      "result": "Hasil",
+      "success": "Berhasil",
+      "failed": "Gagal",
+      "clear": "Hapus riwayat",
+      "reasonManual": "Manual (pengguna)",
+      "reasonAuto": "Pergantian otomatis",
+      "reasonQuotaAlert": "Pergantian cepat dari peringatan",
+      "reasonTray": "Menu tray"
     }
   },
   "breakout": {

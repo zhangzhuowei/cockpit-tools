@@ -24,6 +24,9 @@ import {
   EyeOff,
   Lock,
   BookOpen,
+  BarChart3,
+  History,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { useCursorAccountStore } from '../stores/useCursorAccountStore';
 import * as cursorService from '../services/cursorService';
@@ -72,6 +75,11 @@ import {
 import { useProviderAccountsPage } from '../hooks/useProviderAccountsPage';
 import { CursorOverviewTabsHeader, CursorTab } from '../components/CursorOverviewTabsHeader';
 import { CursorInstancesContent } from './CursorInstancesPage';
+import {
+  CursorOnDemandModal,
+  CursorSwitchHistoryModal,
+  CursorUsageBreakdownModal,
+} from '../components/CursorExtrasModals';
 
 const CURSOR_FLOW_NOTICE_COLLAPSED_KEY = 'agtools.cursor.flow_notice_collapsed';
 const CURSOR_CURRENT_ACCOUNT_ID_KEY = 'agtools.cursor.current_account_id';
@@ -112,6 +120,9 @@ function normalizeCursorPercent(raw: number | null | undefined): {
 
 export function CursorAccountsPage() {
   const [activeTab, setActiveTab] = useState<CursorTab>('overview');
+  const [usageBreakdownAccountId, setUsageBreakdownAccountId] = useState<string | null>(null);
+  const [onDemandAccountId, setOnDemandAccountId] = useState<string | null>(null);
+  const [showSwitchHistory, setShowSwitchHistory] = useState(false);
   const [filterTypes, setFilterTypes] = useState<string[]>(() =>
     readAccountsOverviewFilterPersistenceEnabled(CURSOR_FILTER_PERSISTENCE_SCOPE)
       ? readAccountsOverviewFilterStringArray(CURSOR_FILTER_PERSISTENCE_SCOPE, FILTER_TYPES_FIELD)
@@ -268,7 +279,10 @@ export function CursorAccountsPage() {
           ? (usage.planUsedCents / usage.planLimitCents) * 100
           : null;
       const total = normalizeCursorPercent(usage.totalPercentUsed ?? ratioPct);
-      const costText = usage.planUsedCents != null && usage.planLimitCents != null
+      // Ultra 超额后 Cursor 把 used 钉在 limit，"$400 / $400" 与百分比口径不一致；
+      // 官网 Dashboard 对 Ultra 也不展示这行金额，这里同样隐藏。
+      const isUltra = getCursorPlanBadge(account) === 'ULTRA';
+      const costText = !isUltra && usage.planUsedCents != null && usage.planLimitCents != null
         ? `${formatCursorUsageDollars(usage.planUsedCents)} / ${formatCursorUsageDollars(usage.planLimitCents)}`
         : null;
       return {
@@ -786,7 +800,21 @@ export function CursorAccountsPage() {
 
                 <div className="quota-item windsurf-credit-item">
                   <div className="quota-header">
-                    <span className="quota-label">{t('cursor.quota.onDemand', 'On-Demand')}</span>
+                    <span className="quota-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      {t('cursor.quota.onDemand', 'On-Demand')}
+                      {!isBanned && (
+                        <button
+                          type="button"
+                          className="card-action-btn"
+                          style={{ width: 18, height: 18, padding: 0 }}
+                          onClick={() => setOnDemandAccountId(account.id)}
+                          title={t('cursor.onDemand.title', '按需使用设置')}
+                          aria-label={t('cursor.onDemand.title', '按需使用设置')}
+                        >
+                          <SlidersHorizontal size={11} />
+                        </button>
+                      )}
+                    </span>
                     <span className={`quota-pct ${onDemand.quotaClass}`}>{onDemand.valueText}</span>
                   </div>
                   {onDemand.costText && (
@@ -810,6 +838,9 @@ export function CursorAccountsPage() {
               <button className="card-action-btn success" onClick={() => handleInjectToVSCode?.(account.id)} disabled={!!injecting || isBanned}
                 title={isBanned ? t('accounts.status.forbidden_msg') : t('cursor.injectToCursor', '切换到 Cursor')}>
                 {injecting === account.id ? <RefreshCw size={14} className="loading-spinner" /> : <Play size={14} />}
+              </button>
+              <button className="card-action-btn" onClick={() => setUsageBreakdownAccountId(account.id)} disabled={isBanned || !hasQuotaData} title={t('cursor.usageBreakdown.title', '用量明细')}>
+                <BarChart3 size={14} />
               </button>
               <button className="card-action-btn" onClick={() => openTagModal(account.id)} title={t('accounts.editTags', '编辑标签')}>
                 <Tag size={14} />
@@ -982,6 +1013,12 @@ export function CursorAccountsPage() {
                 title={isBanned ? t('accounts.status.forbidden_msg') : t('cursor.injectToCursor', '切换到 Cursor')}>
                 {injecting === account.id ? <RefreshCw size={14} className="loading-spinner" /> : <Play size={14} />}
               </button>
+              <button className="action-btn" onClick={() => setUsageBreakdownAccountId(account.id)} disabled={isBanned || !hasQuotaData} title={t('cursor.usageBreakdown.title', '用量明细')}>
+                <BarChart3 size={14} />
+              </button>
+              <button className="action-btn" onClick={() => setOnDemandAccountId(account.id)} disabled={isBanned} title={t('cursor.onDemand.title', '按需使用设置')}>
+                <SlidersHorizontal size={14} />
+              </button>
               <button className="action-btn" onClick={() => openTagModal(account.id)} title={t('accounts.editTags', '编辑标签')}>
                 <Tag size={14} />
               </button>
@@ -1129,6 +1166,9 @@ export function CursorAccountsPage() {
             title={privacyModeEnabled ? t('privacy.showSensitive', '显示邮箱') : t('privacy.hideSensitive', '隐藏邮箱')}
             aria-label={privacyModeEnabled ? t('privacy.showSensitive', '显示邮箱') : t('privacy.hideSensitive', '隐藏邮箱')}>
             {privacyModeEnabled ? <EyeOff size={14} /> : <Eye size={14} />}
+          </button>
+          <button className="btn btn-secondary icon-only" onClick={() => setShowSwitchHistory(true)} title={t('cursor.switchHistory.title', '切号历史')} aria-label={t('cursor.switchHistory.title', '切号历史')}>
+            <History size={14} />
           </button>
           <button className="btn btn-secondary icon-only" onClick={() => openAddModal('import')} disabled={importing} title={t('common.shared.import.label', '导入')} aria-label={t('common.shared.import.label', '导入')}><Download size={14} /></button>
           <button className="btn btn-secondary export-btn icon-only" onClick={() => void handleExport(filteredIds)} disabled={exporting || filteredIds.length === 0}
@@ -1486,6 +1526,35 @@ export function CursorAccountsPage() {
         availableTags={availableTags}
         onClose={() => setShowTagModal(null)}
         onSave={handleSaveTags}
+      />
+
+      <CursorUsageBreakdownModal
+        accountId={usageBreakdownAccountId}
+        accountLabel={maskAccountText(
+          accounts.find((a) => a.id === usageBreakdownAccountId)
+            ? resolveDisplayEmail(accounts.find((a) => a.id === usageBreakdownAccountId)!)
+            : '',
+        )}
+        locale={locale}
+        onClose={() => setUsageBreakdownAccountId(null)}
+      />
+
+      <CursorOnDemandModal
+        accountId={onDemandAccountId}
+        accountLabel={maskAccountText(
+          accounts.find((a) => a.id === onDemandAccountId)
+            ? resolveDisplayEmail(accounts.find((a) => a.id === onDemandAccountId)!)
+            : '',
+        )}
+        onClose={() => setOnDemandAccountId(null)}
+        onSaved={() => store.fetchAccounts()}
+      />
+
+      <CursorSwitchHistoryModal
+        isOpen={showSwitchHistory}
+        locale={locale}
+        maskText={maskAccountText}
+        onClose={() => setShowSwitchHistory(false)}
       />
         </>
       )}

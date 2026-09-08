@@ -70,3 +70,67 @@ export async function getCursorAccountsIndexPath(): Promise<string> {
 export async function injectCursorAccount(accountId: string): Promise<string> {
   return await invoke('inject_cursor_account', { accountId });
 }
+
+export interface CursorSwitchLowMetric {
+  label: string;
+  left_percent: number;
+}
+
+export interface CursorSwitchHistoryItem {
+  id: string;
+  timestamp: number;
+  reason: string;
+  from_account_id?: string | null;
+  from_email?: string | null;
+  to_account_id: string;
+  to_email: string;
+  low_metrics?: CursorSwitchLowMetric[];
+  threshold?: number | null;
+  success: boolean;
+  error?: string | null;
+}
+
+export async function listCursorSwitchHistory(): Promise<CursorSwitchHistoryItem[]> {
+  return await invoke('list_cursor_switch_history');
+}
+
+export async function clearCursorSwitchHistory(): Promise<void> {
+  await invoke('clear_cursor_switch_history');
+}
+
+export interface CursorModelUsage {
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  total_cents: number;
+}
+
+export interface CursorUsageBreakdown {
+  start_ms: number;
+  end_ms: number;
+  total_cents: number;
+  models: CursorModelUsage[];
+}
+
+export async function getCursorUsageBreakdown(accountId: string): Promise<CursorUsageBreakdown> {
+  return await invoke('get_cursor_usage_breakdown', { accountId });
+}
+
+export interface CursorHardLimit {
+  hard_limit_dollars: number | null;
+  no_usage_based_allowed: boolean;
+}
+
+export async function getCursorHardLimit(accountId: string): Promise<CursorHardLimit> {
+  return await invoke('get_cursor_hard_limit', { accountId });
+}
+
+export async function setCursorHardLimit(
+  accountId: string,
+  hardLimitDollars: number,
+  noUsageBasedAllowed: boolean,
+): Promise<CursorAccount> {
+  return await invoke('set_cursor_hard_limit', { accountId, hardLimitDollars, noUsageBasedAllowed });
+}

@@ -4877,6 +4877,38 @@
       "cursorModelsLeft": "按 Cursor 模型剩餘",
       "otherModelsLeft": "按其他模型剩餘",
       "grokBotLeft": "按 Grok Bot 剩餘"
+    },
+    "usageBreakdown": {
+      "title": "用量明細",
+      "period": "週期：{{start}} – {{end}}",
+      "total": "合計 {{amount}}",
+      "empty": "本週期暫無用量記錄",
+      "tokens": "輸入 {{input}} · 輸出 {{output}} · 快取讀 {{cacheRead}}",
+      "others": "其餘 {{count}} 個模型合計 {{amount}}"
+    },
+    "onDemand": {
+      "title": "按需使用設定",
+      "enable": "啟用按需使用",
+      "enableDesc": "方案額度用完後按量計費繼續使用；關閉則額度耗盡即停止。",
+      "limit": "月度上限（美元）",
+      "limitDesc": "本週期按需花費達到該金額後停止；必須是正整數。",
+      "notice": "此設定直接寫入 Cursor 官網帳號，與 Dashboard → Spending 頁面一致，儲存後立即生效。"
+    },
+    "switchHistory": {
+      "title": "切換帳號歷史",
+      "empty": "暫無切換記錄",
+      "time": "時間",
+      "reason": "原因",
+      "from": "從",
+      "to": "到",
+      "result": "結果",
+      "success": "成功",
+      "failed": "失敗",
+      "clear": "清空記錄",
+      "reasonManual": "手動",
+      "reasonAuto": "自動切換",
+      "reasonQuotaAlert": "預警快捷切換",
+      "reasonTray": "系統匣選單"
     }
   },
   "breakout": {

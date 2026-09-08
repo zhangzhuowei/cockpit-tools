@@ -1985,6 +1985,236 @@ async fn fetch_sand_usage_via_rpc(
         .map_err(|e| format!("解析 Cursor Grok Bot RPC JSON 失败: {}", e))
 }
 
+// ---------------------------------------------------------------------------
+// Dashboard extras: per-model usage breakdown, on-demand spend limit
+// ---------------------------------------------------------------------------
+
+const CURSOR_AGGREGATED_USAGE_URL: &str =
+    "https://cursor.com/api/dashboard/get-aggregated-usage-events";
+const CURSOR_GET_HARD_LIMIT_URL: &str = "https://cursor.com/api/dashboard/get-hard-limit";
+const CURSOR_SET_HARD_LIMIT_URL: &str = "https://cursor.com/api/dashboard/set-hard-limit";
+
+/// 带 Cookie 会话的 Dashboard POST；所有 dashboard/* 接口的鉴权与错误处理一致。
+async fn dashboard_post_json(
+    client: &reqwest::Client,
+    access_token: &str,
+    url: &str,
+    body: Value,
+    what: &str,
+) -> Result<Value, String> {
+    let cookie = build_session_cookie(access_token)
+        .ok_or_else(|| "无法从 accessToken 解析 WorkOS 用户 ID".to_string())?;
+
+    let response = client
+        .post(url)
+        .header("Accept", "application/json")
+        .header("Content-Type", "application/json")
+        .header("Cookie", &cookie)
+        .header("Origin", "https://cursor.com")
+        .header("Referer", "https://cursor.com/dashboard")
+        .header(
+            "User-Agent",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+        )
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("请求 Cursor {} 失败: {}", what, format_reqwest_error(&e)))?;
+
+    let status = response.status().as_u16();
+    if status == 401 || status == 403 {
+        return Err(CURSOR_AUTH_ERROR.to_string());
+    }
+    if status != 200 {
+        return Err(format!("Cursor {} 返回异常状态码: {}", what, status));
+    }
+
+    let text = response
+        .text()
+        .await
+        .map_err(|e| format!("读取 Cursor {} 响应失败: {}", what, format_reqwest_error(&e)))?;
+    if text.trim().is_empty() {
+        return Ok(Value::Null);
+    }
+    serde_json::from_str::<Value>(&text)
+        .map_err(|e| format!("解析 Cursor {} JSON 失败: {}", what, e))
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CursorModelUsage {
+    pub model: String,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub cache_write_tokens: i64,
+    pub total_cents: f64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CursorUsageBreakdown {
+    pub start_ms: i64,
+    pub end_ms: i64,
+    pub total_cents: f64,
+    pub models: Vec<CursorModelUsage>,
+}
+
+fn parse_token_count(value: Option<&Value>) -> i64 {
+    match value {
+        Some(Value::Number(n)) => n.as_i64().unwrap_or(0),
+        Some(Value::String(s)) => s.trim().parse::<i64>().unwrap_or(0),
+        _ => 0,
+    }
+}
+
+/// 当前计费周期的按模型用量。周期取 usage-summary 里的 billingCycleStart/End，缺失时退回最近 30 天。
+pub async fn fetch_usage_breakdown(account_id: &str) -> Result<CursorUsageBreakdown, String> {
+    let account = load_account(account_id).ok_or_else(|| "账号不存在".to_string())?;
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let cycle = account.cursor_usage_raw.as_ref().and_then(|raw| {
+        let start = raw
+            .get("billingCycleStart")
+            .and_then(|v| v.as_str())
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|d| d.timestamp_millis());
+        let end = raw
+            .get("billingCycleEnd")
+            .and_then(|v| v.as_str())
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|d| d.timestamp_millis());
+        start.zip(end)
+    });
+    let (start_ms, end_ms) = cycle.unwrap_or((now_ms - 30 * 24 * 3600 * 1000, now_ms));
+
+    let client = build_cursor_http_client()?;
+    let body = serde_json::json!({
+        "teamId": -1,
+        "startDate": start_ms.to_string(),
+        "endDate": end_ms.to_string(),
+    });
+    let value = dashboard_post_json(
+        &client,
+        &account.access_token,
+        CURSOR_AGGREGATED_USAGE_URL,
+        body,
+        "按模型用量接口",
+    )
+    .await?;
+
+    let mut models: Vec<CursorModelUsage> = value
+        .get("aggregations")
+        .and_then(|v| v.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let model = item
+                        .get("modelIntent")
+                        .and_then(|v| v.as_str())
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())?
+                        .to_string();
+                    Some(CursorModelUsage {
+                        model,
+                        input_tokens: parse_token_count(item.get("inputTokens")),
+                        output_tokens: parse_token_count(item.get("outputTokens")),
+                        cache_read_tokens: parse_token_count(item.get("cacheReadTokens")),
+                        cache_write_tokens: parse_token_count(item.get("cacheWriteTokens")),
+                        total_cents: item
+                            .get("totalCents")
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(0.0),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    models.sort_by(|a, b| {
+        b.total_cents
+            .partial_cmp(&a.total_cents)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| {
+                (b.input_tokens + b.output_tokens).cmp(&(a.input_tokens + a.output_tokens))
+            })
+    });
+
+    let total_cents = value
+        .get("totalCostCents")
+        .and_then(|v| v.as_f64())
+        .unwrap_or_else(|| models.iter().map(|m| m.total_cents).sum());
+
+    Ok(CursorUsageBreakdown {
+        start_ms,
+        end_ms,
+        total_cents,
+        models,
+    })
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CursorHardLimit {
+    /// 月度按需花费上限（美元）；None 表示未设置 / 无上限。
+    pub hard_limit_dollars: Option<f64>,
+    /// true 表示按需使用被关闭。
+    pub no_usage_based_allowed: bool,
+}
+
+pub async fn fetch_hard_limit(account_id: &str) -> Result<CursorHardLimit, String> {
+    let account = load_account(account_id).ok_or_else(|| "账号不存在".to_string())?;
+    let client = build_cursor_http_client()?;
+    let value = dashboard_post_json(
+        &client,
+        &account.access_token,
+        CURSOR_GET_HARD_LIMIT_URL,
+        serde_json::json!({}),
+        "按需上限查询接口",
+    )
+    .await?;
+
+    let hard_limit_dollars = value
+        .get("hardLimit")
+        .and_then(|v| v.as_f64())
+        .filter(|v| *v > 0.0);
+    let no_usage_based_allowed = value
+        .get("noUsageBasedAllowed")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    Ok(CursorHardLimit {
+        hard_limit_dollars,
+        no_usage_based_allowed,
+    })
+}
+
+/// 设置按需使用开关与月度上限。Cursor 接口以美元整数接收 `hardLimit`。
+pub async fn update_hard_limit(
+    account_id: &str,
+    hard_limit_dollars: f64,
+    no_usage_based_allowed: bool,
+) -> Result<(), String> {
+    if !hard_limit_dollars.is_finite() || hard_limit_dollars < 0.0 {
+        return Err("按需上限必须是不小于 0 的数字".to_string());
+    }
+    let account = load_account(account_id).ok_or_else(|| "账号不存在".to_string())?;
+    let client = build_cursor_http_client()?;
+    dashboard_post_json(
+        &client,
+        &account.access_token,
+        CURSOR_SET_HARD_LIMIT_URL,
+        serde_json::json!({
+            "hardLimit": hard_limit_dollars.round() as i64,
+            "noUsageBasedAllowed": no_usage_based_allowed,
+        }),
+        "按需上限设置接口",
+    )
+    .await?;
+    logger::log_info(&format!(
+        "[Cursor Account] 按需上限已更新: id={}, hard_limit=${}, disabled={}",
+        account_id,
+        hard_limit_dollars.round() as i64,
+        no_usage_based_allowed
+    ));
+    Ok(())
+}
+
 async fn fetch_optional_sand_usage(
     client: &reqwest::Client,
     access_token: &str,
