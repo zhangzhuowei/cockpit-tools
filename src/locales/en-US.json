@@ -5147,7 +5147,9 @@
       "formatHint": "Required fields & examples (click to expand)",
       "formatRequired": "Single token: paste JWT directly; batch import: use JSON array format",
       "singleExample": "Single example (JWT)",
-      "batchExample": "Batch example (JSON)"
+      "batchExample": "Batch example (JSON)",
+      "webNotSwitchable": "Not switchable",
+      "webNotSwitchableTooltip": "This account's token is a web-session (type=web) token: it can read quota but Cursor's desktop client cannot log in with it. Re-login via OAuth or use a desktop session token instead."
     },
     "import": {
       "localDesc": "Import account data from local Cursor client or a JSON file.",

@@ -4886,7 +4886,9 @@
       "formatHint": "الحقول المطلوبة والأمثلة (انقر للتوسيع)",
       "formatRequired": "رمز مفرد: الصق JWT مباشرة؛ استيراد دفعي: استخدم تنسيق مصفوفة JSON",
       "singleExample": "مثال مفرد (JWT)",
-      "batchExample": "مثال دفعي (JSON)"
+      "batchExample": "مثال دفعي (JSON)",
+      "webNotSwitchable": "لا يمكن التبديل",
+      "webNotSwitchableTooltip": "رمز هذا الحساب هو رمز جلسة ويب (type=web): يمكنه قراءة الحصة لكن عميل Cursor لسطح المكتب لا يستطيع تسجيل الدخول به. أعد تسجيل الدخول عبر OAuth أو استخدم رمز جلسة سطح المكتب."
     },
     "import": {
       "localDesc": "استيراد بيانات الحساب من عميل Cursor المحلي أو ملف JSON.",

@@ -4839,7 +4839,9 @@
       "formatHint": "Wymagane pola i przykłady (kliknij, aby rozwinąć)",
       "formatRequired": "Pojedynczy token: wklej JWT bezpośrednio; import zbiorczy: użyj formatu tablicy JSON",
       "singleExample": "Przykład pojedynczy (JWT)",
-      "batchExample": "Przykład zbiorczy (JSON)"
+      "batchExample": "Przykład zbiorczy (JSON)",
+      "webNotSwitchable": "Nie do przełączenia",
+      "webNotSwitchableTooltip": "Token tego konta to token sesji webowej (type=web): odczytuje limit, ale klient desktopowy Cursor nie może się nim zalogować. Zaloguj się ponownie przez OAuth albo użyj tokenu sesji desktopowej."
     },
     "import": {
       "localDesc": "Importuj dane konta z lokalnego klienta Cursor lub pliku JSON.",

@@ -4839,7 +4839,9 @@
       "formatHint": "Erforderliche Felder und Beispiele (klicken zum Aufklappen)",
       "formatRequired": "Einzelnes Token: JWT direkt einfügen; Massenimport: JSON-Array-Format verwenden",
       "singleExample": "Einzelbeispiel (JWT)",
-      "batchExample": "Massenbeispiel (JSON)"
+      "batchExample": "Massenbeispiel (JSON)",
+      "webNotSwitchable": "Nicht wechselbar",
+      "webNotSwitchableTooltip": "Das Token dieses Kontos ist ein Web-Session-Token (type=web): Es kann das Kontingent lesen, aber der Cursor-Desktop-Client kann sich damit nicht anmelden. Melde dich per OAuth neu an oder verwende ein Desktop-Session-Token."
     },
     "import": {
       "localDesc": "Kontodaten vom lokalen Cursor-Client oder einer JSON-Datei importieren.",

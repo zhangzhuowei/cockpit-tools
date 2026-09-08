@@ -50,6 +50,7 @@ import {
   hasCursorQuotaData,
   hasCursorQuotaQueryError,
   isCursorAccountBanned,
+  isCursorTokenSwitchable,
 } from '../types/cursor';
 import type { CursorAccount, CursorUsage } from '../types/cursor';
 import { compareCurrentAccountFirst } from '../utils/currentAccountSort';
@@ -684,6 +685,8 @@ export function CursorAccountsPage() {
       const quotaError = account.quota_query_last_error?.trim();
       const hasQuotaData = hasCursorQuotaData(account);
       const isBanned = isCursorAccountBanned(account);
+      const isWebToken = !isCursorTokenSwitchable(account);
+      const webTokenTitle = t('cursor.token.webNotSwitchableTooltip', '此账号的 token 是网页会话（web）类型，只能查配额，Cursor 桌面端无法用它登录。请用 OAuth 重新登录，或改用桌面 session token。');
       const hasStatusError = (account.status || '').toLowerCase() === 'error';
       const statusReason = account.status_reason ?? null;
       const bannedTitle = statusReason || t('accounts.status.forbidden_tooltip');
@@ -718,6 +721,12 @@ export function CursorAccountsPage() {
               <span className="status-pill forbidden" title={bannedTitle}>
                 <Lock size={12} />
                 {t('accounts.status.forbidden')}
+              </span>
+            )}
+            {isWebToken && !isBanned && (
+              <span className="status-pill warning" title={webTokenTitle}>
+                <KeyRound size={12} />
+                {t('cursor.token.webNotSwitchable', '不可切号')}
               </span>
             )}
             <span className={`tier-badge ${resolvePlanBadgeClass(account)}`}>{planLabel}</span>
@@ -835,8 +844,8 @@ export function CursorAccountsPage() {
           <div className="card-footer">
             <span className="card-date">{formatDate(account.created_at)}</span>
             <div className="card-actions">
-              <button className="card-action-btn success" onClick={() => handleInjectToVSCode?.(account.id)} disabled={!!injecting || isBanned}
-                title={isBanned ? t('accounts.status.forbidden_msg') : t('cursor.injectToCursor', '切换到 Cursor')}>
+              <button className="card-action-btn success" onClick={() => handleInjectToVSCode?.(account.id)} disabled={!!injecting || isBanned || isWebToken}
+                title={isBanned ? t('accounts.status.forbidden_msg') : isWebToken ? webTokenTitle : t('cursor.injectToCursor', '切换到 Cursor')}>
                 {injecting === account.id ? <RefreshCw size={14} className="loading-spinner" /> : <Play size={14} />}
               </button>
               <button className="card-action-btn" onClick={() => setUsageBreakdownAccountId(account.id)} disabled={isBanned || !hasQuotaData} title={t('cursor.usageBreakdown.title', '用量明细')}>
@@ -884,6 +893,8 @@ export function CursorAccountsPage() {
       const moreTagCount = Math.max(0, accountTags.length - visibleTags.length);
       const isCurrent = currentAccountId === account.id;
       const isBanned = isCursorAccountBanned(account);
+      const isWebToken = !isCursorTokenSwitchable(account);
+      const webTokenTitle = t('cursor.token.webNotSwitchableTooltip', '此账号的 token 是网页会话（web）类型，只能查配额，Cursor 桌面端无法用它登录。请用 OAuth 重新登录，或改用桌面 session token。');
       const quotaError = account.quota_query_last_error?.trim();
       const hasQuotaData = hasCursorQuotaData(account);
       const hasStatusError = (account.status || '').toLowerCase() === 'error';
@@ -900,10 +911,11 @@ export function CursorAccountsPage() {
                 <span className="account-email-text" title={maskAccountText(emailText)}>{maskAccountText(emailText)}</span>
                 {isCurrent && <span className="mini-tag current">{t('accounts.status.current')}</span>}
               </div>
-              {(hasStatusError || isBanned) && (
+              {(hasStatusError || isBanned || isWebToken) && (
                 <div className="account-sub-line">
                   {hasStatusError && (<span className="status-pill warning" title={errorTitle}><CircleAlert size={12} />{t('accounts.status.refreshFailed')}</span>)}
                   {isBanned && (<span className="status-pill forbidden" title={bannedTitle}><Lock size={12} />{t('accounts.status.forbidden')}</span>)}
+                  {isWebToken && !isBanned && (<span className="status-pill warning" title={webTokenTitle}><KeyRound size={12} />{t('cursor.token.webNotSwitchable', '不可切号')}</span>)}
                 </div>
               )}
               {quotaError && (
@@ -1009,8 +1021,8 @@ export function CursorAccountsPage() {
           </td>
           <td className="sticky-action-cell table-action-cell">
             <div className="action-buttons">
-              <button className="action-btn success" onClick={() => handleInjectToVSCode?.(account.id)} disabled={!!injecting || isBanned}
-                title={isBanned ? t('accounts.status.forbidden_msg') : t('cursor.injectToCursor', '切换到 Cursor')}>
+              <button className="action-btn success" onClick={() => handleInjectToVSCode?.(account.id)} disabled={!!injecting || isBanned || isWebToken}
+                title={isBanned ? t('accounts.status.forbidden_msg') : isWebToken ? webTokenTitle : t('cursor.injectToCursor', '切换到 Cursor')}>
                 {injecting === account.id ? <RefreshCw size={14} className="loading-spinner" /> : <Play size={14} />}
               </button>
               <button className="action-btn" onClick={() => setUsageBreakdownAccountId(account.id)} disabled={isBanned || !hasQuotaData} title={t('cursor.usageBreakdown.title', '用量明细')}>

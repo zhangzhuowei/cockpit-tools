@@ -4839,7 +4839,9 @@
       "formatHint": "Gerekli alanlar ve örnekler (genişletmek için tıklayın)",
       "formatRequired": "Tekli jeton: JWT'yi doğrudan yapıştırın; toplu içe aktarma: JSON dizi formatı kullanın",
       "singleExample": "Tekli örnek (JWT)",
-      "batchExample": "Toplu örnek (JSON)"
+      "batchExample": "Toplu örnek (JSON)",
+      "webNotSwitchable": "Geçilemez",
+      "webNotSwitchableTooltip": "Bu hesabın tokenı bir web oturumu (type=web) tokenıdır: kotayı okuyabilir ancak Cursor masaüstü istemcisi bununla oturum açamaz. OAuth ile yeniden oturum açın veya bir masaüstü session tokenı kullanın."
     },
     "import": {
       "localDesc": "Yerel Cursor istemcisinden veya bir JSON dosyasından hesap verilerini içe aktarın.",

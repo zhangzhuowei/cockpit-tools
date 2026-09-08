@@ -523,6 +523,38 @@ export function formatCursorUsageDollars(cents: number | null | undefined): stri
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+function decodeCursorJwtPayload(token: string): Record<string, unknown> | null {
+  const parts = token.split('.');
+  if (parts.length < 2) return null;
+  try {
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+    const json = decodeURIComponent(
+      atob(padded)
+        .split('')
+        .map((c) => `%${c.charCodeAt(0).toString(16).padStart(2, '0')}`)
+        .join(''),
+    );
+    const parsed = JSON.parse(json);
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** JWT 的 `type` 声明：Cursor 桌面端只接受 `session`；浏览器 Cookie 复制来的是 `web`。 */
+export function getCursorTokenType(account: CursorAccount): string | null {
+  const payload = decodeCursorJwtPayload(account.access_token || '');
+  const type = payload?.type;
+  return typeof type === 'string' && type.trim() ? type.trim().toLowerCase() : null;
+}
+
+/** token 能否用于切换 Cursor 桌面端登录。没有 type 声明的旧 token 视为可用。 */
+export function isCursorTokenSwitchable(account: CursorAccount): boolean {
+  const type = getCursorTokenType(account);
+  return type == null || type === 'session';
+}
+
 export function isCursorAccountBanned(account: CursorAccount): boolean {
   const status = (account.status || '').toLowerCase();
   const reason = (account.status_reason || '').toLowerCase();

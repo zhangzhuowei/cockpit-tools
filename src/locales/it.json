@@ -4839,7 +4839,9 @@
       "formatHint": "Campi obbligatori ed esempi (clicca per espandere)",
       "formatRequired": "Token singolo: incolla direttamente il JWT; importazione in blocco: usa il formato array JSON",
       "singleExample": "Esempio singolo (JWT)",
-      "batchExample": "Esempio in blocco (JSON)"
+      "batchExample": "Esempio in blocco (JSON)",
+      "webNotSwitchable": "Non commutabile",
+      "webNotSwitchableTooltip": "Il token di questo account è di sessione web (type=web): legge la quota ma il client desktop di Cursor non può accedere con esso. Ripeti l'accesso via OAuth o usa un token di sessione desktop."
     },
     "import": {
       "localDesc": "Importa i dati dell'account dal client Cursor locale o da un file JSON.",

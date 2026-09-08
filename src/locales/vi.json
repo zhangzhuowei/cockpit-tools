@@ -4839,7 +4839,9 @@
       "formatHint": "Các trường bắt buộc và ví dụ (nhấp để mở rộng)",
       "formatRequired": "Mã đơn lẻ: dán JWT trực tiếp; nhập hàng loạt: sử dụng định dạng mảng JSON",
       "singleExample": "Ví dụ đơn lẻ (JWT)",
-      "batchExample": "Ví dụ hàng loạt (JSON)"
+      "batchExample": "Ví dụ hàng loạt (JSON)",
+      "webNotSwitchable": "Không thể chuyển",
+      "webNotSwitchableTooltip": "Token của tài khoản này là phiên web (type=web): có thể xem hạn mức nhưng Cursor desktop không đăng nhập được. Hãy đăng nhập lại bằng OAuth hoặc dùng token session của desktop."
     },
     "import": {
       "localDesc": "Nhập dữ liệu tài khoản từ ứng dụng Cursor cục bộ hoặc tệp JSON.",

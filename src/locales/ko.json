@@ -4839,7 +4839,9 @@
       "formatHint": "필수 필드 및 예시 (클릭하여 펼치기)",
       "formatRequired": "단일 토큰: JWT를 직접 붙여넣기; 일괄 가져오기: JSON 배열 형식 사용",
       "singleExample": "단일 예시 (JWT)",
-      "batchExample": "일괄 예시 (JSON)"
+      "batchExample": "일괄 예시 (JSON)",
+      "webNotSwitchable": "전환 불가",
+      "webNotSwitchableTooltip": "이 계정의 토큰은 웹 세션(type=web) 토큰입니다. 할당량 조회는 가능하지만 Cursor 데스크톱에서는 로그인할 수 없습니다. OAuth로 다시 로그인하거나 데스크톱 session 토큰을 사용하세요."
     },
     "import": {
       "localDesc": "로컬 Cursor 클라이언트 또는 JSON 파일에서 계정 데이터를 가져옵니다.",

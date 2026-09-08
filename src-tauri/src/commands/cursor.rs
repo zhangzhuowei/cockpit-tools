@@ -291,7 +291,13 @@ async fn switch_cursor_account_inner(
     let default_dir = crate::modules::cursor_instance::get_default_cursor_user_data_dir()?
         .to_string_lossy()
         .to_string();
-    crate::modules::cursor_instance::close_cursor(&[default_dir], 20)?;
+    crate::modules::cursor_instance::close_cursor(&[default_dir.clone()], 20)?;
+    if crate::modules::cursor_instance::is_cursor_running_for_dir(&default_dir) {
+        return Err(
+            "仍有 Cursor 进程占用默认用户目录，未写入账号。请完全退出 Cursor（含系统托盘图标）后重试。"
+                .to_string(),
+        );
+    }
 
     cursor_account::inject_to_cursor(account_id.as_str())?;
     crate::modules::provider_current_state::set_current_account_id(

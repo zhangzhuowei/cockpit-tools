@@ -695,7 +695,13 @@ pub fn collect_cursor_process_entries() -> Vec<(u32, Option<String>)> {
     if expected_launch.is_none() {
         return Vec::new();
     }
+    filter_cursor_entries_by_launch_path(collect_cursor_process_entries_unfiltered(), expected_launch)
+}
 
+/// 不做启动路径硬匹配的 Cursor 进程扫描。用于关闭：机器上可能装了多份 Cursor，
+/// 无论从哪个目录启动，只要占用同一个 user-data-dir 就必须关掉，否则它会在退出/刷盘时
+/// 把内存里的旧登录态写回 state.vscdb，覆盖刚注入的账号。
+pub fn collect_cursor_process_entries_unfiltered() -> Vec<(u32, Option<String>)> {
     let mut entries: HashMap<u32, Option<String>> = HashMap::new();
 
     // On macOS, skip sysinfo to avoid TCC dialogs
@@ -788,7 +794,7 @@ pub fn collect_cursor_process_entries() -> Vec<(u32, Option<String>)> {
 
     let mut result: Vec<(u32, Option<String>)> = entries.into_iter().collect();
     result.sort_by_key(|(pid, _)| *pid);
-    filter_cursor_entries_by_launch_path(result, expected_launch)
+    result
 }
 
 fn pick_preferred_pid(mut pids: Vec<u32>) -> Option<u32> {
@@ -1315,42 +1321,75 @@ pub fn close_cursor(user_data_dirs: &[String], timeout_secs: u64) -> Result<(), 
         .map(|value| target_dirs.contains(value))
         .unwrap_or(false);
 
-    let entries = collect_cursor_process_entries();
-    let mut pids = Vec::new();
-    for (pid, dir) in entries {
-        match dir.as_ref() {
-            Some(value) => {
-                if target_dirs.contains(value) {
-                    pids.push(pid);
+    let collect_matching_pids = || -> Vec<u32> {
+        let mut pids = Vec::new();
+        for (pid, dir) in collect_cursor_process_entries_unfiltered() {
+            match dir.as_ref() {
+                Some(value) => {
+                    if target_dirs.contains(value) {
+                        pids.push(pid);
+                    }
                 }
+                None if allow_none_for_default => pids.push(pid),
+                _ => {}
             }
-            None if allow_none_for_default => pids.push(pid),
-            _ => {}
         }
-    }
+        pids.sort();
+        pids.dedup();
+        pids
+    };
 
-    pids.sort();
-    pids.dedup();
+    let pids = collect_matching_pids();
     if pids.is_empty() {
         return Ok(());
     }
+    modules::logger::log_info(&format!(
+        "[Cursor Close] 关闭占用目标目录的 Cursor 进程: pids={}",
+        modules::process::summarize_pid_list_for_log(&pids)
+    ));
 
     for pid in &pids {
         let _ = modules::process::close_pid(*pid, timeout_secs);
     }
 
-    let still_running: Vec<u32> = pids
-        .into_iter()
-        .filter(|pid| modules::process::is_pid_running(*pid))
-        .collect();
+    // 重新扫描而不是只看刚才那批 pid：主进程退出期间可能还有新 fork 出来的子进程，
+    // 或者第一次扫描时刚启动、还没被枚举到的实例。
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs.min(10));
+    let mut still_running = collect_matching_pids();
+    while !still_running.is_empty() && std::time::Instant::now() < deadline {
+        for pid in &still_running {
+            let _ = modules::process::close_pid(*pid, 3);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        still_running = collect_matching_pids();
+    }
     if !still_running.is_empty() {
         return Err(format!(
-            "无法关闭 Cursor 实例进程，请手动关闭后重试: {}",
+            "无法关闭 Cursor 实例进程，请手动完全退出 Cursor（含托盘图标）后重试: {}",
             modules::process::summarize_pid_list_for_log(&still_running)
         ));
     }
 
     Ok(())
+}
+
+/// 切号前的最后确认：目标目录上不能还有 Cursor 在跑。
+pub fn is_cursor_running_for_dir(user_data_dir: &str) -> bool {
+    let target = normalize_path_for_compare(user_data_dir);
+    if target.is_empty() {
+        return false;
+    }
+    let default_dir = get_default_cursor_user_data_dir()
+        .ok()
+        .map(|value| normalize_path_for_compare(&value.to_string_lossy()))
+        .filter(|value| !value.is_empty());
+    let allow_none = default_dir.as_deref() == Some(target.as_str());
+    collect_cursor_process_entries_unfiltered()
+        .into_iter()
+        .any(|(_, dir)| match dir {
+            Some(value) => value == target,
+            None => allow_none,
+        })
 }
 
 fn ensure_profile_global_storage(profile_dir: &Path) -> Result<PathBuf, String> {

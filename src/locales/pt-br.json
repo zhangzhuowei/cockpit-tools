@@ -4839,7 +4839,9 @@
       "formatHint": "Campos obrigatórios e exemplos (clique para expandir)",
       "formatRequired": "Token único: cole o JWT diretamente; importação em lote: use o formato de array JSON",
       "singleExample": "Exemplo único (JWT)",
-      "batchExample": "Exemplo em lote (JSON)"
+      "batchExample": "Exemplo em lote (JSON)",
+      "webNotSwitchable": "Não alternável",
+      "webNotSwitchableTooltip": "O token desta conta é de sessão web (type=web): consegue ler a cota, mas o cliente desktop do Cursor não consegue entrar com ele. Faça login novamente via OAuth ou use um token de sessão desktop."
     },
     "import": {
       "localDesc": "Importar dados da conta do cliente Cursor local ou de um arquivo JSON.",

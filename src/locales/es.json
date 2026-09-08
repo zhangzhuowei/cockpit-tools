@@ -4839,7 +4839,9 @@
       "formatHint": "Campos obligatorios y ejemplos (clic para expandir)",
       "formatRequired": "Token individual: pega el JWT directamente; importación masiva: usa formato de array JSON",
       "singleExample": "Ejemplo individual (JWT)",
-      "batchExample": "Ejemplo masivo (JSON)"
+      "batchExample": "Ejemplo masivo (JSON)",
+      "webNotSwitchable": "No conmutable",
+      "webNotSwitchableTooltip": "El token de esta cuenta es de sesión web (type=web): puede leer la cuota, pero el cliente de escritorio de Cursor no puede iniciar sesión con él. Vuelve a iniciar sesión con OAuth o usa un token de sesión de escritorio."
     },
     "import": {
       "localDesc": "Importar datos de cuenta desde el cliente local de Cursor o un archivo JSON.",

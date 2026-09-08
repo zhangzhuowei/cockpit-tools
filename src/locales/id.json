@@ -4995,7 +4995,9 @@
       "formatHint": "Bidang yang diperlukan & contoh (klik untuk perluas)",
       "formatRequired": "Token tunggal: tempel JWT langsung; impor batch: gunakan format array JSON",
       "singleExample": "Single example (JWT)​",
-      "batchExample": "Batch example (JSON)​"
+      "batchExample": "Batch example (JSON)​",
+      "webNotSwitchable": "Tidak dapat dialihkan",
+      "webNotSwitchableTooltip": "Token akun ini adalah token sesi web (type=web): bisa membaca kuota, tetapi klien desktop Cursor tidak bisa masuk dengannya. Masuk ulang lewat OAuth atau gunakan token session desktop."
     },
     "import": {
       "localDesc": "Impor data akun dari klien Cursor lokal atau berkas JSON.",

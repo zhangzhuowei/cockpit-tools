@@ -4839,7 +4839,9 @@
       "formatHint": "必填欄位與範例（點擊展開）",
       "formatRequired": "單一權杖：直接貼上 JWT；批次匯入：使用 JSON 陣列格式",
       "singleExample": "單一範例（JWT）",
-      "batchExample": "批次範例（JSON）"
+      "batchExample": "批次範例（JSON）",
+      "webNotSwitchable": "不可切換",
+      "webNotSwitchableTooltip": "此帳號的 token 是網頁會話（web）類型，只能查額度，Cursor 桌面端無法用它登入。請用 OAuth 重新登入，或改用桌面 session token。"
     },
     "import": {
       "localDesc": "從本機 Cursor 用戶端或 JSON 檔案匯入帳號資料。",

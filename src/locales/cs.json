@@ -4839,7 +4839,9 @@
       "formatHint": "Povinná pole a příklady (klikněte pro rozbalení)",
       "formatRequired": "Jeden token: vložte JWT přímo; hromadný import: použijte formát JSON pole",
       "singleExample": "Příklad jednoho tokenu (JWT)",
-      "batchExample": "Příklad hromadného importu (JSON)"
+      "batchExample": "Příklad hromadného importu (JSON)",
+      "webNotSwitchable": "Nelze přepnout",
+      "webNotSwitchableTooltip": "Token tohoto účtu je webová relace (type=web): umí načíst kvótu, ale desktopový klient Cursor se s ním nepřihlásí. Přihlaste se znovu přes OAuth nebo použijte desktopový session token."
     },
     "import": {
       "localDesc": "Importujte data účtu z místního klienta Cursor nebo souboru JSON.",

@@ -4839,7 +4839,9 @@
       "formatHint": "必須フィールドと例（クリックで展開）",
       "formatRequired": "単一トークン：JWT を直接貼り付け；一括インポート：JSON 配列形式を使用",
       "singleExample": "単一の例（JWT）",
-      "batchExample": "一括の例（JSON）"
+      "batchExample": "一括の例（JSON）",
+      "webNotSwitchable": "切り替え不可",
+      "webNotSwitchableTooltip": "このアカウントのトークンは Web セッション（type=web）です。残量は取得できますが Cursor デスクトップではログインできません。OAuth で再ログインするか、デスクトップの session トークンを使ってください。"
     },
     "import": {
       "localDesc": "ローカルの Cursor クライアントまたは JSON ファイルからアカウントデータをインポートします。",

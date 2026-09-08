@@ -1472,7 +1472,21 @@ fn write_account_auth_to_vscdb(conn: &Connection, account: &CursorAccount) -> Re
     for (key, value) in build_auth_key_writes(account) {
         upsert_or_delete_vscdb_item(conn, key, value.as_deref())?;
     }
-    Ok(())
+    verify_vscdb_auth_written(conn, account)
+}
+
+/// 写完立刻回读，确认落盘的是目标账号的 token。SQLite 写入本身很少失败，但如果 Cursor
+/// 仍在运行并持有连接，可能出现写入被它的事务覆盖的情况，与其让用户看到"切换成功"却
+/// 弹登录，不如在这里直接报错。
+fn verify_vscdb_auth_written(conn: &Connection, account: &CursorAccount) -> Result<(), String> {
+    let stored = read_vscdb_item(conn, "cursorAuth/accessToken").unwrap_or_default();
+    if stored == account.access_token {
+        return Ok(());
+    }
+    Err(format!(
+        "写入 state.vscdb 后回读校验失败：accessToken 与目标账号 {} 不一致，可能有 Cursor 进程仍在运行并覆盖了写入，请完全退出 Cursor 后重试",
+        display_email(account)
+    ))
 }
 
 /// 部分 Cursor 版本会从 globalStorage/storage.json 恢复登录态；文件存在时同步写入，

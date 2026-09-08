@@ -5147,7 +5147,9 @@
       "formatHint": "必填字段与示例（点击展开）",
       "formatRequired": "单条 Token 直接粘贴 JWT；批量导入使用 JSON 数组格式",
       "singleExample": "单条示例（JWT）",
-      "batchExample": "批量示例（JSON）"
+      "batchExample": "批量示例（JSON）",
+      "webNotSwitchable": "不可切号",
+      "webNotSwitchableTooltip": "此账号的 token 是网页会话（web）类型，只能查配额，Cursor 桌面端无法用它登录。请用 OAuth 重新登录，或改用桌面 session token。"
     },
     "import": {
       "localDesc": "支持从本机 Cursor 客户端或 JSON 文件导入账号数据。",
