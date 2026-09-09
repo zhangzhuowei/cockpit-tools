@@ -1487,6 +1487,16 @@ fn sanitize_collection_structure(
         collection.image_generation_mode = CodexLocalAccessImageGenerationMode::Enabled;
         changed = true;
     }
+    let normalized_image_generation_model = collection.image_generation_model.trim().to_string();
+    if normalized_image_generation_model.is_empty()
+        || normalized_image_generation_model.chars().count() > 200
+    {
+        collection.image_generation_model = DEFAULT_CODEX_IMAGE_GENERATION_MODEL.to_string();
+        changed = true;
+    } else if normalized_image_generation_model != collection.image_generation_model {
+        collection.image_generation_model = normalized_image_generation_model;
+        changed = true;
+    }
 
     if collection.port == 0 {
         collection.port = allocate_initial_local_port(bind_host_for_collection(collection))?;
@@ -1752,6 +1762,7 @@ async fn ensure_runtime_loaded_without_start_with_profile_restore(
                 access_scope: CodexLocalAccessScope::Localhost,
                 client_base_url_host: CodexLocalAccessClientBaseUrlHost::default(),
                 image_generation_mode: CodexLocalAccessImageGenerationMode::default(),
+                image_generation_model: DEFAULT_CODEX_IMAGE_GENERATION_MODEL.to_string(),
                 image_generation_account_policies: HashMap::new(),
                 gateway_mode: CodexLocalAccessGatewayMode::default(),
                 upstream_proxy_url: None,

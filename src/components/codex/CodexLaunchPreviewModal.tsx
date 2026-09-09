@@ -176,6 +176,7 @@ export function CodexLaunchPreviewModal({
   const [repairOpen, setRepairOpen] = useState(false);
   const [modelConfigOpen, setModelConfigOpen] = useState(false);
   const [contextConfigOpen, setContextConfigOpen] = useState(false);
+  const [imageModelConfigOpen, setImageModelConfigOpen] = useState(false);
   const [forceRefreshing, setForceRefreshing] = useState(false);
   const [manualRefreshResult, setManualRefreshResult] = useState<{
     status: "running" | "success" | "error";
@@ -263,9 +264,11 @@ export function CodexLaunchPreviewModal({
       !repairOpen &&
       !modelConfigOpen &&
       !contextConfigOpen &&
+      !imageModelConfigOpen &&
       !manualRefreshResult,
     requestClose,
   );
+  useEscClose(imageModelConfigOpen, () => setImageModelConfigOpen(false));
 
   const applyLoadedConfig = useCallback((config: CodexQuickConfig) => {
     setLoadedConfig(config);
@@ -780,8 +783,9 @@ export function CodexLaunchPreviewModal({
     (mode === "apiService" ? "API Key" : "Codex");
   const displayContextText = summary?.contextText || fallbackContextText;
   const speedAction = displayActions.find((action) => action.id === "speed");
+  const imageModelAction = displayActions.find((action) => action.id === "image-model");
   const footerToolActions = displayActions.filter(
-    (action) => action.id !== "delete" && action.id !== "speed",
+    (action) => action.id !== "delete" && action.id !== "speed" && action.id !== "image-model",
   );
   const subjectIcon =
     mode === "apiService" ? (
@@ -1241,6 +1245,28 @@ export function CodexLaunchPreviewModal({
                     onAccountsRefresh={fetchAccounts}
                   />
                 )}
+              {imageModelAction?.control && (
+                <section className="codex-launch-preview-tool-row">
+                  <div className="codex-launch-preview-tool-icon">
+                    <SlidersHorizontal size={16} />
+                  </div>
+                  <div className="codex-launch-preview-tool-copy">
+                    <h3>{imageModelAction.label}</h3>
+                    <p>{t("codex.localAccess.imageGenerationModel.description")}</p>
+                    <div className="codex-launch-preview-tool-meta">
+                      <span>{imageModelAction.description}</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-sm codex-launch-preview-tool-action"
+                    disabled={busy}
+                    onClick={() => setImageModelConfigOpen(true)}
+                  >
+                    {t("nav.settings")}
+                  </button>
+                </section>
+              )}
               <section className="codex-launch-preview-tool-row">
                 <div className="codex-launch-preview-tool-icon">
                   <RefreshCw size={16} />
@@ -1490,6 +1516,37 @@ export function CodexLaunchPreviewModal({
           </div>
         </div>
       </div>
+
+      {imageModelConfigOpen && imageModelAction?.control && (
+        <div className="modal-overlay codex-launch-preview-refresh-overlay">
+          <div
+            className="modal codex-launch-preview-refresh-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="codex-image-model-config-title"
+          >
+            <div className="modal-header">
+              <h2 id="codex-image-model-config-title">{imageModelAction.label}</h2>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => setImageModelConfigOpen(false)}
+                aria-label={t("common.close")}
+              >
+                <X />
+              </button>
+            </div>
+            <div className="modal-body codex-launch-preview-image-model">
+              {imageModelAction.control}
+            </div>
+            <div className="modal-footer">
+              <button type="button" className="btn btn-secondary" onClick={() => setImageModelConfigOpen(false)}>
+                {t("common.close")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {manualRefreshResult && (
         <div className="modal-overlay codex-launch-preview-refresh-overlay">

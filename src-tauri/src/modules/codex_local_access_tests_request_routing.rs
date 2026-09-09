@@ -996,10 +996,11 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
         let catalog = vec!["gpt-5.6-sol".to_string(), "custom-model".to_string()];
         let visible = apply_codex_image_model_visibility(catalog.clone(), true);
         assert!(visible.iter().any(|model| model == CODEX_IMAGE_MODEL_ID));
-        assert_eq!(visible.len(), catalog.len() + 1);
+        assert_eq!(visible.len(), catalog.len() + 2);
 
         let hidden = apply_codex_image_model_visibility(visible, false);
         assert!(!hidden.iter().any(|model| model == CODEX_IMAGE_MODEL_ID));
+        assert!(!hidden.iter().any(|model| model == "gpt-image-2"));
     }
 
     #[test]
@@ -1364,7 +1365,7 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
             method: "POST".to_string(),
             target: "/v1/images/generations".to_string(),
             headers: HashMap::new(),
-            body: br#"{"model":"gpt-image-2","prompt":"draw a clean icon","size":"1024x1024","response_format":"b64_json"}"#.to_vec(),
+            body: br#"{"model":"gpt-image-2.5","prompt":"draw a clean icon","size":"1024x1024","response_format":"b64_json"}"#.to_vec(),
         };
 
         let (prepared, adapter) = prepare_gateway_request(request).expect("request should map");
@@ -1373,7 +1374,7 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
             serde_json::from_slice(&prepared.body).expect("mapped body should be json");
         assert_eq!(
             mapped_body.get("model").and_then(Value::as_str),
-            Some("gpt-5.4-mini")
+            Some("gpt-5.5")
         );
         assert_eq!(
             mapped_body
@@ -1389,7 +1390,7 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
                 .and_then(|tools| tools.first())
                 .and_then(|tool| tool.get("model"))
                 .and_then(Value::as_str),
-            Some("gpt-image-2")
+            Some("gpt-image-2.5")
         );
         assert_eq!(
             mapped_body

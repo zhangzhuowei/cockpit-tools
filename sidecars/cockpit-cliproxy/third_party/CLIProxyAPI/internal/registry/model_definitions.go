@@ -8,7 +8,7 @@ import (
 
 const (
 	codexBuiltinImage15ModelID    = "gpt-image-1.5"
-	codexBuiltinImageModelID      = "gpt-image-2"
+	codexBuiltinImageModelID      = "gpt-image-2.5"
 	codexBuiltinGPT6AstraModelID  = "gpt-6-astra"
 	xaiBuiltinImageModelID        = "grok-imagine-image"
 	xaiBuiltinImageQualityModelID = "grok-imagine-image-quality"

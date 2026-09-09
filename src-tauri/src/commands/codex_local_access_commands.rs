@@ -253,6 +253,13 @@ pub async fn codex_local_access_update_debug_logs(
 }
 
 #[tauri::command]
+pub async fn codex_local_access_update_image_generation_model(
+    image_generation_model: String,
+) -> Result<CodexLocalAccessState, String> {
+    codex_local_access::update_local_access_image_generation_model(image_generation_model).await
+}
+
+#[tauri::command]
 pub async fn codex_local_access_update_access_scope(
     access_scope: CodexLocalAccessScope,
 ) -> Result<CodexLocalAccessState, String> {

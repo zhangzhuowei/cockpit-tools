@@ -7,6 +7,23 @@ All notable changes to Cockpit Tools will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
+## [Unreleased]
+
+## [1.3.47] - 2026-09-09
+
+### Added
+
+- **Add Pelican tests for Codex accounts**: run the same editable prompt across selected accounts in parallel, inspect generated results and HTML previews, retry failed accounts, manage account tags, and automatically or manually clean up test records and generated files.
+- **Configure the API Service image-generation model**: choose `gpt-image-2.5` or `gpt-image-2`, or enter a custom image model from the service panel or a dedicated settings dialog opened above Force Refresh Token in the launch preview. New and existing configurations default to `gpt-image-2.5`, and changes are applied to image generation and editing requests after saving.
+
+## [1.3.46] - 2026-09-09
+
+### Changed
+
+- **Route image-generation requests through `gpt-5.5` by default**: the official ChatGPT account channel no longer reliably accepts `gpt-5.4-mini` as the base model for this image path, so the previous transformed request could be rejected upstream with an incompatibility error. The local API Service now uses `gpt-5.5` as the Responses base model while keeping `gpt-image-2` as the image tool model.
+- **Improve Codex protocol compatibility**: normalize tool schemas by removing unsupported JSON Schema dialect metadata, sanitize tool names for Codex upstream rules, recover uniquely identifiable tool namespaces, preserve `service_tier` and cache-write token usage, explicitly forward omitted function-tool `strict=false`, and classify retry-advised server errors as eligible for Codex account failover.
+- **Harden Codex failure and collaboration handling**: simplify large constant tool-schema unions, detect silent zero-token `response.incomplete` terminations, keep quota failures scoped to the affected credential, and restore dotted collaboration tool names after multi-agent optimization.
+
 ## [1.3.45] - 2026-09-08
 
 ### Fixed

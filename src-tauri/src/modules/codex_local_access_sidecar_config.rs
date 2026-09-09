@@ -2230,6 +2230,7 @@ fn prepare_sidecar_launch_config_in_dir_sync(
         "apiKeys": sidecar_api_key_manifest_values(collection),
         "accounts": manifest_accounts,
         "modelIds": model_ids,
+        "imageGenerationModel": collection.image_generation_model.clone(),
         "modelAliases": collection.model_aliases.iter().map(|alias| json!({
             "sourceModel": alias.source_model.clone(),
             "alias": alias.alias.clone(),

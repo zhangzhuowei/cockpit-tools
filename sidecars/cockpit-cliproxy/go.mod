@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/gin-gonic/gin v1.10.1
 	github.com/klauspost/compress v1.17.4
-	github.com/router-for-me/CLIProxyAPI/v7 v7.2.140
+	github.com/router-for-me/CLIProxyAPI/v7 v7.2.155
 	golang.org/x/sys v0.47.0
 )
 

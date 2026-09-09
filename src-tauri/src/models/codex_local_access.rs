@@ -1,6 +1,12 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+pub const DEFAULT_CODEX_IMAGE_GENERATION_MODEL: &str = "gpt-image-2.5";
+
+fn default_image_generation_model() -> String {
+    DEFAULT_CODEX_IMAGE_GENERATION_MODEL.to_string()
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CodexLocalAccessRoutingStrategy {
@@ -496,6 +502,8 @@ pub struct CodexLocalAccessCollection {
     pub client_base_url_host: CodexLocalAccessClientBaseUrlHost,
     #[serde(default)]
     pub image_generation_mode: CodexLocalAccessImageGenerationMode,
+    #[serde(default = "default_image_generation_model")]
+    pub image_generation_model: String,
     #[serde(default)]
     pub image_generation_account_policies: HashMap<String, CodexLocalAccessImageGenerationPolicy>,
     #[serde(default)]

@@ -1409,6 +1409,20 @@ func TestLoadManifestIndexesAPIKeyAccounts(t *testing.T) {
 	}
 }
 
+func TestLoadManifestDefaultsImageGenerationModel(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "manifest.json")
+	if err := os.WriteFile(path, []byte(`{"modelIds":["gpt-image-2"]}`), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	m, err := loadManifest(path)
+	if err != nil {
+		t.Fatalf("load manifest: %v", err)
+	}
+	if got := configuredImagesToolModel(m); got != defaultImagesToolModel {
+		t.Fatalf("default image model = %q, want %q", got, defaultImagesToolModel)
+	}
+}
+
 func TestLoadManifestIndexesTokenAccounts(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "manifest.json")
 	if err := os.WriteFile(path, []byte(`{
@@ -2977,15 +2991,19 @@ func TestResolveModelRoutingRejectsRouteWithoutProviderGateway(t *testing.T) {
 func TestMixedRoutingCatalogPreservesGPTCapabilities(t *testing.T) {
 	spec := mixedRoutingAPIKey(&providerGatewaySpec{
 		UpstreamModels: []string{"gpt-6-astra"},
-		WireAPI: "responses",
+		WireAPI:        "responses",
 	})
 	catalog := buildCodexClientModelsResponse([]string{"gpt-6-astra", "cpa/gpt-6-astra"}, spec, nil)
 	models := catalog["models"].([]map[string]any)
-	if models[1]["slug"] != "cpa/gpt-6-astra" { t.Fatal("lost routing identity") }
+	if models[1]["slug"] != "cpa/gpt-6-astra" {
+		t.Fatal("lost routing identity")
+	}
 	for _, field := range []string{"service_tiers", "additional_speed_tiers", "supported_reasoning_levels", "context_window"} {
 		a, _ := json.Marshal(models[0][field])
 		b, _ := json.Marshal(models[1][field])
-		if string(a) != string(b) { t.Fatalf("%s differs: %s != %s", field, a, b) }
+		if string(a) != string(b) {
+			t.Fatalf("%s differs: %s != %s", field, a, b)
+		}
 	}
 }
 
@@ -3032,8 +3050,8 @@ func TestCockpitSelectorSkipsExhaustedQuotaForRegularModels(t *testing.T) {
 	account := &accountSpec{ID: "account-1", AuthKind: "oauth", RemainingQuota: &zero, GPTReserveAllowed: true}
 	auth := &coreauth.Auth{ID: "auth-1", Provider: "codex"}
 	m := &manifest{
-		ModelIDs:       []string{"gpt-5.5", codexReserveModel},
-		Accounts:       []accountSpec{*account},
+		ModelIDs:        []string{"gpt-5.5", codexReserveModel},
+		Accounts:        []accountSpec{*account},
 		accountByAuthID: map[string]*accountSpec{"auth-1": account},
 	}
 	selector := &cockpitSelector{manifest: m}

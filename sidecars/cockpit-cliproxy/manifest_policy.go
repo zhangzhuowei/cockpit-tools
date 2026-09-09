@@ -54,8 +54,9 @@ const codexAutoReviewModel = "codex-auto-review"
 const codexReserveModel = "gpt-reserve"
 const codexSparkModel = "gpt-5.3-codex-spark"
 const codexSparkCatalogTemplateModel = "gpt-5.3-codex"
-const defaultImagesMainModel = "gpt-5.4-mini"
-const defaultImagesToolModel = "gpt-image-2"
+const defaultImagesMainModel = "gpt-5.5"
+const defaultImagesToolModel = "gpt-image-2.5"
+const legacyImagesToolModel = "gpt-image-2"
 const imagesGenerationsPath = "/v1/images/generations"
 const imagesEditsPath = "/v1/images/edits"
 const anthropicMessagesPath = "/v1/messages"
@@ -92,6 +93,7 @@ type manifest struct {
 	APIKeys                    []apiKeySpec        `json:"apiKeys"`
 	Accounts                   []accountSpec       `json:"accounts"`
 	ModelIDs                   []string            `json:"modelIds"`
+	ImageGenerationModel       string              `json:"imageGenerationModel"`
 	ModelAliases               []modelAliasSpec    `json:"modelAliases"`
 	ExcludedModels             []string            `json:"excludedModels"`
 	AccountModelRules          []accountModelRule  `json:"accountModelRules"`
@@ -879,12 +881,26 @@ func loadManifest(path string) (*manifest, error) {
 		m.aliasToSource[strings.ToLower(name)] = source
 	}
 	m.ModelIDs = normalizeStringList(m.ModelIDs)
+	m.ImageGenerationModel = strings.TrimSpace(m.ImageGenerationModel)
+	if m.ImageGenerationModel == "" {
+		m.ImageGenerationModel = defaultImagesToolModel
+	}
 	m.ExcludedModels = normalizeStringList(m.ExcludedModels)
 	for index := range m.AccountModelRules {
 		m.AccountModelRules[index].AccountID = strings.TrimSpace(m.AccountModelRules[index].AccountID)
 		m.AccountModelRules[index].ExcludedModels = normalizeStringList(m.AccountModelRules[index].ExcludedModels)
 	}
 	return &m, nil
+}
+
+func configuredImagesToolModel(m *manifest) string {
+	if m == nil {
+		return defaultImagesToolModel
+	}
+	if model := strings.TrimSpace(m.ImageGenerationModel); model != "" {
+		return model
+	}
+	return defaultImagesToolModel
 }
 
 func normalizeProviderGatewaySpec(gateway *providerGatewaySpec) bool {
@@ -1609,20 +1625,28 @@ func buildCodexClientModelsResponse(models []string, spec *apiKeySpec, windows m
 	if data, ok := response["models"].([]map[string]any); ok {
 		hydrateCodexCompatibilityModels(data)
 		// Only declared routes to a known GPT template inherit capabilities.
-		var catalog struct { Models []map[string]any `json:"models"` }
+		var catalog struct {
+			Models []map[string]any `json:"models"`
+		}
 		_ = json.Unmarshal(registry.GetCodexClientModelsJSON(), &catalog)
 		for _, model := range data {
 			slug, _ := model["slug"].(string)
 			_, upstream, status := resolveModelRouting(spec, slug)
-			if status != "matched" || !strings.HasPrefix(upstream, "gpt-") { continue }
+			if status != "matched" || !strings.HasPrefix(upstream, "gpt-") {
+				continue
+			}
 			for _, template := range catalog.Models {
-				if template["slug"] != upstream { continue }
+				if template["slug"] != upstream {
+					continue
+				}
 				for _, field := range []string{
 					"supported_reasoning_levels", "default_reasoning_level",
 					"service_tiers", "additional_speed_tiers",
 					"context_window", "max_context_window",
 				} {
-					if value, exists := template[field]; exists { model[field] = value }
+					if value, exists := template[field]; exists {
+						model[field] = value
+					}
 				}
 				break
 			}
@@ -1758,6 +1782,8 @@ func displayNameForModel(model string) string {
 		return "GPT-5.1 Codex Mini"
 	case "gpt-image-2":
 		return "GPT Image 2"
+	case defaultImagesToolModel:
+		return "GPT Image 2.5"
 	case codexAutoReviewModel:
 		return "Codex Auto Review"
 	default:
@@ -1767,7 +1793,7 @@ func displayNameForModel(model string) string {
 
 func isHiddenCodexClientModel(model string) bool {
 	switch model {
-	case codexAutoReviewModel, "gpt-image-2", "grok-imagine-image", "grok-imagine-video", "grok-imagine-image-quality":
+	case codexAutoReviewModel, legacyImagesToolModel, defaultImagesToolModel, "grok-imagine-image", "grok-imagine-video", "grok-imagine-image-quality":
 		return true
 	default:
 		return false
@@ -2267,7 +2293,8 @@ func validateClientModelVisible(m *manifest, spec *apiKeySpec, model, canonical 
 		return false
 	}
 	visible := visibleModelsForAPIKey(m, nil)
-	visibleMatch := false
+	visibleMatch := strings.EqualFold(withoutPrefix, configuredImagesToolModel(m)) ||
+		strings.EqualFold(canonical, configuredImagesToolModel(m))
 	for _, item := range visible {
 		if strings.EqualFold(item, withoutPrefix) || strings.EqualFold(item, canonical) || strings.EqualFold(resolveSupportedModelAlias(m, item), canonical) {
 			visibleMatch = true

@@ -4101,6 +4101,11 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
             .updateCodexLocalAccessDebugLogs(debugLogs)
             .then(setState)
         }
+        onUpdateImageGenerationModel={(model) =>
+          codexLocalAccessService
+            .updateCodexLocalAccessImageGenerationModel(model)
+            .then(setState)
+        }
         onUpdateUpstreamProxyConfig={(url) =>
           codexLocalAccessService
             .updateCodexLocalAccessUpstreamProxyConfig(url)

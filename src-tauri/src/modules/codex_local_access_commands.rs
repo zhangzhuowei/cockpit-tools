@@ -10,6 +10,7 @@ fn new_local_access_collection() -> Result<CodexLocalAccessCollection, String> {
         access_scope: CodexLocalAccessScope::Localhost,
         client_base_url_host: CodexLocalAccessClientBaseUrlHost::default(),
         image_generation_mode: CodexLocalAccessImageGenerationMode::default(),
+        image_generation_model: DEFAULT_CODEX_IMAGE_GENERATION_MODEL.to_string(),
         image_generation_account_policies: HashMap::new(),
         gateway_mode: CodexLocalAccessGatewayMode::default(),
         upstream_proxy_url: None,
@@ -732,6 +733,41 @@ pub async fn update_local_access_debug_logs(
         sync_runtime_collection(&mut runtime, collection);
     }
 
+    ensure_gateway_matches_runtime().await?;
+    snapshot_state().await
+}
+
+pub async fn update_local_access_image_generation_model(
+    image_generation_model: String,
+) -> Result<CodexLocalAccessState, String> {
+    let normalized_model = image_generation_model.trim().to_string();
+    if normalized_model.is_empty() {
+        return Err("codex.localAccess.imageGenerationModel.required".to_string());
+    }
+    if normalized_model.chars().count() > 200 {
+        return Err("codex.localAccess.imageGenerationModel.tooLong".to_string());
+    }
+    ensure_runtime_loaded().await?;
+
+    let maybe_collection = {
+        let runtime = gateway_runtime().lock().await;
+        runtime.collection.clone()
+    };
+    let Some(mut collection) = maybe_collection else {
+        return Err("本地接入集合尚未创建".to_string());
+    };
+    if collection.image_generation_model != normalized_model {
+        collection.image_generation_model = normalized_model;
+        collection.updated_at = now_ms();
+        let collection_to_save = collection.clone();
+        tauri::async_runtime::spawn_blocking(move || save_collection_to_disk(&collection_to_save))
+            .await
+            .map_err(|error| format!("保存生图模型配置任务失败: {}", error))??;
+        {
+            let mut runtime = gateway_runtime().lock().await;
+            sync_runtime_collection(&mut runtime, collection);
+        }
+    }
     ensure_gateway_matches_runtime().await?;
     snapshot_state().await
 }

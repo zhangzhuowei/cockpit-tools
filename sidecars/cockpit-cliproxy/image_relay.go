@@ -99,6 +99,10 @@ func (a *imageSSEAccumulator) Flush() [][]byte {
 }
 
 func buildImageGenerationRelayRequest(rawJSON []byte) (imageRelayRequest, error) {
+	return buildImageGenerationRelayRequestWithModel(rawJSON, defaultImagesToolModel)
+}
+
+func buildImageGenerationRelayRequestWithModel(rawJSON []byte, imageToolModel string) (imageRelayRequest, error) {
 	if !json.Valid(rawJSON) {
 		return imageRelayRequest{}, fmt.Errorf("body must be valid JSON")
 	}
@@ -110,7 +114,7 @@ func buildImageGenerationRelayRequest(rawJSON []byte) (imageRelayRequest, error)
 	if prompt == "" {
 		return imageRelayRequest{}, fmt.Errorf("prompt is required")
 	}
-	tool, err := buildImageTool(payload, "generate")
+	tool, err := buildImageToolWithModel(payload, "generate", imageToolModel)
 	if err != nil {
 		return imageRelayRequest{}, err
 	}
@@ -128,9 +132,13 @@ func buildImageGenerationRelayRequest(rawJSON []byte) (imageRelayRequest, error)
 }
 
 func buildImageEditRelayRequest(c *gin.Context) (imageRelayRequest, error) {
+	return buildImageEditRelayRequestWithModel(c, defaultImagesToolModel)
+}
+
+func buildImageEditRelayRequestWithModel(c *gin.Context, imageToolModel string) (imageRelayRequest, error) {
 	contentType := strings.ToLower(strings.TrimSpace(c.GetHeader("Content-Type")))
 	if strings.HasPrefix(contentType, "multipart/form-data") || contentType == "" {
-		return buildImageEditRelayRequestFromMultipart(c)
+		return buildImageEditRelayRequestFromMultipartWithModel(c, imageToolModel)
 	}
 	if !strings.HasPrefix(contentType, "application/json") {
 		return imageRelayRequest{}, fmt.Errorf("unsupported Content-Type %q", contentType)
@@ -154,7 +162,7 @@ func buildImageEditRelayRequest(c *gin.Context) (imageRelayRequest, error) {
 	if len(images) == 0 {
 		return imageRelayRequest{}, fmt.Errorf("images[].image_url is required")
 	}
-	tool, err := buildImageTool(payload, "edit")
+	tool, err := buildImageToolWithModel(payload, "edit", imageToolModel)
 	if err != nil {
 		return imageRelayRequest{}, err
 	}
@@ -177,6 +185,10 @@ func buildImageEditRelayRequest(c *gin.Context) (imageRelayRequest, error) {
 }
 
 func buildImageEditRelayRequestFromMultipart(c *gin.Context) (imageRelayRequest, error) {
+	return buildImageEditRelayRequestFromMultipartWithModel(c, defaultImagesToolModel)
+}
+
+func buildImageEditRelayRequestFromMultipartWithModel(c *gin.Context, imageToolModel string) (imageRelayRequest, error) {
 	form, err := c.MultipartForm()
 	if err != nil {
 		return imageRelayRequest{}, err
@@ -213,7 +225,7 @@ func buildImageEditRelayRequestFromMultipart(c *gin.Context) (imageRelayRequest,
 		}
 		images = append(images, dataURL)
 	}
-	tool, err := buildImageTool(payload, "edit")
+	tool, err := buildImageToolWithModel(payload, "edit", imageToolModel)
 	if err != nil {
 		return imageRelayRequest{}, err
 	}
@@ -477,14 +489,22 @@ func imageModelOrDefault(payload map[string]any) string {
 }
 
 func buildImageTool(payload map[string]any, action string) (map[string]any, error) {
+	return buildImageToolWithModel(payload, action, defaultImagesToolModel)
+}
+
+func buildImageToolWithModel(payload map[string]any, action string, imageToolModel string) (map[string]any, error) {
 	model := imageModelOrDefault(payload)
-	if modelBase(model) != defaultImagesToolModel {
+	if strings.TrimSpace(imageToolModel) == "" {
+		imageToolModel = defaultImagesToolModel
+	}
+	if modelBase(model) != defaultImagesToolModel && modelBase(model) != legacyImagesToolModel &&
+		modelBase(model) != modelBase(imageToolModel) {
 		return nil, fmt.Errorf("model %s is not supported on %s or %s. Use %s.", model, imagesGenerationsPath, imagesEditsPath, defaultImagesToolModel)
 	}
 	tool := map[string]any{
 		"type":   "image_generation",
 		"action": action,
-		"model":  defaultImagesToolModel,
+		"model":  imageToolModel,
 	}
 	for _, key := range []string{"size", "quality", "background", "output_format", "moderation"} {
 		if value := stringField(payload, key); value != "" {

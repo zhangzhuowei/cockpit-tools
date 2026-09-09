@@ -74,6 +74,7 @@ import {
   type MultiSelectFilterOption,
 } from "./MultiSelectFilterDropdown";
 import { SingleSelectDropdown } from "./SingleSelectDropdown";
+import { CodexImageModelConfig } from "./CodexImageModelConfig";
 import { PaginationControls } from "./PaginationControls";
 import { CodexStatsRangePicker } from "./CodexStatsRangePicker";
 import { queryCodexLocalAccessStats } from "../services/codexLocalAccessService";
@@ -154,6 +155,7 @@ interface CodexLocalAccessModalProps {
     upstreamProxyUrl: string | null,
   ) => Promise<unknown> | unknown;
   onUpdateDebugLogs: (debugLogs: boolean) => Promise<unknown> | unknown;
+  onUpdateImageGenerationModel: (model: string) => Promise<unknown> | unknown;
   onRotateApiKey: () => Promise<unknown> | unknown;
   onRestartSidecar: () => Promise<unknown> | unknown;
   onKillPort: () => Promise<unknown> | unknown;
@@ -355,6 +357,7 @@ export function CodexLocalAccessModal({
   onUpdateAccessScope,
   onUpdateUpstreamProxyConfig,
   onUpdateDebugLogs,
+  onUpdateImageGenerationModel,
   onRotateApiKey,
   onRestartSidecar,
   onKillPort,
@@ -2895,6 +2898,14 @@ export function CodexLocalAccessModal({
                             />
                           </div>
                         </div>
+                      ) : null}
+
+                      {collection ? (
+                        <CodexImageModelConfig
+                          model={collection.imageGenerationModel}
+                          disabled={saving || testing || starting}
+                          onSave={onUpdateImageGenerationModel}
+                        />
                       ) : null}
                     </div>
                   ) : null}

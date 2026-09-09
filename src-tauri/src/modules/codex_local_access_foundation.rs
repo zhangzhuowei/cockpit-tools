@@ -11,6 +11,7 @@ use crate::models::codex_local_access::{
     CodexLocalAccessApiKeyStats, CodexLocalAccessAppendAccountSkipped,
     CodexLocalAccessAppendAccountsResult, CodexLocalAccessChatMessage, CodexLocalAccessChatResult,
     CodexLocalAccessClientBaseUrlHost, CodexLocalAccessCollection,
+    DEFAULT_CODEX_IMAGE_GENERATION_MODEL,
     CodexLocalAccessCustomRoutingRule, CodexLocalAccessGatewayMode,
     CodexLocalAccessImageGenerationMode, CodexLocalAccessImageGenerationPolicy,
     CodexLocalAccessImageGenerationStatus, CodexLocalAccessModelAlias,
@@ -231,10 +232,11 @@ const CODEX_OFFICIAL_EMPTY_HEADERS: &[&str] = &[
 ];
 const LEGACY_DEFAULT_CODEX_MODELS: &[&str] = &["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"];
 const COMPATIBILITY_CODEX_MODELS: &[&str] = &["gpt-5.3-codex", "gpt-5.3-codex-spark"];
-const CODEX_IMAGE_MODEL_ID: &str = "gpt-image-2";
+const CODEX_IMAGE_MODEL_ID: &str = "gpt-image-2.5";
+const LEGACY_CODEX_IMAGE_MODEL_ID: &str = "gpt-image-2";
 const CODEX_GPT_RESERVE_MODEL_ID: &str = "gpt-reserve";
 const CODEX_AUTO_REVIEW_MODEL_ID: &str = "codex-auto-review";
-const DEFAULT_IMAGES_MAIN_MODEL: &str = "gpt-5.4-mini";
+const DEFAULT_IMAGES_MAIN_MODEL: &str = "gpt-5.5";
 const MAX_MODEL_PRICE_USD_PER_MILLION: f64 = 1_000_000.0;
 const CODEX_LOCAL_ACCESS_LONG_CONTEXT_THRESHOLD_TOKENS: u64 = 272_000;
 /// Long-context input multiplier (OpenAI above-272k rates).
@@ -2423,9 +2425,20 @@ fn apply_codex_image_model_visibility(
     {
         model_ids.push(CODEX_IMAGE_MODEL_ID.to_string());
     }
+    if image_allowed
+        && !model_ids
+            .iter()
+            .any(|model| model.eq_ignore_ascii_case(LEGACY_CODEX_IMAGE_MODEL_ID))
+    {
+        model_ids.push(LEGACY_CODEX_IMAGE_MODEL_ID.to_string());
+    }
     model_ids
         .into_iter()
-        .filter(|model| image_allowed || !model.eq_ignore_ascii_case(CODEX_IMAGE_MODEL_ID))
+        .filter(|model| {
+            image_allowed
+                || (!model.eq_ignore_ascii_case(CODEX_IMAGE_MODEL_ID)
+                    && !model.eq_ignore_ascii_case(LEGACY_CODEX_IMAGE_MODEL_ID))
+        })
         .collect()
 }
 
@@ -3211,8 +3224,11 @@ fn normalize_image_response_format(value: Option<&Value>) -> String {
 fn validate_image_model(model: &str) -> Result<String, String> {
     let trimmed = model.trim();
     let base_model = normalize_image_model_base(trimmed);
-    if base_model == CODEX_IMAGE_MODEL_ID {
+    if base_model.eq_ignore_ascii_case(CODEX_IMAGE_MODEL_ID) {
         return Ok(CODEX_IMAGE_MODEL_ID.to_string());
+    }
+    if base_model.eq_ignore_ascii_case(LEGACY_CODEX_IMAGE_MODEL_ID) {
+        return Ok(LEGACY_CODEX_IMAGE_MODEL_ID.to_string());
     }
 
     Err(format!(

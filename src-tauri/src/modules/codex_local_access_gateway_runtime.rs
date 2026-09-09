@@ -1282,6 +1282,7 @@ fn new_empty_local_access_collection() -> Result<CodexLocalAccessCollection, Str
         access_scope: CodexLocalAccessScope::Localhost,
         client_base_url_host: CodexLocalAccessClientBaseUrlHost::default(),
         image_generation_mode: CodexLocalAccessImageGenerationMode::default(),
+        image_generation_model: DEFAULT_CODEX_IMAGE_GENERATION_MODEL.to_string(),
         image_generation_account_policies: HashMap::new(),
         gateway_mode: CodexLocalAccessGatewayMode::default(),
         upstream_proxy_url: None,

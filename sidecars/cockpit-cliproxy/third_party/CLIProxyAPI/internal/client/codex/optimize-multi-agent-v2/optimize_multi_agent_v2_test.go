@@ -433,6 +433,7 @@ func TestRestoreCodexMultiAgentV2Response(t *testing.T) {
 		}
 	}`)
 	got := RestoreCodexMultiAgentV2Response(payload, true)
+	t.Logf("restored=%s", got)
 	if namespace := gjson.GetBytes(got, "response.output.0.namespace").String(); namespace != codexCollaborationNamespace {
 		t.Fatalf("function namespace = %q, want collaboration", namespace)
 	}
@@ -453,6 +454,17 @@ func TestRestoreCodexMultiAgentV2Response(t *testing.T) {
 	}
 	if unchanged := RestoreCodexMultiAgentV2Response(payload, false); string(unchanged) != string(payload) {
 		t.Fatalf("inactive restore changed payload: %s", unchanged)
+	}
+}
+
+func TestRestoreCodexMultiAgentV2ResponseRestoresDottedToolName(t *testing.T) {
+	payload := []byte(`{"type":"response.completed","response":{"output":[{"type":"custom_tool_call","name":"collaboration-optimize.send_message","input":"{}"}]}}`)
+	got := RestoreCodexMultiAgentV2Response(payload, true)
+	if name := gjson.GetBytes(got, "response.output.0.name").String(); name != "send_message" {
+		t.Fatalf("dotted collaboration tool name = %q, want send_message", name)
+	}
+	if namespace := gjson.GetBytes(got, "response.output.0.namespace").String(); namespace != "collaboration" {
+		t.Fatalf("dotted collaboration namespace = %q, want collaboration", namespace)
 	}
 }
 

@@ -120,6 +120,7 @@ export interface CodexLocalAccessCollection {
   accessScope: CodexLocalAccessScope;
   clientBaseUrlHost: CodexLocalAccessClientBaseUrlHost;
   imageGenerationMode: CodexLocalAccessImageGenerationMode;
+  imageGenerationModel: string;
   imageGenerationAccountPolicies: Record<
     string,
     CodexLocalAccessImageGenerationPolicy

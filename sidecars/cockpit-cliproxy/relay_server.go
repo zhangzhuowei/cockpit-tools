@@ -891,7 +891,7 @@ func (s *relayServer) handleImagesGenerations(c *gin.Context) {
 		writeAPIError(c, http.StatusBadRequest, "failed to read request body", "invalid_request")
 		return
 	}
-	imageReq, err := buildImageGenerationRelayRequest(rawJSON)
+	imageReq, err := buildImageGenerationRelayRequestWithModel(rawJSON, configuredImagesToolModel(s.manifest))
 	if err != nil {
 		writeAPIError(c, http.StatusBadRequest, err.Error(), "invalid_request")
 		return
@@ -903,7 +903,7 @@ func (s *relayServer) handleImagesEdits(c *gin.Context) {
 	if _, ok := s.requireAPIKey(c); !ok {
 		return
 	}
-	imageReq, err := buildImageEditRelayRequest(c)
+	imageReq, err := buildImageEditRelayRequestWithModel(c, configuredImagesToolModel(s.manifest))
 	if err != nil {
 		writeAPIError(c, http.StatusBadRequest, err.Error(), "invalid_request")
 		return

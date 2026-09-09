@@ -608,6 +608,20 @@ pub fn run() {
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![
+            commands::codex_pelican::codex_pelican_start,
+            commands::codex_pelican::codex_pelican_retry,
+            commands::codex_pelican::codex_pelican_active,
+            commands::codex_pelican::codex_pelican_get,
+            commands::codex_pelican::codex_pelican_history,
+            commands::codex_pelican::codex_pelican_retention_settings,
+            commands::codex_pelican::codex_pelican_update_retention_days,
+            commands::codex_pelican::codex_pelican_cleanup_expired,
+            commands::codex_pelican::codex_pelican_clear_all,
+            commands::codex_pelican::codex_pelican_cancel,
+            commands::codex_pelican::codex_pelican_dismiss,
+            commands::codex_pelican::codex_pelican_artifact,
+            commands::codex_pelican::codex_pelican_delete,
+            modules::codex_pelican_preview::codex_pelican_preview,
             // Account Commands
             commands::account::list_accounts,
             commands::account::add_account,
@@ -939,6 +953,7 @@ pub fn run() {
             commands::codex::codex_local_access_update_upstream_proxy_config,
             commands::codex::codex_local_access_update_gateway_mode,
             commands::codex::codex_local_access_update_debug_logs,
+            commands::codex::codex_local_access_update_image_generation_model,
             commands::codex::codex_local_access_update_access_scope,
             commands::codex::codex_local_access_update_client_base_url_host,
             commands::codex::codex_local_access_create_api_key,

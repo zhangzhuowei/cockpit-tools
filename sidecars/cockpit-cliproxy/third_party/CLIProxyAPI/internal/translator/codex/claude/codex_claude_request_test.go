@@ -103,6 +103,19 @@ func TestConvertClaudeRequestToCodex_SystemMessageScenarios(t *testing.T) {
 	}
 }
 
+func TestNormalizeToolParametersStripsSchemaDialectKeywords(t *testing.T) {
+	input := `{"type":"object","$schema":"http://json-schema.org/draft-07/schema#","properties":{"query":{"type":"string","$id":"query"},"config":{"type":"object","default":{"$id":"literal"}}},"$defs":{"hint":{"type":"string","$id":"hint"}}}`
+	got := gjson.Parse(normalizeToolParameters(input))
+	for _, path := range []string{"$schema", "properties.query.$id", "$defs.hint.$id"} {
+		if got.Get(path).Exists() {
+			t.Fatalf("schema dialect keyword %s was not removed: %s", path, got.Raw)
+		}
+	}
+	if got.Get("properties.config.default.$id").String() != "literal" {
+		t.Fatalf("literal default $id was changed: %s", got.Raw)
+	}
+}
+
 func TestConvertClaudeRequestToCodex_MessageSystemRoleWrapsAsUserReminder(t *testing.T) {
 	inputJSON := `{
 		"model": "claude-3-opus",

@@ -429,6 +429,7 @@ fn build_codex_client_model(model_id: &str, index: usize) -> Value {
         model_id,
         CODEX_AUTO_REVIEW_MODEL_ID
             | "gpt-image-2"
+            | "gpt-image-2.5"
             | "grok-imagine-image"
             | "grok-imagine-video"
             | "grok-imagine-image-quality"
@@ -585,6 +586,7 @@ fn display_name_for_model(model_id: &str) -> String {
         "gpt-5.1-codex-max" => "GPT-5.1 Codex Max".to_string(),
         "gpt-5.1-codex-mini" => "GPT-5.1 Codex Mini".to_string(),
         "gpt-image-2" => "GPT Image 2".to_string(),
+        "gpt-image-2.5" => "GPT Image 2.5".to_string(),
         CODEX_AUTO_REVIEW_MODEL_ID => "Codex Auto Review".to_string(),
         other => other.to_string(),
     }

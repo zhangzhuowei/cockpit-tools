@@ -5,6 +5,12 @@
   backdrop-filter: blur(12px) saturate(110%);
 }
 
+.codex-launch-preview-image-model .codex-local-access-config-card {
+  width: 100%;
+  min-width: 0;
+  background: var(--bg-card);
+}
+
 .codex-launch-preview-refresh-overlay {
   z-index: 10040;
   padding: 24px;

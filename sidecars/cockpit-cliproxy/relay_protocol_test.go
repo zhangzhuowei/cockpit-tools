@@ -683,7 +683,9 @@ func TestRelayServerMixedRoutingNamespacedModelsUseProviderAndStripPrefix(t *tes
 			t.Fatalf("%s should strip namespace before upstream: %s", tc.clientModel, upstreamBody)
 		}
 		var forwarded map[string]any
-		if err := json.Unmarshal([]byte(upstreamBody), &forwarded); err != nil { t.Fatal(err) }
+		if err := json.Unmarshal([]byte(upstreamBody), &forwarded); err != nil {
+			t.Fatal(err)
+		}
 		if forwarded["service_tier"] != "priority" || forwarded["reasoning"].(map[string]any)["effort"] != "ultra" {
 			t.Fatalf("routing dropped requested capabilities: %s", upstreamBody)
 		}
@@ -1404,7 +1406,7 @@ data: {"type":"response.completed","response":{"created_at":1710000000,"output":
 			Chunks:  stream,
 		},
 	}
-	router := testRelayRouter(runtime)
+	router := testRelayRouterWithImageModel(runtime, "custom-image-model")
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations", strings.NewReader(`{"model":"gpt-image-2","prompt":"draw","response_format":"b64_json"}`))
 	req.Header.Set("Authorization", "Bearer client-key")
@@ -1421,6 +1423,15 @@ data: {"type":"response.completed","response":{"created_at":1710000000,"output":
 	if runtime.lastReq.Model != defaultImagesMainModel {
 		t.Fatalf("image endpoint should execute via main model, got %q", runtime.lastReq.Model)
 	}
+	var forwarded map[string]any
+	if err := json.Unmarshal(runtime.lastReq.Payload, &forwarded); err != nil {
+		t.Fatalf("forwarded image request should be json: %v", err)
+	}
+	tools, _ := forwarded["tools"].([]any)
+	tool, _ := tools[0].(map[string]any)
+	if tool["model"] != "custom-image-model" {
+		t.Fatalf("configured image model was not forwarded: %#v", tool)
+	}
 	var body map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatalf("response should be json: %v body=%s", err, w.Body.String())
@@ -1432,6 +1443,20 @@ data: {"type":"response.completed","response":{"created_at":1710000000,"output":
 	first, _ := data[0].(map[string]any)
 	if first["b64_json"] != "ZmFrZS1wbmc=" {
 		t.Fatalf("unexpected image payload: %#v", body)
+	}
+}
+
+func TestBuildImageToolUsesConfiguredModel(t *testing.T) {
+	tool, err := buildImageToolWithModel(
+		map[string]any{"model": "gpt-image-2", "prompt": "draw"},
+		"generate",
+		"custom-image-model",
+	)
+	if err != nil {
+		t.Fatalf("build image tool: %v", err)
+	}
+	if got := tool["model"]; got != "custom-image-model" {
+		t.Fatalf("configured image model = %#v, want custom-image-model", got)
 	}
 }
 
@@ -1707,9 +1732,14 @@ func TestRelayServerHandlesCORSPreflight(t *testing.T) {
 }
 
 func testRelayRouter(runtime executorRuntime) *gin.Engine {
+	return testRelayRouterWithImageModel(runtime, "")
+}
+
+func testRelayRouterWithImageModel(runtime executorRuntime, imageModel string) *gin.Engine {
 	m := &manifest{
-		APIKeys:  []apiKeySpec{{ID: "key_1", Label: "Test key", Key: "client-key", Enabled: true}},
-		ModelIDs: []string{"gpt-5.5", "gpt-image-2"},
+		APIKeys:              []apiKeySpec{{ID: "key_1", Label: "Test key", Key: "client-key", Enabled: true}},
+		ModelIDs:             []string{"gpt-5.5", "gpt-image-2"},
+		ImageGenerationModel: imageModel,
 		apiKeyByValue: map[string]*apiKeySpec{
 			"client-key": {ID: "key_1", Label: "Test key", Key: "client-key", Enabled: true},
 		},
@@ -1928,7 +1958,7 @@ func TestMixedRoutingRealtimeRoutesIgnoreResponsesWebsocketFlag(t *testing.T) {
 	spec := &apiKeySpec{
 		ID: "mixed-voice", Key: "mixed-voice-key", Enabled: true,
 		BoundOAuth: true, ResponsesWebsockets: false,
-		ModelRouting: &modelRoutingSpec{DefaultRoute: "oauth", FailurePolicy: "strict"},
+		ModelRouting:  &modelRoutingSpec{DefaultRoute: "oauth", FailurePolicy: "strict"},
 		AllowedModels: []string{"gpt-6-astra"},
 	}
 	m := &manifest{
@@ -1937,7 +1967,7 @@ func TestMixedRoutingRealtimeRoutesIgnoreResponsesWebsocketFlag(t *testing.T) {
 	}
 	router := (&relayServer{
 		manifest: m,
-		policy: &requestPolicy{manifest: m, tokenLimiter: newAPIKeyTokenLimiter(m)},
+		policy:   &requestPolicy{manifest: m, tokenLimiter: newAPIKeyTokenLimiter(m)},
 	}).router()
 	for _, endpoint := range []struct{ method, path string }{
 		{http.MethodPost, "/v1/realtime/calls"},

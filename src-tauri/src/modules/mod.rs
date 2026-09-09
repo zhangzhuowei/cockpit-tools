@@ -30,6 +30,8 @@ pub mod codex_config_format;
 pub mod codex_instance;
 pub mod codex_local_access;
 pub mod codex_oauth;
+pub mod codex_pelican;
+pub mod codex_pelican_preview;
 pub mod codex_official_app_server;
 pub mod codex_protocol;
 pub mod codex_quota;

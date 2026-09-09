@@ -1,4 +1,4 @@
-import { Fragment } from "react";
+import { Fragment, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Plus, RefreshCw, Download, Upload, Trash2, X, Globe, KeyRound, Power, Copy, Check, Play, Pause, RotateCw, CircleAlert, Info, Rows3, LayoutGrid, List, Search, ArrowDownWideNarrow, ArrowUp, ArrowDown, GripVertical, Clock, Tag, Star, Eye, EyeOff, BookOpen, FileText, ExternalLink, Pencil, FolderOpen, FolderPlus, ChevronRight, LogOut, Terminal, ChevronDown } from "lucide-react";
 import * as codexLocalAccessService from "../services/codexLocalAccessService";
@@ -26,6 +26,8 @@ import type { CodexExportFormat } from "../utils/codexExportFormats";
 import type { CodexAccountsViewProps } from "./CodexAccountsView";
 import { CodexAddAccountDialog } from "./CodexAddAccountDialog";
 import { parseCodexSwitchAuthFailure } from "../utils/codexSwitchAuthFailure";
+import { useCodexPelicanStore } from "../stores/useCodexPelicanStore";
+import { PELICAN_GROUPS_CHANGED } from "../components/codex/pelican/PelicanResults";
 
 
 /** 渲染 CodexAccountsView 的 activeTab === "overview" 业务面板。 */
@@ -385,6 +387,11 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
     validateOAuthBindingQuotaReserveField,
     viewMode,
   } = props;
+  useEffect(() => {
+    const reload = () => { void reloadCodexGroups(); };
+    window.addEventListener(PELICAN_GROUPS_CHANGED, reload);
+    return () => window.removeEventListener(PELICAN_GROUPS_CHANGED, reload);
+  }, [reloadCodexGroups]);
   return (
         <>
           {message && (
@@ -810,6 +817,9 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
                     authFailedExportAccountIds.length > 0 ||
                     hasDetectableFullQuotaWakeupAccounts) && (
                     <div className="codex-overview-selection-actions">
+                      <button type="button" className="btn btn-secondary" onClick={() => useCodexPelicanStore.getState().open([...selected])}>
+                        <Play size={14} /><span>{t('pelican.title')}</span>
+                      </button>
                       <button
                         type="button"
                         className="btn btn-secondary codex-overview-full-quota-wakeup-btn"
@@ -4160,6 +4170,11 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
             onUpdateDebugLogs={(debugLogs) =>
               codexLocalAccessService
                 .updateCodexLocalAccessDebugLogs(debugLogs)
+                .then(setLocalAccessState)
+            }
+            onUpdateImageGenerationModel={(model) =>
+              codexLocalAccessService
+                .updateCodexLocalAccessImageGenerationModel(model)
                 .then(setLocalAccessState)
             }
             onUpdateUpstreamProxyConfig={

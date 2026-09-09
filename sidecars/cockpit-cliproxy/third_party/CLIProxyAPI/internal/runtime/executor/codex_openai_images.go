@@ -34,7 +34,8 @@ const (
 	codexDirectImagesGenerations = "/images/generations"
 	codexDirectImagesEdit        = "/images/edits"
 	codexGPTImage15Model         = "gpt-image-1.5"
-	codexOpenAIImagesMainModel   = "gpt-5.4-mini"
+	codexLegacyImageToolModel    = "gpt-image-2"
+	codexOpenAIImagesMainModel   = "gpt-5.5"
 )
 
 type codexOpenAIImagePreparedRequest struct {
@@ -660,7 +661,7 @@ func codexOpenAIImageBaseModel(model string) string {
 
 func codexIsDirectOpenAIImageModel(model string) bool {
 	switch strings.ToLower(strings.TrimSpace(model)) {
-	case codexGPTImage15Model, codexDefaultImageToolModel:
+	case codexGPTImage15Model, codexLegacyImageToolModel, codexDefaultImageToolModel:
 		return true
 	default:
 		return false

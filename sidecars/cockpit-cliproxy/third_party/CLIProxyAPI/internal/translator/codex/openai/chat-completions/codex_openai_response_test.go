@@ -637,3 +637,18 @@ func TestConvertCodexResponseToOpenAI_NonStreamReasoningSummaryAndContent(t *tes
 		t.Fatalf("expected reasoning_content %q, got %q; payload=%s", "Summary part and Content part", got.String(), string(out))
 	}
 }
+
+func TestConvertCodexResponseToOpenAI_PreservesServiceTierAndCacheWriteTokens(t *testing.T) {
+	ctx := context.Background()
+	raw := []byte(`{"type":"response.completed","response":{"id":"resp_tier","model":"gpt-5.5","service_tier":"priority","usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12,"input_tokens_details":{"cache_write_tokens":7}},"output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}}`)
+	out := ConvertCodexResponseToOpenAINonStream(ctx, "gpt-5.5", nil, nil, raw, nil)
+	if got := gjson.GetBytes(out, "service_tier").String(); got != "priority" {
+		t.Fatalf("service_tier = %q, want priority; payload=%s", got, out)
+	}
+	if got := gjson.GetBytes(out, "usage.prompt_tokens_details.cache_write_tokens").Int(); got != 7 {
+		t.Fatalf("cache_write_tokens = %d, want 7; payload=%s", got, out)
+	}
+	if got := gjson.GetBytes(out, "usage.prompt_tokens_details.cached_creation_tokens").Int(); got != 7 {
+		t.Fatalf("cached_creation_tokens = %d, want 7; payload=%s", got, out)
+	}
+}
