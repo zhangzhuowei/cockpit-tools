@@ -132,18 +132,6 @@
   color: #b45309;
 }
 
-.codex-api-service-pill.mode-sidecar {
-  border-color: color-mix(in srgb, #0891b2 24%, transparent);
-  background: color-mix(in srgb, #0891b2 12%, transparent);
-  color: #0f766e;
-}
-
-.codex-api-service-pill.mode-legacy {
-  border-color: color-mix(in srgb, #6366f1 24%, transparent);
-  background: color-mix(in srgb, #6366f1 12%, transparent);
-  color: #4338ca;
-}
-
 .codex-api-service-status.disabled,
 .codex-api-service-pill.muted {
   border-color: var(--codex-api-border);
@@ -2515,14 +2503,6 @@ html[data-reduced-motion="true"] .codex-api-service-key-advanced-toggle[aria-exp
 [data-theme="dark"] .codex-api-service-message.error,
 [data-theme="dark"] .codex-api-service-pill.error {
   color: #fca5a5;
-}
-
-[data-theme="dark"] .codex-api-service-pill.mode-sidecar {
-  color: #67e8f9;
-}
-
-[data-theme="dark"] .codex-api-service-pill.mode-legacy {
-  color: #c4b5fd;
 }
 
 @media (max-width: 1180px) {

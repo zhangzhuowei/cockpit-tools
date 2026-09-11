@@ -2194,22 +2194,6 @@ pub async fn update_codex_account_tags(
     codex_account::update_account_tags(&account_id, tags)
 }
 
-#[tauri::command]
-pub async fn update_codex_accounts_fingerprint_mode(
-    account_ids: Vec<String>,
-    mode: String,
-) -> Result<Vec<CodexAccount>, String> {
-    codex_account::update_accounts_fingerprint_mode(&account_ids, mode)
-}
-
-#[tauri::command]
-pub async fn update_codex_account_client_policy(
-    account_id: String,
-    codex_cli_only: bool,
-    allow_app_server: bool,
-) -> Result<CodexAccount, String> {
-    codex_account::update_account_client_policy(&account_id, codex_cli_only, allow_app_server)
-}
 
 #[tauri::command]
 pub async fn update_codex_account_instance_access(

@@ -1,9 +1,16 @@
 package executor
 
 import (
+	"context"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
-	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
+	"github.com/gorilla/websocket"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	"github.com/tidwall/gjson"
 )
 
@@ -25,34 +32,95 @@ func TestNormalizeCodexInstructionsUsesModelBaseInstructions(t *testing.T) {
 	}
 }
 
-func TestNormalizeCodexInputNamespacesForOAuth(t *testing.T) {
-	body := []byte(`{"input":[{"type":"function_call","namespace":"functions"},{"type":"custom_tool_call","namespace":"custom"},{"type":"tool_call","namespace":"tool"},{"type":"mcp_tool_call","namespace":"mcp"},{"type":"message","namespace":"stale"},{"type":"reasoning","namespace":"stale"}]}`)
-	got := normalizeCodexInputNamespaces(body, &cliproxyauth.Auth{}, false)
-	items := gjson.GetBytes(got, "input").Array()
-
-	for index := 0; index < 4; index++ {
-		if !items[index].Get("namespace").Exists() {
-			t.Fatalf("call item %d namespace was removed: %s", index, got)
-		}
-	}
-	for index := 4; index < 6; index++ {
-		if items[index].Get("namespace").Exists() {
-			t.Fatalf("non-call item %d namespace was preserved: %s", index, got)
+func TestCodexHTTPAndCompactPreserveReplayNamespaces(t *testing.T) {
+	for _, compact := range []bool{false, true} {
+		for _, apiKey := range []bool{false, true} {
+			t.Run(fmt.Sprintf("compact=%v/api-key=%v", compact, apiKey), func(t *testing.T) {
+				captured := make(chan []byte, 1)
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					body, err := io.ReadAll(r.Body)
+					if err != nil {
+						t.Error(err)
+						return
+					}
+					captured <- body
+					if compact {
+						w.Header().Set("Content-Type", "application/json")
+						_, _ = w.Write([]byte(`{"id":"resp-compact","output":[]}`))
+					} else {
+						w.Header().Set("Content-Type", "text/event-stream")
+						_, _ = fmt.Fprintf(w, "data: %s\n\n", codexCompletedEventBody)
+					}
+				}))
+				defer server.Close()
+				auth := apiServiceTestAuth(server.URL)
+				if apiKey {
+					auth.Attributes["api_key"] = "test"
+				}
+				req, opts := codexTestRequest()
+				req.Payload = namespaceReplayContractPayload()
+				if compact {
+					opts.Alt = "responses/compact"
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				if _, err := NewCodexExecutor(&config.Config{}).Execute(ctx, auth, req, opts); err != nil {
+					t.Fatal(err)
+				}
+				assertNamespaceReplayContract(t, <-captured)
+			})
 		}
 	}
 }
 
-func TestNormalizeCodexInputNamespacesRemovesAllForAPIKeyAndCompact(t *testing.T) {
-	body := []byte(`{"input":[{"type":"function_call","namespace":"functions"},{"type":"message","namespace":"stale"}]}`)
-	apiKeyAuth := &cliproxyauth.Auth{Attributes: map[string]string{"api_key": "test"}}
-	for name, got := range map[string][]byte{
-		"api-key": normalizeCodexInputNamespaces(body, apiKeyAuth, false),
-		"compact": normalizeCodexInputNamespaces(body, &cliproxyauth.Auth{}, true),
-	} {
-		for _, item := range gjson.GetBytes(got, "input").Array() {
-			if item.Get("namespace").Exists() {
-				t.Fatalf("%s request retained namespace: %s", name, got)
+func TestCodexWebsocketPreservesReplayNamespacesForAllAuthKinds(t *testing.T) {
+	for _, apiKey := range []bool{false, true} {
+		captured := make(chan []byte, 1)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
+			if err != nil {
+				t.Error(err)
+				return
 			}
+			defer conn.Close()
+			if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+				t.Error(err)
+				return
+			}
+			_, body, err := conn.ReadMessage()
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			captured <- body
+			_ = conn.WriteMessage(websocket.TextMessage, []byte(codexCompletedEventBody))
+		}))
+		auth := apiServiceTestAuth(server.URL)
+		if apiKey {
+			auth.Attributes["api_key"] = "test"
 		}
+		req, opts := codexTestRequest()
+		req.Payload = namespaceReplayContractPayload()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_, err := NewCodexWebsocketsExecutor(&config.Config{}).Execute(ctx, auth, req, opts)
+		cancel()
+		server.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertNamespaceReplayContract(t, <-captured)
+	}
+}
+
+func namespaceReplayContractPayload() []byte {
+	return []byte(`{"model":"gpt-5.6-terra","input":[{"type":"function_call","call_id":"c1","name":"lookup","namespace":"functions","arguments":"{}"},{"type":"function_call_output","call_id":"c1","output":"ok"},{"type":"message","role":"user","namespace":"client-extension","content":"hello"}]}`)
+}
+
+func assertNamespaceReplayContract(t *testing.T, body []byte) {
+	t.Helper()
+	if gjson.GetBytes(body, "input.0.namespace").String() != "functions" ||
+		gjson.GetBytes(body, "input.2.namespace").String() != "client-extension" ||
+		gjson.GetBytes(body, "input.1.call_id").String() != "c1" {
+		t.Fatalf("replay metadata changed before upstream: %s", body)
 	}
 }

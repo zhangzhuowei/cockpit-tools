@@ -174,11 +174,12 @@ pub struct CodexAccount {
     pub account_note: Option<String>,
     /// Codex OAuth 设备指纹收敛模式。未设置时按 `off` 处理。
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    // Legacy import/export metadata only; never projected into runtime credentials.
     pub codex_fingerprint_mode: Option<String>,
-    /// 仅允许该 OAuth 账号接收官方 Codex 客户端请求。
+    /// 历史备份元数据；不再限制客户端或下发到 sidecar。
     #[serde(default, skip_serializing_if = "is_false")]
     pub codex_cli_only: bool,
-    /// 该账号额外允许 Codex app-server 第三方客户端请求。
+    /// 历史备份元数据；不再作为客户端放行策略。
     #[serde(default, skip_serializing_if = "is_false")]
     pub codex_cli_only_allow_app_server: bool,
     #[serde(

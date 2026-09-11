@@ -76,8 +76,11 @@ export interface CodexAccount {
   account_name?: string;
   account_structure?: string;
   account_note?: string;
+  /** Legacy import/export metadata; no longer changes outgoing requests. */
   codex_fingerprint_mode?: CodexFingerprintMode;
+  /** Legacy backup metadata; no longer restricts clients or reaches the sidecar. */
   codex_cli_only?: boolean;
+  /** Legacy backup metadata; no longer grants client-policy exceptions. */
   codex_cli_only_allow_app_server?: boolean;
   two_factor_secret?: string;
   account_password?: string;

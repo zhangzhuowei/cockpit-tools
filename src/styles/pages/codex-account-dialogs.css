@@ -3339,6 +3339,14 @@
     0 12px 24px -8px rgba(0, 0, 0, 0.06);
 }
 
+/* Codex account dialogs share the provider editor width, including the
+   platform-wide account-add class whose legacy rule is narrower. */
+.modal-content.codex-provider-modal.platform-account-add-modal,
+.modal.codex-provider-modal.platform-account-add-modal {
+  width: min(920px, calc(100vw - 48px));
+  max-width: 920px;
+}
+
 [data-theme="dark"] .codex-provider-modal {
   box-shadow:
     0 24px 64px -8px rgba(2, 6, 23, 0.6),

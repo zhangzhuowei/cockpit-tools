@@ -863,17 +863,10 @@ fn reads_sub2api_codex_fingerprint_mode_from_extra() {
         .as_deref(),
         Some("session")
     );
+    assert_eq!(super::read_codex_fingerprint_mode(&serde_json::json!({})), None);
     assert_eq!(
-        super::resolved_codex_fingerprint_mode_value(None),
-        "session"
-    );
-    assert_eq!(
-        super::resolved_codex_fingerprint_mode_value(Some("SESSION")),
-        "session"
-    );
-    assert_eq!(
-        super::resolved_codex_fingerprint_mode_value(Some("off")),
-        "off"
+        super::read_codex_fingerprint_mode(&serde_json::json!({"codex_fingerprint_mode":"off"})).as_deref(),
+        Some("off")
     );
 }
 

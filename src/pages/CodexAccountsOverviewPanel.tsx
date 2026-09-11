@@ -2008,7 +2008,7 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
           {editingApiKeyCredentialsId && (
             <div className="modal-overlay">
               <div
-                className="modal-content codex-add-modal codex-api-key-edit-modal"
+                className="modal-content codex-add-modal codex-api-key-edit-modal codex-provider-modal"
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="modal-header">
@@ -2297,6 +2297,36 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
                         />
                       </div>
                     </div>
+                    <div className="oauth-link">
+                      <label>{t("codex.modelProviders.fields.wireApi", "协议")}</label>
+                      <div className="api-provider-chip-list">
+                        <span className={`api-provider-chip ${selectedEditingManagedProvider?.wireApi !== "chat_completions" ? "active" : ""}`}>
+                          {t("codex.modelProviders.wireApi.responses", "Responses 原生")}
+                        </span>
+                        <span className={`api-provider-chip ${selectedEditingManagedProvider?.wireApi === "chat_completions" ? "active" : ""}`}>
+                          {t("codex.modelProviders.wireApi.chatCompletions", "Chat Completions 协议")}
+                        </span>
+                      </div>
+                    </div>
+                    {selectedEditingManagedProvider?.wireApi !== "chat_completions" && (
+                      <div className="oauth-link">
+                        <label>{t("codex.modelProviders.fields.supportsWebsockets", "WebSocket 传输")}</label>
+                        <label className="provider-vision-toggle">
+                          <span className="provider-vision-toggle-copy">
+                            <span className="provider-vision-toggle-title">
+                              {t("codex.modelProviders.websockets.title", "允许 Codex 使用 Responses WebSocket")}
+                            </span>
+                            <span className="provider-vision-toggle-desc">
+                              {t("codex.modelProviders.websockets.help", "仅在供应商明确支持 Responses WebSocket 时开启；连接方式可通过 Codex 或代理服务日志确认。")}
+                            </span>
+                          </span>
+                          <span className="provider-vision-switch">
+                            <input type="checkbox" checked={selectedEditingManagedProvider?.supportsWebsockets === true} readOnly />
+                            <span className="provider-vision-switch-track" />
+                          </span>
+                        </label>
+                      </div>
+                    )}
                     {editingApiProviderPresetId !== COCKPIT_API_PROVIDER_ID && (
                       <div className="oauth-link">
                         <label>

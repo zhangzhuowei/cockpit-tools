@@ -31,11 +31,13 @@ use crate::models::{CodexInstanceApiRoute, CodexInstanceModelRouting};
 use crate::modules::atomic_write::{write_string_atomic, write_string_atomic_if_hash_matches};
 use crate::modules::{
     account, codex_account, codex_agent_identity, codex_oauth, codex_protocol, codex_quota,
-    codex_wakeup, config, logger, process,
+    codex_wakeup, logger, process,
 };
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{Datelike, Duration as ChronoDuration, Local, LocalResult, NaiveDate, TimeZone, Timelike};
-use futures_util::{stream, SinkExt, StreamExt};
+#[cfg(test)]
+use futures_util::SinkExt;
+use futures_util::{stream, StreamExt};
 use rand::{distributions::Alphanumeric, seq::SliceRandom, Rng};
 use reqwest::header::{HeaderName, HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYPE, USER_AGENT};
 use reqwest::{Client, Method, Proxy, StatusCode, Url};
@@ -62,15 +64,23 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::process::{Child, Command as TokioCommand};
 use tokio::sync::{oneshot, watch, Mutex as TokioMutex, Notify};
 use tokio::time::{timeout, Duration};
+#[cfg(test)]
+use tokio_tungstenite::client_async_tls_with_config;
+#[cfg(test)]
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+#[cfg(test)]
 use tokio_tungstenite::tungstenite::handshake::client::Request as WsClientRequest;
+#[cfg(test)]
 use tokio_tungstenite::tungstenite::http::header::{
     HeaderName as WsHeaderName, HeaderValue as WsHeaderValue,
 };
+#[cfg(test)]
 use tokio_tungstenite::tungstenite::protocol::Role;
+#[cfg(test)]
 use tokio_tungstenite::tungstenite::Error as WsError;
+#[cfg(test)]
 use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::{client_async_tls_with_config, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use toml_edit::{value, Document};
 
 const CODEX_LOCAL_ACCESS_FILE: &str = "codex_local_access.json";
@@ -287,7 +297,6 @@ static BOUND_OAUTH_QUOTA_REFRESH_CONTROL: OnceLock<TokioMutex<BoundOauthQuotaRef
 static SIDECAR_AUTO_RESTART_CONTROL: OnceLock<Mutex<SidecarAutoRestartControl>> = OnceLock::new();
 static SIDECAR_CRASH_RECOVERY_CONTROL: OnceLock<Mutex<SidecarAutoRestartControl>> = OnceLock::new();
 static BOUND_OAUTH_QUOTA_MONITOR_STARTED: AtomicBool = AtomicBool::new(false);
-static CODEX_CLIENT_POLICY_SYNC_RUNNING: AtomicBool = AtomicBool::new(false);
 static MODEL_PROVIDER_CHAT_TEST_CANCELLATION: OnceLock<ModelProviderChatTestCancellationState> =
     OnceLock::new();
 
@@ -1451,12 +1460,6 @@ fn account_uses_personal_access_token(account: &CodexAccount) -> bool {
     account_is_access_token_only(account) && account.tokens.access_token.trim().starts_with("at-")
 }
 
-fn account_uses_codex_fingerprint_convergence(account: &CodexAccount) -> bool {
-    !account.is_api_key_auth()
-        && !account.is_agent_identity_auth()
-        && account.token_source_mode.trim() != "chatgpt_web_session"
-        && !account_is_access_token_only(account)
-}
 
 fn prune_prepared_account_cache(runtime: &mut GatewayRuntime, now: i64) {
     let allowed_account_ids = runtime.collection.as_ref().map(|collection| {

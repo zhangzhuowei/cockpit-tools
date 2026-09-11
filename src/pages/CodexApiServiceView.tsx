@@ -21,7 +21,6 @@ import type {
 import "./CodexApiServicePage.css";
 import type {
   CopyField,
-  RequestLogGatewayModeFilter,
   RequestLogKindFilter,
   RequestLogStatusFilter,
   useCodexApiServicePageController,
@@ -85,7 +84,6 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
     formatLatencyMs,
     formatRequestResultDetail,
     formatUsdCost,
-    gatewayModeLabel,
     groups,
     handleActivateService,
     handleApplyAccountModelRuleBulk,
@@ -178,8 +176,6 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
     requestLogError,
     requestLogErrorQuery,
     requestLogEvents,
-    requestLogGatewayModeFilter,
-    requestLogGatewayModeOptions,
     requestLogInstanceOptions,
     requestLogInstanceQuery,
     requestLogKindFilter,
@@ -232,7 +228,6 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
     setRequestLogAccountQuery,
     setRequestLogApiKeyQuery,
     setRequestLogErrorQuery,
-    setRequestLogGatewayModeFilter,
     setRequestLogInstanceQuery,
     setRequestLogKindFilter,
     setRequestLogModelQuery,
@@ -2333,24 +2328,6 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                   </label>
                   <label>
                     <span>
-                      {t("codex.apiService.logs.gatewayModeFilter", "Mode")}
-                    </span>
-                    <SingleSelectDropdown
-                      value={requestLogGatewayModeFilter}
-                      options={requestLogGatewayModeOptions}
-                      onChange={(value) =>
-                        setRequestLogGatewayModeFilter(
-                          value as RequestLogGatewayModeFilter,
-                        )
-                      }
-                      ariaLabel={t(
-                        "codex.apiService.logs.gatewayModeFilter",
-                        "Mode",
-                      )}
-                    />
-                  </label>
-                  <label>
-                    <span>
                       {t("codex.apiService.logs.errorFilter", "Error")}
                     </span>
                     <input
@@ -2439,17 +2416,6 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                               })}
                             </span>
                           ) : null}
-                          <span
-                            className={`codex-api-service-pill ${
-                              event.gatewayMode === "legacy"
-                                ? "mode-legacy"
-                                : event.gatewayMode === "sidecar"
-                                  ? "mode-sidecar"
-                                  : "muted"
-                            }`}
-                          >
-                            {gatewayModeLabel(event.gatewayMode, t)}
-                          </span>
                         </div>
                         <div>
                           <span>{formatDateTime(event.timestamp)}</span>
@@ -2571,7 +2537,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                 <p className="codex-api-service-pricing-desc">
                   {t(
                     "codex.apiService.timeouts.desc",
-                    "单位为秒，保存后会按当前网关模式重启或重载 API 服务。",
+                    "单位为秒，保存后会重启或重载 API 服务。",
                   )}
                 </p>
               </div>
@@ -2671,7 +2637,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
               </section>
               <section className="codex-api-service-timeout-section">
                 <h3>
-                  {t("codex.apiService.timeouts.sidecarTitle", "新 API 服务")}
+                  {t("codex.apiService.timeouts.sidecarTitle", "流式超时")}
                 </h3>
                 <div className="codex-api-service-policy-grid">
                   <label>

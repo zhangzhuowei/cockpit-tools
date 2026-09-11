@@ -6,7 +6,6 @@ import {
   CodexApiProviderMode,
   CodexAppSpeed,
   CodexAppSpeedConfig,
-  CodexFingerprintMode,
   CodexBatchDeleteJobStatus,
   CodexProviderWireApi,
   CodexQuickConfig,
@@ -650,27 +649,6 @@ export async function updateCodexAccountTags(
   return await invoke('update_codex_account_tags', { accountId, tags });
 }
 
-export async function updateCodexAccountsFingerprintMode(
-  accountIds: string[],
-  mode: CodexFingerprintMode,
-): Promise<CodexAccount[]> {
-  return await invoke('update_codex_accounts_fingerprint_mode', {
-    accountIds,
-    mode,
-  });
-}
-
-export async function updateCodexAccountClientPolicy(
-  accountId: string,
-  codexCliOnly: boolean,
-  allowAppServer: boolean,
-): Promise<CodexAccount> {
-  return await invoke('update_codex_account_client_policy', {
-    accountId,
-    codexCliOnly,
-    allowAppServer,
-  });
-}
 
 export async function updateCodexAccountInstanceAccess(
   accountId: string,

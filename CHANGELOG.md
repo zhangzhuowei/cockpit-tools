@@ -9,6 +9,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ---
 ## [Unreleased]
 
+## [1.3.48] - 2026-09-11
+
+### Changed
+
+- **Strengthen cross-platform regression checks and release gates**: PR validation now runs the TypeScript, release-script, Go sidecar, and core Rust regression suites, with platform-specific checks before Windows, Ubuntu x86_64 / ARM64, and macOS Intel / Apple Silicon / Universal builds.
+- **Improve security reporting and code scanning**: replace the placeholder vulnerability guidance with an actionable reporting policy, clarify credential redaction requirements, and include the Go sidecar in CodeQL analysis.
+- **Align release documentation with the actual workflow**: document the current multi-platform assets, Tauri updater signing, target manifests, legacy `latest.json`, `SHA256SUMS.txt`, and Homebrew Cask process.
+- **Improve release state management**: keep releases in draft until all platform assets and verification files are ready, preventing an incomplete latest release from being published after a failed build.
+- **Unify Codex API provider configuration**: API Key accounts now use their saved model provider as the canonical source for endpoints, keys, model catalogs, protocol and Responses WebSocket settings. The API Key editor displays the provider's protocol and WebSocket state, while provider configuration remains managed in the model provider editor. The Add Codex Account and Edit API Key dialogs now match the model provider dialog width.
+- **Make the bundled sidecar the sole production Codex API gateway**: remove the retired in-process legacy gateway and its rejected-field retry path from production, while keeping the shared transport helpers needed by tests. API Service requests now use one consistent routing, account selection, quota handling, and upstream error payload path.
+- **Improve Codex API transport and failover behavior**: Responses streams preserve official nested error details and sequence numbers, handle split CRLF frames, and retain WebSocket prewarm follow-ups and named tool outputs. Capacity and `model_not_found` failures can rotate accounts correctly, permanently rejected OAuth credentials stop retrying, canonical request sessions can populate custom headers, unsupported Unicode regexes are removed from Codex tool schemas, and the `gpt-image-2.5` variants are recognized. Cockpit-specific API-key scoping, instance gateways, Responses Lite, Agent Identity, and the existing `gpt-5.5` / `gpt-image-2.5` image defaults remain unchanged.
+- **Remove legacy Codex fingerprint and client-policy controls**: remove local device/session/full fingerprint rewriting, official-client-only restrictions, third-party-client exceptions, related account settings, and sidecar metadata projection. Legacy fields remain readable for backup/import compatibility; API-key authentication, account scoping, account credentials, Agent Identity compatibility, import/export, and instance-specific gateways remain available.
+- **Keep API Service request logs and timeout settings focused on the single gateway**: remove obsolete New/Old mode labels and filters, and describe the remaining timeout controls as stream timeouts.
+- **Keep startup responsive while persisting platform layouts**: hydrate durable UI preferences in the background, serialize saves, protect newer revisions from stale windows, and show an in-dialog retry action when loading or saving fails. Platform-layout migrations no longer create misleading writes during startup.
+
+### Fixed
+
+- **Preserve Grok CLI accounts during index recovery and listing**: recover missing, empty, or damaged indexes from encrypted account details without deleting accounts, rewriting newer data, or silently dropping unreadable credentials. Recovery runs off the UI thread with single-flight protection and bounded timeouts, and failures retain the original data for retry.
+- **Preserve custom platform ordering across updates**: migrate existing layouts to durable storage, reconcile newer saved layouts without overwriting changes made during startup, and load preferences without blocking the first screen.
+
 ## [1.3.47] - 2026-09-09
 
 ### Added

@@ -511,6 +511,46 @@ export async function listCodexModelProviders(): Promise<CodexModelProvider[]> {
   return ensureProvidersLoaded();
 }
 
+/** Merge API Key accounts into the provider key list without changing provider metadata. */
+export async function mergeCodexModelProviderApiKeysFromAccounts(
+  accounts: CodexAccount[],
+): Promise<CodexModelProvider[]> {
+  const providers = await ensureProvidersLoaded();
+  let changed = false;
+  const now = Date.now();
+
+  for (const provider of providers) {
+    const providerBaseUrl = normalizeCodexModelProviderBaseUrl(provider.baseUrl);
+    const linkedAccounts = accounts.filter((account) => {
+      if ((account.auth_mode ?? '').toLowerCase() !== 'apikey') return false;
+      const accountBaseUrl = normalizeCodexModelProviderBaseUrl(account.api_base_url ?? '');
+      return (
+        (account.api_provider_id?.trim() === provider.id && provider.id.length > 0) ||
+        (providerBaseUrl !== null && accountBaseUrl === providerBaseUrl)
+      );
+    });
+
+    for (const account of linkedAccounts) {
+      const apiKey = sanitizeApiKey(account.openai_api_key ?? '');
+      if (!apiKey || provider.apiKeys.some((item) => sanitizeApiKey(item.apiKey) === apiKey)) {
+        continue;
+      }
+      provider.apiKeys.push({
+        id: createApiKeyId(),
+        name: sanitizeName(account.account_name ?? ''),
+        apiKey,
+        createdAt: now,
+        updatedAt: now,
+      });
+      provider.updatedAt = now;
+      changed = true;
+    }
+  }
+
+  if (changed) await writeProviders(providers);
+  return cloneProviders(providers);
+}
+
 export function invalidateCodexModelProviderCache(): void {
   cachedProviders = null;
 }

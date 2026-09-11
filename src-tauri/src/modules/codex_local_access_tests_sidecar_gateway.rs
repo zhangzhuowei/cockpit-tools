@@ -3325,6 +3325,35 @@ http_headers = { "x-cockpit-instance-id" = "default" }
     }
 
     #[test]
+    fn sidecar_projection_ignores_legacy_fingerprint_without_mutating_account() {
+        for mode in [None, Some("off"), Some("device"), Some("session"), Some("full")] {
+            let mut account = CodexAccount::new(
+                "legacy-fingerprint".into(),
+                "legacy@example.com".into(),
+                CodexTokens {
+                    id_token: String::new(),
+                    access_token: "access-token".into(),
+                    refresh_token: Some("refresh-token".into()),
+                },
+            );
+            account.codex_fingerprint_mode = mode.map(str::to_string);
+            account.codex_cli_only = true;
+            account.codex_cli_only_allow_app_server = true;
+            let collection = test_local_access_collection(vec![account.id.clone()]);
+            let projected = sidecar_auth_json_for_account(&account, &collection, None);
+            assert!(projected.get("codex_fingerprint_mode").is_none());
+            assert!(projected.get("codex_cli_only").is_none());
+            assert!(projected.get("codex_cli_only_allow_app_server").is_none());
+            assert!(projected.get("codex_cli_only_allow_app_server_clients").is_none());
+            assert_eq!(account.codex_fingerprint_mode.as_deref(), mode);
+            assert!(account.codex_cli_only);
+            assert!(account.codex_cli_only_allow_app_server);
+            assert_eq!(account.tokens.refresh_token.as_deref(), Some("refresh-token"));
+            assert_eq!(projected["refresh_owner"], "cockpit_token_authority");
+        }
+    }
+
+    #[test]
     fn provider_gateway_runtime_auth_sync_rewrites_access_token_without_refresh_token() {
         let sidecar_dir = make_temp_dir("codex-provider-runtime-auth-sync");
         let auths_dir = sidecar_auths_dir(&sidecar_dir);

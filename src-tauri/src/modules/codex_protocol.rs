@@ -671,17 +671,9 @@ fn normalize_responses_input_item(item: &mut Value) -> bool {
         return false;
     };
 
-    // Keep call namespaces for the sidecar's provider-specific compatibility
-    // handling, while dropping unsupported namespaces from other replayed items.
-    let preserves_namespace = matches!(
-        obj.get("type").and_then(Value::as_str),
-        Some("function_call" | "custom_tool_call" | "tool_call" | "mcp_tool_call")
-    );
-    let mut changed = if preserves_namespace {
-        false
-    } else {
-        obj.remove("namespace").is_some()
-    };
+    // Leave namespace semantics to the upstream-compatible protocol layer.
+    // The host must not discard replay metadata before provider selection.
+    let mut changed = false;
     let role = obj
         .get("role")
         .and_then(Value::as_str)
@@ -1245,7 +1237,7 @@ mod tests {
     }
 
     #[test]
-    fn removes_namespace_from_non_call_replayed_input_items() {
+    fn preserves_namespace_from_non_call_replayed_input_items() {
         let mut body = json!({
             "model": "gpt-5.4",
             "input": [
@@ -1259,7 +1251,10 @@ mod tests {
         });
 
         assert!(normalize_responses_body_for_codex(&mut body));
-        assert!(body.pointer("/input/0/namespace").is_none());
+        assert_eq!(
+            body.pointer("/input/0/namespace").and_then(Value::as_str),
+            Some("mcp__example")
+        );
     }
 
     #[test]

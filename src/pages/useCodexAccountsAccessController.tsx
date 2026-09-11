@@ -25,6 +25,7 @@ import { CODEX_API_PROVIDER_CUSTOM_ID, COCKPIT_API_PROVIDER_ID, findCodexApiProv
 import { APIKEY_FUN_PROVIDER_BASE_URL } from "../utils/apikeyFunLinks";
 import { APIKEY_FUN_PREFILL_EVENT, consumeApiKeyFunPrefill, type ApiKeyFunPrefillPayload } from "../utils/apiKeyFunPrefill";
 import { findCodexModelProviderById, findCodexModelProviderByBaseUrl, queryCodexModelProviderUsage, saveCodexModelProviderDetectedIntegrationType, type CodexModelProvider, type CodexModelProviderUsageSummary, upsertCodexModelProviderFromCredential } from "../services/codexModelProviderService";
+import { buildCodexModelProviderAccountSnapshot, findCodexAccountsReferencingModelProvider, mergeCodexModelProviderCredentialInput } from "../utils/codexModelProviderAccountSync";
 import { CODEX_API_KEY_USAGE_REFRESHED_EVENT, readCodexApiKeyUsageCache, writeCodexApiKeyUsageCache, type CodexApiKeyUsageState } from "../services/codexApiKeyUsageRefreshService";
 import { isModelProviderUsageUnavailableError, formatModelProviderUsageMoney, listModelProviderModels, resolveNewApiQuotaSnapshot } from "../services/modelProviderUsageService";
 import { upsertSavedMfaRecord } from "../utils/mfaVault";
@@ -3947,31 +3948,34 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
         const matchedProviderKey = matchedProvider?.apiKeys.find(
           (item) => item.apiKey.trim() === initialApiKey,
         );
-  
+        const canonicalBaseUrl = matchedProvider?.baseUrl.trim() || initialBaseUrl;
+        const canonicalApiKey = matchedProviderKey?.apiKey.trim() || initialApiKey;
+        const canonicalModelCatalog = matchedProvider?.modelCatalog ?? account.api_model_catalog ?? [];
+        const canonicalContextWindows = matchedProvider?.modelContextWindows ?? account.api_model_context_windows;
+
         setEditingApiKeyCredentialsId(account.id);
-        setEditingApiKeyCredentialsValue(initialApiKey);
+        setEditingApiKeyCredentialsValue(canonicalApiKey);
         setEditingApiKeyCredentialsVisible(false);
-        setEditingApiBaseUrlCredentialsValue(initialBaseUrl);
+        setEditingApiBaseUrlCredentialsValue(canonicalBaseUrl);
         setEditingApiProviderPresetId(
-          providerMode === "openai_builtin"
+          matchedProvider
+            ? CODEX_API_PROVIDER_CUSTOM_ID
+            : providerMode === "openai_builtin"
             ? OPENAI_OFFICIAL_PRESET_ID
-            : resolveCodexApiProviderPresetId(initialBaseUrl),
+            : resolveCodexApiProviderPresetId(canonicalBaseUrl),
         );
         setEditingManagedProviderId(matchedProvider?.id ?? "");
-        setEditingManagedProviderApiKeyId(matchedProviderKey?.id ?? "");
+        setEditingManagedProviderApiKeyId(
+          matchedProviderKey?.id ?? matchedProvider?.apiKeys[0]?.id ?? "",
+        );
         setEditingNewManagedProviderNameInput(
           matchedProvider?.name ?? account.api_provider_name ?? "",
         );
-        setEditingApiModelCatalogInput(
-          (account.api_model_catalog ?? matchedProvider?.modelCatalog ?? []).join(
-            "\n",
-          ),
-        );
+        setEditingApiModelCatalogInput(canonicalModelCatalog.join("\n"));
         setEditingApiModelContextWindowsInput(
           contextWindowDraftsFromRecord(
-            account.api_model_context_windows ??
-              matchedProvider?.modelContextWindows,
-            account.api_model_catalog ?? matchedProvider?.modelCatalog ?? [],
+            canonicalContextWindows,
+            canonicalModelCatalog,
           ),
         );
         setEditingApiSyncModelCatalogToCodex(
@@ -4036,40 +4040,24 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
         apiModelCatalog: editingApiModelCatalogDraft,
         apiModelContextWindows: parsedWindows.windows,
       };
-  
+
       setSavingApiKeyCredentials(true);
       try {
-        await updateApiKeyCredentials(
-          accountId,
-          validation.apiKey,
-          validation.apiBaseUrl,
-          providerPayload.apiProviderMode,
-          providerPayload.apiProviderId,
-          providerPayload.apiProviderName,
-          providerPayload.apiModelCatalog,
-          providerPayload.apiSupportsVision,
-          providerPayload.apiModelVisionSupport,
-          providerPayload.apiVisionRoutingModel,
-          providerPayload.apiWireApi,
-          providerPayload.apiSupportsWebsockets,
-          editingApiSyncModelCatalogToCodex,
-          providerPayload.accountName,
-          parsedWindows.windows,
-        );
+        let savedProvider: CodexModelProvider | null = null;
         if (
           validation.apiBaseUrl &&
           providerPayload.apiProviderMode === "custom" &&
           providerPayload.apiProviderId !== COCKPIT_API_PROVIDER_ID
         ) {
-          try {
-            const savedProvider = await upsertCodexModelProviderFromCredential({
-              providerId: isRelayApiProviderTemplateId(
-                providerPayload.apiProviderId,
-              )
+          const canonicalProvider = selectedEditingManagedProvider && isSameHttpBaseUrl(selectedEditingManagedProvider.baseUrl, validation.apiBaseUrl)
+            ? selectedEditingManagedProvider
+            : null;
+          savedProvider = await upsertCodexModelProviderFromCredential(
+            mergeCodexModelProviderCredentialInput(canonicalProvider, {
+              providerId: isRelayApiProviderTemplateId(providerPayload.apiProviderId)
                 ? null
                 : (providerPayload.apiProviderId ?? null),
-              previousProviderId:
-                resolveManagedProviderIdForAccount(editingAccount),
+              previousProviderId: resolveManagedProviderIdForAccount(editingAccount),
               providerName: providerPayload.apiProviderName ?? null,
               apiBaseUrl: validation.apiBaseUrl,
               apiKey: validation.apiKey,
@@ -4077,38 +4065,91 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
               sourceTag: providerPayload.sponsorTemplate?.id ?? null,
               modelCatalog: providerPayload.apiModelCatalog,
               modelContextWindows: providerPayload.apiModelContextWindows,
-              supportsVision: providerPayload.sponsorTemplate?.supportsVision,
+              supportsVision: providerPayload.apiSupportsVision,
+              modelCapabilities: providerPayload.apiModelVisionSupport
+                ? Object.fromEntries(
+                    Object.entries(providerPayload.apiModelVisionSupport).map(
+                      ([model, supportsVision]) => [model, { supportsVision }],
+                    ),
+                  )
+                : undefined,
+              visionRoutingModel: providerPayload.apiVisionRoutingModel,
               website: providerPayload.sponsorTemplate?.website,
               apiKeyUrl: providerPayload.sponsorTemplate?.apiKeyUrl,
               wireApi: providerPayload.apiWireApi,
               supportsWebsockets: providerPayload.apiSupportsWebsockets,
               integrationType: providerPayload.sponsorTemplate?.integrationType,
+            }),
+          );
+          try {
+            const usageSummary = await queryCodexModelProviderUsage({
+              baseUrl: savedProvider.baseUrl,
+              apiKey: validation.apiKey,
+              integrationType: savedProvider.integrationType ?? null,
             });
-            try {
-              const usageSummary = await queryCodexModelProviderUsage({
-                baseUrl: savedProvider.baseUrl,
-                apiKey: validation.apiKey,
-                integrationType: savedProvider.integrationType ?? null,
-              });
-              if (
-                (usageSummary.mode === "sub2api" ||
-                  usageSummary.mode === "new_api") &&
-                usageSummary.mode !== savedProvider.integrationType
-              ) {
-                await saveCodexModelProviderDetectedIntegrationType(
-                  savedProvider.id,
-                  usageSummary.mode,
-                );
-              }
-            } catch (usageErr) {
-              console.warn("[CodexModelProviders] 额度类型探测失败", usageErr);
+            if (
+              (usageSummary.mode === "sub2api" ||
+                usageSummary.mode === "new_api") &&
+              usageSummary.mode !== savedProvider.integrationType
+            ) {
+              savedProvider = await saveCodexModelProviderDetectedIntegrationType(
+                savedProvider.id,
+                usageSummary.mode,
+              );
             }
-            await reloadManagedProviders();
-          } catch (providerErr) {
-            console.warn(
-              "[CodexModelProviders] 更新凭据后写入供应商失败",
-              providerErr,
-            );
+          } catch (usageErr) {
+            console.warn("[CodexModelProviders] 额度类型探测失败", usageErr);
+          }
+          await reloadManagedProviders();
+        }
+
+        const accountProvider = savedProvider;
+        const accountProviderSnapshot = accountProvider
+          ? buildCodexModelProviderAccountSnapshot(
+              accountProvider,
+              selectedEditingManagedProviderApiKey?.name,
+            )
+          : {
+              ...providerPayload,
+              apiBaseUrl: validation.apiBaseUrl ?? "",
+              apiProviderId: providerPayload.apiProviderId ?? "",
+              apiProviderName: providerPayload.apiProviderName ?? "",
+              apiModelContextWindows: parsedWindows.windows,
+              apiWireApi: providerPayload.apiWireApi ?? "responses",
+              apiSupportsWebsockets: providerPayload.apiSupportsWebsockets === true,
+              apiSupportsVision: providerPayload.apiSupportsVision === true,
+              apiModelVisionSupport: providerPayload.apiModelVisionSupport ?? {},
+              accountName: providerPayload.accountName ?? "",
+            };
+        const updatedAccount = await updateApiKeyCredentials(
+          accountId,
+          validation.apiKey,
+          accountProviderSnapshot.apiBaseUrl,
+          accountProviderSnapshot.apiProviderMode,
+          accountProviderSnapshot.apiProviderId,
+          accountProviderSnapshot.apiProviderName,
+          accountProviderSnapshot.apiModelCatalog,
+          accountProviderSnapshot.apiSupportsVision,
+          accountProviderSnapshot.apiModelVisionSupport,
+          accountProviderSnapshot.apiVisionRoutingModel,
+          accountProviderSnapshot.apiWireApi,
+          accountProviderSnapshot.apiSupportsWebsockets,
+          editingApiSyncModelCatalogToCodex,
+          accountProviderSnapshot.accountName,
+          accountProviderSnapshot.apiModelContextWindows,
+        );
+        if (accountProvider) {
+          const linkedAccountIds = findCodexAccountsReferencingModelProvider(accountProvider, accounts);
+          const accountIdsToSync = Array.from(new Set([...linkedAccountIds, updatedAccount.id]));
+          const updatedAccountCount = await codexService.syncCodexApiKeyProviderAccounts({
+            accountIds: accountIdsToSync,
+            ...accountProviderSnapshot,
+          });
+          if (updatedAccountCount > 0) {
+            await emitAccountsChanged({
+              platformId: "codex",
+              reason: "provider-snapshot-sync",
+            });
           }
         }
         setMessage({

@@ -571,18 +571,6 @@ fn read_codex_client_policy_bool(value: &serde_json::Value, key: &str) -> Option
     })
 }
 
-pub(crate) fn resolved_codex_fingerprint_mode(account: &CodexAccount) -> &'static str {
-    resolved_codex_fingerprint_mode_value(account.codex_fingerprint_mode.as_deref())
-}
-
-fn resolved_codex_fingerprint_mode_value(raw: Option<&str>) -> &'static str {
-    match raw.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
-        Some("device") => "device",
-        Some("off") => "off",
-        Some("full") => "full",
-        _ => "session",
-    }
-}
 
 fn read_json_i64(value: &serde_json::Value, keys: &[&str]) -> Option<i64> {
     keys.iter().find_map(|key| {
@@ -1246,7 +1234,6 @@ pub fn list_accounts() -> Vec<CodexAccount> {
             ));
         }
     }
-    spawn_fingerprint_default_session_resync();
     accounts
 }
 
@@ -1301,7 +1288,5 @@ pub fn list_accounts_checked() -> Result<Vec<CodexAccount>, String> {
         save_account_index(&index)?;
     }
 
-    spawn_fingerprint_default_session_resync();
     Ok(accounts)
 }
-

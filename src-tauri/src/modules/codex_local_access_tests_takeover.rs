@@ -134,7 +134,7 @@
     }
 
     #[tokio::test]
-    async fn sidecar_capacity_recovery_is_scoped_to_api_service() {
+    async fn sidecar_uses_upstream_policy_with_api_service_bootstrap_buffering() {
         let collection = test_local_access_collection(Vec::new());
         for api_service in [false, true] {
             let dir = make_temp_dir("codex-sidecar-capacity-scope");
@@ -163,7 +163,6 @@
                 &fs::read_to_string(launch.config_path).expect("read config"),
             )
             .expect("parse config");
-            assert_eq!(config["codex"]["api-service-compatibility"], json!(api_service));
             assert_eq!(config["codex"]["stream-bootstrap-buffering"], json!(api_service));
             assert_eq!(config["request-retry"], json!(super::MAX_REQUEST_RETRY_ATTEMPTS));
             assert_eq!(config["disable-cooling"], json!(collection.disable_cooling));

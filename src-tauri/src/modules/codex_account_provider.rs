@@ -32,8 +32,6 @@ static CODEX_BATCH_IMPORT_COUNTER: AtomicU64 = AtomicU64::new(1);
 static CODEX_BATCH_IMPORT_SESSIONS: std::sync::LazyLock<
     Mutex<HashMap<String, CodexBatchImportSession>>,
 > = std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
-static CODEX_FINGERPRINT_DEFAULT_SESSION_RESYNC_STARTED: AtomicBool = AtomicBool::new(false);
-const CODEX_FINGERPRINT_DEFAULT_SESSION_MARKER: &str = "codex_fingerprint_default_session_v1";
 const CODEX_QUOTA_ALERT_COOLDOWN_SECONDS: i64 = 300;
 const ACCOUNT_CHECK_URL: &str = "https://chatgpt.com/backend-api/accounts/check/v4-2023-04-27";
 const API_KEY_LOGIN_PLAN_TYPE: &str = "API_KEY";

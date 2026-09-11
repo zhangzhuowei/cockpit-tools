@@ -85,23 +85,11 @@ func (e *CodexExecutor) HttpRequest(ctx context.Context, auth *cliproxyauth.Auth
 }
 
 type codexIdentityConfuseState struct {
-	enabled                 bool
-	authID                  string
-	originalPromptCacheKey  string
-	promptCacheKey          string
-	turnIDs                 []codexIdentityReplacement
-	fingerprintMode         string
-	originalInstallationID  string
-	installationID          string
-	originalSessionID       string
-	sessionID               string
-	originalThreadID        string
-	threadID                string
-	originalWindowID        string
-	windowID                string
-	originalParentThreadID  string
-	parentThreadID          string
-	fingerprintReplacements []codexIdentityReplacement
+	enabled                bool
+	authID                 string
+	originalPromptCacheKey string
+	promptCacheKey         string
+	turnIDs                []codexIdentityReplacement
 }
 
 type codexIdentityReplacement struct {
@@ -155,7 +143,6 @@ func (e *CodexExecutor) cacheHelper(ctx context.Context, from sdktranslator.Form
 	rawJSON = helps.SanitizeCodexInputItemIDs(rawJSON)
 	var identityState codexIdentityConfuseState
 	rawJSON, identityState = applyCodexIdentityConfuseBody(e.cfg, auth, userPayload, rawJSON)
-	rawJSON, identityState = applyCodexFingerprintBody(e.cfg, auth, userPayload, rawJSON, identityState)
 	if identityState.promptCacheKey != "" {
 		cache.ID = identityState.promptCacheKey
 	}
@@ -200,7 +187,6 @@ func applyCodexIdentityConfuseHeaders(headers http.Header, state *codexIdentityC
 		return
 	}
 	if state == nil || !state.enabled {
-		applyCodexFingerprintHeaders(headers, state)
 		return
 	}
 
@@ -218,7 +204,6 @@ func applyCodexIdentityConfuseHeaders(headers http.Header, state *codexIdentityC
 	headers.Set("X-Client-Request-Id", state.promptCacheKey)
 	headers.Set("Thread-Id", state.promptCacheKey)
 	headers.Set("X-Codex-Window-Id", state.promptCacheKey+":0")
-	applyCodexFingerprintHeaders(headers, state)
 }
 
 func applyCodexTurnMetadataIdentityConfuse(rawTurnMetadata string, state *codexIdentityConfuseState) string {
@@ -241,7 +226,6 @@ func applyCodexTurnMetadataIdentityConfuse(rawTurnMetadata string, state *codexI
 }
 
 func applyCodexIdentityConfuseResponsePayload(payload []byte, state codexIdentityConfuseState) []byte {
-	payload = applyCodexFingerprintResponsePayload(payload, state, false)
 	payload = replaceCodexIdentityResponsePayload(payload, state.originalPromptCacheKey, state.promptCacheKey)
 	for _, turnID := range state.turnIDs {
 		payload = replaceCodexIdentityResponsePayload(payload, turnID.original, turnID.confused)
@@ -250,7 +234,6 @@ func applyCodexIdentityConfuseResponsePayload(payload []byte, state codexIdentit
 }
 
 func applyCodexIdentityExposeResponsePayload(payload []byte, state codexIdentityConfuseState) []byte {
-	payload = applyCodexFingerprintResponsePayload(payload, state, true)
 	payload = replaceCodexIdentityResponsePayload(payload, state.promptCacheKey, state.originalPromptCacheKey)
 	for _, turnID := range state.turnIDs {
 		payload = replaceCodexIdentityResponsePayload(payload, turnID.confused, turnID.original)
@@ -410,18 +393,6 @@ func applyCodexCloakingHeaders(headers http.Header, cfg *config.Config, isAPIKey
 	}
 	headers.Set("User-Agent", codexUserAgent)
 	headers.Set("Originator", codexOriginator)
-	if cfg.Codex.APIServiceCompatibility {
-		// Version is the same declaration as the UA version, not the downstream
-		// client's independent version. API-key passthrough returns above.
-		_, rest, _ := strings.Cut(codexUserAgent, "/")
-		version, _, _ := strings.Cut(rest, " ")
-		for key := range headers {
-			if strings.EqualFold(key, "Version") {
-				delete(headers, key)
-			}
-		}
-		headers.Set("Version", version)
-	}
 }
 
 func normalizeCodexInstructions(body []byte, model ...string) []byte {
@@ -432,22 +403,6 @@ func normalizeCodexInstructions(body []byte, model ...string) []byte {
 			value = registry.CodexClientModelBaseInstructions(model[0])
 		}
 		body, _ = sjson.SetBytes(body, "instructions", value)
-	}
-	return body
-}
-
-func normalizeCodexInputNamespaces(body []byte, auth *cliproxyauth.Auth, compact bool) []byte {
-	items := gjson.GetBytes(body, "input")
-	if !items.IsArray() {
-		return body
-	}
-	apiKey := codexAuthUsesAPIKey(auth)
-	for index, item := range items.Array() {
-		itemType := item.Get("type").String()
-		keep := !apiKey && !compact && (itemType == "function_call" || itemType == "custom_tool_call" || itemType == "tool_call" || itemType == "mcp_tool_call")
-		if !keep {
-			body, _ = sjson.DeleteBytes(body, fmt.Sprintf("input.%d.namespace", index))
-		}
 	}
 	return body
 }
