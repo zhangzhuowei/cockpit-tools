@@ -2952,17 +2952,25 @@ mod import_token_tests {
     }
 
     #[test]
-    fn injection_prefers_explicit_refresh_token_and_clears_stale_profile_keys() {
+    fn injection_ignores_non_session_refresh_when_access_token_is_session() {
         let session = fake_jwt_typed("auth0|user_1", 4_000_000_000, "session");
         let writes = build_auth_key_writes(&account_with(&session, Some("explicit-refresh")));
-        assert_eq!(
-            write_of(&writes, "cursorAuth/refreshToken"),
-            &Some("explicit-refresh".to_string())
-        );
+        // 非 session 的 refresh（粘贴字符串、web JWT）写进去会让桌面端启动续期失败，
+        // 有可用的 session access token 时用它自己补 refreshToken 槽位。
+        assert_eq!(write_of(&writes, "cursorAuth/refreshToken"), &Some(session.clone()));
         for key in CURSOR_STALE_PROFILE_KEYS {
             assert_eq!(write_of(&writes, key), &None, "{} should be deleted", key);
         }
         assert!(writes.iter().all(|(k, _)| *k != "cursorAuth/isLoggedIn"));
+    }
+
+    #[test]
+    fn injection_prefers_session_refresh_token_over_access_token() {
+        let access = fake_jwt_typed("auth0|user_1", 4_000_000_000, "session");
+        let refresh = fake_jwt_typed("auth0|user_1", 4_100_000_000, "session");
+        let writes = build_auth_key_writes(&account_with(&access, Some(&refresh)));
+        assert_eq!(write_of(&writes, "cursorAuth/refreshToken"), &Some(refresh));
+        assert_eq!(write_of(&writes, "cursorAuth/accessToken"), &Some(access));
     }
 
     #[test]
