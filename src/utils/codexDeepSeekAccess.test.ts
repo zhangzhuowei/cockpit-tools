@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { CODEX_PROVIDER_GATEWAY_BIND_PREFIX } from "../types/instance.ts";
 import {
+  DEEPSEEK_DEFAULT_STARTUP_MODEL,
   isDeepSeekAccount,
   isDeepSeekCdpAccess,
   isDeepSeekDirectAccess,
@@ -120,8 +121,12 @@ test("keeps last official startup model or falls back to Flash", () => {
     "deepseek-v4-pro",
   );
   assert.equal(
+    resolveDeepSeekStartupModel({ api_startup_model: "deepseek-flash" }),
+    "deepseek-flash",
+  );
+  assert.equal(
     resolveDeepSeekStartupModel({ api_startup_model: "gpt-5.5" }),
-    "deepseek-v4-flash",
+    DEEPSEEK_DEFAULT_STARTUP_MODEL,
   );
   assert.equal(
     parseCodexBoundAccountId(`${CODEX_PROVIDER_GATEWAY_BIND_PREFIX}acc-2`),
