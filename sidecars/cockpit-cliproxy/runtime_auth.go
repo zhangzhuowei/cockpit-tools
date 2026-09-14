@@ -218,6 +218,13 @@ func newSidecarRuntime(ctx context.Context, configPath string, cfg *config.Confi
 	if err := ensureSidecarAuthDir(cfg); err != nil {
 		return nil, err
 	}
+	// Parse token files before StartRuntime. The shared file token store can
+	// truncate-and-rewrite those JSON files after the runtime is ready, which
+	// made registerManifestCodexTokenAuths fail with "unexpected end of JSON input".
+	tokenAuths, err := loadManifestCodexTokenAuths(cfg, m)
+	if err != nil {
+		return nil, err
+	}
 
 	authManager := sdkauth.NewManager(
 		sdkauth.GetTokenStore(),
@@ -273,7 +280,7 @@ func newSidecarRuntime(ctx context.Context, configPath string, cfg *config.Confi
 		cancel()
 		return nil, err
 	}
-	if err := registerManifestCodexTokenAuths(runtimeCtx, service, cfg, m, manager); err != nil {
+	if err := registerLoadedCodexTokenAuths(runtimeCtx, service, m, manager, tokenAuths); err != nil {
 		cancel()
 		return nil, err
 	}
@@ -318,16 +325,11 @@ func registerConfigCodexAPIKeyAuths(ctx context.Context, service *cliproxy.Servi
 	return nil
 }
 
-func registerManifestCodexTokenAuths(
-	ctx context.Context,
-	service *cliproxy.Service,
-	cfg *config.Config,
-	m *manifest,
-	manager *coreauth.Manager,
-) error {
-	if service == nil || cfg == nil || m == nil {
-		return nil
+func loadManifestCodexTokenAuths(cfg *config.Config, m *manifest) ([]*coreauth.Auth, error) {
+	if cfg == nil || m == nil {
+		return nil, nil
 	}
+	auths := make([]*coreauth.Auth, 0, len(m.Accounts))
 	for i := range m.Accounts {
 		account := &m.Accounts[i]
 		authID := strings.TrimSpace(account.AuthID)
@@ -340,7 +342,26 @@ func registerManifestCodexTokenAuths(
 		}
 		auth, err := readManifestCodexTokenAuth(account, cfg.AuthDir, path)
 		if err != nil {
-			return err
+			return nil, err
+		}
+		auths = append(auths, auth)
+	}
+	return auths, nil
+}
+
+func registerLoadedCodexTokenAuths(
+	ctx context.Context,
+	service *cliproxy.Service,
+	m *manifest,
+	manager *coreauth.Manager,
+	auths []*coreauth.Auth,
+) error {
+	if service == nil {
+		return nil
+	}
+	for _, auth := range auths {
+		if auth == nil {
+			continue
 		}
 		registered, err := service.UpsertRuntimeAuth(coreauth.WithSkipPersist(ctx), auth)
 		if err != nil {
