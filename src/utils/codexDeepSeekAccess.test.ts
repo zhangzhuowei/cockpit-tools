@@ -126,6 +126,7 @@ test("keeps last official startup model or falls back to Flash", () => {
   );
   assert.equal(
     resolveDeepSeekStartupModel({ api_startup_model: "gpt-5.5" }),
+    // Official name `deepseek-flash` matches DEEPSEEK_CODEX_MODEL_CATALOG.
     DEEPSEEK_DEFAULT_STARTUP_MODEL,
   );
   assert.equal(
