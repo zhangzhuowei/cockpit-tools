@@ -7,6 +7,39 @@ All notable changes to Cockpit Tools will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
+## [1.3.51] - 2026-09-13
+
+### Added
+
+- **OAuth binding row in the launch preview**: API Key accounts get an **OAuth binding** row right above the force-refresh-token row, styled like the other rows, that shows the current binding and lets you bind or change it, plus an authorization-error badge and a **Re-authorize** action when the bound account needs it. The description states that after binding, launching is identical to a normal account and every OAuth capability is available (remote compaction, browser control, and more), while conversations still run on the current API Key provider. The model provider launch preview offers the same row and shares one binding dialog with the account overview.
+
+### Fixed
+
+- **DeepSeek model metadata now matches the official declaration exactly**: in official-direct and desktop-injection modes the client used to display capabilities borrowed from GPT models as if they belonged to DeepSeek (a fast tier and plan gating that do not exist), and the multi-agent capability and minimum client version differed from what DeepSeek declares. Instance catalogs now use the complete official `models.json` entries.
+- **Built-in web search is disabled and conflicting settings are cleaned up when switching to DeepSeek**: previously the client could still issue web-search requests that the upstream does not support, and leftover reasoning-effort, compaction-prompt and service-tier settings in config.toml were forwarded to the upstream and could fail. Switching now disables the built-in web search per the official setup and temporarily removes those conflicting keys, restoring the original values on switch-away.
+- **Fixed requests being rejected after switching a cross-provider thread to an official account**: when a thread alternates between DeepSeek and an official GPT account, reasoning items produced by the third party in its history made the official backend reject the request with an `input[i].content` validation error (`array_above_max_length`), breaking both normal turns and automatic compaction. Before forwarding to an official account the gateway now clears that field and drops reasoning items that only carry third-party reasoning text with no reusable reasoning state.
+- **Fixed old threads failing after switching from the DeepSeek gateway to a plain account**: a thread used on a third-party provider keeps reasoning items with visible thinking text in its history, while an official direct account requires those items to be empty, so the whole request (normal turns and automatic compaction alike) was rejected after switching. Switching and launching now clean those history items up front, with a backup written first, and only for plain accounts that talk to the official backend (gateway-bound accounts keep the request-level cleanup).
+
+## [1.3.50] - 2026-09-13
+
+### Added
+
+- **DeepSeek can bind GPT accounts for image generation**: enable it in the launch preview and pick GPT accounts, and image requests from the built-in Codex image tool run on those accounts while the conversation stays on DeepSeek.
+- **Model providers gain the Codex launch preview**: starting a model provider now opens the same launch preview as the account overview (account, provider, models and usage, context management, and more) and binds the instance on confirm. DeepSeek picks its start mode there (gateway list / CDP injection / official direct).
+- **Context management moves into the launch preview**: the Add account, Edit API Key, and model provider edit dialogs no longer expose per-model context; it is configured per instance in the launch preview.
+- **DeepSeek auto-compaction fallback**: switching to DeepSeek writes a local fallback compaction config and switching away restores the previous values, leaving other accounts untouched.
+- **Sponsor route changes are applied automatically**: when a sponsor's base URL changes, saved providers and accounts are rewritten to the new address (APIKEY.FUN now serves apikey.fan).
+- **Per-account concurrency for the Codex API service**: limit how many sessions one account can run at once; full accounts fail over to idle ones and a timed-out wait returns a readable reason.
+
+### Changed
+
+- **More stable dialog sizing**: dialog sizes no longer depend on the CSS bundle order, and tall dialogs scroll inside the body so the title and action buttons stay reachable.
+- **Pelican testing matches the local API service**: requests use the same client fingerprint as the local API service, reducing the chance of upstream risk-control flags.
+
+### Fixed
+
+- **Fixed image requests being rewritten to the provider model in the instance gateway**: image requests executed by ChatGPT accounts are no longer renamed to the provider model and rejected upstream.
+
 ## [1.3.49] - 2026-09-12
 
 ### Changed

@@ -5,6 +5,10 @@ use crate::models::codex::{
     CodexApiProviderMode, CodexAppSpeed, CodexAuthFile, CodexAuthMode, CodexAuthTokens,
     CodexExperimentalModelDefinition, CodexJwtPayload, CodexQuickConfig, CodexTokens,
 };
+use crate::modules::apikey_fun_links::{
+    normalize_legacy_apikey_fun_url, APIKEY_FUN_LEGACY_PROVIDER_BASE_URL,
+    APIKEY_FUN_PROVIDER_BASE_URL,
+};
 use crate::modules::{account, codex_oauth, logger};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use ed25519_dalek::pkcs8::DecodePrivateKey;
@@ -106,7 +110,6 @@ const CODEX_RUNTIME_MODEL_PROVIDER_ID: &str = "codex_local_access";
 const CODEX_LEGACY_API_KEY_OPENAI_PROVIDER_ID: &str = "openai_api_key";
 const CODEX_DEFAULT_RUNTIME_PROVIDER_NAME: &str = "OpenAI Official";
 const CODEX_PROVIDER_WIRE_API: &str = "responses";
-const APIKEY_FUN_PROVIDER_BASE_URL: &str = "https://api.apikey.fun/v1";
 const DEEPSEEK_API_BASE_URL: &str = "https://api.deepseek.com";
 const DEEPSEEK_PROVIDER_ID: &str = "deepseek";
 const DEEPSEEK_CODEX_MODELS: &[&str] = &[
@@ -592,11 +595,27 @@ fn is_apikey_fun_base_url(raw: Option<&str>) -> bool {
     let Some(actual) = normalize_api_base_url_for_match(raw) else {
         return false;
     };
-    let Some(expected) = normalize_api_base_url_for_match(Some(APIKEY_FUN_PROVIDER_BASE_URL))
-    else {
+    [APIKEY_FUN_PROVIDER_BASE_URL, APIKEY_FUN_LEGACY_PROVIDER_BASE_URL]
+        .iter()
+        .filter_map(|candidate| normalize_api_base_url_for_match(Some(*candidate)))
+        .any(|expected| actual == expected)
+}
+
+fn migrate_apikey_fun_base_url(account: &mut CodexAccount) -> bool {
+    if !account.is_api_key_auth() {
+        return false;
+    }
+    let Some(current) = account.api_base_url.as_deref() else {
         return false;
     };
-    actual == expected
+    let Some(next) = normalize_legacy_apikey_fun_url(current) else {
+        return false;
+    };
+    if next == current {
+        return false;
+    }
+    account.api_base_url = Some(next);
+    true
 }
 
 fn migrate_apikey_fun_wire_api(account: &mut CodexAccount) -> bool {
@@ -608,6 +627,37 @@ fn migrate_apikey_fun_wire_api(account: &mut CodexAccount) -> bool {
     }
     account.api_wire_api = Some("responses".to_string());
     true
+}
+
+fn migrate_apikey_fun_account(account: &mut CodexAccount) -> bool {
+    let migrated_base_url = migrate_apikey_fun_base_url(account);
+    let migrated_wire_api = migrate_apikey_fun_wire_api(account);
+    migrated_base_url || migrated_wire_api
+}
+
+pub(crate) fn sync_sponsor_base_urls(
+    rules: &[crate::modules::sponsor_route_sync::SponsorRouteRule],
+) -> Result<usize, String> {
+    let accounts = list_accounts_checked()?;
+    let mut changed_accounts = Vec::new();
+    for mut account in accounts {
+        if !account.is_api_key_auth() {
+            continue;
+        }
+        let Some(next) = crate::modules::sponsor_route_sync::resolve_sponsor_base_url(
+            account.api_base_url.as_deref(),
+            rules,
+        ) else {
+            continue;
+        };
+        account.api_base_url = Some(next);
+        changed_accounts.push(account);
+    }
+    let changed = changed_accounts.len();
+    for account in changed_accounts {
+        save_account(&account)?;
+    }
+    Ok(changed)
 }
 
 fn is_deepseek_account(account: &CodexAccount) -> bool {
@@ -820,6 +870,7 @@ pub fn update_account_instance_access(
     account_id: &str,
     access_mode: Option<String>,
     startup_model: Option<String>,
+    image_generation_account_ids: Option<Vec<String>>,
 ) -> Result<CodexAccount, String> {
     let account_id = account_id.trim();
     if account_id.is_empty() {
@@ -831,7 +882,16 @@ pub fn update_account_instance_access(
         return Err("只有 API Key 账号支持接入方式".to_string());
     }
     if !is_deepseek_account(&account) {
-        return Err("仅 DeepSeek 账号支持实例接入方式".to_string());
+        // 非 DeepSeek 供应商没有接入方式概念，只允许更新生图转发账号池。
+        if access_mode.is_some() || startup_model.is_some() {
+            return Err("仅 DeepSeek 账号支持实例接入方式".to_string());
+        }
+        let image_account_ids = image_generation_account_ids
+            .ok_or_else(|| "仅 DeepSeek 账号支持实例接入方式".to_string())?;
+        account.api_image_generation_account_ids =
+            normalize_image_generation_account_ids(&account, image_account_ids)?;
+        save_account(&account)?;
+        return Ok(account);
     }
     let requested_non_gateway = access_mode.as_deref().map(str::trim).is_some_and(|value| {
         value.eq_ignore_ascii_case(DEEPSEEK_ACCESS_MODE_DIRECT)
@@ -854,9 +914,48 @@ pub fn update_account_instance_access(
             .filter(|value| !value.is_empty())
             .map(|value| value.to_ascii_lowercase());
     }
+    if let Some(image_account_ids) = image_generation_account_ids {
+        account.api_image_generation_account_ids =
+            normalize_image_generation_account_ids(&account, image_account_ids)?;
+    }
     let _ = normalize_deepseek_account(&mut account);
     save_account(&account)?;
     Ok(account)
+}
+
+/// 生图转发账号池：必须是其他 OAuth 账号，且带 refresh_token（sidecar 需要自行续期）。
+fn normalize_image_generation_account_ids(
+    account: &CodexAccount,
+    raw_ids: Vec<String>,
+) -> Result<Vec<String>, String> {
+    let mut normalized = Vec::new();
+    for raw in raw_ids {
+        let id = raw.trim();
+        if id.is_empty() {
+            continue;
+        }
+        if id == account.id {
+            return Err("生图账号不能选择账号自身".to_string());
+        }
+        if normalized.iter().any(|value: &String| value == id) {
+            continue;
+        }
+        let target = load_account(id).ok_or_else(|| format!("生图账号不存在: {}", id))?;
+        if target.is_api_key_auth() {
+            return Err(format!("生图账号必须是 OAuth 账号: {}", target.email));
+        }
+        if target.is_agent_identity_auth() {
+            return Err(format!(
+                "Agent Identity 账号不能作为生图账号: {}",
+                target.email
+            ));
+        }
+        if !account_has_refresh_token(&target) {
+            return Err(format!("生图账号缺少 refresh_token: {}", target.email));
+        }
+        normalized.push(id.to_string());
+    }
+    Ok(normalized)
 }
 
 pub fn apply_deepseek_cdp_startup_model(
@@ -868,6 +967,7 @@ pub fn apply_deepseek_cdp_startup_model(
         account_id,
         Some(DEEPSEEK_ACCESS_MODE_CDP.to_string()),
         Some(model.to_string()),
+        None,
     )?;
     if !account_uses_deepseek_cdp_injection(&account) {
         return Err("当前账号未启用 DeepSeek CDP 注入".to_string());
@@ -1125,7 +1225,7 @@ fn write_deepseek_official_model_catalog_file(
     account: &CodexAccount,
 ) -> Result<PathBuf, String> {
     let content = crate::modules::codex_local_access::decorate_account_catalog_context_windows(
-        &build_deepseek_direct_provider_catalog_json(account)?,
+        &build_deepseek_official_model_catalog_json(account)?,
         &[],
         account,
         crate::modules::codex_local_access::read_file_model_context_window(&get_config_toml_path(
@@ -1163,7 +1263,7 @@ fn write_deepseek_official_model_catalog_file(
 fn apply_deepseek_official_catalog_to_doc(
     doc: &mut Document,
     account: &CodexAccount,
-    _catalog_path: &Path,
+    base_dir: &Path,
 ) {
     let preferred = resolve_deepseek_default_model(account);
     let current_model = doc
@@ -1178,13 +1278,7 @@ fn apply_deepseek_official_catalog_to_doc(
     }
     doc[CODEX_CONFIG_MODEL_CATALOG_JSON_KEY] = value(CODEX_MANAGED_MODEL_CATALOG_FILE);
     apply_deepseek_reasoning_effort(doc);
-    if doc
-        .get("model_reasoning_summary")
-        .and_then(|item| item.as_str())
-        .is_some()
-    {
-        let _ = doc.remove("model_reasoning_summary");
-    }
+    apply_deepseek_config_overrides(doc, base_dir);
 }
 
 /// 保留用户在 Codex 里选定的合法思考强度，只在缺失或非法时回落到官方默认 high。
@@ -1200,6 +1294,221 @@ pub(crate) fn apply_deepseek_reasoning_effort(doc: &mut Document) {
         return;
     }
     doc["model_reasoning_effort"] = value("high");
+}
+
+/// DeepSeek 切换期临时改动的备份文件名。沿用旧文件名，避免升级后丢失既有备份记录；
+/// 现在除压缩兜底外还记录顶层冲突键的原值。
+const DEEPSEEK_COMPACTION_BACKUP_FILE: &str = "cockpit-deepseek-compaction.json";
+const DEEPSEEK_COMPACTION_FALLBACK_KEYS: &[&str] = &["remote_compaction_v2", "token_budget"];
+/// 备份记录里存放顶层配置键原值的分区名。
+const DEEPSEEK_TOP_LEVEL_BACKUP_SECTION: &str = "top_level_keys";
+/// 官方在 DeepSeek 下禁用 Codex 内置联网搜索（官方脚本写 `web_search = "disabled"`）。
+const DEEPSEEK_WEB_SEARCH_KEY: &str = "web_search";
+const DEEPSEEK_WEB_SEARCH_DISABLED: &str = "disabled";
+/// 切到 DeepSeek 时必须临时移除的 config.toml 顶层键。
+///
+/// 来源：DeepSeek 官方 codex-deepseek-setup.sh 的 DEL_B 清单——这些键会覆盖或污染
+/// models.json 的声明，残留会把上游不支持的参数发出去（静默错误或 400）。
+/// 说明：`model_context_window`、`model_auto_compact_token_limit`(_scope) 不在列内，
+/// 它们由本应用的「上下文管理」按账号写入，属于用户显式设置，切号不覆盖。
+const DEEPSEEK_CONFLICT_TOP_LEVEL_KEYS: &[&str] = &[
+    "base_instructions",
+    "model_instructions_file",
+    "compact_prompt",
+    "experimental_compact_prompt_file",
+    "model_verbosity",
+    "model_reasoning_summary",
+    "plan_mode_reasoning_effort",
+    "experimental_use_unified_exec_tool",
+    "model_auto_compact_token_limit_scope",
+    "service_tier",
+];
+
+/// 备份文件与受管模型目录放在同一个实例目录里，天然按实例隔离。
+fn deepseek_compaction_backup_path(base_dir: &Path) -> PathBuf {
+    base_dir.join(DEEPSEEK_COMPACTION_BACKUP_FILE)
+}
+
+fn read_deepseek_compaction_backup(base_dir: &Path) -> serde_json::Map<String, serde_json::Value> {
+    let Ok(content) = fs::read_to_string(deepseek_compaction_backup_path(base_dir)) else {
+        return serde_json::Map::new();
+    };
+    serde_json::from_str::<serde_json::Value>(&content)
+        .ok()
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default()
+}
+
+fn write_deepseek_compaction_backup(
+    base_dir: &Path,
+    backup: &serde_json::Map<String, serde_json::Value>,
+) {
+    let path = deepseek_compaction_backup_path(base_dir);
+    if backup.is_empty() {
+        let _ = fs::remove_file(&path);
+        return;
+    }
+    if let Ok(content) = serde_json::to_string_pretty(&serde_json::Value::Object(backup.clone())) {
+        let _ = write_string_atomic(&path, &content);
+    }
+}
+
+/// 记录将被覆盖的顶层键原值：`{"present": bool, "raw": "<toml 值片段>"}`。
+/// 只记录标量值，表结构不参与覆盖也不备份。
+fn record_deepseek_top_level_backup(doc: &Document) -> serde_json::Value {
+    let mut recorded = serde_json::Map::new();
+    for key in DEEPSEEK_CONFLICT_TOP_LEVEL_KEYS
+        .iter()
+        .copied()
+        .chain(std::iter::once(DEEPSEEK_WEB_SEARCH_KEY))
+    {
+        let Some(item) = doc.get(key) else {
+            recorded.insert(
+                key.to_string(),
+                serde_json::json!({ "present": false }),
+            );
+            continue;
+        };
+        // 只接管标量值：表结构（例如用户自定义的 `[xxx]` 段）既不覆盖也不备份，
+        // 直接删除会造成无法还原的数据丢失，因此整条跳过。
+        let Some(existing) = item.as_value() else {
+            continue;
+        };
+        let entry =
+            // `Value` 的 Display 会带上值前后的装饰空白，这里裁掉，保证能原样解析回去。
+            serde_json::json!({ "present": true, "raw": existing.to_string().trim() });
+        recorded.insert(key.to_string(), entry);
+    }
+    serde_json::Value::Object(recorded)
+}
+
+/// 按记录还原顶层键：记录里没有的键不碰，记录为不存在则删除（可能是本次切换新加的）。
+fn restore_deepseek_top_level_backup(
+    doc: &mut Document,
+    record: &serde_json::Map<String, serde_json::Value>,
+) {
+    let Some(recorded) = record
+        .get(DEEPSEEK_TOP_LEVEL_BACKUP_SECTION)
+        .and_then(serde_json::Value::as_object)
+    else {
+        return;
+    };
+    for (key, entry) in recorded {
+        let present = entry
+            .get("present")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        if !present {
+            let _ = doc.remove(key.as_str());
+            continue;
+        }
+        let Some(raw) = entry
+            .get("raw")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+        else {
+            continue;
+        };
+        // 用 `key = <原值>` 重新解析，保证字符串/整数/布尔类型与原样一致。
+        let Ok(parsed) = crate::modules::codex_config_format::read_codex_config_doc_from_str(
+            &format!("{key} = {raw}"),
+        ) else {
+            continue;
+        };
+        if let Some(item) = parsed.get(key.as_str()) {
+            doc[key.as_str()] = item.clone();
+        }
+    }
+}
+
+/// 切到 DeepSeek 时写入官方要求的配置，并先记录原值以便切走时精确还原：
+/// - 压缩兜底：DeepSeek 没有服务端压缩端点，自动压缩会一直失败。
+/// - 禁用内置联网搜索。
+/// - 移除与官方 models.json 声明冲突的顶层键。
+pub(crate) fn apply_deepseek_config_overrides(doc: &mut Document, base_dir: &Path) {
+    let backup_path = deepseek_compaction_backup_path(base_dir);
+    if !backup_path.exists() {
+        let mut original = serde_json::Map::new();
+        for name in DEEPSEEK_COMPACTION_FALLBACK_KEYS {
+            let current = doc
+                .get("features")
+                .and_then(|item| item.as_table())
+                .and_then(|table| table.get(*name))
+                .and_then(|item| item.as_bool());
+            original.insert(
+                (*name).to_string(),
+                match current {
+                    Some(existing) => serde_json::json!({ "present": true, "value": existing }),
+                    None => serde_json::json!({ "present": false }),
+                },
+            );
+        }
+        original.insert(
+            DEEPSEEK_TOP_LEVEL_BACKUP_SECTION.to_string(),
+            record_deepseek_top_level_backup(doc),
+        );
+        write_deepseek_compaction_backup(base_dir, &original);
+    }
+    if doc.get("features").and_then(|item| item.as_table()).is_none() {
+        doc["features"] = toml_edit::table();
+    }
+    if let Some(table) = doc["features"].as_table_mut() {
+        table["remote_compaction_v2"] = toml_edit::value(false);
+        table["token_budget"] = toml_edit::value(true);
+    }
+    // 同样只接管标量：Codex 的 `web_search` 是字符串开关，用户若写成表结构就不动它。
+    let web_search_is_scalar = match doc.get(DEEPSEEK_WEB_SEARCH_KEY) {
+        Some(item) => item.as_value().is_some(),
+        None => true,
+    };
+    if web_search_is_scalar {
+        doc[DEEPSEEK_WEB_SEARCH_KEY] = value(DEEPSEEK_WEB_SEARCH_DISABLED);
+    }
+    for key in DEEPSEEK_CONFLICT_TOP_LEVEL_KEYS {
+        // 与备份保持一致：只移除标量项，表结构不动。
+        if doc.get(*key).is_some_and(|item| item.as_value().is_some()) {
+            let _ = doc.remove(*key);
+        }
+    }
+}
+
+/// 切走 DeepSeek 时还原本次切换改动的配置：按记录恢复原值，没有记录就完全不碰。
+pub(crate) fn restore_deepseek_config_overrides(doc: &mut Document, base_dir: &Path) -> bool {
+    let backup_path = deepseek_compaction_backup_path(base_dir);
+    if !backup_path.exists() {
+        return false;
+    }
+    let record = read_deepseek_compaction_backup(base_dir);
+    let _ = fs::remove_file(&backup_path);
+    if record.is_empty() {
+        return true;
+    }
+    for name in DEEPSEEK_COMPACTION_FALLBACK_KEYS {
+        let Some(original) = record.get(*name).and_then(|value| value.as_object()) else {
+            continue;
+        };
+        let present = original
+            .get("present")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        let stored = original
+            .get("value")
+            .and_then(serde_json::Value::as_bool);
+        let Some(table) = doc["features"].as_table_mut() else {
+            continue;
+        };
+        match (present, stored) {
+            (true, Some(existing)) => {
+                table[*name] = toml_edit::value(existing);
+            }
+            (false, _) => {
+                let _ = table.remove(name);
+            }
+            _ => {}
+        }
+    }
+    restore_deepseek_top_level_backup(doc, &record);
+    true
 }
 
 fn cleanup_deepseek_official_model_catalog_for_dir(base_dir: &Path) -> Result<bool, String> {
@@ -1230,8 +1539,12 @@ fn cleanup_deepseek_official_model_catalog_for_dir(base_dir: &Path) -> Result<bo
         .get(CODEX_CONFIG_MODEL_CATALOG_JSON_KEY)
         .and_then(|item| item.as_str())
         .is_some_and(|value| is_deepseek_official_catalog_ref(value, base_dir));
-    if points_at_official {
-        let _ = doc.remove(CODEX_CONFIG_MODEL_CATALOG_JSON_KEY);
+    // 切走 DeepSeek 时把压缩兜底与顶层冲突键还原成用户原值（没记录过就不动）。
+    let restored_overrides = restore_deepseek_config_overrides(&mut doc, base_dir);
+    if points_at_official || restored_overrides {
+        if points_at_official {
+            let _ = doc.remove(CODEX_CONFIG_MODEL_CATALOG_JSON_KEY);
+        }
         let content = crate::modules::codex_config_format::codex_config_doc_to_string(&mut doc);
         crate::modules::codex_config_format::write_codex_config_toml_atomic(&config_path, &content)
             .map_err(|e| format!("写入 config.toml 失败: {}", e))?;
@@ -1443,133 +1756,8 @@ pub(crate) fn deepseek_injection_model_payload(account: &CodexAccount) -> serde_
     })
 }
 
-fn overlay_official_deepseek_fields(
-    entry: &mut serde_json::Value,
-    official_model: &serde_json::Value,
-) {
-    let Some(object) = entry.as_object_mut() else {
-        return;
-    };
-    for key in [
-        "apply_patch_tool_type",
-        "shell_type",
-        "web_search_tool_type",
-        "base_instructions",
-        "default_reasoning_level",
-        "supported_reasoning_levels",
-        "reasoning_summary_format",
-        "default_reasoning_summary",
-        "context_window",
-        "max_context_window",
-        "supports_reasoning_summaries",
-        "supports_parallel_tool_calls",
-        "input_modalities",
-        "prefer_websockets",
-        "support_verbosity",
-        "default_verbosity",
-        "model_messages",
-    ] {
-        if let Some(value) = official_model.get(key) {
-            object.insert(key.to_string(), value.clone());
-        }
-    }
-}
-
-/// Codex picker catalog for native DeepSeek Responses (no instance gateway).
-///
-/// Each entry keeps three names:
-/// - `display_name`: picker label (`DeepSeek-V4-Flash`)
-/// - whitelist shell: official Codex client-model template (`gpt-5.6-sol`)
-/// - `slug`: upstream ID actually sent to `api.deepseek.com` (`deepseek-v4-flash`)
-fn build_deepseek_direct_provider_catalog_json(
-    account: &CodexAccount,
-) -> Result<String, String> {
-    let selected = selected_deepseek_models(&account.api_model_catalog);
-    if selected.is_empty() {
-        return Err("DeepSeek 模型目录为空，请至少保留 deepseek-v4-flash".to_string());
-    }
-    let slots = crate::modules::codex_local_access::allocate_provider_model_slots(&selected);
-    let official_models = deepseek_official_catalog_models_for_account(account)?;
-    let shell_ids = slots
-        .iter()
-        .map(|slot| slot.client_model.clone())
-        .collect::<Vec<_>>();
-    let mut catalog =
-        crate::modules::codex_protocol::build_codex_client_models_response(&shell_ids);
-    let models = catalog
-        .get_mut("models")
-        .and_then(serde_json::Value::as_array_mut)
-        .ok_or_else(|| "生成 Codex 模型目录失败".to_string())?;
-
-    for model in models.iter_mut() {
-        let Some(shell) = model
-            .get("slug")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_string)
-        else {
-            continue;
-        };
-        let Some(slot) = slots
-            .iter()
-            .find(|slot| slot.client_model.eq_ignore_ascii_case(&shell))
-        else {
-            continue;
-        };
-        if let Some(official_model) = official_models.iter().find(|item| {
-            item.get("slug")
-                .and_then(serde_json::Value::as_str)
-                .is_some_and(|slug| slug.eq_ignore_ascii_case(&slot.upstream_model))
-        }) {
-            overlay_official_deepseek_fields(model, official_model);
-            if let Some(display_name) = official_model
-                .get("display_name")
-                .and_then(serde_json::Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-            {
-                if let Some(object) = model.as_object_mut() {
-                    object.insert(
-                        "display_name".to_string(),
-                        serde_json::Value::String(display_name.to_string()),
-                    );
-                    object.insert(
-                        "description".to_string(),
-                        serde_json::Value::String(slot.upstream_model.clone()),
-                    );
-                }
-            }
-        } else if let Some(object) = model.as_object_mut() {
-            object.insert(
-                "display_name".to_string(),
-                serde_json::Value::String(official_deepseek_display_name(&slot.upstream_model)),
-            );
-            object.insert(
-                "description".to_string(),
-                serde_json::Value::String(slot.upstream_model.clone()),
-            );
-        }
-        if let Some(object) = model.as_object_mut() {
-            object.insert(
-                "slug".to_string(),
-                serde_json::Value::String(slot.upstream_model.clone()),
-            );
-            object.insert(
-                "visibility".to_string(),
-                serde_json::Value::String("list".to_string()),
-            );
-            object.insert(
-                "supported_in_api".to_string(),
-                serde_json::Value::Bool(true),
-            );
-        }
-    }
-
-    models.retain(|model| {
-        model
-            .get("slug")
-            .and_then(serde_json::Value::as_str)
-            .is_some_and(|slug| !slug.trim().is_empty())
-    });
+/// 目录排序：默认模型在前，其次 Pro、视觉模型，其余按名称升序。
+fn sort_deepseek_catalog_models(models: &mut [serde_json::Value]) {
     models.sort_by(|left, right| {
         let left_slug = left
             .get("slug")
@@ -1594,43 +1782,33 @@ fn build_deepseek_direct_provider_catalog_json(
             .cmp(&rank(right_slug))
             .then_with(|| left_slug.cmp(right_slug))
     });
-    if models.is_empty() {
-        return Err("DeepSeek 模型目录为空，请至少保留 deepseek-v4-flash".to_string());
-    }
-
-    serde_json::to_string_pretty(&catalog)
-        .map_err(|error| format!("序列化 DeepSeek 模型目录失败: {}", error))
 }
 
+/// DeepSeek 单实例模型目录（direct / cdp 模式写进实例 CODEX_HOME 的那份）。
+///
+/// 直接输出官方 models.json 的完整条目：官方已经声明了 Codex 需要的全部元数据
+/// （工具形态、多 agent 版本、客户端最低版本、上下文比例等）。此前用 Codex 内置
+/// 模型壳做底再局部覆盖字段，会残留壳模型的计费档位（`service_tiers` /
+/// `additional_speed_tiers`）、套餐门控（`available_in_plans`）与技能说明注入开关，
+/// 与官方声明不一致。
 fn build_deepseek_official_model_catalog_json(
     account: &CodexAccount,
 ) -> Result<String, String> {
     let mut models = deepseek_official_catalog_models_for_account(account)?;
-    models.sort_by(|left, right| {
-        let left_slug = left
-            .get("slug")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default();
-        let right_slug = right
-            .get("slug")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default();
-        let rank = |slug: &str| -> u8 {
-            if slug.eq_ignore_ascii_case(DEEPSEEK_DEFAULT_MODEL) {
-                0
-            } else if slug.eq_ignore_ascii_case("deepseek-v4-pro") {
-                1
-            } else if slug.eq_ignore_ascii_case("deepseek-v4-flash-vision-exp") {
-                2
-            } else {
-                3
-            }
+    for model in models.iter_mut() {
+        let Some(object) = model.as_object_mut() else {
+            continue;
         };
-        rank(left_slug)
-            .cmp(&rank(right_slug))
-            .then_with(|| left_slug.cmp(right_slug))
-    });
-
+        object.insert(
+            "visibility".to_string(),
+            serde_json::Value::String("list".to_string()),
+        );
+        object.insert(
+            "supported_in_api".to_string(),
+            serde_json::Value::Bool(true),
+        );
+    }
+    sort_deepseek_catalog_models(&mut models);
     if models.is_empty() {
         return Err("DeepSeek 模型目录为空，请至少保留 deepseek-v4-flash".to_string());
     }
@@ -1695,13 +1873,7 @@ fn sync_deepseek_shell_remap_catalog_to_dir(
     doc["model"] = value(preferred_shell.as_str());
     doc[CODEX_CONFIG_MODEL_CATALOG_JSON_KEY] = value(CODEX_MANAGED_MODEL_CATALOG_FILE);
     apply_deepseek_reasoning_effort(&mut doc);
-    if doc
-        .get("model_reasoning_summary")
-        .and_then(|item| item.as_str())
-        .is_some()
-    {
-        let _ = doc.remove("model_reasoning_summary");
-    }
+    apply_deepseek_config_overrides(&mut doc, base_dir);
     let content = crate::modules::codex_config_format::codex_config_doc_to_string(&mut doc);
     crate::modules::codex_config_format::write_codex_config_toml_atomic(&config_path, &content)
         .map_err(|e| format!("写入 config.toml 失败: {}", e))?;
@@ -1719,7 +1891,7 @@ fn sync_deepseek_official_model_catalog_to_dir(
     base_dir: &Path,
     account: &CodexAccount,
 ) -> Result<bool, String> {
-    let catalog_path = write_deepseek_official_model_catalog_file(base_dir, account)?;
+    write_deepseek_official_model_catalog_file(base_dir, account)?;
     let config_path = get_config_toml_path(base_dir);
     let existing = fs::read_to_string(&config_path).unwrap_or_default();
     let mut doc = if existing.trim().is_empty() {
@@ -1728,7 +1900,7 @@ fn sync_deepseek_official_model_catalog_to_dir(
         crate::modules::codex_config_format::read_codex_config_doc_from_str(&existing)
             .map_err(|e| format!("解析 config.toml 失败: {}", e))?
     };
-    apply_deepseek_official_catalog_to_doc(&mut doc, account, &catalog_path);
+    apply_deepseek_official_catalog_to_doc(&mut doc, account, base_dir);
 
     let content = crate::modules::codex_config_format::codex_config_doc_to_string(&mut doc);
     crate::modules::codex_config_format::write_codex_config_toml_atomic(&config_path, &content)
