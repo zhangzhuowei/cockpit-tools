@@ -135,21 +135,6 @@ pub fn apply_cached_quota(account: &mut Account, source: &str) -> Result<bool, S
         }
     }
 
-    // 容错：如果缓存的 models 为空，但账号已有配额数据，保留原有 models
-    if quota.models.is_empty() {
-        if let Some(ref existing_quota) = account.quota {
-            if !existing_quota.models.is_empty() {
-                // 只更新非 models 字段
-                let mut merged_quota = existing_quota.clone();
-                merged_quota.subscription_tier = quota.subscription_tier.clone();
-                merged_quota.is_forbidden = quota.is_forbidden;
-                // 不更新 last_updated，保留原有的时间戳
-                account.update_quota(merged_quota);
-                return Ok(true);
-            }
-        }
-    }
-
-    account.update_quota(quota);
+    account.update_quota(quota.merge_preserving_identity(account.quota.as_ref()));
     Ok(true)
 }

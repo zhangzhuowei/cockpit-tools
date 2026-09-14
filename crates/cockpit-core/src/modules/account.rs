@@ -616,29 +616,7 @@ fn save_current_account_file(email: &str) -> Result<(), String> {
 /// 更新账号配额
 pub fn update_account_quota(account_id: &str, quota: QuotaData) -> Result<(), String> {
     let mut account = load_account(account_id)?;
-
-    // 容错：如果新获取的 models 为空，但之前有数据，保留原来的 models
-    if quota.models.is_empty() {
-        if let Some(ref existing_quota) = account.quota {
-            if !existing_quota.models.is_empty() {
-                modules::logger::log_warn(&format!(
-                    "⚠️ 新配额 models 为空，保留原有 {} 个模型数据",
-                    existing_quota.models.len()
-                ));
-                // 只更新非 models 字段（subscription_tier, is_forbidden 等）
-                let mut merged_quota = existing_quota.clone();
-                merged_quota.subscription_tier = quota.subscription_tier.clone();
-                merged_quota.is_forbidden = quota.is_forbidden;
-                merged_quota.last_updated = quota.last_updated;
-                account.update_quota(merged_quota);
-                account.usage_updated_at = Some(chrono::Utc::now().timestamp());
-                save_account(&account)?;
-                return Ok(());
-            }
-        }
-    }
-
-    account.update_quota(quota);
+    account.update_quota(quota.merge_preserving_identity(account.quota.as_ref()));
     account.usage_updated_at = Some(chrono::Utc::now().timestamp());
     save_account(&account)?;
     if let Some(ref quota) = account.quota {

@@ -267,6 +267,25 @@ fn resolve_cloud_code_base_url(ctx: &QuotaCloudCodeContext) -> String {
     CLOUD_CODE_DAILY_BASE_URL.to_string()
 }
 
+fn cloud_code_fallback_url(ctx: &QuotaCloudCodeContext, primary: &str) -> Option<String> {
+    if env_var_trimmed("ANTIGRAVITY_CLOUD_CODE_URL_OVERRIDE").is_some() {
+        return None;
+    }
+    if ctx.is_gcp_tos && primary == CLOUD_CODE_PROD_BASE_URL {
+        return Some(CLOUD_CODE_DAILY_BASE_URL.to_string());
+    }
+    None
+}
+
+fn cloud_code_candidate_urls(ctx: &QuotaCloudCodeContext) -> Vec<String> {
+    let primary = resolve_cloud_code_base_url(ctx);
+    let mut urls = vec![primary.clone()];
+    if let Some(fallback) = cloud_code_fallback_url(ctx, &primary) {
+        urls.push(fallback);
+    }
+    urls
+}
+
 fn header_value(headers: &reqwest::header::HeaderMap, name: reqwest::header::HeaderName) -> String {
     headers
         .get(name)
@@ -618,12 +637,14 @@ fn extract_credits_from_tier(tier: &Tier) -> Vec<CreditInfo> {
         .unwrap_or_default()
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ProjectMetadataResult {
     pub project_id: Option<String>,
     pub subscription_tier: Option<String>,
     pub credits: Vec<CreditInfo>,
     pub is_gcp_tos: Option<bool>,
+    pub http_ok: bool,
+    pub auth_denied: bool,
 }
 
 /// 获取项目 ID、订阅类型和积分信息（优先使用 token 中的 project_id / is_gcp_tos 上下文）
@@ -657,13 +678,41 @@ pub async fn fetch_project_metadata_with_context(
     email: &str,
     ctx: &QuotaCloudCodeContext,
 ) -> ProjectMetadataResult {
+    let urls = cloud_code_candidate_urls(ctx);
+    let mut last = ProjectMetadataResult {
+        is_gcp_tos: if ctx.is_gcp_tos { Some(true) } else { None },
+        ..ProjectMetadataResult::default()
+    };
+    for (index, base_url) in urls.iter().enumerate() {
+        let result = fetch_project_metadata_on_host(access_token, email, ctx, base_url).await;
+        if result.http_ok || result.auth_denied {
+            return result;
+        }
+        if index + 1 < urls.len() {
+            crate::modules::logger::log_warn(&format!(
+                "[Quota] loadCodeAssist 正式域名超时/失败，回退 daily: account={} from={} to={}",
+                email,
+                base_url,
+                urls[index + 1]
+            ));
+        }
+        last = result;
+    }
+    last
+}
+
+async fn fetch_project_metadata_on_host(
+    access_token: &str,
+    email: &str,
+    ctx: &QuotaCloudCodeContext,
+    base_url: &str,
+) -> ProjectMetadataResult {
     let client = create_client();
     let mut subscription_tier: Option<String> = None;
     let mut allowed_tiers: Vec<AllowedTier> = Vec::new();
     let mut last_error: Option<String> = None;
     let mut credits: Vec<CreditInfo> = Vec::new();
     let mut resolved_is_gcp_tos: Option<bool> = if ctx.is_gcp_tos { Some(true) } else { None };
-    let base_url = resolve_cloud_code_base_url(ctx);
     let ua = load_code_assist_user_agent();
     let x_goog_api_client = load_code_assist_x_goog_api_client();
     let preferred_project_id = ctx
@@ -803,6 +852,8 @@ pub async fn fetch_project_metadata_with_context(
                                             subscription_tier,
                                             credits,
                                             is_gcp_tos: resolved_is_gcp_tos,
+                                            http_ok: true,
+                                            auth_denied: false,
                                         };
                                     }
 
@@ -832,6 +883,8 @@ pub async fn fetch_project_metadata_with_context(
                                                         subscription_tier,
                                                         credits,
                                                         is_gcp_tos: resolved_is_gcp_tos,
+                                                        http_ok: true,
+                                                        auth_denied: false,
                                                     };
                                                 }
                                             }
@@ -849,6 +902,8 @@ pub async fn fetch_project_metadata_with_context(
                                         subscription_tier,
                                         credits,
                                         is_gcp_tos: resolved_is_gcp_tos,
+                                        http_ok: true,
+                                        auth_denied: false,
                                     };
                                 }
                                 Err(err) => {
@@ -902,6 +957,8 @@ pub async fn fetch_project_metadata_with_context(
                         subscription_tier,
                         credits,
                         is_gcp_tos: resolved_is_gcp_tos,
+                        http_ok: false,
+                        auth_denied: true,
                     };
                 } else if status == reqwest::StatusCode::FORBIDDEN {
                     let text = res.text().await.unwrap_or_default();
@@ -918,6 +975,8 @@ pub async fn fetch_project_metadata_with_context(
                         subscription_tier,
                         credits,
                         is_gcp_tos: resolved_is_gcp_tos,
+                        http_ok: false,
+                        auth_denied: true,
                     };
                 } else {
                     let text = res.text().await.unwrap_or_default();
@@ -968,6 +1027,8 @@ pub async fn fetch_project_metadata_with_context(
         subscription_tier,
         credits,
         is_gcp_tos: resolved_is_gcp_tos,
+        http_ok: false,
+        auth_denied: false,
     }
 }
 
@@ -1038,6 +1099,208 @@ fn build_quota_data_from_response(
     quota_data
 }
 
+enum ModelsFetchOutcome {
+    Ok(serde_json::Value),
+    Forbidden { status: u16, message: String },
+    Failed(crate::error::AppError),
+}
+
+fn quota_request_payload(ctx: &QuotaCloudCodeContext) -> serde_json::Value {
+    ctx.preferred_project_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(|id| json!({ "project": id }))
+        .unwrap_or_else(|| json!({}))
+}
+
+async fn fetch_available_models_json(
+    client: &reqwest::Client,
+    access_token: &str,
+    email: &str,
+    base_urls: &[String],
+    payload: &serde_json::Value,
+    user_agent: &str,
+) -> ModelsFetchOutcome {
+    use crate::error::AppError;
+
+    let max_retries = 3;
+    let mut last_error: Option<AppError> = None;
+
+    for (host_index, base_url) in base_urls.iter().enumerate() {
+        for attempt in 1..=max_retries {
+            crate::modules::logger::log_info(&format!(
+                "[Quota] fetchAvailableModels account={} url={}/{} attempt={}/{}",
+                email, base_url, FETCH_AVAILABLE_MODELS_PATH, attempt, max_retries
+            ));
+            match client
+                .post(format!("{}/{}", base_url, FETCH_AVAILABLE_MODELS_PATH))
+                .bearer_auth(access_token)
+                .header(reqwest::header::USER_AGENT, user_agent)
+                .header(reqwest::header::ACCEPT_ENCODING, "gzip")
+                .json(payload)
+                .send()
+                .await
+            {
+                Ok(response) => {
+                    if response.error_for_status_ref().is_err() {
+                        let status = response.status();
+                        let text = response.text().await.unwrap_or_default();
+                        if status == reqwest::StatusCode::FORBIDDEN {
+                            let message = if text.trim().is_empty() {
+                                "API returned 403 Forbidden".to_string()
+                            } else {
+                                text
+                            };
+                            return ModelsFetchOutcome::Forbidden {
+                                status: status.as_u16(),
+                                message,
+                            };
+                        }
+                        last_error = Some(AppError::Unknown(format!(
+                            "API 错误: {} - {}",
+                            status, text
+                        )));
+                        if status == reqwest::StatusCode::UNAUTHORIZED {
+                            return ModelsFetchOutcome::Failed(
+                                last_error.take().unwrap_or_else(|| {
+                                    AppError::Unknown("配额查询失败".to_string())
+                                }),
+                            );
+                        }
+                        if attempt < max_retries {
+                            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                            continue;
+                        }
+                        break;
+                    }
+
+                    match response.text().await {
+                        Ok(body) => match serde_json::from_str::<serde_json::Value>(&body) {
+                            Ok(value) => return ModelsFetchOutcome::Ok(value),
+                            Err(e) => {
+                                last_error =
+                                    Some(AppError::Unknown(format!("API 响应解析失败: {}", e)));
+                                break;
+                            }
+                        },
+                        Err(e) => {
+                            last_error = Some(AppError::Network(e));
+                            if attempt < max_retries {
+                                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                                continue;
+                            }
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    last_error = Some(AppError::Network(e));
+                    if host_index + 1 < base_urls.len() {
+                        crate::modules::logger::log_warn(&format!(
+                            "[Quota] fetchAvailableModels 正式域名超时/失败，回退 daily: account={} from={} to={}",
+                            email,
+                            base_url,
+                            base_urls[host_index + 1]
+                        ));
+                        break;
+                    }
+                    if attempt < max_retries {
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                        continue;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    ModelsFetchOutcome::Failed(
+        last_error.unwrap_or_else(|| AppError::Unknown("配额查询失败".to_string())),
+    )
+}
+
+async fn fetch_user_quota_summary_json(
+    client: &reqwest::Client,
+    access_token: &str,
+    email: &str,
+    base_urls: &[String],
+    payload: &serde_json::Value,
+    user_agent: &str,
+) -> Option<serde_json::Value> {
+    for (host_index, base_url) in base_urls.iter().enumerate() {
+        let summary_url = format!("{}/v1internal:retrieveUserQuotaSummary", base_url);
+        crate::modules::logger::log_info(&format!(
+            "[Quota] 发送 retrieveUserQuotaSummary, account={} url: {}",
+            email, summary_url
+        ));
+        match client
+            .post(&summary_url)
+            .bearer_auth(access_token)
+            .header(reqwest::header::USER_AGENT, user_agent)
+            .header(reqwest::header::ACCEPT_ENCODING, "gzip")
+            .json(payload)
+            .send()
+            .await
+        {
+            Ok(res) => {
+                let status = res.status();
+                crate::modules::logger::log_info(&format!(
+                    "[Quota] retrieveUserQuotaSummary 返回状态码: {}",
+                    status
+                ));
+                if status.is_success() {
+                    match res.text().await {
+                        Ok(summary_body) => {
+                            crate::modules::logger::log_info(&format!(
+                                "[Quota] retrieveUserQuotaSummary 响应长度: {}",
+                                summary_body.len()
+                            ));
+                            match serde_json::from_str::<serde_json::Value>(&summary_body) {
+                                Ok(val) => return Some(val),
+                                Err(_) => {
+                                    crate::modules::logger::log_error(
+                                        "[Quota] retrieveUserQuotaSummary JSON 解析失败",
+                                    );
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            crate::modules::logger::log_error(
+                                "[Quota] retrieveUserQuotaSummary 读取 body 失败",
+                            );
+                        }
+                    }
+                } else {
+                    let err_text = res.text().await.unwrap_or_default();
+                    crate::modules::logger::log_error(&format!(
+                        "[Quota] retrieveUserQuotaSummary 请求未成功: {}, body: {}",
+                        status, err_text
+                    ));
+                    if status == reqwest::StatusCode::UNAUTHORIZED
+                        || status == reqwest::StatusCode::FORBIDDEN
+                    {
+                        return None;
+                    }
+                }
+            }
+            Err(e) => {
+                crate::modules::logger::log_error(&format!(
+                    "[Quota] retrieveUserQuotaSummary 发送失败: {}",
+                    e
+                ));
+                if host_index + 1 < base_urls.len() {
+                    crate::modules::logger::log_warn(&format!(
+                        "[Quota] retrieveUserQuotaSummary 正式域名超时/失败，回退 daily: account={}",
+                        email
+                    ));
+                }
+            }
+        }
+    }
+    None
+}
+
 pub async fn fetch_quota_for_token(
     token: &TokenData,
     email: &str,
@@ -1055,17 +1318,11 @@ pub async fn fetch_quota_with_context(
 ) -> crate::error::AppResult<QuotaFetchResult> {
     use crate::error::AppError;
 
-    let base_url = resolve_cloud_code_base_url(ctx);
-    let meta = fetch_project_metadata_with_context(access_token, email, ctx).await;
-    let resolved_project_id = meta.project_id;
-    let subscription_tier = meta.subscription_tier;
-    let credits = meta.credits;
-    let is_gcp_tos = meta.is_gcp_tos;
-    let effective_project_id = resolved_project_id
-        .clone()
-        .or_else(|| ctx.preferred_project_id.clone());
+    let client = create_client();
+    let cloud_code_user_agent = build_cloud_code_user_agent();
+    let payload = quota_request_payload(ctx);
+    let base_urls = cloud_code_candidate_urls(ctx);
 
-    // 保留缓存，但缓存命中前仍先执行与 Antigravity IDE.app 对齐的项目识别流程。
     if !skip_cache {
         if let Some(record) = read_api_cache("authorized", email) {
             if is_api_cache_valid(&record) {
@@ -1077,14 +1334,15 @@ pub async fn fetch_quota_with_context(
                 if let Ok(quota_response) =
                     serde_json::from_value::<QuotaResponse>(record.payload.clone())
                 {
+                    let meta = fetch_project_metadata_with_context(access_token, email, ctx).await;
                     let quota_summary = record.payload.get("quota_summary").cloned();
                     let quota_data = build_quota_data_from_response(
                         quota_response,
-                        subscription_tier.clone(),
-                        credits.clone(),
+                        meta.subscription_tier,
+                        meta.credits,
                         quota_summary,
-                        is_gcp_tos,
-                        resolved_project_id.clone(),
+                        meta.is_gcp_tos,
+                        meta.project_id,
                     );
                     return Ok(QuotaFetchResult {
                         quota: quota_data,
@@ -1101,168 +1359,138 @@ pub async fn fetch_quota_with_context(
         }
     }
 
-    let client = create_client();
-    let payload = effective_project_id
-        .as_ref()
-        .map(|id| json!({ "project": id }))
-        .unwrap_or_else(|| json!({}));
-    let cloud_code_user_agent = build_cloud_code_user_agent();
+    let (meta, models_outcome, quota_summary_val) = tokio::join!(
+        fetch_project_metadata_with_context(access_token, email, ctx),
+        fetch_available_models_json(
+            &client,
+            access_token,
+            email,
+            &base_urls,
+            &payload,
+            &cloud_code_user_agent,
+        ),
+        fetch_user_quota_summary_json(
+            &client,
+            access_token,
+            email,
+            &base_urls,
+            &payload,
+            &cloud_code_user_agent,
+        ),
+    );
 
-    let max_retries = 3;
+    let resolved_project_id = meta.project_id.clone();
+    let effective_project_id = resolved_project_id
+        .clone()
+        .or_else(|| ctx.preferred_project_id.clone());
 
-    for attempt in 1..=max_retries {
-        match client
-            .post(format!("{}/{}", base_url, FETCH_AVAILABLE_MODELS_PATH))
-            .bearer_auth(access_token)
-            .header(reqwest::header::USER_AGENT, &cloud_code_user_agent)
-            .header(reqwest::header::ACCEPT_ENCODING, "gzip")
-            .json(&payload)
-            .send()
-            .await
-        {
-            Ok(response) => {
-                if response.error_for_status_ref().is_err() {
-                    let status = response.status();
-
-                    if status == reqwest::StatusCode::FORBIDDEN {
-                        crate::modules::logger::log_warn(&format!(
-                            "账号无权限 (403 Forbidden), 标记为 forbidden 状态: {}",
-                            email
-                        ));
-                        let text = response.text().await.unwrap_or_default();
-                        let mut q = QuotaData::new();
-                        q.is_forbidden = true;
-                        q.subscription_tier = subscription_tier.clone();
-                        q.is_gcp_tos = is_gcp_tos;
-                        q.project_id = resolved_project_id.clone();
-                        let message = if text.trim().is_empty() {
-                            "API returned 403 Forbidden".to_string()
-                        } else {
-                            text
-                        };
-                        return Ok(QuotaFetchResult {
-                            quota: q,
-                            error: Some(QuotaFetchError {
-                                code: Some(status.as_u16()),
-                                message,
-                            }),
-                        });
-                    }
-
-                    if attempt < max_retries {
-                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                        continue;
-                    }
-
-                    let text = response.text().await.unwrap_or_default();
-                    return Err(AppError::Unknown(format!(
-                        "API 错误: {} - {}",
-                        status, text
-                    )));
-                }
-
-                let body = response.text().await.map_err(AppError::Network)?;
-                let mut payload_value: serde_json::Value = serde_json::from_str(&body)
-                    .map_err(|e| AppError::Unknown(format!("API 响应解析失败: {}", e)))?;
-
-                // Fetch retrieveUserQuotaSummary to get weekly and 5h buckets
-                let summary_url = format!("{}/v1internal:retrieveUserQuotaSummary", base_url);
-                let mut quota_summary_val: Option<serde_json::Value> = None;
-                crate::modules::logger::log_info(&format!(
-                    "[Quota] 发送 retrieveUserQuotaSummary, url: {}",
-                    summary_url
-                ));
-                match client
-                    .post(&summary_url)
-                    .bearer_auth(access_token)
-                    .header(reqwest::header::USER_AGENT, &cloud_code_user_agent)
-                    .header(reqwest::header::ACCEPT_ENCODING, "gzip")
-                    .json(&payload)
-                    .send()
-                    .await
-                {
-                    Ok(res) => {
-                        let status = res.status();
-                        crate::modules::logger::log_info(&format!(
-                            "[Quota] retrieveUserQuotaSummary 返回状态码: {}",
-                            status
-                        ));
-                        if status.is_success() {
-                            if let Ok(summary_body) = res.text().await {
-                                crate::modules::logger::log_info(&format!(
-                                    "[Quota] retrieveUserQuotaSummary 响应长度: {}",
-                                    summary_body.len()
-                                ));
-                                if let Ok(val) =
-                                    serde_json::from_str::<serde_json::Value>(&summary_body)
-                                {
-                                    quota_summary_val = Some(val.clone());
-                                    // Merge into payload_value for caching
-                                    if let Some(obj) = payload_value.as_object_mut() {
-                                        obj.insert("quota_summary".to_string(), val);
-                                        crate::modules::logger::log_info(
-                                            "[Quota] 成功将 quota_summary 合并到 payload_value",
-                                        );
-                                    }
-                                } else {
-                                    crate::modules::logger::log_error(
-                                        "[Quota] retrieveUserQuotaSummary JSON 解析失败",
-                                    );
-                                }
-                            } else {
-                                crate::modules::logger::log_error(
-                                    "[Quota] retrieveUserQuotaSummary 读取 body 失败",
-                                );
-                            }
-                        } else {
-                            let err_text = res.text().await.unwrap_or_default();
-                            crate::modules::logger::log_error(&format!(
-                                "[Quota] retrieveUserQuotaSummary 请求未成功: {}, body: {}",
-                                status, err_text
-                            ));
-                        }
-                    }
-                    Err(e) => {
-                        crate::modules::logger::log_error(&format!(
-                            "[Quota] retrieveUserQuotaSummary 发送失败: {}",
-                            e
-                        ));
-                    }
-                }
-
-                write_api_cache(
-                    "authorized",
-                    "desktop",
-                    email,
-                    effective_project_id.clone(),
-                    payload_value.clone(),
-                );
-
-                let quota_response: QuotaResponse = serde_json::from_value(payload_value)
-                    .map_err(|e| AppError::Unknown(format!("API 响应解析失败: {}", e)))?;
-                let quota_data = build_quota_data_from_response(
-                    quota_response,
-                    subscription_tier.clone(),
-                    credits.clone(),
-                    quota_summary_val,
-                    is_gcp_tos,
-                    resolved_project_id.clone(),
-                );
-
-                return Ok(QuotaFetchResult {
-                    quota: quota_data,
-                    error: None,
-                });
-            }
-            Err(e) => {
-                if attempt < max_retries {
-                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                } else {
-                    return Err(AppError::Network(e));
+    match models_outcome {
+        ModelsFetchOutcome::Forbidden { status, message } => {
+            crate::modules::logger::log_warn(&format!(
+                "账号无权限 (403 Forbidden), 标记为 forbidden 状态: {}",
+                email
+            ));
+            let mut q = QuotaData::new();
+            q.is_forbidden = true;
+            q.subscription_tier = meta.subscription_tier;
+            q.is_gcp_tos = meta.is_gcp_tos;
+            q.project_id = resolved_project_id;
+            Ok(QuotaFetchResult {
+                quota: q,
+                error: Some(QuotaFetchError {
+                    code: Some(status),
+                    message,
+                }),
+            })
+        }
+        ModelsFetchOutcome::Failed(err) => Err(err),
+        ModelsFetchOutcome::Ok(mut payload_value) => {
+            if let Some(val) = quota_summary_val.clone() {
+                if let Some(obj) = payload_value.as_object_mut() {
+                    obj.insert("quota_summary".to_string(), val);
+                    crate::modules::logger::log_info(
+                        "[Quota] 成功将 quota_summary 合并到 payload_value",
+                    );
                 }
             }
+
+            write_api_cache(
+                "authorized",
+                "desktop",
+                email,
+                effective_project_id,
+                payload_value.clone(),
+            );
+
+            let quota_response: QuotaResponse = serde_json::from_value(payload_value)
+                .map_err(|e| AppError::Unknown(format!("API 响应解析失败: {}", e)))?;
+            let quota_data = build_quota_data_from_response(
+                quota_response,
+                meta.subscription_tier,
+                meta.credits,
+                quota_summary_val,
+                meta.is_gcp_tos,
+                resolved_project_id,
+            );
+
+            Ok(QuotaFetchResult {
+                quota: quota_data,
+                error: None,
+            })
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn gcp_tos_ctx() -> QuotaCloudCodeContext {
+        QuotaCloudCodeContext {
+            preferred_project_id: Some("aicode-consumers".to_string()),
+            is_gcp_tos: true,
         }
     }
 
-    Err(AppError::Unknown("配额查询失败".to_string()))
+    #[test]
+    fn gcp_tos_candidates_include_daily_fallback() {
+        if env_var_trimmed("ANTIGRAVITY_CLOUD_CODE_URL_OVERRIDE").is_some() {
+            return;
+        }
+        let urls = cloud_code_candidate_urls(&gcp_tos_ctx());
+        assert_eq!(
+            urls,
+            vec![
+                CLOUD_CODE_PROD_BASE_URL.to_string(),
+                CLOUD_CODE_DAILY_BASE_URL.to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn non_gcp_tos_candidates_stay_on_daily() {
+        if env_var_trimmed("ANTIGRAVITY_CLOUD_CODE_URL_OVERRIDE").is_some() {
+            return;
+        }
+        if env_bool("ANTIGRAVITY_IS_GOOGLE_INTERNAL") && env_quality_is_insider_or_dev() {
+            return;
+        }
+        let ctx = QuotaCloudCodeContext {
+            preferred_project_id: None,
+            is_gcp_tos: false,
+        };
+        assert_eq!(
+            cloud_code_candidate_urls(&ctx),
+            vec![CLOUD_CODE_DAILY_BASE_URL.to_string()]
+        );
+    }
+
+    #[test]
+    fn override_disables_daily_fallback() {
+        if env_var_trimmed("ANTIGRAVITY_CLOUD_CODE_URL_OVERRIDE").is_none() {
+            return;
+        }
+        let urls = cloud_code_candidate_urls(&gcp_tos_ctx());
+        assert_eq!(urls.len(), 1);
+    }
 }
