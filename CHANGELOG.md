@@ -7,6 +7,30 @@ All notable changes to Cockpit Tools will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
+## [1.3.56] - 2026-09-16
+
+### Fixed
+
+- **Fixed losing the current task after context compaction**: compaction now summarises the current task before continuing instead of resetting the context window and losing it.
+- **Fixed Official login closing the client right after launch with no importable sign-in data**: the injected script path was not normalized on Windows, which aborted the client during startup. The path is now normalized, and when the injection does not take effect Cockpit falls back to the official native flow instead of failing the sign-in, so the default **Intercept the browser jump** switch works again.
+- **Fixed multi-open instances failing to start after a Store version update (access denied / os error 5)**: a Store update moves the package while the stale path was kept, so every launch was rejected by Windows and only a manual **Reset path** recovered it. Cockpit now resolves the path from the registered Store package and retries automatically.
+- **Fixed the PowerShell fallback dropping extra environment variables when a direct WindowsApps launch is denied**: the fallback now forwards the extra environment variables, including the `NODE_OPTIONS` used for temporary-login injection.
+- **Fixed "the client is running but Cockpit reports it as stopped" after a Store version update**: process detection required the executable full path to match exactly, so a new package folder made the real PID unreadable. Store package paths are now treated as the same instance when they share the same package family and executable name (non-Store paths still require an exact match).
+- **Fixed DeepSeek rejecting a whole turn because tool calls and their outputs were out of position**: DeepSeek validates tool calls by position — the calls of one assistant turn must stay contiguous and their outputs must follow that batch directly, otherwise the whole request is rejected (`No tool output found for tool call ...` when a message sits between a call and its output, and a missing `reasoning_text` when a parallel batch is split by its own outputs) and the thread cannot continue. Requests sent to DeepSeek now restore the order per batch: consecutive calls stay adjacent and their outputs follow the batch, while history that is already valid passes through byte-for-byte.
+- **Fixed DeepSeek rejecting a whole request because replayed reasoning text was missing**: DeepSeek's thinking mode requires `reasoning_text` on replayed reasoning items. Requests sent to DeepSeek now restore that text, and every other request passes through byte-for-byte.
+
+### Changed
+
+- **Store launch failures no longer surface a raw internal error string**: they now use the shared Windows operation dialog, which explains the cause and offers a **Re-detect path and retry** button, and the diagnostics can be copied together with the error.
+- **Parallel tool calls are now disabled in requests to DeepSeek through the gateway**: this reduces the number of parallel batches that corrupt call and output order, and the batch-order restore covers histories that are already on disk.
+
+## [1.3.55] - 2026-09-16
+
+### Fixed
+
+- **Fixed context compaction failing for DeepSeek accounts behind an instance gateway or the API Service**: starting with 1.3.53 the managed provider was written with the name `OpenAI`, so the client treated the upstream as official and sent compaction to DeepSeek, which does not support it — compaction always failed and the conversation could not continue, showing an error where compaction happens. The name is no longer `OpenAI`, so DeepSeek and other third-party upstreams use local compaction again, matching 1.3.51 and 1.3.52; configurations that already carry the old name are corrected automatically on the next start, and no rebinding is needed. Accordingly, official accounts behind the local gateway or the API Service use local compaction as they did in 1.3.52.
+- **Fixed wakeups and Pelican tests failing after they were routed through the API Service**: starting with 1.3.54 scheduled and manual wakeups and Pelican test runs are handled by the same local API Service process, but the internal request still applied the direct-upstream path handling and turned the client path (`/v1/responses`) into the upstream path (`/responses`) before sending it to the service. The service only registers `/v1/*` routes, so wakeups ended in a 404 `endpoint not supported` and Pelican tests failed one step earlier, locally, with "only /v1 or /backend-api/codex paths are supported". Internal requests now keep the API Service's public path, so wakeups and Pelican tests work again while still sharing the service's account selection, token refresh, concurrency and quota-cooldown scheduling.
+
 ## [1.3.54] - 2026-09-16
 
 ### Added
