@@ -2289,6 +2289,34 @@ func boolPointerForTest(value bool) *bool {
 	return &value
 }
 
+func stopSidecarRuntimeAndDrainAuthDir(t *testing.T, runtime *sidecarRuntime, authDir string) {
+	t.Helper()
+	if runtime != nil {
+		runtime.Stop()
+	}
+	if strings.TrimSpace(authDir) == "" {
+		return
+	}
+	// StartRuntime's file token store / watcher can rewrite auth JSON after
+	// Stop() returns. Go 1.24+ fails the test if t.TempDir() cleanup then
+	// sees a non-empty directory, which showed up on Linux CI as:
+	// TempDir RemoveAll cleanup: unlinkat .../auths: directory not empty
+	deadline := time.Now().Add(2 * time.Second)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		lastErr = os.RemoveAll(authDir)
+		if lastErr == nil {
+			if _, err := os.Stat(authDir); os.IsNotExist(err) {
+				return
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if lastErr != nil {
+		t.Logf("auth dir still present after runtime stop: %v", lastErr)
+	}
+}
+
 func TestSidecarRuntimeRegistersConfigCodexAPIKeyAuths(t *testing.T) {
 	tempDir := t.TempDir()
 	authDir := filepath.Join(tempDir, "auths")
@@ -2318,7 +2346,7 @@ func TestSidecarRuntimeRegistersConfigCodexAPIKeyAuths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newSidecarRuntime: %v", err)
 	}
-	defer runtime.Stop()
+	t.Cleanup(func() { stopSidecarRuntimeAndDrainAuthDir(t, runtime, authDir) })
 
 	var codexAPIKeyAuth *coreauth.Auth
 	for _, auth := range manager.List() {
@@ -2386,7 +2414,7 @@ func TestSidecarRuntimeRegistersManifestCodexAccessTokenAuths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newSidecarRuntime: %v", err)
 	}
-	defer runtime.Stop()
+	t.Cleanup(func() { stopSidecarRuntimeAndDrainAuthDir(t, runtime, authDir) })
 
 	var tokenAuth *coreauth.Auth
 	for _, auth := range manager.List() {
