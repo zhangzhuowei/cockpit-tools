@@ -39,7 +39,11 @@ pub struct QuotaCloudCodeContext {
 impl QuotaCloudCodeContext {
     pub fn from_token(token: &TokenData) -> Self {
         Self {
-            preferred_project_id: token.project_id.clone(),
+            preferred_project_id: token
+                .project_id
+                .as_ref()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty() && s != "aicode-consumers"),
             is_gcp_tos: token.is_gcp_tos.unwrap_or(false),
         }
     }
@@ -256,7 +260,7 @@ fn resolve_cloud_code_base_url(ctx: &QuotaCloudCodeContext) -> String {
         return override_url;
     }
 
-    if ctx.is_gcp_tos {
+    if ctx.is_gcp_tos && ctx.preferred_project_id.is_some() {
         return CLOUD_CODE_PROD_BASE_URL.to_string();
     }
 
@@ -765,7 +769,7 @@ async fn fetch_project_metadata_on_host(
                                     subscription_tier =
                                         paid_tier_id.clone().or(current_tier_id.clone());
 
-                                    // 从 currentTier / allowedTiers 中解析 usesGcpTos
+                                    // 从 currentTier / allowedTiers 中解析 usesGcpTos（严格遵循 Google 返回的真实字段）
                                     let detected_gcp_tos = data
                                         .current_tier
                                         .as_ref()
@@ -777,16 +781,6 @@ async fn fetch_project_metadata_on_host(
                                                     .find(|t| t.is_default.unwrap_or(false))
                                                     .and_then(|t| t.uses_gcp_tos)
                                             })
-                                        })
-                                        .or_else(|| {
-                                            // standard-tier 订阅必定属于 GCP ToS 体系
-                                            if current_tier_id.as_deref() == Some("standard-tier")
-                                                || paid_tier_id.as_deref() == Some("standard-tier")
-                                            {
-                                                Some(true)
-                                            } else {
-                                                None
-                                            }
                                         });
                                     if detected_gcp_tos.is_some() {
                                         resolved_is_gcp_tos = detected_gcp_tos;
@@ -844,8 +838,11 @@ async fn fetch_project_metadata_on_host(
                                         );
                                     }
 
-                                    let response_project_id =
-                                        data.project.as_ref().and_then(extract_project_id);
+                                    let response_project_id = data
+                                        .project
+                                        .as_ref()
+                                        .and_then(extract_project_id)
+                                        .filter(|id| !id.trim().is_empty() && id.trim() != "aicode-consumers");
                                     if let Some(project_id) = response_project_id.clone() {
                                         return ProjectMetadataResult {
                                             project_id: Some(project_id),
@@ -877,7 +874,10 @@ async fn fetch_project_metadata_on_host(
                                         .await
                                         {
                                             Ok(project_id) => {
-                                                if let Some(project_id) = project_id {
+                                                let clean_project_id = project_id.filter(|id| {
+                                                    !id.trim().is_empty() && id.trim() != "aicode-consumers"
+                                                });
+                                                if let Some(project_id) = clean_project_id {
                                                     return ProjectMetadataResult {
                                                         project_id: Some(project_id),
                                                         subscription_tier,
@@ -1041,6 +1041,19 @@ fn build_quota_data_from_response(
     project_id: Option<String>,
 ) -> QuotaData {
     let mut quota_data = QuotaData::new();
+    quota_data.quota_summary_stale = !quota_summary.as_ref()
+        .and_then(|summary| summary.get("groups")).and_then(Value::as_array)
+        .is_some_and(|groups| groups.iter().all(|group| {
+            group.get("buckets").and_then(Value::as_array).is_some_and(|buckets| {
+                buckets.iter().all(|bucket| {
+                    bucket.get("bucketId").and_then(Value::as_str).is_some_and(|id| !id.is_empty())
+                        && bucket.get("remainingFraction").and_then(Value::as_f64).is_some()
+                })
+            })
+        }));
+    if !quota_data.quota_summary_stale {
+        quota_data.quota_summary_updated_at = Some(quota_data.last_updated);
+    }
 
     for (name, info) in quota_response.models {
         let display_name = info
@@ -1109,7 +1122,7 @@ fn quota_request_payload(ctx: &QuotaCloudCodeContext) -> serde_json::Value {
     ctx.preferred_project_id
         .as_deref()
         .map(str::trim)
-        .filter(|id| !id.is_empty())
+        .filter(|id| !id.is_empty() && *id != "aicode-consumers")
         .map(|id| json!({ "project": id }))
         .unwrap_or_else(|| json!({}))
 }
@@ -1301,6 +1314,33 @@ async fn fetch_user_quota_summary_json(
     None
 }
 
+fn is_summary_bucket(name: &str) -> bool {
+    matches!(name, "3p-5h" | "claude:5h" | "3p-weekly" | "claude:weekly"
+        | "gemini-5h" | "gemini:5h" | "gemini-weekly" | "gemini:weekly")
+}
+
+/// Merge only real quota windows from this account's last successful summary.
+/// Fresh model-level data remains fresh; no model name is interpreted as a window.
+pub(crate) fn preserve_failed_quota_summary(quota: &mut QuotaData, previous: Option<&QuotaData>) {
+    if !quota.quota_summary_stale || quota.is_forbidden { return; }
+    let Some(previous) = previous else { return; };
+    if previous.is_forbidden || previous.project_id != quota.project_id
+        || previous.subscription_tier != quota.subscription_tier { return; }
+    for model in previous.models.iter().filter(|model| is_summary_bucket(&model.name)) {
+        if !quota.models.iter().any(|current| current.name == model.name) {
+            quota.models.push(model.clone());
+        }
+    }
+    if quota.models.iter().any(|model| is_summary_bucket(&model.name)) {
+        quota.quota_summary_updated_at = previous.quota_summary_updated_at
+            .or_else(|| (!previous.quota_summary_stale).then_some(previous.last_updated));
+    }
+}
+
+#[cfg(test)]
+#[path = "quota_summary_tests.rs"]
+mod summary_tests;
+
 pub async fn fetch_quota_for_token(
     token: &TokenData,
     email: &str,
@@ -1322,10 +1362,24 @@ pub async fn fetch_quota_with_context(
     let cloud_code_user_agent = build_cloud_code_user_agent();
     let payload = quota_request_payload(ctx);
     let base_urls = cloud_code_candidate_urls(ctx);
+    let cache_project_id = ctx
+        .preferred_project_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty() && *id != "aicode-consumers")
+        .map(str::to_string);
 
     if !skip_cache {
         if let Some(record) = read_api_cache("authorized", email) {
-            if is_api_cache_valid(&record) {
+            let is_dirty_cache = record
+                .project_id
+                .as_deref()
+                .map(|p| p.trim() == "aicode-consumers")
+                .unwrap_or(false);
+            if !is_dirty_cache
+                && is_api_cache_valid(&record)
+                && record.project_id == cache_project_id
+            {
                 crate::modules::logger::log_info(&format!(
                     "[QuotaApiCache] Using api cache for {} (age: {}s)",
                     email,
@@ -1336,7 +1390,7 @@ pub async fn fetch_quota_with_context(
                 {
                     let meta = fetch_project_metadata_with_context(access_token, email, ctx).await;
                     let quota_summary = record.payload.get("quota_summary").cloned();
-                    let quota_data = build_quota_data_from_response(
+                    let mut quota_data = build_quota_data_from_response(
                         quota_response,
                         meta.subscription_tier,
                         meta.credits,
@@ -1344,6 +1398,11 @@ pub async fn fetch_quota_with_context(
                         meta.is_gcp_tos,
                         meta.project_id,
                     );
+                    // A cache hit is not a new successful query.
+                    quota_data.last_updated = record.updated_at / 1000;
+                    if quota_data.quota_summary_updated_at.is_some() {
+                        quota_data.quota_summary_updated_at = Some(record.updated_at / 1000);
+                    }
                     return Ok(QuotaFetchResult {
                         quota: quota_data,
                         error: None,
@@ -1351,7 +1410,7 @@ pub async fn fetch_quota_with_context(
                 }
             } else {
                 crate::modules::logger::log_info(&format!(
-                    "[QuotaApiCache] Cache expired for {} (age: {}s), fetching from network",
+                    "[QuotaApiCache] Cache expired or project changed for {} (age: {}s), fetching from network",
                     email,
                     api_cache_age_secs(&record),
                 ));
@@ -1382,7 +1441,9 @@ pub async fn fetch_quota_with_context(
     let resolved_project_id = meta.project_id.clone();
     let effective_project_id = resolved_project_id
         .clone()
-        .or_else(|| ctx.preferred_project_id.clone());
+        .or_else(|| ctx.preferred_project_id.clone())
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty() && id != "aicode-consumers");
 
     match models_outcome {
         ModelsFetchOutcome::Forbidden { status, message } => {
