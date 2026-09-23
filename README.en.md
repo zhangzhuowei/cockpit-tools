@@ -36,6 +36,16 @@ A **universal AI IDE account management tool**, currently supporting **Antigravi
   </tr>
   <tr>
     <td width="120" align="center">
+      <a href="https://go.apimart.ai/gh-cockpit-tools">
+        <img src="src/assets/icons/apimart.png" alt="APIMart" width="96" />
+      </a>
+    </td>
+    <td>
+      Thanks to <a href="https://go.apimart.ai/gh-cockpit-tools"><strong>APIMart</strong></a> for sponsoring this project! <a href="https://go.apimart.ai/gh-cockpit-tools"><strong>APIMart</strong></a> is a low-cost API platform for AI image &amp; video generation — GPT-Image-2 from <strong>$0.006/image</strong>, <strong>160+ images per dollar</strong>. One async API covers both image and video: submit a task, get an ID, fetch results via polling or callback. Batch <strong>tens of thousands of images</strong> without timeouts, switch models without changing code. Pay-as-you-go with no monthly fee — <a href="https://go.apimart.ai/gh-cockpit-tools"><strong>sign up here</strong></a> to get started.
+    </td>
+  </tr>
+  <tr>
+    <td width="120" align="center">
       <a href="https://roxybrowser.cn?code=0326VTDA">
         <img src="src/assets/icons/roxybrowser.jpg" alt="RoxyBrowser" width="96" />
       </a>
@@ -455,7 +465,7 @@ Every bit of support helps sustain open-source development. Thank you!
 - Grok CLI third-party BYOK and custom-model configuration formats follow the upstream implementation and documentation: [xai-org/grok-build](https://github.com/xai-org/grok-build)
 - Codex API service protocol compatibility direction references: [codex-proxy](https://github.com/icebear0828/codex-proxy)
 - Codex Agent Identity import, dynamic signing, task recovery, account backup-format compatibility, and official-account window usage display (req / tokens / A$) reference: [sub2api](https://github.com/Wei-Shaw/sub2api). API Service client compatibility, fingerprint, capacity-error, and request retry behavior follows CLIProxyAPI without separate Sub2API-style official-client restrictions or third-party-client exceptions. API-key authentication and account scoping remain unchanged; Agent Identity compatibility remains a local extension for now.
-- Codex Agent Identity runtime registration, the Ed25519 key format, and the Responses client freeform tool-call (`custom_tool_call`) event semantics reference the official implementation: [openai/codex](https://github.com/openai/codex) (Apache-2.0).
+- Codex Agent Identity runtime registration, the Ed25519 key format, the Responses client freeform tool-call (`custom_tool_call`) event semantics, and the response-lifecycle and generated-artifact handling direction for Pelican tests reference the official implementation: [openai/codex](https://github.com/openai/codex) (Apache-2.0). Pelican tests use direct chat requests, not the official client's complete coding-agent workflow.
 - Codex, Claude CLI, and Claude Desktop Gateway third-party provider presets, model mapping, and session JSONL usage aggregation direction reference: [CC Switch](https://github.com/farion1231/cc-switch)
 - Codex model catalog, frontend model display, loopback CDP diagnostics, official live-auth preservation strategy, and historical session provider, SQLite local catalog, and workspace-state repair direction reference: [CodexPlusPlus](https://github.com/BigPizzaV3/CodexPlusPlus)
 - Codex usage dashboard, trend chart, and Studio-inspired interface design direction reference: [Antigravity Studio](https://github.com/yuzhiqiang1993/antigravity-studio)
