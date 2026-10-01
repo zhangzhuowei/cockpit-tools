@@ -16,7 +16,7 @@ use crate::models::codex_local_access::{
     CodexLocalAccessImageGenerationStatus, CodexLocalAccessModelAlias,
     CodexLocalAccessModelPricing, CodexLocalAccessModelRoute, CodexLocalAccessModelRouting,
     CodexLocalAccessModelStats, CodexLocalAccessPortCleanupResult,
-    CodexLocalAccessProfileAttachment, CodexLocalAccessProviderGateway,
+    CodexLocalAccessProfileAttachment, CodexLocalAccessProviderGateway, CodexLocalAccessProxyRoute,
     CodexLocalAccessProviderGatewayModelCapability, CodexLocalAccessQuotaReserve,
     CodexLocalAccessQuotaReserveStatus, CodexLocalAccessRequestKind,
     CodexLocalAccessRoutingStrategy, CodexLocalAccessScope, CodexLocalAccessState,
@@ -263,16 +263,11 @@ const CODEX_PROVIDER_MODEL_SHELL_POOL: &[&str] = &[
     "gpt-5.6-terra",
     "gpt-5.6-luna",
     "gpt-5.5",
-    "gpt-5.4",
-    "gpt-5.4-mini",
-    "gpt-5.3-codex",
-    "gpt-5.3-codex-spark",
-    "gpt-5.2",
 ];
 // Keep the GPT-6 family available as identity-preserving shells when an upstream
 // account already exposes those exact models, without assigning them to unrelated
 // overflow models.
-const CODEX_PROVIDER_IDENTITY_ONLY_MODEL_IDS: &[&str] = &["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"];
+const CODEX_PROVIDER_IDENTITY_ONLY_MODEL_IDS: &[&str] = &["gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"];
 const CODEX_PROVIDER_GATEWAY_STATE_FILE: &str = "state.json";
 const CODEX_LOCAL_ACCESS_SIDECAR_CONFIG_FILE: &str = "config.json";
 const CODEX_LOCAL_ACCESS_SIDECAR_MANIFEST_FILE: &str = "manifest.json";
@@ -297,10 +292,10 @@ const CODEX_LOCAL_ACCESS_TAKEOVER_BACKUP_VERSION: u32 = 1;
 const CODEX_LOCAL_ACCESS_RUNTIME_PROVIDER_ID: &str = "codex_local_access";
 /// 托管 profile 写入的 provider 显示名。
 ///
-/// 客户端只用它判断压缩能力：`ModelProviderInfo::is_openai()` 要求名字**恰好等于**
-/// `OpenAI` 才把 `remote_compaction` 判定为 V2（走 `/responses/compact`），其它名字一律
-/// 走本地压缩。本地 API 服务的上游可能是 DeepSeek / Chat Completions 等没有服务端压缩
-/// 的实现，所以这里必须保持非 `OpenAI` 的名字，避免远程压缩被错误启用。
+/// 客户端按 provider 能力选择压缩路径；当前 `ModelProviderInfo::is_openai()` 要求名字
+/// 恰好等于 `OpenAI`，远端 V2 使用 `/responses` 与 `compaction_trigger`，并非旧 V1 的
+/// `/responses/compact`。非 OpenAI provider 采用客户端摘要流程。本地 API 服务可能转发
+/// 到没有服务端压缩的上游，因此保留既有非 `OpenAI` 名称；不依赖已移除的 feature 开关。
 const CODEX_LOCAL_ACCESS_RUNTIME_PROVIDER_NAME: &str = "Codex API Service";
 const CODEX_LOCAL_ACCESS_RUNTIME_ACCOUNT_ID: &str = "codex_local_access_runtime";
 const CODEX_IMAGEGEN_ACTOR_HEADER: &str = "x-openai-actor-authorization";
@@ -366,7 +361,7 @@ const RESPONSE_AFFINITY_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 const MAX_RESPONSE_AFFINITY_BINDINGS: usize = 4096;
 const PREPARED_ACCOUNT_CACHE_TTL_MS: i64 = 30 * 1000;
 const STATE_RECENT_USAGE_EVENT_LIMIT: usize = 100;
-const DEFAULT_MODEL_PRICING_VERSION: u64 = 4;
+const DEFAULT_MODEL_PRICING_VERSION: u64 = 5;
 const MODEL_PRICING_REPRICE_BATCH_SIZE: i64 = 1_000;
 const MODEL_PRICING_REPRICE_PARALLEL_MIN_ROWS: usize = 2_000;
 const LOCAL_ACCESS_LOGS_DB_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -416,8 +411,7 @@ const CODEX_OFFICIAL_EMPTY_HEADERS: &[&str] = &[
     "thread-id",
     "x-codex-window-id",
 ];
-const LEGACY_DEFAULT_CODEX_MODELS: &[&str] = &["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"];
-const COMPATIBILITY_CODEX_MODELS: &[&str] = &["gpt-5.3-codex", "gpt-5.3-codex-spark"];
+const ADDITIONAL_DEFAULT_CODEX_MODELS: &[&str] = &["gpt-5.5"];
 const CODEX_IMAGE_MODEL_ID: &str = "gpt-image-2.5";
 const LEGACY_CODEX_IMAGE_MODEL_ID: &str = "gpt-image-2";
 const CODEX_GPT_RESERVE_MODEL_ID: &str = "gpt-reserve";
@@ -427,6 +421,7 @@ const CODEX_AUTO_REVIEW_MODEL_ID: &str = "codex-auto-review";
 /// 只保留官方客户端推荐集里的这几个模型，显示名与官方客户端保持一致（`GPT-` 前缀、空格分隔）；
 /// 其它历史模型仍然可以路由，只是不再出现在客户端模型选择器里。
 const LOCAL_GATEWAY_VISIBLE_GPT_MODELS: &[(&str, &str)] = &[
+    ("gpt-6.1-sol", "GPT-6.1 Sol"),
     ("gpt-6-astra", "GPT-6 Astra"),
     ("gpt-6-sol", "GPT-6 Sol"),
     ("gpt-6-luna", "GPT-6 Luna"),
@@ -2581,8 +2576,7 @@ fn local_gateway_visible_gpt_model_definitions() -> Vec<(String, String)> {
 
 /// API 服务对外展示的模型清单：官方推荐 GPT 集 + 客户端内部需要的隐藏模型。
 ///
-/// 历史模型（唤醒预设、`gpt-5.4` 等兼容模型）不再出现在展示清单里，但仍可通过
-/// [`api_service_routable_codex_model_ids`] 正常路由，避免旧客户端请求直接失败。
+/// 5.5 之前的型号不再由内置清单自动加入；显式配置的供应商模型仍按其目录处理。
 fn api_service_supported_codex_model_ids() -> Vec<String> {
     if let Some(experimental) = api_service_experimental_model_catalog() {
         return experimental;
@@ -2599,7 +2593,7 @@ fn api_service_supported_codex_model_ids() -> Vec<String> {
     model_ids
 }
 
-/// 仍然允许路由、但不展示在客户端模型选择器里的模型（唤醒预设、历史兼容模型等）。
+/// 请求可路由的内置模型集合，退役型号不再自动加入。
 fn api_service_routable_codex_model_ids() -> Vec<String> {
     supported_codex_model_ids()
 }
@@ -2684,12 +2678,7 @@ fn default_codex_model_ids() -> Vec<String> {
     codex_protocol::managed_codex_model_ids()
         .into_iter()
         .chain(
-            LEGACY_DEFAULT_CODEX_MODELS
-                .iter()
-                .map(|model| model.to_string()),
-        )
-        .chain(
-            COMPATIBILITY_CODEX_MODELS
+            ADDITIONAL_DEFAULT_CODEX_MODELS
                 .iter()
                 .map(|model| model.to_string()),
         )

@@ -1,4 +1,4 @@
-import { Shield, ShieldCheck } from 'lucide-react';
+import { Shield, ShieldCheck, ShieldOff } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { CodexAccount } from '../../types/codex';
 import { canUseCodexAccountProxy, requestCodexAccountProxy } from '../../utils/codexAccountProxy';
@@ -13,8 +13,8 @@ export function CodexAccountProxyButton({ account }: { account: CodexAccount }) 
   if (!canUseCodexAccountProxy(account)) return null;
   const saved = account.egress_proxy;
   const exit = saved ? saved.name?.trim() || proxySummary(saved) : '';
-  const status = exit || t('codex.proxy.filter_unbound');
-  const Icon = saved ? ShieldCheck : Shield;
+  const status = account.egress_proxy_disabled ? t('codex.proxy.modeDisabled') : exit || t('codex.proxy.filter_unbound');
+  const Icon = account.egress_proxy_disabled ? ShieldOff : saved ? ShieldCheck : Shield;
   return (
     <button
       type="button"

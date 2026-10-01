@@ -1112,6 +1112,7 @@ async fn record_sidecar_usage_event(event: SidecarUsageEvent) {
         event.latency_ms,
         sidecar_usage_capture(&event.usage),
         RequestStatsMeta {
+            proxy_route: event.proxy_route.as_ref(),
             request_id: request_id.as_deref(),
             client_instance_id: client_instance_id.as_deref(),
             http_status: event.status,
@@ -2147,9 +2148,6 @@ async fn write_local_access_profile_takeover(
         // API 服务接管：客户端「可用推理强度」默认不含 max，而账号模型（例如 DeepSeek）
         // 只声明 low/high/max；这里补齐最高档，保证选择器里的档位与 DeepSeek 网关模式一致。
         ensure_profile_max_reasoning_effort(profile_dir)?;
-        // 账号池里含 DeepSeek 时压缩不能走远程：DeepSeek 没有服务端压缩，请求一旦被路由过去
-        // 必然失败（详见 ensure_local_compaction_for_account_pool 的说明）。
-        ensure_local_compaction_for_account_pool(profile_dir, collection)?;
         remember_takeover_ownership(profile_dir)?;
     }
     Ok(())

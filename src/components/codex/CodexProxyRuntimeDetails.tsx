@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import type { ProxyRuntimeRow } from '../../utils/codexProxyPreview';
 
-/** The launch entry and lazy engine are separate local listeners. */
+/** Legacy desktop entries may expose a separate engine port. */
 export function CodexProxyRuntimePort({ row }: { row: ProxyRuntimeRow }) {
   const { t } = useTranslation();
   return <span className="codex-proxy-runtime-port">
@@ -24,8 +24,8 @@ export function CodexProxyRuntimeDetails({ row }: { row: ProxyRuntimeRow }) {
       <span title={t('codex.proxy.desktopEntryRequestsHint')}>{t('codex.proxy.desktopEntryRequests', { count: entry.requestCount })}</span>
       {(entry.lastRequestState !== 'none' || entry.state === 'listening') && <>{' · '}{t(`codex.proxy.desktopRequest_${entry.lastRequestState}`)}</>}
     </small>
-    {row.state === 'ready' && row.kernelState === 'idle' && <small>{t('codex.proxy.desktopEntryReadyHint')}</small>}
-    {row.kernelState && !['idle', 'direct', 'unbound'].includes(row.kernelState) && <small>
+    {row.kind !== 'shared' && row.state === 'ready' && row.kernelState === 'idle' && <small>{t('codex.proxy.desktopEntryReadyHint')}</small>}
+    {row.kind !== 'shared' && row.kernelState && !['idle', 'direct', 'unbound'].includes(row.kernelState) && <small>
       {t('codex.proxy.desktopKernel')}{' · '}{t(`codex.proxy.runtime_${row.kernelState}`)}
       {row.kernelPort ? <> · <code>127.0.0.1:{row.kernelPort}</code></> : null}
     </small>}

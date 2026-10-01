@@ -62,6 +62,8 @@ export interface CreditInfo {
 export interface QuotaErrorInfo {
     code?: number;
     message: string;
+    reason?: string;
+    validation_url?: string;
     timestamp: number;
 }
 

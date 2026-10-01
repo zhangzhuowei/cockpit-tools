@@ -922,6 +922,7 @@ fn build_account_pool_health_snapshot(
 
 #[derive(Debug, Clone, Copy, Default)]
 struct RequestStatsMeta<'a> {
+    proxy_route: Option<&'a CodexLocalAccessProxyRoute>,
     request_id: Option<&'a str>,
     client_instance_id: Option<&'a str>,
     http_status: Option<u16>,
@@ -1050,6 +1051,7 @@ async fn record_request_stats_with_meta(
             pricing.as_ref(),
             model_pricing_version,
             estimated_cost_usd,
+            meta.proxy_route,
         );
 
         apply_usage_event_to_current_windows(&mut runtime.stats, &event, now);

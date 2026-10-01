@@ -1513,7 +1513,7 @@ pub fn get_data_dir() -> Result<PathBuf, String> {
 /// 与 get_data_dir 相同，但不返回 Result
 pub fn get_shared_dir() -> PathBuf {
     crate::modules::account::resolve_data_dir()
-        .unwrap_or_else(|_| PathBuf::from(".antigravity_cockpit"))
+        .unwrap_or_else(|_| crate::modules::data_paths::fallback_data_dir())
 }
 
 /// 获取服务状态文件路径

@@ -32,6 +32,7 @@ import {
   X,
 } from 'lucide-react';
 import { useEscClose } from '../../hooks/useEscClose';
+import { DEFAULT_WAKEUP_MODEL } from '../../utils/codexTestModel';
 import {
   CodexAccount,
   getCodexEffectiveQuotaPercentages,
@@ -239,9 +240,8 @@ const WEEKDAY_OPTIONS = [
 
 const DEFAULT_PROMPT = 'hi';
 const QUICK_TIME_OPTIONS = ['07:00', '08:00', '09:00', '10:00', '14:00', '18:00', '22:00'];
-const REASONING_EFFORT_OPTIONS: CodexWakeupReasoningEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+const REASONING_EFFORT_OPTIONS: CodexWakeupReasoningEffort[] = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'];
 // 所有唤醒默认落在 GPT-5.6 Luna；5.5 之前的模型不再作为唤醒目标。
-const DEFAULT_WAKEUP_MODEL = 'gpt-5.6-luna';
 const DEFAULT_WAKEUP_REASONING_EFFORT: CodexWakeupReasoningEffort = 'medium';
 const QUOTA_RESET_MIN_REFRESH_MINUTES = 2;
 const MAX_STARTUP_DELAY_MINUTES = 1440;

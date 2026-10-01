@@ -151,6 +151,8 @@ struct SidecarUsageDetails {
 #[serde(rename_all = "camelCase")]
 struct SidecarUsageEvent {
     #[serde(default)]
+    proxy_route: Option<CodexLocalAccessProxyRoute>,
+    #[serde(default)]
     request_id: String,
     #[serde(default)]
     model: String,
@@ -1232,7 +1234,11 @@ fn sidecar_client_api_keys_with_internal(
         .flatten()
     {
         let key = item.key.trim();
+        // Explicit model routes remain usable while the bound OAuth account is
+        // temporarily unavailable. Their credentials were validated when saved.
         let has_resolvable_scope = item.provider_gateway.is_some()
+            || (item.model_routing.as_ref().is_some_and(|routing| !routing.routes.is_empty())
+                && !effective_api_key_account_ids(collection, item).is_empty())
             || !sidecar_auth_ids_for_account_ids_with_overrides(
                 effective_api_key_account_ids(collection, item),
                 account_overrides,
@@ -1288,10 +1294,21 @@ fn sidecar_api_key_account_scope_values_with_internal(
         if item.provider_gateway.is_some() {
             continue;
         }
-        let auth_ids = sidecar_auth_ids_for_account_ids_with_overrides(
+        let mut auth_ids = sidecar_auth_ids_for_account_ids_with_overrides(
             effective_api_key_account_ids(collection, item),
             account_overrides,
         );
+        if auth_ids.is_empty() && item.model_routing.is_some()
+            && item.inherit_account_pool == Some(false)
+        {
+            // Keep the missing OAuth projection as an explicit restrictive scope.
+            // Omitting the scope must never grant this key the whole global pool.
+            if let Some(bound_id) = collection.bound_oauth_account_id.as_deref() {
+                if item.account_ids.iter().any(|id| id == bound_id) {
+                    auth_ids.push(sidecar_auth_file_name(bound_id));
+                }
+            }
+        }
         if auth_ids.is_empty() {
             continue;
         }
@@ -2007,6 +2024,10 @@ fn sidecar_proxy_url_for_account(
     account: &CodexAccount,
     default_proxy_url: Option<&str>,
 ) -> Result<Option<String>, String> {
+    if crate::modules::codex_account_proxy::eligible(account) && account.egress_proxy_disabled {
+        // CLIProxyAPI recognizes this as an explicit bypass of global/environment proxies.
+        return Ok(Some("direct".into()));
+    }
     if crate::modules::codex_account_proxy::has_configured_url(account)? {
         return crate::modules::codex_proxy_runtime::prepared_sidecar_url(account);
     }
@@ -2349,6 +2370,7 @@ fn prepare_sidecar_launch_config_in_dir_sync(
     let default_proxy_url = proxy_signature.proxy_url.as_deref();
 
     let mut manifest_accounts = Vec::new();
+    let mut proxy_route_observers = Vec::new();
     let mut codex_keys = Vec::new();
     let mut expected_auth_files = HashSet::new();
     let mut routing_accounts = HashMap::new();
@@ -2410,6 +2432,11 @@ fn prepare_sidecar_launch_config_in_dir_sync(
         }
         let account_proxy_url = sidecar_proxy_url_for_account(&account, default_proxy_url)?;
         let account_proxy_url_ref = account_proxy_url.as_deref();
+        if let Some(observer) = account_proxy_url_ref.and_then(|url| {
+            crate::modules::codex_proxy_runtime::prepared_request_route_observer(&account, url)
+        }) {
+            proxy_route_observers.push(observer);
+        }
         account_proxy_fingerprints.push(account_proxy_fingerprint(account_proxy_url_ref));
         if codex_account::is_grok_upstream_provider(&account) {
             // Grok 供应商账号：把绑定的 Grok 平台账号令牌写成 xai auth 文件，
@@ -2579,6 +2606,7 @@ fn prepare_sidecar_launch_config_in_dir_sync(
         "locale": app_locale,
         "apiKeys": api_key_manifest_values,
         "accounts": manifest_accounts,
+        "proxyRouteObservers": proxy_route_observers,
         "modelIds": model_ids,
         "imageGenerationModel": collection.image_generation_model.clone(),
         "modelAliases": collection.model_aliases.iter().map(|alias| json!({
@@ -2740,7 +2768,7 @@ fn prepare_sidecar_launch_config_in_dir_sync(
         &account_proxy_fingerprints,
     );
     write_string_atomic_if_changed(&config_path, &config_content)?;
-    write_string_atomic_if_changed(&manifest_path, &manifest_content)?;
+    write_secret_string_atomic_if_changed(&manifest_path, &manifest_content)?;
     write_sidecar_api_key_priority_state_in_dir(collection, &base_dir)?;
     write_sidecar_quota_reserve_state_in_dir(collection, &base_dir)?;
     write_sidecar_quota_pool_state_in_dir(collection, &base_dir)?;

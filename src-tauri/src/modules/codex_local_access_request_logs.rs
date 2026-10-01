@@ -159,6 +159,7 @@ fn create_request_logs_table(
             api_key_id TEXT NOT NULL DEFAULT '',
             api_key_label TEXT NOT NULL DEFAULT '',
             client_instance_id TEXT NOT NULL DEFAULT '',
+            proxy_route_json TEXT NOT NULL DEFAULT '',
             model_id TEXT NOT NULL DEFAULT '',
             requested_model TEXT NOT NULL DEFAULT '',
             upstream_model TEXT NOT NULL DEFAULT '',
@@ -215,6 +216,11 @@ fn open_local_access_logs_db_once(
         &conn,
         "client_instance_id",
         "client_instance_id TEXT NOT NULL DEFAULT ''",
+    )?;
+    ensure_request_logs_column(
+        &conn,
+        "proxy_route_json",
+        "proxy_route_json TEXT NOT NULL DEFAULT ''",
     )?;
     ensure_request_logs_column(&conn, "model_id", "model_id TEXT NOT NULL DEFAULT ''")?;
     ensure_request_logs_column(
@@ -500,6 +506,16 @@ fn deserialize_token_breakdown_from_db(raw: &str) -> Option<CodexTokenBreakdown>
     serde_json::from_str(raw).ok()
 }
 
+fn request_logs_proxy_route_select(conn: &Connection) -> Result<&'static str, String> {
+    if request_logs_has_column(conn, "proxy_route_json")
+        .map_err(|e| format!("检查 API 服务日志 proxy_route_json 列失败: {}", e))?
+    {
+        Ok("proxy_route_json")
+    } else {
+        Ok("'' AS proxy_route_json")
+    }
+}
+
 fn official_stats_account_id(local_account_id: &str) -> Option<String> {
     let local_account_id = local_account_id.trim();
     if local_account_id.is_empty() {
@@ -537,6 +553,20 @@ fn insert_local_access_usage_event(
     let turn_state_length: Option<i64> = None;
     let turn_state_class = "";
     let token_breakdown_json = serialize_token_breakdown_for_db(event.token_breakdown.as_ref());
+    // Only writes add the optional snapshot column; historical rows remain unrecorded.
+    ensure_request_logs_column(
+        conn,
+        "proxy_route_json",
+        "proxy_route_json TEXT NOT NULL DEFAULT ''",
+    )
+    .map_err(|e| format!("添加 API 服务日志代理快照列失败: {}", e))?;
+    let proxy_route_json = event
+        .proxy_route
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|e| format!("序列化 API 服务日志代理快照失败: {}", e))?
+        .unwrap_or_default();
     if has_service_tier_column && has_reasoning_effort_column {
         conn.execute(
             r#"
@@ -573,8 +603,9 @@ fn insert_local_access_usage_event(
                 output_usd_per_million,
                 cached_input_usd_per_million,
                 turn_state_length,
-                turn_state_class
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33)
+                turn_state_class,
+                proxy_route_json
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34)
             "#,
             params![
                 local_access_log_event_key(event),
@@ -613,6 +644,7 @@ fn insert_local_access_usage_event(
                 event.cached_input_usd_per_million,
                 turn_state_length,
                 turn_state_class,
+                proxy_route_json,
             ],
         )
         .map_err(|e| format!("写入 API 服务请求日志失败: {}", e))?;
@@ -651,8 +683,9 @@ fn insert_local_access_usage_event(
                 output_usd_per_million,
                 cached_input_usd_per_million,
                 turn_state_length,
-                turn_state_class
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32)
+                turn_state_class,
+                proxy_route_json
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33)
             "#,
             params![
                 local_access_log_event_key(event),
@@ -690,6 +723,7 @@ fn insert_local_access_usage_event(
                 event.cached_input_usd_per_million,
                 turn_state_length,
                 turn_state_class,
+                proxy_route_json,
             ],
         )
         .map_err(|e| format!("写入 API 服务请求日志失败: {}", e))?;
@@ -727,8 +761,9 @@ fn insert_local_access_usage_event(
                 output_usd_per_million,
                 cached_input_usd_per_million,
                 turn_state_length,
-                turn_state_class
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31)
+                turn_state_class,
+                proxy_route_json
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32)
             "#,
             params![
                 local_access_log_event_key(event),
@@ -765,6 +800,7 @@ fn insert_local_access_usage_event(
                 event.cached_input_usd_per_million,
                 turn_state_length,
                 turn_state_class,
+                proxy_route_json,
             ],
         )
         .map_err(|e| format!("写入 API 服务请求日志失败: {}", e))?;
@@ -1533,6 +1569,11 @@ fn usage_event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CodexLocalA
         client_instance_id: row
             .get::<_, String>("client_instance_id")
             .unwrap_or_else(|_| String::new()),
+        proxy_route: row
+            .get::<_, String>("proxy_route_json")
+            .ok()
+            .filter(|raw| !raw.trim().is_empty())
+            .and_then(|raw| serde_json::from_str(&raw).ok()),
         model_id: row.get("model_id")?,
         requested_model: row
             .get::<_, String>("requested_model")
@@ -1595,6 +1636,7 @@ where
     } else {
         "'' AS reasoning_effort"
     };
+    let proxy_route_select = request_logs_proxy_route_select(conn)?;
     let load_sql = format!(
         r#"
             SELECT
@@ -1612,6 +1654,7 @@ where
                 request_kind,
                 {service_tier_select},
                 {reasoning_effort_select},
+                {proxy_route_select},
                 turn_state_length,
                 turn_state_class,
                 success,
@@ -1980,6 +2023,7 @@ fn query_local_access_usage_events_blocking(
             return Ok(empty_usage_event_page(page, page_size));
         }
     };
+    let proxy_route_select = request_logs_proxy_route_select(&conn)?;
     let list_sql = format!(
         r#"
         SELECT
@@ -1997,6 +2041,7 @@ fn query_local_access_usage_events_blocking(
             request_kind,
             {service_tier_select},
             {reasoning_effort_select},
+            {proxy_route_select},
             turn_state_length,
             turn_state_class,
             success,
@@ -2120,9 +2165,10 @@ fn query_local_access_stats_window_blocking(
     } else {
         "'' AS reasoning_effort"
     };
+    let proxy_route_select = request_logs_proxy_route_select(&conn)?;
     let sql = format!(
         r#"SELECT timestamp, request_id, account_id, email, api_key_id, api_key_label,
-                  client_instance_id, model_id, requested_model, upstream_model, gateway_mode, request_kind, {service_tier_select}, {reasoning_effort_select}, turn_state_length, turn_state_class, success,
+                  client_instance_id, model_id, requested_model, upstream_model, gateway_mode, request_kind, {service_tier_select}, {reasoning_effort_select}, {proxy_route_select}, turn_state_length, turn_state_class, success,
                   http_status, error_category, error_message, latency_ms, input_tokens,
                   output_tokens, total_tokens, cached_tokens, reasoning_tokens, token_breakdown_json,
                   estimated_cost_usd, model_pricing_version, input_usd_per_million,
@@ -2473,6 +2519,7 @@ fn append_usage_event(
         pricing,
         model_pricing_version,
         estimated_cost_usd,
+        None,
     )
 }
 
@@ -2501,6 +2548,7 @@ fn append_usage_event_with_meta(
     pricing: Option<&CodexLocalAccessModelPricing>,
     model_pricing_version: u64,
     estimated_cost_usd: f64,
+    proxy_route: Option<&CodexLocalAccessProxyRoute>,
 ) -> CodexLocalAccessUsageEvent {
     let usage = usage.cloned().unwrap_or_default();
     let model_id = model_id.unwrap_or_default().trim().to_string();
@@ -2512,6 +2560,7 @@ fn append_usage_event_with_meta(
         api_key_id: api_key_id.unwrap_or_default().trim().to_string(),
         api_key_label: api_key_label.unwrap_or_default().trim().to_string(),
         client_instance_id: client_instance_id.unwrap_or_default().trim().to_string(),
+        proxy_route: proxy_route.cloned(),
         requested_model: requested_model
             .map(str::trim)
             .filter(|value| !value.is_empty())
@@ -2931,3 +2980,7 @@ fn apply_reprice_changes_to_stats(
     sort_usage_models(&mut stats.monthly.models);
     sort_usage_api_keys(&mut stats.monthly.api_keys);
 }
+
+#[cfg(test)]
+#[path = "codex_local_access_tests_proxy_route_storage.rs"]
+mod proxy_route_storage_tests;

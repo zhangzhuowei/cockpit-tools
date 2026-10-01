@@ -68,7 +68,7 @@
 :is(.codex-proxy-account-dialog, .codex-proxy-follow-dialog, .codex-proxy-accounts-note) .btn-primary:disabled { background: var(--primary); color: #fff; opacity: .45; }
 .codex-proxy-account-dialog-tabs { flex: 0 0 auto; display: flex; gap: 8px; padding: 12px 22px 0; }
 .codex-proxy-account-dialog-tabs .btn.active { color: var(--primary); border-color: var(--primary); background: var(--primary-light); }
-.codex-proxy-account-mode-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 20px; }
+.codex-proxy-account-mode-options { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin-bottom: 20px; }
 .codex-proxy-account-dialog .codex-proxy-account-mode-option { justify-content: flex-start; align-items: flex-start; gap: 10px; padding: 13px; text-align: left; white-space: normal; }
 .codex-proxy-account-dialog .codex-proxy-account-mode-option.active { background: color-mix(in srgb, var(--primary) 5%, var(--bg-card)); border-color: var(--primary); }
 .codex-proxy-account-mode-option strong, .codex-proxy-account-mode-option small { display: block; }

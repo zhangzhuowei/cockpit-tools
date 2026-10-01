@@ -70,9 +70,71 @@ struct PelicanSseDecoder {
     received: usize,
     reply: String,
     completed: Option<Value>,
+    last_event: Option<String>,
+    event_name: Option<String>,
+}
+
+// Extract only diagnostic fields, never the response output or complete SSE payload.
+fn pelican_event_failure(event: &Value) -> String {
+    let mut fields = Vec::new();
+    for (label, pointer) in [
+        ("event", "/type"),
+        ("status", "/response/status"),
+        ("message", "/response/error/message"),
+        ("code", "/response/error/code"),
+        ("type", "/response/error/type"),
+        ("message", "/error/message"),
+        ("code", "/error/code"),
+        ("type", "/error/type"),
+        ("message", "/message"),
+        ("code", "/code"),
+        ("reason", "/response/incomplete_details/reason"),
+        ("reason", "/incomplete_details/reason"),
+    ] {
+        if let Some(value) = event.pointer(pointer).and_then(Value::as_str) {
+            if !value.trim().is_empty() {
+                fields.push(format!("{label}={value}"));
+            }
+        }
+    }
+    if let Some(message) = event.get("error").and_then(Value::as_str) {
+        fields.push(format!("message={message}"));
+    }
+    format!("PELICAN_STREAM_INCOMPLETE: {}", fields.join("; "))
+}
+
+fn pelican_stream_read_error(error: reqwest::Error, stage: &str) -> String {
+    // reqwest's outer Display includes the request URL unless explicitly removed.
+    let error = error.without_url();
+    let mut detail = format!("PELICAN_STREAM_INCOMPLETE: stage={stage}; {error}");
+    let mut source = std::error::Error::source(&error);
+    for _ in 0..8 {
+        let Some(cause) = source else { break };
+        detail.push_str(&format!("; caused by: {cause}"));
+        source = cause.source();
+    }
+    detail
+        .split_whitespace()
+        .map(|part| {
+            if part.contains("://") {
+                "[url removed]"
+            } else {
+                part
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 impl PelicanSseDecoder {
+    fn incomplete(&self, reason: &str) -> String {
+        format!(
+            "PELICAN_STREAM_INCOMPLETE: {reason}; last_event={}; received_bytes={}",
+            self.last_event.as_deref().unwrap_or("none"),
+            self.received
+        )
+    }
+
     fn push(&mut self, bytes: &[u8], on_delta: &impl Fn(String)) -> Result<(), String> {
         self.received = self.received.saturating_add(bytes.len());
         if self.received > PELICAN_MAX_RESPONSE_BYTES {
@@ -86,13 +148,15 @@ impl PelicanSseDecoder {
         {
             let end = self.scanned + relative_end;
             let line = std::str::from_utf8(&self.pending[consumed..=end])
-                .map_err(|_| "PELICAN_STREAM_INCOMPLETE".to_string())?
+                .map_err(|_| self.incomplete("invalid UTF-8 in SSE line"))?
                 .trim_end_matches(['\r', '\n'])
                 .to_owned();
             consumed = end + 1;
             self.scanned = consumed;
             if line.is_empty() {
                 self.event(on_delta)?;
+            } else if let Some(value) = line.strip_prefix("event:") {
+                self.event_name = Some(value.trim().to_owned());
             } else if let Some(value) = line.strip_prefix("data:") {
                 if !self.data.is_empty() {
                     self.data.push('\n');
@@ -108,11 +172,23 @@ impl PelicanSseDecoder {
 
     fn event(&mut self, on_delta: &impl Fn(String)) -> Result<(), String> {
         let data = std::mem::take(&mut self.data);
+        let event_name = self.event_name.take();
         if data.is_empty() || data.trim() == "[DONE]" {
             return Ok(());
         }
-        let event: Value =
-            serde_json::from_str(&data).map_err(|_| "PELICAN_STREAM_INCOMPLETE".to_string())?;
+        let mut event: Value = serde_json::from_str(&data)
+            .map_err(|_| self.incomplete("invalid JSON in SSE event"))?;
+        if event.get("type").and_then(Value::as_str).is_none() {
+            if let (Some(name), Some(object)) = (event_name, event.as_object_mut()) {
+                if matches!(
+                    name.as_str(),
+                    "error" | "response.failed" | "response.incomplete"
+                ) {
+                    object.insert("type".into(), Value::String(name));
+                }
+            }
+        }
+        self.last_event = event.get("type").and_then(Value::as_str).map(str::to_owned);
         match event.get("type").and_then(Value::as_str) {
             Some("response.output_text.delta" | "response.refusal.delta") => {
                 if self.completed.is_none() {
@@ -123,20 +199,32 @@ impl PelicanSseDecoder {
                 }
             }
             Some("response.completed") => {
-                let response = event.get("response").ok_or("PELICAN_STREAM_INCOMPLETE")?;
+                let response = event
+                    .get("response")
+                    .filter(|value| value.is_object())
+                    .ok_or_else(|| self.incomplete("response.completed missing response object"))?;
                 if response
                     .get("status")
                     .and_then(Value::as_str)
                     .is_some_and(|s| s != "completed")
                 {
-                    return Err("PELICAN_STREAM_INCOMPLETE".into());
+                    return Err(pelican_event_failure(&event));
                 }
                 self.completed = Some(response.clone());
             }
             Some("response.failed" | "response.incomplete" | "error") => {
-                return Err("PELICAN_STREAM_INCOMPLETE".into());
+                return Err(pelican_event_failure(&event));
             }
-            _ => {}
+            _ => {
+                // Preserve errors on bare/unrecognized events without changing the
+                // existing completed/delta success rules or accepting response.done.
+                if ["/error", "/response/error", "/response/incomplete_details"]
+                    .iter()
+                    .any(|pointer| event.pointer(pointer).is_some_and(|value| !value.is_null()))
+                {
+                    return Err(pelican_event_failure(&event));
+                }
+            }
         }
         Ok(())
     }
@@ -147,19 +235,22 @@ impl PelicanSseDecoder {
             self.push(b"\n", on_delta)?;
         }
         self.event(on_delta)?;
-        let response = self.completed.ok_or("PELICAN_STREAM_INCOMPLETE")?;
+        let response = self
+            .completed
+            .take()
+            .ok_or_else(|| self.incomplete("stream ended before response.completed"))?;
         let final_text = pelican_final_text(&response);
         if self.reply.is_empty() && !final_text.is_empty() {
             on_delta(final_text.clone());
+        }
+        if self.reply.is_empty() && final_text.is_empty() {
+            return Err(self.incomplete("response.completed contained no output text"));
         }
         let reply = if final_text.is_empty() {
             self.reply
         } else {
             final_text
         };
-        if reply.is_empty() {
-            return Err("PELICAN_STREAM_INCOMPLETE".into());
-        }
         Ok(PelicanChatOutput {
             reply,
             usage: response.get("usage").filter(|v| !v.is_null()).cloned(),
@@ -202,8 +293,8 @@ async fn pelican_read_error_body(mut response: reqwest::Response) -> Result<Stri
     let mut bytes = Vec::new();
     while let Some(chunk) = timeout(PELICAN_IDLE_TIMEOUT, response.chunk())
         .await
-        .map_err(|_| "PELICAN_TIMEOUT".to_string())?
-        .map_err(|_| "PELICAN_STREAM_INCOMPLETE".to_string())?
+        .map_err(|_| "PELICAN_TIMEOUT: stage=reading HTTP error body".to_string())?
+        .map_err(|error| pelican_stream_read_error(error, "reading HTTP error body"))?
     {
         let remaining = 64 * 1024 - bytes.len();
         bytes.extend_from_slice(&chunk[..chunk.len().min(remaining)]);
@@ -290,7 +381,7 @@ async fn pelican_with_cancel<T>(
         biased;
         _ = cancel.changed() => Err("PELICAN_CANCELLED".into()),
         result = timeout(total_timeout, operation) => {
-            result.map_err(|_| "PELICAN_TIMEOUT".to_string())?
+            result.map_err(|_| "PELICAN_TIMEOUT: stage=total operation deadline".to_string())?
         }
     }
 }
@@ -322,12 +413,12 @@ async fn pelican_chat_inner(
                 // cancels. Existing per-account refresh locks prevent duplicate refreshes.
                 timeout(Duration::from_secs(85), prepare_direct_codex_account(&id))
                     .await
-                    .map_err(|_| "PELICAN_TIMEOUT".to_string())?
+                    .map_err(|_| "PELICAN_TIMEOUT: stage=account preparation".to_string())?
             })
         }),
     )
     .await
-    .map_err(|_| "PELICAN_TIMEOUT".to_string())?
+    .map_err(|_| "PELICAN_TIMEOUT: stage=account preparation".to_string())?
     .map_err(|e| format!("Pelican account preparation: {e}"))??;
     if account.is_api_key_auth() || account.is_web_session_auth() {
         return Err("PELICAN_UNSUPPORTED_ACCOUNT".into());
@@ -407,10 +498,16 @@ async fn pelican_chat_inner(
             }
         })
         .await
-        .map_err(|_| "PELICAN_TIMEOUT".to_string())??;
+        .map_err(|_| "PELICAN_TIMEOUT: stage=waiting for response headers".to_string())?
+        .map_err(|error| pelican_safe_error(&account, &error))?;
         let status = response.status();
         if !status.is_success() {
-            let raw = pelican_read_error_body(response).await?;
+            let raw = pelican_read_error_body(response).await.map_err(|error| {
+                pelican_safe_error(
+                    &account,
+                    &format!("{error}; HTTP status={}", status.as_u16()),
+                )
+            })?;
             // Only retry an explicitly rejected Agent Identity task, before generation starts.
             if attempt == 0
                 && account.is_agent_identity_auth()
@@ -427,10 +524,17 @@ async fn pelican_chat_inner(
                 truncate_diagnostic_text(&detail, 1200)
             ));
         }
-        let result = pelican_consume_response(response, PELICAN_IDLE_TIMEOUT, &on_delta).await?;
+        let result = pelican_consume_response(response, PELICAN_IDLE_TIMEOUT, &on_delta)
+            .await
+            .map_err(|error| pelican_safe_error(&account, &error))?;
         return Ok(result);
     }
-    Err("PELICAN_STREAM_INCOMPLETE".into())
+    Err("PELICAN_STREAM_INCOMPLETE: Agent Identity task rejected after refresh".into())
+}
+
+fn pelican_safe_error(account: &CodexAccount, raw: &str) -> String {
+    // Redact before truncating: otherwise a token crossing the limit leaks a prefix.
+    truncate_diagnostic_text(&pelican_redact_error(account, raw), 1200)
 }
 
 fn pelican_redact_error(account: &CodexAccount, raw: &str) -> String {
@@ -459,8 +563,13 @@ async fn pelican_consume_response(
     let mut decoder = PelicanSseDecoder::default();
     while let Some(chunk) = timeout(idle_timeout, response.chunk())
         .await
-        .map_err(|_| "PELICAN_TIMEOUT".to_string())?
-        .map_err(|_| "PELICAN_STREAM_INCOMPLETE".to_string())?
+        .map_err(|_| {
+            format!(
+                "PELICAN_TIMEOUT: stage=waiting for SSE data; received_bytes={}",
+                decoder.received
+            )
+        })?
+        .map_err(|error| pelican_stream_read_error(error, "reading SSE data"))?
     {
         for part in chunk.chunks(64 * 1024) {
             decoder.push(part, on_delta)?;

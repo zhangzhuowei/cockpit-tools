@@ -54,6 +54,7 @@ test('effective proxy source distinguishes unified, independent and unbound summ
   assert.deepEqual(proxyPreviewBinding(saved, { ...initial, proxySource: 'unified', effectiveProxy: effective }), { source: 'unified', summary: effective });
   assert.deepEqual(proxyPreviewBinding(saved, { ...initial, proxySource: 'account', effectiveProxy: null }), { source: 'account', summary: null });
   assert.deepEqual(proxyPreviewBinding(saved, { ...initial, proxySource: 'none' }), { source: 'none', summary: null });
+  assert.deepEqual(proxyPreviewBinding(saved, { ...initial, proxySource: 'disabled', effectiveProxy: effective }), { source: 'disabled', summary: null });
 });
 
 test('entry request changes are recorded and source-only changes cannot create empty history rows', () => {
@@ -93,6 +94,51 @@ test('runtime activity starts with an observation, deduplicates unchanged state 
   assert.equal(history.length, 20);
   assert.equal(history[0].timestamp, 30);
   assert.equal(history[19].timestamp, 11);
+});
+
+test('one account entry renders one node and port while retaining failures, activity and newest measurements', () => {
+  const status: CodexProxyRuntimeStatus = { ...initial,
+    account: 'running', sidecar: 'running', desktop: 'running',
+    accountPort: 45101, sidecarPort: 45101, desktopPort: 45101,
+    accountNode: 'leaf', sidecarNode: 'leaf', desktopNode: 'leaf',
+    accountSelection: { name: 'leaf', delayMs: 100, checkedAt: 1 },
+    desktopSelection: { name: 'leaf', delayMs: 80, checkedAt: 2 },
+    desktopEntry: listening,
+  };
+  const rows = proxyRuntimeRows(status);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].kind, 'shared');
+  assert.equal(rows[0].node, 'leaf');
+  assert.equal(rows[0].port, 45101);
+  assert.equal(rows[0].selection?.delayMs, 80);
+  const failed = { ...status, desktopEntry: { ...listening, lastRequestState: 'failed' as const, requestCount: 1 } };
+  assert.equal(proxyRuntimeRows(failed)[0].state, 'failed');
+  assert.deepEqual(proxyRuntimeChanges(failed, status).map((row) => row.kind), ['shared']);
+  assert.equal(proxyRuntimeRows({ ...status, desktopEntry: { ...listening, state: 'failed' } })[0].state, 'entry_failed');
+  for (const change of [{ desktopPort: 45102 }, { desktopNode: 'other leaf' }, { desktop: 'stopped' as const }, { desktopEntry: { ...listening, port: 45102 } }]) {
+    assert.deepEqual(proxyRuntimeRows({ ...status, ...change }).map((row) => row.kind), ['combined', 'desktop']);
+  }
+  assert.equal(proxyRuntimeRows({ ...status, account: 'idle', sidecar: 'idle', desktop: 'idle' })[0].state, 'ready');
+});
+
+test('explicit shared entries stay unified before startup and preserve a failed entry historical port', () => {
+  for (const state of ['idle', 'unbound', 'direct', 'missing', 'starting', 'stopped'] as const) {
+    const rows = proxyRuntimeRows({ ...initial, sharedEntry: true, account: state, desktop: state, sidecar: state });
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].kind, 'shared');
+    assert.equal(rows[0].state, state);
+    assert.equal(rows[0].port, null);
+  }
+  const failed = proxyRuntimeRows({ ...initial, sharedEntry: true,
+    desktopEntry: { ...listening, state: 'failed', lastError: 'PROXY_ENTRY_PORT_UNAVAILABLE' },
+  });
+  assert.equal(failed.length, 1);
+  assert.equal(failed[0].state, 'entry_failed');
+  assert.equal(failed[0].port, listening.port);
+  assert.equal(failed[0].entry?.lastError, 'PROXY_ENTRY_PORT_UNAVAILABLE');
+  for (const sharedEntry of [undefined, false]) {
+    assert.deepEqual(proxyRuntimeRows({ ...initial, sharedEntry }).map((row) => row.kind), ['combined', 'desktop']);
+  }
 });
 
 test('all three runtime paths, ports and selected nodes participate in change detection', () => {

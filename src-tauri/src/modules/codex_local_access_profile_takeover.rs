@@ -613,9 +613,8 @@ fn restore_config_toml_from_takeover_backup(
         }
     }
 
-    // 接管期间为 DeepSeek 账号池启用的本地压缩兜底属于 Cockpit 写入的受管状态：
-    // 拆掉接管时按接管前备份还原，避免把用户的 profile 永久留在受管的压缩设置上。
-    restore_managed_local_compaction_fallback(&mut current_doc, backup_doc.as_ref());
+    // 迁移旧接管记录：恢复仍有效的用户设置，禁止从备份复活已移除的开关。
+    cleanup_legacy_compaction_overrides(&mut current_doc, backup_doc.as_ref());
 
     let content = crate::modules::codex_config_format::codex_config_doc_to_string(&mut current_doc);
     if content.trim().is_empty() {
@@ -625,41 +624,37 @@ fn restore_config_toml_from_takeover_backup(
     }
 }
 
-/// 还原 `[features]` 里由 Cockpit 写入的压缩兜底键。
-///
-/// 只处理 `remote_compaction_v2` 与 `token_budget`：备份里写的是什么就恢复成什么，
-/// 备份里没有的键从当前配置移除，其它 features 键原样保留。
-fn restore_managed_local_compaction_fallback(
-    current_doc: &mut Document,
-    backup_doc: Option<&Document>,
-) {
-    let current_has_key = current_doc
+/// 清理旧受管开关，并恢复旧接管曾移除的 token_budget；其它 features 原样保留。
+/// remote_compaction_v2 无论备份原值如何都不重放，当前用户显式设置的 true 也不覆盖。
+fn cleanup_legacy_compaction_overrides(current_doc: &mut Document, backup_doc: Option<&Document>) {
+    let backup_remote_compaction = backup_doc
+        .and_then(|doc| doc.get("features"))
+        .and_then(|item| item.get("remote_compaction_v2"))
+        .and_then(|item| item.as_bool());
+    // 备份本就为 false 时无法断定是工具写入，保留用户的当前配置。
+    let had_legacy_override = backup_doc.is_some()
+        && backup_remote_compaction != Some(false)
+        && codex_account::remove_legacy_remote_compaction_override(current_doc);
+    let backup_token_budget = backup_doc
+        .and_then(|doc| doc.get("features"))
+        .and_then(|item| item.get("token_budget"))
+        .cloned();
+    let current_token_budget = current_doc
         .get("features")
-        .and_then(|item| item.as_table())
-        .is_some_and(|table| {
-            codex_account::DEEPSEEK_COMPACTION_FALLBACK_KEYS
-                .iter()
-                .any(|key| table.contains_key(*key))
-        });
-    if !current_has_key {
+        .and_then(|item| item.get("token_budget"));
+    // 当前值未被旧开关标记为受管时，保留用户在接管期间的新设置。
+    if !had_legacy_override || current_token_budget.is_some() {
         return;
     }
-    let backup_features = backup_doc
-        .and_then(|doc| doc.get("features"))
-        .and_then(|item| item.as_table())
-        .cloned();
-    let Some(features) = current_doc
-        .get_mut("features")
-        .and_then(|item| item.as_table_mut())
-    else {
-        return;
-    };
-    for key in codex_account::DEEPSEEK_COMPACTION_FALLBACK_KEYS {
-        match backup_features.as_ref().and_then(|table| table.get(*key)) {
-            Some(item) => features[*key] = item.clone(),
-            None => {
-                let _ = features.remove(*key);
-            }
+    if let Some(original) = backup_token_budget {
+        if current_doc.get("features").is_none() {
+            current_doc["features"] = toml_edit::table();
+        }
+        if let Some(features) = current_doc
+            .get_mut("features")
+            .and_then(|item| item.as_table_mut())
+        {
+            features["token_budget"] = original;
         }
     }
 }

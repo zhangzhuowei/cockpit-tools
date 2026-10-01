@@ -239,7 +239,7 @@ function CodexProxyExitCard({
         {t('codex.proxy.overview.goRules')}<ArrowRight size={15} aria-hidden="true" /></button>
     </div> : !editor.account ? <p className="codex-proxy-page-note">{t('codex.proxy.unsupportedAccount')}</p> : <>
       {!editor.bound && <p className="codex-proxy-page-note" role="status">
-        {t(mode === 'unified' ? 'codex.proxy.modeUnifiedHint' : 'codex.proxy.modeDefaultHint')}</p>}
+        {t(mode === 'disabled' ? 'codex.proxy.disabledHint' : mode === 'unified' ? 'codex.proxy.modeUnifiedHint' : 'codex.proxy.modeDefaultHint')}</p>}
       {catalogLoading && <p className="codex-proxy-page-note" role="status">{t('common.loading')}</p>}
       {catalogError && <div className="codex-proxy-page-error" role="alert">{catalogError}
         <button type="button" className="btn btn-secondary compact" onClick={() => reloadCatalog()}>{t('common.retry')}</button></div>}
@@ -374,7 +374,7 @@ export function CodexProxyOverviewSection() {
     () => new Set(unifiedFollowingIds(accounts, (entry) => entry.egress_proxy ?? null, unified)),
     [accounts, unified],
   );
-  const mode = resolveExitMode(editor.savedBinding, { catalog, loading: catalogLoading, failed: Boolean(catalogError) }, following.has(selectedId));
+  const mode = resolveExitMode(editor.savedBinding, { catalog, loading: catalogLoading, failed: Boolean(catalogError) }, following.has(selectedId), editor.proxyDisabled);
   const boundSourceId = editor.savedBinding?.sourceId ?? '';
   const boundSource = useMemo(() => catalog.sources.find((entry) => entry.id === boundSourceId), [catalog, boundSourceId]);
   const account = accounts.find((entry) => entry.id === selectedId);

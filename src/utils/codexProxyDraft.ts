@@ -12,10 +12,10 @@ export interface CodexProxyExitChoice {
   selections: ProxyCatalogSelections;
 }
 
-export type CodexProxyExitFilter = 'all' | 'bound' | 'unbound';
+export type CodexProxyExitFilter = 'all' | 'bound' | 'unbound' | 'disabled';
 
 /** Effective exit per account. `stale` means the saved catalog reference no longer resolves. */
-export type CodexProxyExitMode = 'independent' | 'unified' | 'default' | 'stale';
+export type CodexProxyExitMode = 'independent' | 'unified' | 'default' | 'stale' | 'disabled';
 
 export interface CodexProxyCatalogState {
   catalog: ProxyCatalog;
@@ -26,6 +26,7 @@ export interface CodexProxyCatalogState {
 export const EMPTY_CODEX_PROXY_EXIT_CHOICE: CodexProxyExitChoice = { sourceId: '', itemId: '', groupId: '', selections: {} };
 
 const exitModeKeys: Record<CodexProxyExitMode, string> = {
+  disabled: 'codex.proxy.modeDisabled',
   independent: 'codex.proxy.modeIndependent',
   unified: 'codex.proxy.modeUnified',
   default: 'codex.proxy.modeDefault',
@@ -88,7 +89,8 @@ export function exitDraftState(binding: ProxyBindingValue, restored: CodexProxyE
  * Direct HTTP/SOCKS bindings cannot go stale, and a catalog that is still loading or failed
  * must never be reported as stale.
  */
-export function resolveExitMode(binding: ProxyBindingValue, state: CodexProxyCatalogState, followingUnified: boolean): CodexProxyExitMode {
+export function resolveExitMode(binding: ProxyBindingValue, state: CodexProxyCatalogState, followingUnified: boolean, disabled = false): CodexProxyExitMode {
+  if (disabled) return 'disabled';
   if (!binding) return followingUnified ? 'unified' : 'default';
   if (!binding.sourceId || state.loading || state.failed) return 'independent';
   const owner = state.catalog.sources.find((entry) => entry.id === binding.sourceId);
@@ -97,7 +99,7 @@ export function resolveExitMode(binding: ProxyBindingValue, state: CodexProxyCat
   return resolvable ? 'independent' : 'stale';
 }
 
-/** The shared exit only exists as an applied binding on all eligible accounts. */
+/** Shared settings apply only to eligible accounts that have not opted out or bound their own exit. */
 export function unifiedProxyActive(unified: CodexUnifiedProxyView | null | undefined): boolean {
   return unified?.mode === 'all_accounts' && Boolean(unified.binding);
 }
@@ -109,7 +111,7 @@ export function unifiedFollowingIds(
   unified: CodexUnifiedProxyView | null | undefined,
 ): string[] {
   if (!unifiedProxyActive(unified)) return [];
-  return accounts.filter((account) => !saved(account)).map((account) => account.id);
+  return accounts.filter((account) => !account.egress_proxy_disabled && !saved(account)).map((account) => account.id);
 }
 
 export function filterProxyAccounts(accounts: CodexAccount[], options: {
@@ -121,16 +123,18 @@ export function filterProxyAccounts(accounts: CodexAccount[], options: {
   const filter = options.filter ?? 'all';
   return accounts.filter((account) => {
     if (query && !codexProxyAccountName(account).toLowerCase().includes(query)) return false;
-    return filter === 'all' || Boolean(options.saved(account)) === (filter === 'bound');
+    if (filter === 'all') return true;
+    if (filter === 'disabled') return Boolean(account.egress_proxy_disabled);
+    return !account.egress_proxy_disabled && Boolean(options.saved(account)) === (filter === 'bound');
   });
 }
 
-/** Batch unbinding only touches accounts that still carry a binding. */
+/** Restoring shared settings clears either an independent binding or an explicit opt-out. */
 export function batchUnbindTargets(
   accounts: CodexAccount[],
   saved: (account: CodexAccount) => ProxyBindingValue,
 ): BatchBindTarget[] {
-  return accounts.flatMap((account) => saved(account) ? [{ account, willOverwrite: true }] : []);
+  return accounts.flatMap((account) => saved(account) || account.egress_proxy_disabled ? [{ account, willOverwrite: true }] : []);
 }
 
 export interface CodexProxyBatchFailure {

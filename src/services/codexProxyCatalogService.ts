@@ -62,6 +62,10 @@ export function refreshProxyCatalog(requestId: string, sourceId: string): Promis
 }
 export function cancelProxyCatalog(requestId: string): Promise<void> { return call('codex_proxy_catalog_cancel', { requestId }); }
 export function removeProxyCatalog(sourceId: string): Promise<ProxyCatalog> { return call('codex_proxy_catalog_remove', { sourceId }); }
+/** Display ordering only; does not alter proxy-group members or routing. */
+export function reorderProxyCatalog(sourceIds: string[]): Promise<ProxyCatalog> {
+  return call('codex_proxy_catalog_reorder', { sourceIds });
+}
 export function getProxyCatalogDependencies(sourceId: string): Promise<ProxyCatalogDependencies> {
   return call('codex_proxy_catalog_dependencies', { sourceId });
 }

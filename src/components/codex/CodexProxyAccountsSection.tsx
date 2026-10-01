@@ -64,14 +64,14 @@ export function CodexProxyAccountsSection() {
       <label className="codex-proxy-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)}
         placeholder={t('codex.proxy.search')} aria-label={t('codex.proxy.search')} /></label>
       <SingleSelectDropdown value={filter} onChange={(next) => setFilter(next as CodexProxyExitFilter)} ariaLabel={t('codex.proxy.filter')}
-        options={(['all', 'bound', 'unbound'] as const).map((value) => ({ value, label: t(value === 'all' ? 'codex.proxy.filter_all'
+        options={(['all', 'bound', 'unbound', 'disabled'] as const).map((value) => ({ value, label: t(value === 'disabled' ? 'codex.proxy.modeDisabled' : value === 'all' ? 'codex.proxy.filter_all'
           : value === 'bound' ? 'codex.proxy.modeIndependent' : 'codex.proxy.managerAccounts.following') }))} />
       <span className="codex-proxy-accounts-count">{visible.length} / {eligible.length}</span>
     </div>
     {pickedAccounts.length > 0 && <div className="codex-proxy-accounts-selection" role="region" aria-label={t('codex.proxy.batchSelect')}>
       <strong>{t('codex.proxy.batchSelectedCount', { count: pickedAccounts.length })}</strong>
       <button type="button" className="btn btn-primary compact" onClick={() => setBatchOpen(true)}>{t('codex.proxy.batchBind')}</button>
-      <button type="button" className="btn btn-secondary compact" disabled={!pickedAccounts.some((entry) => savedValue(entry))}
+      <button type="button" className="btn btn-secondary compact" disabled={!pickedAccounts.some((entry) => savedValue(entry) || entry.egress_proxy_disabled)}
         onClick={() => setFollowOpen(true)}>{t('codex.proxy.managerAccounts.follow')}</button>
       <button type="button" className="btn btn-secondary compact codex-proxy-accounts-clear" onClick={() => setSelection([])} aria-label={t('codex.proxy.batchClearAll')}><X size={15} /></button>
     </div>}
@@ -89,8 +89,8 @@ export function CodexProxyAccountsSection() {
         </tr></thead>
         <tbody>{visible.map((entry) => {
           const binding = savedValue(entry);
-          const mode = resolveExitMode(binding, { catalog, loading: catalogLoading, failed: Boolean(catalogError) }, following.has(entry.id));
-          const proxy = binding ? proxySummary(binding) : following.has(entry.id) ? unifiedLabel : t('codex.proxy.modeDefault');
+          const mode = resolveExitMode(binding, { catalog, loading: catalogLoading, failed: Boolean(catalogError) }, following.has(entry.id), entry.egress_proxy_disabled);
+          const proxy = entry.egress_proxy_disabled ? t('codex.proxy.modeDisabled') : binding ? proxySummary(binding) : following.has(entry.id) ? unifiedLabel : t('codex.proxy.modeDefault');
           const plan = entry.plan_type?.trim();
           const planClass = plan ? withCodexPlanBadgeStyle(getCodexPlanBadgePresentation(entry).className, planBadgeStyle) : '';
           return <tr key={entry.id} ref={entry.id === entryAccountId ? entryRow : undefined} className={selection.includes(entry.id) ? 'is-selected' : entry.id === selectedId ? 'is-current' : undefined}>
@@ -100,7 +100,7 @@ export function CodexProxyAccountsSection() {
             <th scope="row"><div className="codex-proxy-accounts-identity"><span className="codex-proxy-accounts-avatar">{resolveName(entry).slice(0, 1).toUpperCase()}</span>
               <span className="codex-proxy-accounts-name" title={resolveName(entry)}>{resolveName(entry)}</span>
               {plan && <span className={`tier-badge ${planClass}`} title={plan}>{plan}</span>}</div></th>
-            <td><span className={`codex-proxy-accounts-mode is-${mode}`}>{t(binding ? 'codex.proxy.modeIndependent' : 'codex.proxy.managerAccounts.following')}</span></td>
+            <td><span className={`codex-proxy-accounts-mode is-${mode}`}>{t(entry.egress_proxy_disabled ? 'codex.proxy.modeDisabled' : binding ? 'codex.proxy.modeIndependent' : 'codex.proxy.managerAccounts.following')}</span></td>
             <td><div className="codex-proxy-accounts-proxy"><span title={proxy}>{proxy}</span>
               {mode === 'stale' && <small>{t('codex.proxy.modeStale')}</small>}</div></td>
             <td><div className="codex-proxy-accounts-row-actions">
@@ -119,7 +119,7 @@ export function CodexProxyAccountsSection() {
       onClose={() => setDialog(null)} onApplied={(account) => { setApplied((old) => ({ ...old, [account.id]: account.egress_proxy ?? null })); reloadUnified(); }} />}
     {batchOpen && <CodexProxyBatchBindDialog accounts={pickedAccounts} catalog={catalog} resolveDisplayName={resolveName} savedValue={savedValue} onCatalogChange={acceptCatalog}
       onClose={() => { setBatchOpen(false); reloadUnified(); }} onApplied={recordApplied} />}
-    {followOpen && <CodexProxyFollowDialog accounts={pickedAccounts.filter((entry) => savedValue(entry))} onApplied={recordApplied}
+    {followOpen && <CodexProxyFollowDialog accounts={pickedAccounts.filter((entry) => savedValue(entry) || entry.egress_proxy_disabled)} onApplied={recordApplied}
       onClose={() => { setFollowOpen(false); reloadUnified(); }} />}
   </section>;
 }

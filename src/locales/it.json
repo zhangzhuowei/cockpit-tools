@@ -10,7 +10,7 @@
       "accountsRequired": "Seleziona almeno un account.",
       "invalidAccount": "Identificativo account non valido.",
       "invalidRequest": "Parametri del test non validi.",
-      "invalidConcurrency": "Il numero di lavori paralleli deve essere compreso tra 1 e 10.",
+      "invalidConcurrency": "Lavori paralleli · 1–200",
       "invalidRetention": "La conservazione deve essere compresa tra 1 e 3650 giorni.",
       "alreadyRunning": "Chiudi prima il test attivo.",
       "artifactMissing": "Risultato generato non trovato.",
@@ -22,7 +22,9 @@
       "storage": "Impossibile leggere o salvare la cronologia dei test.",
       "unsafePath": "Percorso del risultato non sicuro.",
       "historyMissing": "Test non trovato nella cronologia.",
-      "invalidId": "Identificativo del record non valido."
+      "invalidId": "Identificativo del record non valido.",
+      "providerUnavailable": "Il fornitore o la chiave API salvata non è disponibile.",
+      "providerChanged": "L’indirizzo o il protocollo è cambiato. Avvia un nuovo test."
     },
     "title": "Test del pellicano",
     "description": "Genera HTML in parallelo con la stessa richiesta. Confronta i risultati personalmente, senza valutazione automatica.",
@@ -83,9 +85,52 @@
     "confirmClearAll": "Pulire tutti i test Pelican?",
     "clearAllHelp": "Tutta la cronologia dei test e i file generati verranno eliminati definitivamente. L’operazione non può essere annullata.",
     "search": "Cerca account",
-    "viewError": "Visualizza errore"
+    "viewError": "Visualizza errore",
+    "providers": "Fornitori",
+    "providerDescription": "Confronta i fornitori generando un’animazione di un pellicano.",
+    "providerHelp": "Scegli fornitore, chiave salvata e modello. Le richieste usano un gateway temporaneo isolato; le credenziali vengono rilette a ogni nuovo tentativo.",
+    "providerRequired": "Seleziona fornitore, chiave API e modello validi.",
+    "providerModelMismatch": "Modello diverso: richiesto {{requested}}, ricevuto {{responded}}.",
+    "providerSearch": "Cerca fornitore o nome chiave",
+    "providerEmpty": "Nessun fornitore corrispondente",
+    "providerClear": "Azzera selezione"
   },
   "common": {
+    "dragSortHint": "Trascina la maniglia a sinistra per riordinare. Le modifiche vengono salvate al rilascio.",
+    "dragSortFilteredHint": "Cancella la ricerca per riordinare.",
+    "recycleBin": {
+      "loadTimeout": "Tempo scaduto durante la lettura del cestino. Aggiorna per riprovare.",
+      "refreshFailed": "Account ripristinato, ma impossibile aggiornare l’elenco. Ricarica l’elenco degli account.",
+      "moveStarted": "Avviato lo spostamento di {{count}} account nel cestino",
+      "title": "Cestino",
+      "description": "Gli account eliminati restano in locale e possono essere ripristinati o esportati. Il ripristino non cambia account, non avvia client e non ripristina i collegamenti ad attività o al servizio API.",
+      "empty": "Il cestino è vuoto",
+      "restore": "Ripristina",
+      "deletePermanently": "Elimina per sempre",
+      "emptyBin": "Svuota cestino",
+      "deletedAt": "Eliminato: {{time}}",
+      "confirmDelete": "Eliminare definitivamente “{{name}}”? I dati nel cestino verranno rimossi e non saranno recuperabili.",
+      "confirmEmpty": "Eliminare definitivamente questi {{count}} account? I dati nel cestino verranno rimossi e non saranno recuperabili.",
+      "move": "Nel cestino",
+      "confirmMove": "Spostare {{count}} account nel cestino? Da lì sarà possibile ripristinarli, esportarli o eliminarli definitivamente.",
+      "moved": "Spostati nel cestino",
+      "moveFailed": "Spostamento nel cestino non riuscito: {{error}}",
+      "operationFailed": "Operazione non riuscita: {{error}}",
+      "export": "Esporta",
+      "exportAll": "Esporta tutto",
+      "exportAndDelete": "Esporta ed elimina",
+      "exportAndEmpty": "Esporta e svuota",
+      "count": "{{count}} account",
+      "exportHint": "Esporta un file JSON che può essere reimportato. Contiene le credenziali degli account: conservalo al sicuro. Annullare il salvataggio o un errore di esportazione non elimina gli account.",
+      "exported": "Account esportati.",
+      "confirmTitle": "Rimuovere gli account per sempre?"
+    },
+    "requestProxy": {
+      "value": "Server proxy: {{name}}",
+      "direct": "Diretta",
+      "unknown": "Non registrato",
+      "entryHint": "È stato registrato solo l’ingresso del proxy; il nodo finale è sconosciuto."
+    },
     "retry": "Riprova",
     "quotaRefreshScheduler": {
       "busy": "La coda di aggiornamento è piena. Riprova tra poco.",
@@ -124,7 +169,7 @@
     "windowsOperation": {
       "title": "Operazione Windows non completata",
       "accessDeniedDescription": "Windows ha negato l’operazione. Il programma può avere privilegi superiori o trovarsi in una posizione protetta.",
-      "storeLaunchBlockedDescription": "Windows non ha potuto avviare il client Codex configurato: la cartella dello Store potrebbe essere stata sostituita da un aggiornamento o non consentire più l’esecuzione. L’avvio diretto è stato bloccato per non aprire l’account sbagliato. Usa «Rileva di nuovo il percorso e riprova»; se fallisce ancora, passa questa istanza alla modalità CLI.",
+      "storeLaunchBlockedDescription": "Non è stato possibile confermare l’avvio dell’istanza isolata dello Store. Cockpit non ha aperto l’account predefinito. Rileva nuovamente il percorso del client e riprova. Se il problema persiste, copia i dati diagnostici o passa questa istanza alla modalità CLI.",
       "repairPath": "Rileva di nuovo il percorso e riprova",
       "fileInUseDescription": "Il file è utilizzato da un altro programma. Chiudilo e riprova.",
       "programNotFoundDescription": "Windows non ha trovato il programma necessario. Controlla l’installazione o il percorso configurato.",
@@ -314,7 +359,8 @@
         "unlimited": "Quota illimitata",
         "leftPercent": "{{value}}% rimanente",
         "cachedRefreshFailed": "Aggiornamento non riuscito; vengono mostrati gli ultimi dati validi",
-        "lastSuccessfulQuery": "Ultimo successo: {{time}}"
+        "lastSuccessfulQuery": "Ultimo successo: {{time}}",
+        "cachedNeedsReauth": "⚠️ Verifica web richiesta per continuare (dati memorizzati nella cache sotto)"
       },
       "subtitle": "Gestisci i tuoi account GitHub Copilot",
       "time": {
@@ -369,7 +415,9 @@
     "quota": {
       "weeklyWindow": "Settimana"
     },
-    "optional": " (opzionale)"
+    "optional": " (opzionale)",
+    "hide": "Nascondi",
+    "show": "Mostra"
   },
   "nav": {
     "overview": "Antigravity IDE​",
@@ -741,7 +789,7 @@
     },
     "delete": {
       "title": "Elimina istanza",
-      "message": "Eliminare l'istanza {{name}}? Questo rimuoverà la configurazione e cancellerà la cartella dell'istanza."
+      "message": "Eliminare l’istanza {{name}}? La registrazione verrà rimossa e le cartelle gestite verranno spostate nel cestino. Le cartelle personalizzate e protette verranno conservate."
     },
     "import": {
       "btnTitle": "Importa directory esistente",
@@ -764,6 +812,24 @@
     }
   },
   "settings": {
+    "instanceCleanup": {
+      "title": "Pulizia istanze",
+      "description": "Scansiona manualmente le cartelle delle istanze gestite e rimuovi i dati non referenziati dalle configurazioni delle istanze o dai processi in esecuzione. Nessuna eliminazione automatica.",
+      "scan": "Scansiona",
+      "scanning": "Scansione…",
+      "remove": "Elimina per sempre",
+      "removing": "Eliminazione…",
+      "empty": "Nessuna cartella residua da rimuovere",
+      "summary": "Trovate {{count}} cartelle, spazio occupato: {{size}}",
+      "confirm": "Le seguenti cartelle, con sessioni, spazi di lavoro e cache, verranno eliminate definitivamente. Questa operazione è irreversibile.",
+      "cancel": "Annulla",
+      "confirmRemove": "Conferma",
+      "done": "Eliminate {{count}} cartelle",
+      "failed": "Operazione non riuscita",
+      "path": "Cartella",
+      "size": "Spazio usato",
+      "platform": "Piattaforma"
+    },
     "title": "Impostazioni App",
     "subtitle": "Personalizza la tua esperienza con Cockpit Tools.",
     "tabs": {
@@ -1426,7 +1492,9 @@
       "normal": "Normale",
       "forbidden": "403​",
       "forbidden_tooltip": "API ha restituito 403 Forbidden, l'account non ha accesso a Gemini Code Assist",
-      "forbidden_msg": "Account vietato, aggiornamento automatico saltato"
+      "forbidden_msg": "Account vietato, aggiornamento automatico saltato",
+      "needsReauth": "Verifica web richiesta",
+      "needsReauthTooltip": "Google richiede la verifica di sicurezza web per continuare"
     },
     "tier": {
       "pro": "PRO​",
@@ -1561,7 +1629,12 @@
       "delete": "Elimina",
       "deleteSelected": "Elimina selezionati",
       "export": "Esporta",
-      "refreshAll": "Aggiorna tutto"
+      "refreshAll": "Aggiorna tutto",
+      "reauth": "Riautorizza",
+      "reauthTooltip": "Google richiede una nuova verifica, fai clic per riautorizzare",
+      "openValidationUrl": "Verifica web",
+      "copyValidationUrl": "Copia link di verifica",
+      "copyValidationUrlTooltip": "Copia indirizzo di verifica web"
     },
     "tabs": {
       "oauth": "Autorizzazione OAuth",
@@ -1800,7 +1873,8 @@
     "example": "Esempio",
     "actionRunning": "{{action}}...​",
     "actionSuccess": "{{action}} riuscito",
-    "actionFailed": "{{action}} non riuscito: {{error}}"
+    "actionFailed": "{{action}} non riuscito: {{error}}",
+    "refreshFailed": "Aggiornamento non riuscito"
   },
   "wakeup": {
     "title": "Attività di risveglio",
@@ -2063,6 +2137,11 @@
     "other_group": "Altri modelli"
   },
   "codex": {
+    "launchErrors": {
+      "bindingFailed": "Impossibile confermare l’account associato. Avvio interrotto; riprova a cambiare account.",
+      "processScanFailed": "Impossibile verificare i processi precedenti in background. Avvio interrotto; riprova.",
+      "proxyEntryFailed": "Impossibile avviare il proxy configurato. Nessun percorso alternativo utilizzato; riprova."
+    },
     "oauthProxy": {
       "toggle": "Autorizza tramite proxy",
       "hint": "La finestra integrata, lo scambio dei token e il primo controllo quota usano questo proxy. Disattiva questa opzione se l’accesso richiede una finestra a comparsa.",
@@ -2548,7 +2627,7 @@
       "hideEntryEffectRestore": "Potrai riattivarla nelle Impostazioni Codex o nelle Impostazioni rapide",
       "riskNotice": {
         "title": "Avviso di rischio",
-        "message": "Le attuali funzionalità relative al servizio Codex API si basano, di fatto, su un uso tramite proxy inverso. Al momento il servizio ufficiale non limita esplicitamente questo comportamento, ma politiche, regole o disponibilità potrebbero cambiare in futuro. Continuando a usare questa funzione, riconosci la situazione e accetti di assumerti personalmente i rischi correlati.",
+        "message": "L’uso di normali account ufficiali tramite proxy inverso o inoltro può essere soggetto a rigide restrizioni da parte del servizio ufficiale. Questo uso può anche essere rilevato come inoltro e influire sulla qualità delle risposte («intelligenza ridotta»). Usare con cautela, soprattutto se si hanno molti account.",
         "remember": "Ho capito, non mostrare più",
         "acknowledge": "Ho capito",
         "continueStart": "Continua",
@@ -3078,7 +3157,8 @@
         "medium": "Medio",
         "high": "Alto",
         "xhigh": "Molto alto",
-        "max": "Massimo"
+        "max": "Massimo",
+        "ultra": "Estremo"
       },
       "scheduleQuotaResetHint": "Quando è attivo il risveglio dopo reset quota, l'aggiornamento automatico verrà impostato ogni 2 minuti.",
       "scheduleQuotaResetSummary": "Esegui dopo il reset della quota",
@@ -3640,7 +3720,8 @@
         "baseUrlExists": "Questa Base URL esiste già.",
         "providerNotFound": "Provider non trovato.",
         "apiKeyRequiredOnCreate": "Quando crei un provider, è richiesta almeno una chiave API.",
-        "apiKeyRequiredWhenEmpty": "Questo provider non ha ancora una chiave API. Aggiungine prima una."
+        "apiKeyRequiredWhenEmpty": "Questo provider non ha ancora una chiave API. Aggiungine prima una.",
+        "apiKeyUrlInvalid": "Usa un URL di gestione HTTP(S) senza credenziali incorporate; inserisci la chiave API nel campo della chiave."
       },
       "saveSuccess": "Provider di modelli salvato.",
       "deleteBlocked": "Questo provider è collegato a {{count}} account e non può essere eliminato.",
@@ -3793,7 +3874,7 @@
         "modelAuto": "Auto (catalogo / rilevamento)",
         "modelCustom": "Modello personalizzato…",
         "modelLabel": "Modello di test",
-        "modelCustomPlaceholder": "ID modello, es. gpt-4.1-mini",
+        "modelCustomPlaceholder": "ID modello, es. gpt-6.1-sol",
         "modelHint": "Opzionale: modello comune. Vuoto = auto dal catalogo."
       },
       "enableAndStart": "Avvia",
@@ -3808,9 +3889,9 @@
       },
       "vision": {
         "providerDefault": "Questo provider supporta le immagini per impostazione predefinita",
-        "providerDefaultHint": "Se disattivato, solo i modelli elencati sotto possono ricevere immagini; gli altri vengono bloccati dal gateway locale.",
+        "providerDefaultHint": "I modelli senza impostazione esplicita usano questo valore; GPT-5.5 e successivi supportano le immagini per impostazione predefinita. Disattiva i singoli modelli nell’elenco. Se il gateway non trova un modello visivo, omette le immagini e prosegue con il testo.",
         "modelsHint": "Un modello per riga. Utile quando solo alcuni modelli del provider supportano immagini incollate.",
-        "routingModelHint": "Quando il modello attuale non legge immagini, la richiesta usa questo modello; vuoto usa automaticamente l'unico modello visivo.",
+        "routingModelHint": "Se il modello attuale non legge le immagini, il gateway usa questo modello. Lascia vuoto per usare l’unico modello visivo disponibile; altrimenti le immagini vengono omesse e il testo continua a essere elaborato.",
         "allModels": "Immagini",
         "partialModels": "Alcune immagini",
         "textOnly": "Solo testo"
@@ -3899,7 +3980,8 @@
       "importConfigFailed": "Importazione dagli appunti non riuscita: {{error}}",
       "importConfigPlaceholder": "Usa Copia configurazione sulla scheda e incolla qui il contenuto",
       "importConfigAction": "Importa configurazione",
-      "importConfigFromClipboard": "Leggi dagli appunti"
+      "importConfigFromClipboard": "Leggi dagli appunti",
+      "settingsRestartHint": "Impostazioni del fornitore aggiornate. Riavvia le istanze Codex o il servizio API in esecuzione che usano questo fornitore per applicarle."
     },
     "quickSwitch": {
       "action": "Cambio rapido provider",
@@ -4260,7 +4342,7 @@
         "reasoningEffortValue": "Rag. {{effort}}",
         "serviceTier": "Livello di servizio",
         "serviceTierValue": "Livello {{tier}}",
-        "upstreamModel": "Modello reale"
+        "upstreamModel": "Modello inviato"
       },
       "timeouts": {
         "entryLabel": "Avanzate",
@@ -4535,8 +4617,6 @@
       "serverCount": "{{count}} server",
       "autoSyncBadge": "Automatico"
     },
-    "exportAuthFailed": "Esporta errori",
-    "exportAuthFailedTitle": "Esporta tutti gli account con auth non riuscita",
     "accounts": {
       "showRelayQuota": "Mostra quota relay",
       "hideRelayQuota": "Nascondi quota relay"
@@ -4569,6 +4649,18 @@
       "restartFailed": "Riavvio del gateway non riuscito: {{error}}"
     },
     "proxy": {
+      "display": {
+        "title": "Vista proxy",
+        "compact": "Compatta",
+        "summary": "Riepilogo",
+        "detailed": "Dettagliata",
+        "hint": "Si applica a tutte le schede degli account Codex; la scelta viene salvata e applicata subito.",
+        "configuredNode": "Nodo configurato",
+        "lastRequest": "Ultima richiesta",
+        "preview": "Anteprima stile",
+        "saveFailed": "Impossibile salvare la preferenza di visualizzazione. Riprova.",
+        "refresh": "Aggiorna dettagli"
+      },
       "workspace": {
         "navLabel": "Sezioni del proxy",
         "overview": "Panoramica",
@@ -4661,7 +4753,7 @@
       },
       "rules": {
         "title": "Regole di uscita",
-        "intro": "Un proxy di account indipendente ha priorità sul proxy unificato; se nessuno dei due si applica, le richieste mantengono l’uscita predefinita precedente del client.",
+        "intro": "Un proxy di account indipendente ha priorità sul proxy unificato; se nessuno dei due si applica, le richieste mantengono l’uscita predefinita precedente del client. Sono esclusi gli account impostati esplicitamente su «Senza proxy».",
         "order": "Ordine di applicazione",
         "tableTitle": "Uscite degli account",
         "columnAccount": "Account",
@@ -4707,8 +4799,8 @@
       "batchClearAll": "Deseleziona",
       "unified": {
         "title": "Uscita proxy unificata",
-        "hint": "Gli account idonei senza proxy proprio condividono questa uscita; i nuovi account la seguono automaticamente.",
-        "offState": "Disattivato: prevale il proxy dell’account; altrimenti si usa l’uscita predefinita.",
+        "hint": "Gli account idonei senza proxy proprio condividono questa uscita; i nuovi account la seguono automaticamente. Sono esclusi gli account impostati esplicitamente su «Senza proxy».",
+        "offState": "Disattivato: prevale il proxy dell’account; altrimenti si usa l’uscita predefinita. Sono esclusi gli account impostati esplicitamente su «Senza proxy».",
         "enable": "Attiva per tutti",
         "disable": "Disattiva",
         "change": "Cambia uscita",
@@ -4726,12 +4818,12 @@
         "changeMessage": "I client attivi con inoltro locale usano la nuova uscita per le nuove connessioni.",
         "changeConfirm": "Cambia",
         "disableTitle": "Disattiva l’uscita proxy unificata",
-        "disableMessage": "I proxy propri restano attivi; senza associazione si usa l’uscita predefinita.",
+        "disableMessage": "I proxy propri restano attivi; senza associazione si usa l’uscita predefinita. Sono esclusi gli account impostati esplicitamente su «Senza proxy».",
         "disableConfirm": "Disattiva",
         "restartHint": "I client avviati tramite inoltro locale cambiano per le nuove connessioni. Gli altri client attivi richiedono un riavvio.",
         "staleWarning": "La fonte di questa uscita non è disponibile. Scegline un’altra.",
         "removedWarning": "L’uscita proxy unificata è stata disattivata perché la sua fonte è stata eliminata.",
-        "accountsNotice": "Il proxy dell’account ha priorità; gli account senza associazione seguono il proxy unificato.",
+        "accountsNotice": "Il proxy dell’account ha priorità; gli account senza associazione seguono il proxy unificato. Sono esclusi gli account impostati esplicitamente su «Senza proxy».",
         "unbindBlocked": "Dopo la rimozione, questo account seguirà il proxy unificato.",
         "following": "Unificata",
         "errorFailed": "Operazione non riuscita. Riprova.",
@@ -4794,6 +4886,11 @@
         "viewAll": "Vedi tutto"
       },
       "previewTitle": "Anteprima proxy",
+      "modeDisabled": "Senza proxy",
+      "disableAction": "Rimuovi proxy",
+      "setIndependent": "Proxy dedicato",
+      "disabledHint": "Ignora i proxy individuali e condivisi e tenta connessioni dirette.",
+      "disabledWarning": "L’accesso diretto potrebbe non riuscire. La modifica vale per le nuove connessioni dei client con inoltro locale; gli altri client aperti richiedono un riavvio. Le connessioni esistenti possono mantenere il percorso precedente.",
       "exitIp": "IP di uscita",
       "sessionHistory": "Attività",
       "sessionHistoryHint": "Controlla lo stato ogni 5 secondi. Conserva solo lo stato iniziale e le variazioni di questa anteprima, fino a 20 voci, eliminate alla chiusura. Non è un registro storico completo.",
@@ -4824,9 +4921,17 @@
       "desktopRequest_forwarded": "Ultimo inoltro locale stabilito",
       "desktopRequest_failed": "Ultimo inoltro locale fallito",
       "desktopEntryReadyHint": "L’ingresso è in ascolto; il motore si avvia all’arrivo di una richiesta di connessione.",
+      "sharedRuntime": "Proxy account",
       "runtimeMain": "Richieste account",
       "runtimeDesktop": "Ponte desktop",
       "runtimeHint": "Lo stato descrive solo l’ingresso locale e il motore. Un inoltro stabilito non conferma l’accesso a Internet né identifica il client richiedente.",
+      "restoreEntry": "Ripristina inoltro",
+      "restoringEntry": "Ripristino…",
+      "restoreEntryFailed": "Impossibile ripristinare l’inoltro proxy del desktop. Riprova.",
+      "restoreEntryPortBusy": "La porta proxy originale è occupata. Liberala e riprova; il desktop non può utilizzare automaticamente un’altra porta.",
+      "restoreEntryNotRunning": "Nessun desktop in esecuzione utilizza un ingresso proxy registrato di questa istanza di Cockpit.",
+      "restoreEntryBusy": "Il ripristino del proxy è già in corso. Riprova tra poco.",
+      "restoreEntryTimeout": "Tempo scaduto per il ripristino del proxy. Riprova.",
       "restartHint": "I client avviati tramite inoltro locale cambiano per le nuove connessioni. Gli altri client attivi richiedono un riavvio. Il ponte desktop ascolta solo su loopback, ma non isola gli altri utenti locali. Il proxy di sistema resta invariato.",
       "exportHint": "Le esportazioni degli account non includono le credenziali del proxy; riconfigurale dopo l’importazione.",
       "backToAccounts": "Torna agli account",
@@ -5140,7 +5245,7 @@
         "assign": "Assegna proxy",
         "specific": "Account selezionati",
         "shared": "Proxy condiviso",
-        "sharedHint": "Gli account Codex OAuth senza proxy proprio usano questo proxy, inclusi gli account compatibili aggiunti in seguito. Le impostazioni individuali esistenti restano attive.",
+        "sharedHint": "Gli account Codex OAuth senza proxy proprio usano questo proxy, inclusi gli account compatibili aggiunti in seguito. Le impostazioni individuali esistenti restano attive. Sono esclusi gli account impostati esplicitamente su «Senza proxy».",
         "apply": "Assegna"
       },
       "managerResources": {
@@ -5173,7 +5278,7 @@
       "managerUnified": {
         "off": "Disattivato",
         "choose": "Imposta proxy",
-        "hint": "Gli account senza proxy proprio usano questo proxy."
+        "hint": "Gli account senza proxy proprio usano questo proxy. Sono esclusi gli account impostati esplicitamente su «Senza proxy»."
       },
       "setup": {
         "title": "Configura i proxy",
@@ -5187,13 +5292,20 @@
         "collapse": "Nascondi dettagli"
       },
       "runtime_entry_failed": "Ingresso fallito",
+      "measureCurrentLatency": "Misura latenza",
+      "measuringCurrentLatency": "Misurazione",
+      "currentLatencyNotRunning": "Nessun nodo attivo da verificare. Avvia un client che utilizzi questo proxy oppure testa il nodo configurato in Gestione proxy.",
+      "currentLatencyHint": "Misura la latenza del nodo attivo verso l’URL di test senza cambiare nodo o criteri del proxy.",
       "latencyCheckedAt": "Verificato alle",
       "latencyPending": "Non testato",
       "latencyTimeout": "Tempo scaduto",
       "quickSwitch": "Cambia nodo",
       "quickSwitchHint": "Modifica solo questo account. Le nuove connessioni usano l’uscita salvata; il salvataggio non verifica la connessione.",
       "currentNode": "Nodo attuale",
-      "noCurrentNode": "Il nodo attuale non è ancora disponibile"
+      "noCurrentNode": "Il nodo attuale non è ancora disponibile",
+      "runtimeBusy": "Il proxy locale è occupato. Aggiornamento temporaneamente non disponibile.",
+      "runtimeCapacity": "Troppi proxy attivi. Arresta quelli inutilizzati e riprova.",
+      "runtimeReadFailed": "Stato del proxy locale temporaneamente non disponibile. Riprova."
     },
     "more": {
       "title": "Altro",
@@ -5213,6 +5325,17 @@
       "moveUp": "Sposta su",
       "moveDown": "Sposta giù",
       "done": "Fatto"
+    },
+    "cliDaemon": {
+      "title": "Aggiorna account CLI",
+      "description": "Le credenziali sono state salvate, ma il servizio Codex CLI di questo profilo è ancora attivo e potrebbe mantenere l’account precedente.",
+      "restartHint": "Termina le attività CLI in corso, poi esegui questo comando nel terminale. Il riavvio interrompe le sessioni collegate a questo servizio.",
+      "copyFailed": "Copia non riuscita. Seleziona il comando sopra e copialo manualmente."
+    },
+    "proxyQuality": {
+      "errors": {
+        "bindingChanged": "L'associazione è cambiata; è stata conservata l'impostazione attuale."
+      }
     }
   },
   "githubCopilot": {

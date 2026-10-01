@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   RefreshCw,
@@ -27,10 +27,13 @@ import { CodexEgressProxyPage } from "../components/codex/CodexEgressProxyPage";
 import { CodexAccountProxyPreview } from "../components/codex/CodexAccountProxyPreview";
 import { CODEX_OPEN_PROXY_EVENT, canUseCodexAccountProxy } from "../utils/codexAccountProxy";
 import {
+  normalizeCodexTopLayout,
   readCodexTopLayoutPreference,
   writeCodexTopLayoutPreference,
 } from "../utils/codexTopLayoutPreferences";
 
+
+import { codexPageRegistry } from '../components/codex/codexPageRegistry';
 
 export type CodexAccountsViewProps = ReturnType<typeof useCodexAccountsPageController>;
 
@@ -126,7 +129,20 @@ export function CodexAccountsView(props: CodexAccountsViewProps) {
     updateCodexCliWorkingDir,
     wakeupPresetManagerSignal,
   } = props;
-  const [topLayout, setTopLayout] = useState(readCodexTopLayoutPreference);
+  const [savedTopLayout, setTopLayout] = useState(readCodexTopLayoutPreference);
+  const pageRegistry = useMemo(() => codexPageRegistry(t), [t]);
+  const topLayout = useMemo(() => normalizeCodexTopLayout(savedTopLayout, pageRegistry.map(page => page.id)), [savedTopLayout, pageRegistry]);
+  useEffect(() => {
+    if (!pageRegistry.some(page => page.id === activeTab)) setActiveTab('overview');
+  }, [activeTab, pageRegistry, setActiveTab]);
+  useEffect(() => {
+    const openPage = (event: Event) => {
+      const id = (event as CustomEvent).detail;
+      if (pageRegistry.some(page => page.id === id)) setActiveTab(id);
+    };
+    window.addEventListener('codex:open-builtin-page', openPage);
+    return () => window.removeEventListener('codex:open-builtin-page', openPage);
+  }, [pageRegistry, setActiveTab]);
   const [proxyAccountId, setProxyAccountId] = useState<string | null>(null);
   const [proxyPreviewId, setProxyPreviewId] = useState<string | null>(null);
   // The shortcut opens a read-only summary; only its explicit action leaves for the page.
@@ -146,8 +162,8 @@ export function CodexAccountsView(props: CodexAccountsViewProps) {
   }, [accounts]);
 
   useEffect(() => {
-    writeCodexTopLayoutPreference(topLayout);
-  }, [topLayout]);
+    writeCodexTopLayoutPreference(savedTopLayout);
+  }, [savedTopLayout]);
 
   /** 启动预览里的 OAuth 绑定信息（仅 API Key 账号展示）。 */
   const launchPreviewOAuthBindingAccount =
@@ -208,6 +224,7 @@ export function CodexAccountsView(props: CodexAccountsViewProps) {
       className={`codex-accounts-page codex-accounts-page--${overviewLayoutMode}`}
     >
       <CodexOverviewTabsHeader
+        pageRegistry={pageRegistry}
         active={activeTab}
         onTabChange={setActiveTab}
         tabs={topLayout.order}
@@ -215,6 +232,7 @@ export function CodexAccountsView(props: CodexAccountsViewProps) {
       />
 
       {activeTab === "top-layout" && <CodexTopLayoutPage
+        pages={pageRegistry}
         layout={topLayout}
         onChange={setTopLayout}
         onBack={() => setActiveTab("overview")}

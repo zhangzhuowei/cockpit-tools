@@ -23,6 +23,7 @@ export interface CodexUnifiedProxyView {
   eligibleAccountIds: string[];
   /** Eligible accounts whose own binding takes precedence over the unified exit. */
   independentAccountIds: string[];
+  disabledAccountIds?: string[];
   /** `CATALOG_NOT_FOUND` means the referenced source is gone and the backend switched itself off. */
   staleError: string | null;
 }
@@ -31,6 +32,7 @@ export interface CodexUnifiedProxyPreview {
   binding: CodexUnifiedProxyBinding;
   eligibleAccountIds: string[];
   independentAccountIds: string[];
+  disabledAccountIds?: string[];
 }
 
 function selectionArgs(sourceId: string, itemId: string, selections: ProxyCatalogSelections, groupId?: string) {

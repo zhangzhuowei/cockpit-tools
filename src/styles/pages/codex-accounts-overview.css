@@ -26,6 +26,7 @@
 }
 
 .codex-overview-selection-bar {
+  container: codex-selection-bar / inline-size;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -2811,5 +2812,14 @@
 
   .codex-ssh-panel__item-actions .btn:not(.icon-only) span {
     display: none;
+  }
+}
+
+/* Keep toolbar actions together when the sidebar leaves little content width. */
+@container codex-selection-bar (max-width: 900px) {
+  .codex-overview-selection-actions {
+    grid-column: 1 / -1;
+    width: 100%;
+    justify-content: flex-end;
   }
 }

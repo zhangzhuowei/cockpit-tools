@@ -15,20 +15,24 @@ use std::{
 #[derive(Default)]
 struct Runtime {
     signature: String,
-    tunnel: Option<NodeTunnel>,
-    desktop_signature: String,
-    desktop_tunnel: Option<Arc<DesktopTunnel>>,
-    sidecar_signature: String,
-    sidecar_tunnel: Option<NodeTunnel>,
+    tunnel: Option<Arc<DesktopTunnel>>,
     account_starting: bool,
-    desktop_starting: bool,
-    sidecar_starting: bool,
     account_start_generation: u64,
-    desktop_start_generation: u64,
-    sidecar_start_generation: u64,
 }
 
-pub(crate) struct DesktopTunnel(NodeTunnel);
+pub(crate) struct DesktopTunnel(NodeTunnel, Arc<codex_proxy_engine::RequestRouteObserver>);
+
+impl DesktopTunnel {
+    fn new(tunnel: NodeTunnel, binding: &str) -> Self {
+        let mut observer = tunnel.request_route_observer();
+        decorate_request_route_observer(&mut observer, binding);
+        Self(tunnel, Arc::new(observer))
+    }
+
+    pub(crate) fn request_route_observer(&self) -> Arc<codex_proxy_engine::RequestRouteObserver> {
+        self.1.clone()
+    }
+}
 
 impl Deref for DesktopTunnel {
     type Target = NodeTunnel;
@@ -48,13 +52,19 @@ type Slot = Arc<tokio::sync::Mutex<Runtime>>;
 static RUNTIMES: LazyLock<Mutex<HashMap<String, Slot>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static STARTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
-static READS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(8);
+static READS: LazyLock<Arc<tokio::sync::Semaphore>> =
+    LazyLock::new(|| Arc::new(tokio::sync::Semaphore::new(8)));
+const MAX_RUNTIMES: usize = 256;
+const READ_QUEUE_TIMEOUT: Duration = Duration::from_secs(2);
+// Includes queueing and blocking-pool scheduling, rather than restarting after admission.
+const READ_TOTAL_TIMEOUT: Duration = Duration::from_secs(5);
+
+include!("codex_proxy_runtime_request_routes.rs");
+include!("codex_proxy_runtime_latency.rs");
 
 #[derive(Clone, Copy)]
 enum StartKind {
     Account,
-    Desktop,
-    Sidecar,
 }
 
 struct StartGuard {
@@ -99,27 +109,11 @@ fn clear_starting(state: &mut Runtime, kind: StartKind, generation: u64) {
         StartKind::Account if state.account_start_generation == generation => {
             state.account_starting = false;
         }
-        StartKind::Desktop if state.desktop_start_generation == generation => {
-            state.desktop_starting = false;
-        }
-        StartKind::Sidecar if state.sidecar_start_generation == generation => {
-            state.sidecar_starting = false;
-        }
         _ => {}
     }
 }
 
-async fn retire(tunnel: NodeTunnel) {
-    super::codex_proxy_activity::detach(tunnel.controller().tunnel_id);
-    if tunnel.stop().await.is_err() {
-        crate::modules::logger::log_warn(
-            "[CodexProxy] 旧内核回收未确认，已再次发送终止信号；已提交配置保持有效",
-        );
-    }
-}
-
-/// Clone controller handles before any local HTTP work; never hold a runtime lock
-/// while reading activity. Non-engine direct proxies have no controller.
+/// All consumers share one controller; old streams retain their Arc until EOF.
 pub async fn active_controllers(account_id: &str) -> Vec<(&'static str, EngineController)> {
     let shared = RUNTIMES
         .lock()
@@ -128,34 +122,18 @@ pub async fn active_controllers(account_id: &str) -> Vec<(&'static str, EngineCo
     let Some(shared) = shared else {
         return Vec::new();
     };
-    let Ok(mut state) = tokio::time::timeout(Duration::from_secs(2), shared.lock()).await else {
+    let Ok(state) = shared.try_lock() else {
         return Vec::new();
     };
-    let mut result = Vec::new();
-    if let Some(tunnel) = state.tunnel.as_mut().filter(|tunnel| tunnel.is_running()) {
-        result.push(("account", tunnel.controller()));
-    }
-    if let Some(tunnel) = state
-        .desktop_tunnel
+    state
+        .tunnel
         .as_ref()
         .filter(|tunnel| tunnel.is_running())
-    {
-        result.push(("desktop", tunnel.controller()));
-    }
-    if let Some(tunnel) = state
-        .sidecar_tunnel
-        .as_mut()
-        .filter(|tunnel| tunnel.is_running())
-    {
-        result.push(("sidecar", tunnel.controller()));
-    }
-    result
+        .map(|tunnel| vec![("account", tunnel.controller())])
+        .unwrap_or_default()
 }
 
-/// 账号本地通道换端口后，后台让 API 服务网关重新核对配置。
-///
-/// sidecar 的账号 auth 文件里记着本地代理端口，而网关只按 config/manifest 指纹判断是否需要重启；
-/// 隧道重建会换到新的随机端口，若不主动触发一次核对，运行中的 sidecar 会继续拨已消失的旧端口。
+/// Binding changes still refresh sidecar policy/auth metadata; its dial port stays stable.
 fn notify_local_access_gateway_after_proxy_change() {
     crate::modules::codex_local_access::trigger_gateway_reload_in_background("账号代理通道已重建");
 }
@@ -163,6 +141,7 @@ fn notify_local_access_gateway_after_proxy_change() {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeStatus {
+    pub shared_entry: bool,
     pub account: &'static str,
     pub desktop: &'static str,
     pub sidecar: &'static str,
@@ -187,7 +166,17 @@ fn with_routing_status(
     value: Option<&str>,
 ) -> RuntimeStatus {
     result.desktop_entry = super::codex_proxy_desktop_router::entry_status(&account.id);
-    result.proxy_source = if value.is_none() {
+    let port = result
+        .desktop_entry
+        .as_ref()
+        .filter(|entry| entry.state == "listening")
+        .and_then(|entry| entry.port);
+    result.account_port = port;
+    result.desktop_port = port;
+    result.sidecar_port = port;
+    result.proxy_source = if account.egress_proxy_disabled {
+        "disabled"
+    } else if value.is_none() {
         "none"
     } else if account
         .egress_proxy_url
@@ -218,45 +207,23 @@ fn tunnel_status(tunnel: Option<&NodeTunnel>, matches: bool) -> (&'static str, O
     }
 }
 
-fn direct_proxy_has_credentials(value: &str) -> bool {
-    url::Url::parse(value).is_ok_and(|url| !url.username().is_empty() || url.password().is_some())
-}
-
 pub(crate) fn desktop_engine_required(value: &str) -> bool {
-    !is_direct(value) || direct_proxy_has_credentials(value)
+    !is_direct(value)
 }
 
 fn initial_status(value: &str, engine_ready: bool) -> RuntimeStatus {
-    let direct = is_direct(value);
-    let engine_required = desktop_engine_required(value);
+    let state = if is_direct(value) {
+        "direct"
+    } else if engine_ready {
+        "idle"
+    } else {
+        "missing"
+    };
     RuntimeStatus {
-        account: if direct {
-            "direct"
-        } else if engine_ready {
-            "idle"
-        } else {
-            "missing"
-        },
-        desktop: if direct && !direct_proxy_has_credentials(value) {
-            "direct"
-        } else if engine_required && !engine_ready {
-            "missing"
-        } else {
-            "idle"
-        },
-        sidecar: if direct && !direct_proxy_has_credentials(value) {
-            "direct"
-        } else if engine_required && !engine_ready {
-            "missing"
-        } else if !direct {
-            if engine_ready {
-                "idle"
-            } else {
-                "missing"
-            }
-        } else {
-            "idle"
-        },
+        shared_entry: true,
+        account: state,
+        desktop: state,
+        sidecar: state,
         account_port: None,
         desktop_port: None,
         sidecar_port: None,
@@ -279,90 +246,50 @@ pub async fn status(account_id: &str) -> Result<RuntimeStatus, String> {
         return Err("PROXY_ACCOUNT_UNSUPPORTED".into());
     }
     let Some(value) = codex_account_proxy::configured_url(&account)? else {
-        return Ok(with_routing_status(
-            RuntimeStatus {
-                account: "unbound",
-                desktop: "unbound",
-                sidecar: "unbound",
-                account_port: None,
-                desktop_port: None,
-                sidecar_port: None,
-                account_node: None,
-                desktop_node: None,
-                sidecar_node: None,
-        account_selection: None,
-        desktop_selection: None,
-        sidecar_selection: None,
-                desktop_entry: None,
-                proxy_source: "none",
-                effective_proxy: None,
-            },
-            &account,
-            None,
-        ));
+        let mut result = initial_status("http://localhost", true);
+        result.account = "unbound";
+        result.desktop = "unbound";
+        result.sidecar = "unbound";
+        return Ok(with_routing_status(result, &account, None));
     };
     let value = value.as_ref();
     let direct = is_direct(value);
-    let engine_required = desktop_engine_required(value);
-    // Direct unauthenticated proxies never depend on the optional engine or its disk state.
-    let engine_ready = !engine_required || codex_proxy_engine::engine_ready().await?;
+    let engine_ready = direct || codex_proxy_engine::engine_ready().await?;
     let mut result = initial_status(value, engine_ready);
     let shared = RUNTIMES
         .lock()
         .map_err(|_| "PROXY_RUNTIME_FAILED")?
         .get(account_id)
         .cloned();
-    let Some(shared) = shared else {
-        return Ok(with_routing_status(result, &account, Some(value)));
-    };
-    let Ok(mut state) = shared.try_lock() else {
-        if !direct {
-            result.account = "starting";
-        }
-        if engine_required {
-            result.desktop = "starting";
-            if direct && direct_proxy_has_credentials(value) {
+    let reader = if let Some(shared) = shared {
+        if let Ok(mut state) = shared.try_lock() {
+            result = observe(&mut state, value, direct, engine_ready);
+            state
+                .tunnel
+                .as_ref()
+                .filter(|_| result.account == "running")
+                .and_then(|tunnel| tunnel.selection_reader())
+        } else {
+            if !direct {
+                result.account = "starting";
+                result.desktop = "starting";
                 result.sidecar = "starting";
             }
-        }
-        return Ok(with_routing_status(result, &account, Some(value)));
-    };
-    let mut result = observe(&mut state, value, direct, engine_ready);
-    let reader = |tunnel: Option<&NodeTunnel>, running: bool| {
-        if running {
-            tunnel.and_then(NodeTunnel::selection_reader)
-        } else {
             None
         }
-    };
-    let account_reader = reader(state.tunnel.as_ref(), result.account == "running");
-    let desktop_reader = reader(
-        state.desktop_tunnel.as_deref().map(Deref::deref),
-        result.desktop == "running",
-    );
-    let sidecar_reader = reader(state.sidecar_tunnel.as_ref(), result.sidecar == "running");
-    drop(state);
-    async fn selected(reader: Option<codex_proxy_engine::SelectionReader>) -> Option<codex_proxy_engine::ProxySelection> {
-        match reader {
-            Some(reader) => reader.selected_info().await.ok().flatten(),
-            None => None,
-        }
-    }
-    let (a, d, s) = tokio::join!(
-        selected(account_reader),
-        selected(desktop_reader),
-        selected(sidecar_reader)
-    );
-    result.account_node = a.as_ref().map(|value| value.name.clone());
-    result.desktop_node = d.as_ref().map(|value| value.name.clone());
-    result.account_selection = a;
-    result.desktop_selection = d;
-    result.sidecar_selection = if !direct { result.account_selection.clone() } else { s.clone() };
-    result.sidecar_node = if !direct {
-        result.account_node.clone()
     } else {
-        s.map(|value| value.name)
+        None
     };
+    let selection = match reader {
+        Some(reader) => reader.selected_info().await.ok().flatten(),
+        None => None,
+    };
+    result.account_node = selection.as_ref().map(|value| value.name.clone());
+    result.desktop_node = result.account_node.clone();
+    result.sidecar_node = result.account_node.clone();
+    result.account_selection = selection.clone();
+    result.desktop_selection = selection.clone();
+    result.sidecar_selection = selection;
     Ok(with_routing_status(result, &account, Some(value)))
 }
 
@@ -371,74 +298,107 @@ fn signature(value: &str) -> String {
 }
 
 fn observe(state: &mut Runtime, value: &str, direct: bool, engine_ready: bool) -> RuntimeStatus {
-    let stamp = signature(value);
-    let mut result = RuntimeStatus {
-        account: if direct { "direct" } else { "idle" },
-        desktop: if direct && !direct_proxy_has_credentials(value) {
-            "direct"
+    let mut result = initial_status(value, engine_ready);
+    if !direct && engine_ready {
+        result.account = if state.account_starting {
+            "starting"
         } else {
-            "idle"
-        },
-        sidecar: if direct && !direct_proxy_has_credentials(value) {
-            "direct"
-        } else {
-            "idle"
-        },
-        account_port: None,
-        desktop_port: None,
-        sidecar_port: None,
-        account_node: None,
-        desktop_node: None,
-        sidecar_node: None,
-        account_selection: None,
-        desktop_selection: None,
-        sidecar_selection: None,
-        desktop_entry: None,
-        proxy_source: "none",
-        effective_proxy: None,
-    };
-    if !direct {
-        if !engine_ready {
-            result.account = "missing";
-        } else if state.account_starting {
-            result.account = "starting";
-        } else {
-            let matches = state.signature == stamp;
-            (result.account, result.account_port) = tunnel_status(state.tunnel.as_ref(), matches);
-        }
+            tunnel_status(
+                state.tunnel.as_deref().map(Deref::deref),
+                state.signature == signature(value),
+            )
+            .0
+        };
     }
-    if desktop_engine_required(value) {
-        if !engine_ready {
-            result.desktop = "missing";
-        } else if state.desktop_starting {
-            result.desktop = "starting";
-        } else {
-            let matches = state.desktop_signature == stamp;
-            (result.desktop, result.desktop_port) =
-                tunnel_status(state.desktop_tunnel.as_deref().map(Deref::deref), matches);
-        }
-    }
-    if !engine_ready && desktop_engine_required(value) {
-        result.sidecar = "missing";
-    } else if direct && direct_proxy_has_credentials(value) && state.sidecar_starting {
-        result.sidecar = "starting";
-    } else if direct && direct_proxy_has_credentials(value) {
-        let matches = state.sidecar_signature == stamp;
-        (result.sidecar, result.sidecar_port) =
-            tunnel_status(state.sidecar_tunnel.as_ref(), matches);
-    } else if !direct {
-        result.sidecar = result.account;
-        result.sidecar_port = result.account_port;
-    }
+    result.desktop = result.account;
+    result.sidecar = result.account;
     result
 }
 
 fn slot(account_id: &str) -> Result<Slot, String> {
-    let mut store = RUNTIMES.lock().map_err(|_| "PROXY_RUNTIME_FAILED")?;
-    if store.len() >= 256 && !store.contains_key(account_id) {
-        return Err("PROXY_RUNTIME_LIMIT".into());
+    slot_in(&RUNTIMES, account_id, MAX_RUNTIMES)
+}
+
+fn existing_slot(account_id: &str) -> Result<Option<Slot>, String> {
+    Ok(RUNTIMES
+        .lock()
+        .map_err(|_| "PROXY_RUNTIME_FAILED")?
+        .get(account_id)
+        .cloned())
+}
+
+fn tunnel_is_reclaimable<T>(
+    tunnel: Option<&Arc<T>>,
+    is_running: impl FnOnce(&T) -> Option<bool>,
+) -> bool {
+    tunnel.is_none_or(|tunnel| Arc::strong_count(tunnel) == 1 && is_running(tunnel) == Some(false))
+}
+
+/// Only reclaim unleased, inactive slots. Probe child state outside the registry lock;
+/// remove only after rechecking ownership so concurrent starts keep their single-flight slot.
+fn slot_in(
+    registry: &Mutex<HashMap<String, Slot>>,
+    account_id: &str,
+    limit: usize,
+) -> Result<Slot, String> {
+    let candidates = {
+        let mut store = registry.lock().map_err(|_| "PROXY_RUNTIME_FAILED")?;
+        if let Some(shared) = store.get(account_id) {
+            return Ok(shared.clone());
+        }
+        if store.len() < limit {
+            return Ok(store.entry(account_id.to_owned()).or_default().clone());
+        }
+        // Snapshot identities only: holding every Slot would make concurrent reclamation
+        // attempts mistake each other's scan leases for active account transactions.
+        store.keys().cloned().collect::<Vec<_>>()
+    };
+    for id in &candidates {
+        let shared = {
+            let store = registry.lock().map_err(|_| "PROXY_RUNTIME_FAILED")?;
+            if let Some(existing) = store.get(account_id) {
+                return Ok(existing.clone());
+            }
+            // Claim at most one idle candidate under the registry lock. Another scanner
+            // skips this one and can claim a different record without an Arc-count race.
+            let Some(shared) = store
+                .get(id)
+                .filter(|shared| Arc::strong_count(shared) == 1)
+            else {
+                continue;
+            };
+            shared.clone()
+        };
+        let Ok(state) = shared.try_lock() else {
+            continue;
+        };
+        if state.account_starting
+            || !tunnel_is_reclaimable(state.tunnel.as_ref(), |tunnel| tunnel.try_is_running())
+        {
+            continue;
+        }
+        let mut store = registry.lock().map_err(|_| "PROXY_RUNTIME_FAILED")?;
+        if let Some(existing) = store.get(account_id) {
+            return Ok(existing.clone());
+        }
+        if Arc::strong_count(&shared) == 2
+            && store
+                .get(id)
+                .is_some_and(|current| Arc::ptr_eq(current, &shared))
+        {
+            // Our local lease keeps removed resources alive until the registry lock is gone.
+            store.remove(id);
+            return Ok(store.entry(account_id.to_owned()).or_default().clone());
+        }
     }
-    Ok(store.entry(account_id.to_string()).or_default().clone())
+    let mut store = registry.lock().map_err(|_| "PROXY_RUNTIME_FAILED")?;
+    if let Some(shared) = store.get(account_id) {
+        return Ok(shared.clone());
+    }
+    if store.len() < limit {
+        return Ok(store.entry(account_id.to_owned()).or_default().clone());
+    }
+    Err("PROXY_RUNTIME_CAPACITY".into())
 }
 
 pub fn release_deleted_account(account_id: &str) {
@@ -450,16 +410,12 @@ pub fn release_deleted_account(account_id: &str) {
     if let Some(shared) = shared {
         tauri::async_runtime::spawn(async move {
             let mut state = shared.lock().await;
-            let tunnel = state.tunnel.take();
-            let desktop = state.desktop_tunnel.take();
-            let sidecar = state.sidecar_tunnel.take();
             state.signature.clear();
-            state.sidecar_signature.clear();
+            state.account_start_generation = state.account_start_generation.wrapping_add(1);
+            state.account_starting = false;
+            let old = state.tunnel.take();
             drop(state);
-            drop(desktop);
-            for tunnel in [tunnel, sidecar].into_iter().flatten() {
-                retire(tunnel).await;
-            }
+            drop(old);
         });
     }
 }
@@ -467,10 +423,6 @@ pub fn release_deleted_account(account_id: &str) {
 pub(crate) fn is_direct(value: &str) -> bool {
     url::Url::parse(value)
         .is_ok_and(|url| matches!(url.scheme(), "http" | "https" | "socks5" | "socks5h"))
-}
-
-fn sidecar_needs_private_tunnel(value: &str) -> bool {
-    is_direct(value) && direct_proxy_has_credentials(value)
 }
 
 pub fn normalize_binding(value: &str) -> Result<String, String> {
@@ -493,6 +445,11 @@ pub async fn client_builder(
     if !codex_account_proxy::eligible(account) {
         return Ok(builder);
     }
+    // Refresh the routing choice before applying caller defaults.
+    let current = load(&account.id).await?;
+    if current.egress_proxy_disabled {
+        return Ok(builder.no_proxy());
+    }
     let proxy_url = ensure(&account.id).await?;
     let Some(proxy_url) = proxy_url else {
         return Ok(builder);
@@ -502,25 +459,54 @@ pub async fn client_builder(
 }
 
 pub(crate) async fn load(account_id: &str) -> Result<CodexAccount, String> {
-    let permit = READS.try_acquire().map_err(|_| "PROXY_RUNTIME_LIMIT")?;
-    let account_id = account_id.to_string();
-    let account = tokio::time::timeout(
-        Duration::from_secs(5),
-        tauri::async_runtime::spawn_blocking(move || {
-            let _permit = permit;
-            codex_account::load_account(&account_id)
-        }),
-    )
-    .await
-    .map_err(|_| "PROXY_ENGINE_TIMEOUT")?
-    .map_err(|_| "PROXY_RUNTIME_FAILED")?
-    .ok_or_else(|| "PROXY_ACCOUNT_UNSUPPORTED".to_string())?;
+    let account = load_stored(account_id).await?;
     ensure_account_proxy_state(&account).await?;
     Ok(account)
 }
 
+async fn read_with_limit<T: Send + 'static>(
+    reads: Arc<tokio::sync::Semaphore>,
+    queue_timeout: Duration,
+    total_timeout: Duration,
+    work: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, String> {
+    let started = tokio::time::Instant::now();
+    let deadline = started + total_timeout;
+    let permit = tokio::time::timeout_at(
+        (started + queue_timeout).min(deadline),
+        reads.acquire_owned(),
+    )
+    .await
+    .map_err(|_| "PROXY_RUNTIME_BUSY")?
+    .map_err(|_| "PROXY_RUNTIME_FAILED")?;
+    tokio::time::timeout_at(
+        deadline,
+        tauri::async_runtime::spawn_blocking(move || {
+            // Cancellation or a caller timeout cannot release admission while disk I/O runs.
+            let _permit = permit;
+            work()
+        }),
+    )
+    .await
+    .map_err(|_| "PROXY_RUNTIME_READ_TIMEOUT".to_owned())?
+    .map_err(|_| "PROXY_RUNTIME_FAILED".to_owned())
+}
+
+async fn load_stored(account_id: &str) -> Result<CodexAccount, String> {
+    let account_id = account_id.to_string();
+    read_with_limit(
+        READS.clone(),
+        READ_QUEUE_TIMEOUT,
+        READ_TOTAL_TIMEOUT,
+        move || codex_account::load_account(&account_id),
+    )
+    .await?
+    .ok_or_else(|| "PROXY_ACCOUNT_UNSUPPORTED".to_string())
+}
+
 pub(crate) async fn ensure_account_proxy_state(account: &CodexAccount) -> Result<(), String> {
     if codex_account_proxy::eligible(account)
+        && !account.egress_proxy_disabled
         && !account
             .egress_proxy_url
             .as_deref()
@@ -545,9 +531,7 @@ pub async fn prepare_accounts(account_ids: Vec<String>) -> Result<(), String> {
     let mut accounts = Vec::new();
     for account in stored {
         ensure_account_proxy_state(&account).await?;
-        if codex_account_proxy::configured_url(&account)?.is_some_and(|value| {
-            !is_direct(value.as_ref()) || sidecar_needs_private_tunnel(value.as_ref())
-        }) {
+        if codex_account_proxy::configured_url(&account)?.is_some() {
             accounts.push(account.id);
         }
     }
@@ -563,267 +547,139 @@ pub async fn prepare_accounts(account_ids: Vec<String>) -> Result<(), String> {
     Ok(())
 }
 
-/// Synchronous manifest builders consume a PREPARED tunnel. Never start or wait here.
+/// Manifest reads never start a listener or engine. Bound accounts fail closed until prepared.
 pub fn prepared_url(account: &CodexAccount) -> Result<Option<String>, String> {
     let Some(value) = codex_account_proxy::configured_url(account)? else {
         return Ok(None);
     };
-    let value = value.as_ref();
-    if is_direct(value) {
-        return codex_account_proxy::normalize_direct_proxy(value).map(Some);
+    if !is_direct(value.as_ref()) {
+        let shared = RUNTIMES
+            .lock()
+            .map_err(|_| "PROXY_RUNTIME_FAILED")?
+            .get(&account.id)
+            .cloned()
+            .ok_or("PROXY_RUNTIME_NOT_READY")?;
+        let state = shared.try_lock().map_err(|_| "PROXY_RUNTIME_NOT_READY")?;
+        if state.signature != signature(value.as_ref()) {
+            return Err("PROXY_RUNTIME_NOT_READY".into());
+        }
+        if !state
+            .tunnel
+            .as_ref()
+            .is_some_and(|tunnel| tunnel.is_running())
+        {
+            return Err("PROXY_ENGINE_STOPPED".into());
+        }
     }
-    let shared = RUNTIMES
-        .lock()
-        .map_err(|_| "PROXY_RUNTIME_FAILED")?
-        .get(&account.id)
-        .cloned()
-        .ok_or("PROXY_RUNTIME_NOT_READY")?;
-    let mut state = shared.try_lock().map_err(|_| "PROXY_RUNTIME_NOT_READY")?;
-    if state.signature != signature(value) {
-        return Err("PROXY_RUNTIME_NOT_READY".into());
-    }
-    let tunnel = state.tunnel.as_mut().ok_or("PROXY_RUNTIME_NOT_READY")?;
-    if !tunnel.is_running() {
-        return Err("PROXY_ENGINE_STOPPED".into());
-    }
-    Ok(Some(tunnel.proxy_url().to_string()))
+    super::codex_proxy_desktop_router::prepared_url(&account.id).map(Some)
 }
 
 pub fn prepared_sidecar_url(account: &CodexAccount) -> Result<Option<String>, String> {
-    let Some(value) = codex_account_proxy::configured_url(account)? else {
-        return Ok(None);
-    };
-    let value = value.as_ref();
-    if !sidecar_needs_private_tunnel(value) {
-        return prepared_url(account);
-    }
-    let shared = RUNTIMES
-        .lock()
-        .map_err(|_| "PROXY_RUNTIME_FAILED")?
-        .get(&account.id)
-        .cloned()
-        .ok_or("PROXY_RUNTIME_NOT_READY")?;
-    let mut state = shared.try_lock().map_err(|_| "PROXY_RUNTIME_NOT_READY")?;
-    if state.sidecar_signature != signature(value) {
-        return Err("PROXY_RUNTIME_NOT_READY".into());
-    }
-    let tunnel = state
-        .sidecar_tunnel
-        .as_mut()
-        .ok_or("PROXY_RUNTIME_NOT_READY")?;
-    if !tunnel.is_running() {
-        return Err("PROXY_ENGINE_STOPPED".into());
-    }
-    Ok(Some(tunnel.proxy_url().to_string()))
+    prepared_url(account)
 }
 
-/// Ordinary account operations call this BEFORE building their client/manifest.
+/// Account HTTP clients and sidecars use the same stable entry as the desktop.
 pub async fn ensure(account_id: &str) -> Result<Option<String>, String> {
-    let account = load(account_id).await?;
-    let Some(value) = codex_account_proxy::configured_url(&account)? else {
+    if desktop_target(account_id).await?.is_none() {
         return Ok(None);
-    };
-    let value = value.as_ref();
-    if is_direct(value) {
-        return codex_account_proxy::normalize_direct_proxy(value).map(Some);
     }
-    let shared = slot(account_id)?;
-    let mut state = tokio::time::timeout(Duration::from_secs(2), shared.lock())
+    super::codex_proxy_desktop_router::ensure_account_entry(account_id)
         .await
-        .map_err(|_| "PROXY_ENGINE_TIMEOUT")?;
-    let current = load(account_id).await?;
-    let Some(value) = codex_account_proxy::configured_url(&current)? else {
-        return Ok(None);
-    };
-    let value = value.as_ref();
-    if is_direct(value) {
-        return codex_account_proxy::normalize_direct_proxy(value).map(Some);
-    }
-    let stamp = signature(value);
-    if state.signature == stamp {
-        if let Some(tunnel) = state.tunnel.as_mut() {
-            if tunnel.is_running() {
-                return Ok(Some(tunnel.proxy_url().to_string()));
-            }
-        }
-    }
-    if state.account_starting {
-        return Err("PROXY_RUNTIME_STARTING".into());
-    }
-    state.account_start_generation = state.account_start_generation.wrapping_add(1);
-    let generation = state.account_start_generation;
-    state.account_starting = true;
-    drop(state);
-    let mut start_guard = StartGuard::new(shared.clone(), StartKind::Account, generation);
-    let _permit = tokio::time::timeout(Duration::from_secs(12), STARTS.acquire())
-        .await
-        .map_err(|_| "PROXY_ENGINE_TIMEOUT")?
-        .map_err(|_| "PROXY_RUNTIME_FAILED")?;
-    let tunnel_result = codex_proxy_engine::start(value).await;
-    let mut state = shared.lock().await;
-    if state.account_start_generation == generation {
-        state.account_starting = false;
-    }
-    start_guard.complete();
-    let tunnel = tunnel_result?;
-    // Import/delete/update may have changed persistent state while the core started.
-    let latest = load(account_id).await?;
-    if codex_account_proxy::configured_url(&latest)?
-        .map(|value| signature(value.as_ref()))
-        .as_deref()
-        != Some(stamp.as_str())
-    {
-        return Err("PROXY_BINDING_CHANGED".into());
-    }
-    let url = tunnel.proxy_url().to_string();
-    let controller = tunnel.controller();
-    let old = state.tunnel.replace(tunnel);
-    state.signature = stamp;
-    drop(state);
-    super::codex_proxy_activity::attach_if_enabled(account_id, "account", controller);
-    if let Some(old) = old {
-        retire(old).await;
-    }
-    notify_local_access_gateway_after_proxy_change();
-    Ok(Some(url))
-}
-
-/// Keep the selected engine alive for the lifetime of a desktop proxy connection.
-pub(crate) async fn desktop_target(
-    account_id: &str,
-) -> Result<Option<(String, Option<Arc<DesktopTunnel>>)>, String> {
-    let account = load(account_id).await?;
-    let Some(value) = codex_account_proxy::configured_url(&account)? else {
-        return Ok(None);
-    };
-    let value = value.as_ref();
-    if is_direct(value) {
-        let normalized = codex_account_proxy::normalize_direct_proxy(value)?;
-        let url = url::Url::parse(&normalized).map_err(|_| "PROXY_INVALID_URL")?;
-        if url.username().is_empty() && url.password().is_none() {
-            return Ok(Some((normalized, None)));
-        }
-    }
-    let shared = slot(account_id)?;
-    let mut state = tokio::time::timeout(Duration::from_secs(2), shared.lock())
-        .await
-        .map_err(|_| "PROXY_ENGINE_TIMEOUT")?;
-    let stamp = signature(value);
-    if state.desktop_signature == stamp {
-        if let Some(tunnel) = state.desktop_tunnel.as_ref() {
-            if tunnel.is_running() {
-                return Ok(Some((tunnel.proxy_url().to_string(), Some(tunnel.clone()))));
-            }
-        }
-    }
-    if state.desktop_starting {
-        return Err("PROXY_RUNTIME_STARTING".into());
-    }
-    state.desktop_start_generation = state.desktop_start_generation.wrapping_add(1);
-    let generation = state.desktop_start_generation;
-    state.desktop_starting = true;
-    drop(state);
-    let mut start_guard = StartGuard::new(shared.clone(), StartKind::Desktop, generation);
-    let _permit = tokio::time::timeout(Duration::from_secs(12), STARTS.acquire())
-        .await
-        .map_err(|_| "PROXY_ENGINE_TIMEOUT")?
-        .map_err(|_| "PROXY_RUNTIME_FAILED")?;
-    let candidate_result = codex_proxy_engine::start_desktop(value).await;
-    let mut state = shared.lock().await;
-    if state.desktop_start_generation == generation {
-        state.desktop_starting = false;
-    }
-    start_guard.complete();
-    let candidate = Arc::new(DesktopTunnel(candidate_result?));
-    drop(state);
-    let latest = load(account_id).await?;
-    if codex_account_proxy::configured_url(&latest)?
-        .map(|value| signature(value.as_ref()))
-        .as_deref()
-        != Some(stamp.as_str())
-    {
-        return Err("PROXY_BINDING_CHANGED".into());
-    }
-    let mut state = shared.lock().await;
-    if state.desktop_start_generation != generation {
-        return Err("PROXY_BINDING_CHANGED".into());
-    }
-    let url = candidate.proxy_url().to_string();
-    let controller = candidate.controller();
-    let previous = state.desktop_tunnel.replace(candidate.clone());
-    state.desktop_signature = stamp;
-    drop(state);
-    super::codex_proxy_activity::attach_if_enabled(account_id, "desktop", controller);
-    drop(previous);
-    Ok(Some((url, Some(candidate))))
+        .map(Some)
 }
 
 pub async fn ensure_sidecar(account_id: &str) -> Result<Option<String>, String> {
-    let account = load(account_id).await?;
-    let Some(value) = codex_account_proxy::configured_url(&account)? else {
-        return Ok(None);
-    };
-    let value = value.as_ref();
-    if !sidecar_needs_private_tunnel(value) {
-        return ensure(account_id).await;
-    }
-    let shared = slot(account_id)?;
-    let mut state = tokio::time::timeout(Duration::from_secs(2), shared.lock())
+    ensure(account_id).await
+}
+
+/// This resolves the upstream, never the entry itself (which would form a loop).
+/// The returned lease preserves in-flight streams across binding changes.
+pub(crate) async fn desktop_target(
+    account_id: &str,
+) -> Result<Option<(String, Option<Arc<DesktopTunnel>>)>, String> {
+    tokio::time::timeout(Duration::from_secs(25), ensure_target(account_id))
         .await
-        .map_err(|_| "PROXY_ENGINE_TIMEOUT")?;
-    let current = load(account_id).await?;
-    let Some(value) = codex_account_proxy::configured_url(&current)? else {
-        return Ok(None);
-    };
-    let value = value.as_ref();
-    if !sidecar_needs_private_tunnel(value) {
-        drop(state);
-        return ensure(account_id).await;
-    }
-    let stamp = signature(value);
-    if state.sidecar_signature == stamp {
-        if let Some(tunnel) = state.sidecar_tunnel.as_mut() {
-            if tunnel.is_running() {
-                return Ok(Some(tunnel.proxy_url().to_string()));
+        .map_err(|_| "PROXY_ENGINE_TIMEOUT".to_string())?
+}
+
+async fn ensure_target(
+    account_id: &str,
+) -> Result<Option<(String, Option<Arc<DesktopTunnel>>)>, String> {
+    loop {
+        // Slow reads happen before the runtime lock, never while holding it.
+        let account = load(account_id).await?;
+        let Some(value) = codex_account_proxy::configured_url(&account)? else {
+            return Ok(None);
+        };
+        let value = value.as_ref();
+        if is_direct(value) {
+            return Ok(Some((
+                codex_account_proxy::normalize_direct_proxy(value)?,
+                None,
+            )));
+        }
+        let shared = slot(account_id)?;
+        let stamp = signature(value);
+        let mut state = shared.lock().await;
+        if state.signature == stamp {
+            if let Some(tunnel) = state.tunnel.as_ref().filter(|tunnel| tunnel.is_running()) {
+                return Ok(Some((tunnel.proxy_url().to_string(), Some(tunnel.clone()))));
             }
         }
+        if state.account_starting {
+            drop(state);
+            // Wait only on in-memory startup state. Do not reread account files every tick.
+            loop {
+                tokio::time::sleep(Duration::from_millis(25)).await;
+                if !shared.lock().await.account_starting {
+                    break;
+                }
+            }
+            continue;
+        }
+        state.account_start_generation = state.account_start_generation.wrapping_add(1);
+        let generation = state.account_start_generation;
+        state.account_starting = true;
+        drop(state);
+        let mut guard = StartGuard::new(shared.clone(), StartKind::Account, generation);
+        let _permit = tokio::time::timeout(Duration::from_secs(12), STARTS.acquire())
+            .await
+            .map_err(|_| "PROXY_ENGINE_TIMEOUT")?
+            .map_err(|_| "PROXY_RUNTIME_FAILED")?;
+        let candidate = Arc::new(DesktopTunnel::new(
+            codex_proxy_engine::start(value).await?,
+            value,
+        ));
+        // Serialize final validation/publication with durable binding updates.
+        let token_lock = codex_account::codex_token_lock_for(account_id);
+        let _token_guard = token_lock.lock().await;
+        let latest = load(account_id).await?;
+        if codex_account_proxy::configured_url(&latest)?
+            .map(|value| signature(value.as_ref()))
+            .as_deref()
+            != Some(&stamp)
+        {
+            return Err("PROXY_BINDING_CHANGED".into());
+        }
+        let mut state = shared.lock().await;
+        if state.account_start_generation != generation {
+            return Err("PROXY_BINDING_CHANGED".into());
+        }
+        let old = state.tunnel.replace(candidate.clone());
+        state.signature = stamp;
+        clear_starting(&mut state, StartKind::Account, generation);
+        guard.complete();
+        drop(state);
+        drop(old);
+        super::codex_proxy_activity::attach_if_enabled(
+            account_id,
+            "account",
+            candidate.controller(),
+        );
+        // The stable entry and its observation endpoint survive engine replacement;
+        // restarting the API gateway here would interrupt unrelated active requests.
+        return Ok(Some((candidate.proxy_url().to_string(), Some(candidate))));
     }
-    if state.sidecar_starting {
-        return Err("PROXY_RUNTIME_STARTING".into());
-    }
-    state.sidecar_start_generation = state.sidecar_start_generation.wrapping_add(1);
-    let generation = state.sidecar_start_generation;
-    state.sidecar_starting = true;
-    drop(state);
-    let mut start_guard = StartGuard::new(shared.clone(), StartKind::Sidecar, generation);
-    let _permit = tokio::time::timeout(Duration::from_secs(12), STARTS.acquire())
-        .await
-        .map_err(|_| "PROXY_ENGINE_TIMEOUT")?
-        .map_err(|_| "PROXY_RUNTIME_FAILED")?;
-    let candidate_result = codex_proxy_engine::start_sidecar(value).await;
-    let mut state = shared.lock().await;
-    clear_starting(&mut state, StartKind::Sidecar, generation);
-    start_guard.complete();
-    let candidate = candidate_result?;
-    let latest = load(account_id).await?;
-    if codex_account_proxy::configured_url(&latest)?
-        .map(|value| signature(value.as_ref()))
-        .as_deref()
-        != Some(stamp.as_str())
-    {
-        return Err("PROXY_BINDING_CHANGED".into());
-    }
-    let url = candidate.proxy_url().to_string();
-    let controller = candidate.controller();
-    let old = state.sidecar_tunnel.replace(candidate);
-    state.sidecar_signature = stamp;
-    drop(state);
-    super::codex_proxy_activity::attach_if_enabled(account_id, "sidecar", controller);
-    if let Some(old) = old {
-        retire(old).await;
-    }
-    notify_local_access_gateway_after_proxy_change();
-    Ok(Some(url))
 }
 
 /// A new node must start before durable binding replaces the old one. On failure,
@@ -833,7 +689,42 @@ pub async fn save_binding(
     account_id: String,
     input: Option<String>,
 ) -> Result<CodexAccount, String> {
-    let account = load(&account_id).await?;
+    save_binding_with_mode(account_id, input, false).await
+}
+
+/// Blocking writes outlive cancellation of their caller. Keep the account lock
+/// with the write, then return it so publication stays in the same transaction.
+async fn persist_binding_mutation<T: Send + 'static>(
+    lock: Arc<tokio::sync::Mutex<()>>,
+    work: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<(T, tokio::sync::OwnedMutexGuard<()>), String> {
+    let guard = lock.lock_owned().await;
+    let (result, guard) = tauri::async_runtime::spawn_blocking(move || (work(), guard))
+        .await
+        .map_err(|_| "PROXY_SAVE_FAILED")?;
+    Ok((result?, guard))
+}
+
+pub async fn save_binding_with_mode(
+    account_id: String,
+    input: Option<String>,
+    disabled: bool,
+) -> Result<CodexAccount, String> {
+    save_binding_with_policy(account_id, input, disabled, false).await
+}
+
+/// Explicit pool allocation must not overwrite a manual binding made while a
+/// candidate engine was starting. Recheck under the durable account token lock.
+pub(crate) async fn save_binding_if_unbound(account_id: String, input: String) -> Result<CodexAccount, String> {
+    save_binding_with_policy(account_id, Some(input), false, true).await
+}
+
+async fn save_binding_with_policy(account_id: String, input: Option<String>, disabled: bool, require_unbound: bool) -> Result<CodexAccount, String> {
+    if disabled && input.is_some() {
+        return Err("PROXY_INVALID_URL".into());
+    }
+    // Removing/replacing a binding must not depend on reading the previous shared config.
+    let account = load_stored(&account_id).await?;
     if !codex_account_proxy::eligible(&account) {
         return Err("PROXY_ACCOUNT_UNSUPPORTED".into());
     }
@@ -847,8 +738,15 @@ pub async fn save_binding(
         super::codex_proxy_engine_preflight::for_url(
             value,
             super::codex_proxy_engine_preflight::Usage::AccountRequest,
-        ).await?;
+        )
+        .await?;
     }
+    // Reserve capacity before starting a core. Clearing/direct bindings need no new slot.
+    let reserved = if normalized.as_deref().is_some_and(|value| !is_direct(value)) {
+        Some(slot(&account_id)?)
+    } else {
+        None
+    };
     let candidate = if let Some(value) = normalized.as_deref().filter(|value| !is_direct(value)) {
         let _permit = tokio::time::timeout(Duration::from_secs(12), STARTS.acquire())
             .await
@@ -858,76 +756,49 @@ pub async fn save_binding(
     } else {
         None
     };
-    let sidecar_candidate = if let Some(value) = normalized
-        .as_deref()
-        .filter(|value| sidecar_needs_private_tunnel(value))
-    {
-        // The account's raw HTTP/SOCKS request path does not need Mihomo.
-        // Preparing its private sidecar bridge is optional at save time; the
-        // desktop/sidecar launch itself still fails closed if no engine is ready.
-        let ready = match super::codex_proxy_engine_preflight::require().await {
-            Ok(()) => true,
-            Err(error) if super::codex_proxy_engine_preflight::is_prerequisite_error(&error) => {
-                crate::modules::logger::log_info(&format!(
-                    "[CodexProxy] raw request proxy does not require an engine; private bridge preparation deferred: {error}"
-                ));
-                false
-            }
-            Err(error) => return Err(error),
-        };
-        if !ready {
-            None
-        } else {
-            let _permit = tokio::time::timeout(Duration::from_secs(12), STARTS.acquire())
-                .await
-                .map_err(|_| "PROXY_ENGINE_TIMEOUT")?
-                .map_err(|_| "PROXY_RUNTIME_FAILED")?;
-            Some(codex_proxy_engine::start_sidecar(value).await?)
-        }
-    } else {
-        None
-    };
+    let candidate = candidate.map(|tunnel| {
+        Arc::new(DesktopTunnel::new(
+            tunnel,
+            normalized.as_deref().unwrap_or_default(),
+        ))
+    });
     // Candidate startup is outside the account token lock; durable proxy
     // mutation then serializes with refresh/authority writes so old snapshots
     // cannot erase a newer binding.
     let token_lock = crate::modules::codex_account::codex_token_lock_for(&account_id);
-    let _token_guard = token_lock.lock().await;
-    let shared = slot(&account_id)?;
-    let mut state = tokio::time::timeout(Duration::from_secs(15), shared.lock())
-        .await
-        .map_err(|_| "PROXY_ENGINE_TIMEOUT")?;
     let persisted = normalized.clone();
-    let account = tauri::async_runtime::spawn_blocking(move || {
-        codex_account::update_account_egress_proxy(&account_id, persisted)
+    let write_reservation = reserved.clone();
+    let (account, _token_guard) = persist_binding_mutation(token_lock, move || {
+        // A cancelled caller cannot make an in-progress binding transaction reclaimable.
+        let _write_reservation = write_reservation;
+        if require_unbound {
+            let current = codex_account::load_account(&account_id).ok_or("PROXY_ACCOUNT_NOT_FOUND")?;
+            if current.egress_proxy_url.is_some() || current.egress_proxy_disabled {
+                return Err("codex.proxyQuality.errors.bindingChanged".into());
+            }
+        }
+        codex_account::update_account_egress_proxy(&account_id, persisted, disabled)
     })
-    .await
-    .map_err(|_| "PROXY_SAVE_FAILED")??;
-    let account_controller = candidate.as_ref().map(NodeTunnel::controller);
-    let sidecar_controller = sidecar_candidate.as_ref().map(NodeTunnel::controller);
+    .await?;
+    // Publication is still under the token lock. Include starts that appeared during the
+    // write, without allocating a record just to remove a binding at capacity.
+    let shared = match reserved {
+        Some(shared) => Some(shared),
+        None => existing_slot(&account.id)?,
+    };
+    let Some(shared) = shared else {
+        return Ok(account);
+    };
+    let mut state = shared.lock().await;
+    let controller = candidate.as_ref().map(|tunnel| tunnel.controller());
     let old = std::mem::replace(&mut state.tunnel, candidate);
-    let desktop = state.desktop_tunnel.take();
-    let old_sidecar = std::mem::replace(&mut state.sidecar_tunnel, sidecar_candidate);
-    state.desktop_signature.clear();
-    state.sidecar_signature = normalized
-        .as_deref()
-        .filter(|value| sidecar_needs_private_tunnel(value))
-        .filter(|_| state.sidecar_tunnel.is_some())
-        .map(signature)
-        .unwrap_or_default();
     state.signature = normalized.as_deref().map(signature).unwrap_or_default();
+    state.account_start_generation = state.account_start_generation.wrapping_add(1);
+    state.account_starting = false;
     drop(state);
-    if let Some(controller) = account_controller {
+    drop(old);
+    if let Some(controller) = controller {
         super::codex_proxy_activity::attach_if_enabled(&account.id, "account", controller);
-    }
-    if let Some(controller) = sidecar_controller {
-        super::codex_proxy_activity::attach_if_enabled(&account.id, "sidecar", controller);
-    }
-    if let Some(old) = old {
-        retire(old).await;
-    }
-    drop(desktop);
-    if let Some(old_sidecar) = old_sidecar {
-        retire(old_sidecar).await;
     }
     Ok(account)
 }
@@ -939,29 +810,21 @@ pub async fn clear_binding_if_source(
     source_id: String,
 ) -> Result<Option<CodexAccount>, String> {
     let token_lock = codex_account::codex_token_lock_for(&account_id);
-    let _token_guard = token_lock.lock().await;
-    let shared = slot(&account_id)?;
-    let mut state = tokio::time::timeout(Duration::from_secs(15), shared.lock())
-        .await
-        .map_err(|_| "PROXY_ENGINE_TIMEOUT")?;
-    let account = tauri::async_runtime::spawn_blocking(move || {
+    let (account, _token_guard) = persist_binding_mutation(token_lock, move || {
         codex_account::clear_account_egress_proxy_for_source(&account_id, &source_id)
     })
-    .await
-    .map_err(|_| "PROXY_SAVE_FAILED")??;
+    .await?;
     let Some(account) = account else {
         return Ok(None);
     };
-    let old = state.tunnel.take();
-    let desktop = state.desktop_tunnel.take();
-    let old_sidecar = state.sidecar_tunnel.take();
-    state.signature.clear();
-    state.desktop_signature.clear();
-    state.sidecar_signature.clear();
-    drop(state);
-    drop(desktop);
-    for tunnel in [old, old_sidecar].into_iter().flatten() {
-        retire(tunnel).await;
+    if let Some(shared) = existing_slot(&account.id)? {
+        let mut state = shared.lock().await;
+        let old = state.tunnel.take();
+        state.signature.clear();
+        state.account_start_generation = state.account_start_generation.wrapping_add(1);
+        state.account_starting = false;
+        drop(state);
+        drop(old);
     }
     notify_local_access_gateway_after_proxy_change();
     Ok(Some(account))
@@ -985,11 +848,7 @@ pub async fn invalidate_changed_bindings() {
         let Ok(state) = shared.try_lock() else {
             continue;
         };
-        let signatures = (
-            state.signature.clone(),
-            state.desktop_signature.clone(),
-            state.sidecar_signature.clone(),
-        );
+        let previous_signature = state.signature.clone();
         drop(state);
         let account = tauri::async_runtime::spawn_blocking({
             let account_id = account_id.clone();
@@ -1013,43 +872,19 @@ pub async fn invalidate_changed_bindings() {
         let Ok(mut state) = shared.try_lock() else {
             continue;
         };
-        if signatures
-            != (
-                state.signature.clone(),
-                state.desktop_signature.clone(),
-                state.sidecar_signature.clone(),
-            )
-        {
+        if previous_signature != state.signature {
             continue;
         }
-        let account_changed = !state.signature.is_empty() && state.signature != desired;
-        let desktop_changed =
-            !state.desktop_signature.is_empty() && state.desktop_signature != desired;
-        let sidecar_changed =
-            !state.sidecar_signature.is_empty() && state.sidecar_signature != desired;
-        let account_tunnel = if account_changed {
+        let old = if !state.signature.is_empty() && state.signature != desired {
             state.signature.clear();
+            state.account_start_generation = state.account_start_generation.wrapping_add(1);
+            state.account_starting = false;
             state.tunnel.take()
         } else {
             None
         };
-        let desktop = if desktop_changed {
-            state.desktop_signature.clear();
-            state.desktop_tunnel.take()
-        } else {
-            None
-        };
-        let sidecar_tunnel = if sidecar_changed {
-            state.sidecar_signature.clear();
-            state.sidecar_tunnel.take()
-        } else {
-            None
-        };
         drop(state);
-        drop(desktop);
-        for tunnel in [account_tunnel, sidecar_tunnel].into_iter().flatten() {
-            retire(tunnel).await;
-        }
+        drop(old);
     }
 }
 
@@ -1081,7 +916,10 @@ mod tests {
         shared_state.prepare_disabled();
         assert_eq!(prepared_url(&account).unwrap(), None);
         account.egress_proxy_url = Some("http://127.0.0.1:8080".into());
-        assert!(prepared_url(&account).unwrap().is_some());
+        assert_eq!(
+            prepared_url(&account).unwrap_err(),
+            "PROXY_RUNTIME_NOT_READY"
+        );
         account.egress_proxy_url = Some("trojan://secret@example.com:443".into());
         assert!(prepared_url(&account).is_err());
         assert!(normalize_binding(account.egress_proxy_url.as_deref().unwrap()).is_ok());
@@ -1091,7 +929,6 @@ mod tests {
     fn status_reports_in_progress_starts_without_waiting() {
         let mut state = Runtime::default();
         state.account_starting = true;
-        state.desktop_starting = true;
         let status = observe(&mut state, "trojan://secret@example.com:443", false, true);
         assert_eq!(status.account, "starting");
         assert_eq!(status.desktop, "starting");
@@ -1099,7 +936,7 @@ mod tests {
         state.account_starting = false;
         let status = observe(&mut state, "trojan://secret@example.com:443", false, true);
         assert_eq!(status.account, "idle");
-        assert_eq!(status.desktop, "starting");
+        assert_eq!(status.desktop, "idle");
         let status = observe(&mut state, "http://127.0.0.1:8080", true, false);
         assert_eq!(status.account, "direct");
         assert_eq!(status.desktop, "direct");
@@ -1123,17 +960,59 @@ mod tests {
         assert!(state.account_starting);
         clear_starting(&mut state, StartKind::Account, 9);
         assert!(!state.account_starting);
+    }
 
-        state.desktop_starting = true;
-        state.desktop_start_generation = 4;
-        clear_starting(&mut state, StartKind::Desktop, 4);
-        assert!(!state.desktop_starting);
+    #[tokio::test]
+    async fn cancelled_binding_write_keeps_account_locked_until_disk_work_finishes() {
+        let lock = Arc::new(tokio::sync::Mutex::new(()));
+        let (entered, waiting) = tokio::sync::oneshot::channel();
+        let (release, blocked) = std::sync::mpsc::channel();
+        let task = tokio::spawn(persist_binding_mutation(lock.clone(), move || {
+            entered.send(()).unwrap();
+            blocked.recv_timeout(Duration::from_secs(5)).unwrap();
+            Ok(())
+        }));
+        tokio::time::timeout(Duration::from_secs(5), waiting)
+            .await
+            .unwrap()
+            .unwrap();
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        assert!(
+            lock.try_lock().is_err(),
+            "cancelled caller must not unlock an active write"
+        );
+        release.send(()).unwrap();
+        let _guard = tokio::time::timeout(Duration::from_secs(5), lock.lock())
+            .await
+            .expect("completed detached write must release its lock");
+    }
+
+    #[tokio::test]
+    async fn binding_write_keeps_success_locked_for_publication_and_unlocks_on_error() {
+        let lock = Arc::new(tokio::sync::Mutex::new(()));
+        let (value, guard) = persist_binding_mutation(lock.clone(), || Ok(7))
+            .await
+            .unwrap();
+        assert_eq!(value, 7);
+        assert!(
+            lock.try_lock().is_err(),
+            "publication must retain the write lock"
+        );
+        drop(guard);
+        assert_eq!(
+            persist_binding_mutation(lock.clone(), || Err::<(), _>("write failed".to_owned()))
+                .await
+                .unwrap_err(),
+            "write failed"
+        );
+        assert!(lock.try_lock().is_ok());
     }
 
     #[test]
-    fn desktop_bridge_is_required_for_nodes_and_authenticated_direct_proxies() {
+    fn shared_engine_is_required_only_for_node_protocols() {
         assert!(!desktop_engine_required("http://proxy.example:8080"));
-        assert!(desktop_engine_required(
+        assert!(!desktop_engine_required(
             "http://user:pass@proxy.example:8080"
         ));
         assert!(desktop_engine_required("trojan://pass@node.example:443"));
@@ -1154,7 +1033,7 @@ mod tests {
 
         let authenticated = initial_status("http://user:pass@proxy.example:8080", false);
         assert_eq!(authenticated.account, "direct");
-        assert_eq!(authenticated.desktop, "missing");
+        assert_eq!(authenticated.desktop, "direct");
 
         let node = initial_status("trojan://pass@node.example:443", false);
         assert_eq!(node.account, "missing");
@@ -1165,3 +1044,7 @@ mod tests {
         assert_eq!(prepared_node.desktop, "idle");
     }
 }
+
+#[cfg(test)]
+#[path = "codex_proxy_runtime_pressure_tests.rs"]
+mod pressure_tests;

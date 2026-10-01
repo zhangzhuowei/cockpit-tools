@@ -503,13 +503,14 @@ fn migrate_builtin_model_display_names(
 fn prioritize_gpt_6_model_definitions(
     mut models: Vec<CodexExperimentalModelDefinition>,
 ) -> Vec<CodexExperimentalModelDefinition> {
-    for (target_index, model_id) in [
+    let mut target_index = 0;
+    for model_id in [
+        GPT_6_1_SOL_MODEL_ID,
         GPT_6_ASTRA_MODEL_ID,
         GPT_6_SOL_MODEL_ID,
         GPT_6_LUNA_MODEL_ID,
     ]
     .into_iter()
-    .enumerate()
     {
         let Some(index) = models
             .iter()
@@ -521,6 +522,7 @@ fn prioritize_gpt_6_model_definitions(
             let model = models.remove(index);
             models.insert(target_index, model);
         }
+        target_index += 1;
     }
     models
 }
@@ -749,11 +751,44 @@ fn maybe_add_gpt_6_sol_luna_to_previous_shipped_model_definitions(
     prioritize_gpt_6_model_definitions(models)
 }
 
+/// Extend an unchanged previous shipped catalog once; preserve curated lists.
+fn maybe_add_gpt_6_1_sol_to_previous_shipped_model_definitions(
+    base_dir: &Path,
+    mut models: Vec<CodexExperimentalModelDefinition>,
+) -> Vec<CodexExperimentalModelDefinition> {
+    if models
+        .iter()
+        .any(|model| model.model_id.eq_ignore_ascii_case(GPT_6_1_SOL_MODEL_ID))
+    {
+        return prioritize_gpt_6_model_definitions(models);
+    }
+    let ids = models
+        .iter()
+        .map(|model| model.model_id.to_ascii_lowercase())
+        .collect::<HashSet<_>>();
+    if !SHIPPED_VISIBLE_CODEX_MODEL_IDS
+        .iter()
+        .filter(|id| **id != GPT_6_1_SOL_MODEL_ID && **id != "gpt-reserve")
+        .filter(|id| !crate::modules::codex_wakeup::is_codex_model_before_5_5(id))
+        .all(|id| ids.contains(&id.to_ascii_lowercase()))
+    {
+        return models;
+    }
+    if let Some(model) = default_experimental_model_definitions(base_dir)
+        .into_iter()
+        .find(|model| model.model_id.eq_ignore_ascii_case(GPT_6_1_SOL_MODEL_ID))
+    {
+        models.insert(0, model);
+    }
+    prioritize_gpt_6_model_definitions(models)
+}
+
 fn model_catalog_display_name(model_id: &str, fallback: &str) -> String {
     match model_id.trim().to_ascii_lowercase().as_str() {
         "gpt-5.6-sol" => "GPT-5.6 Sol".to_string(),
         "gpt-5.6-terra" => "GPT-5.6 Terra".to_string(),
         "gpt-5.6-luna" => "GPT-5.6 Luna".to_string(),
+        GPT_6_1_SOL_MODEL_ID => "GPT-6.1 Sol".to_string(),
         GPT_6_ASTRA_MODEL_ID => "GPT-6 Astra".to_string(),
         GPT_6_SOL_MODEL_ID => "GPT-6 Sol".to_string(),
         GPT_6_LUNA_MODEL_ID => "GPT-6 Luna".to_string(),
@@ -875,30 +910,39 @@ pub(crate) fn read_experimental_model_definitions(
                     .migrations
                     .iter()
                     .any(|item| item == GPT_6_SOL_LUNA_MODEL_CATALOG_MIGRATION_ID);
+            let should_add_sol_61 = !config
+                .migrations
+                .iter()
+                .any(|item| item == GPT_6_1_SOL_MODEL_CATALOG_MIGRATION_ID);
             normalize_experimental_model_definitions(config.models).map(|models| {
                 (
                     models,
                     requires_catalog_migration,
                     should_add_astra,
                     should_add_sol_luna,
+                    should_add_sol_61,
                 )
             })
-        })
-    {
-        Ok((_models, true, _, _)) => {
+        }) {
+        Ok((_models, true, _, _, _)) => {
             // A release migration intentionally resets all pre-release lists to the
             // shipped visible-model preset. Later user edits are preserved by version 4+
             // and the additive Astra / GPT-6 Sol-Luna migration markers.
             default_experimental_model_definitions(base_dir)
         }
-        Ok((models, false, should_add_astra, should_add_sol_luna)) => {
+        Ok((models, false, should_add_astra, should_add_sol_luna, should_add_sol_61)) => {
             let models = if should_add_astra {
                 maybe_add_gpt_6_astra_to_previous_shipped_model_definitions(base_dir, models)
             } else {
                 prioritize_gpt_6_model_definitions(models)
             };
-            if should_add_sol_luna {
+            let models = if should_add_sol_luna {
                 maybe_add_gpt_6_sol_luna_to_previous_shipped_model_definitions(base_dir, models)
+            } else {
+                prioritize_gpt_6_model_definitions(models)
+            };
+            if should_add_sol_61 {
+                maybe_add_gpt_6_1_sol_to_previous_shipped_model_definitions(base_dir, models)
             } else {
                 prioritize_gpt_6_model_definitions(models)
             }
@@ -912,7 +956,10 @@ pub(crate) fn read_experimental_model_definitions(
             default_experimental_model_definitions(base_dir)
         }
     };
-    if !models.iter().any(|model| model.model_id.eq_ignore_ascii_case("gpt-reserve")) {
+    if !models
+        .iter()
+        .any(|model| model.model_id.eq_ignore_ascii_case("gpt-reserve"))
+    {
         models.push(CodexExperimentalModelDefinition {
             model_id: "gpt-reserve".to_string(),
             display_name: crate::modules::codex_protocol::CODEX_RESERVE_DISPLAY_NAME.to_string(),
@@ -975,6 +1022,9 @@ fn persist_experimental_model_definitions(
         .any(|item| item == GPT_6_SOL_LUNA_MODEL_CATALOG_MIGRATION_ID)
     {
         migrations.push(GPT_6_SOL_LUNA_MODEL_CATALOG_MIGRATION_ID.to_string());
+    }
+    if !migrations.iter().any(|item| item == GPT_6_1_SOL_MODEL_CATALOG_MIGRATION_ID) {
+        migrations.push(GPT_6_1_SOL_MODEL_CATALOG_MIGRATION_ID.to_string());
     }
     let mut content = serde_json::to_string_pretty(&ExperimentalModelCatalogConfig {
         version: EXPERIMENTAL_MODEL_CATALOG_CONFIG_VERSION,
@@ -1371,6 +1421,24 @@ fn apply_experimental_model_catalog_to_doc(
             .any(|model| model.model_id.eq_ignore_ascii_case(&default_model_id))
         {
             doc["model"] = value(default_model_id);
+        }
+    }
+    // Avoid dispatching an absent retired choice through this owned catalog.
+    // Explicit provider entries and supported selections remain unchanged.
+    if let Some(selected) = doc.get("model").and_then(|item| item.as_str()) {
+        if user_catalog_reference.is_none()
+            && crate::modules::codex_wakeup::is_codex_model_before_5_5(selected)
+            && !experimental_models
+                .iter()
+                .any(|model| model.model_id.eq_ignore_ascii_case(selected))
+        {
+            if let Some(fallback) = experimental_models
+                .iter()
+                .find(|model| model.model_id == DEFAULT_CODEX_MODEL_ID)
+                .or_else(|| experimental_models.first())
+            {
+                doc["model"] = value(fallback.model_id.as_str());
+            }
         }
     }
     let content = if has_saved_model_definitions && !migrate_saved_model_definitions {

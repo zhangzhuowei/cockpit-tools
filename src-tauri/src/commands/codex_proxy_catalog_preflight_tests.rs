@@ -40,7 +40,11 @@ fn latency_precancel_is_processed_before_engine_preflight_or_catalog_reads() {
         .lock()
         .unwrap_or_else(|error| error.into_inner());
     let dir = DataDir::new();
-    fs::write(dir.path.join("proxy-engine/active.json"), b"broken install record").unwrap();
+    fs::write(
+        dir.path.join("proxy-engine/active.json"),
+        b"broken install record",
+    )
+    .unwrap();
     let request_id = uuid::Uuid::new_v4().to_string();
     catalog::cancel(request_id.clone()).unwrap();
     tokio::runtime::Builder::new_current_thread()
@@ -61,7 +65,10 @@ fn latency_precancel_is_processed_before_engine_preflight_or_catalog_reads() {
             assert_eq!(error, "CATALOG_CANCELLED");
         });
     assert!(!dir.path.join("codex-proxy-sources.json").exists());
-    assert_eq!(fs::read(dir.path.join("proxy-engine/active.json")).unwrap(), b"broken install record");
+    assert_eq!(
+        fs::read(dir.path.join("proxy-engine/active.json")).unwrap(),
+        b"broken install record"
+    );
 }
 
 #[test]
@@ -202,9 +209,15 @@ fn invalid_bindings_preserve_account_but_network_failure_does_not_block_saving()
             assert!(!preflight::is_prerequisite_error(&raw_error));
             assert_eq!(codex_account::load_account(&account.id).unwrap().egress_proxy_url, saved.egress_proxy_url);
             assert!(codex_account::load_account(&account.id).unwrap().requires_reauth);
-            // The explicit raw test reached the proxy without an engine. Desktop forwarding
-            // of the same authenticated address still requires the private bridge.
-            assert_eq!(preflight::for_url(&address, preflight::Usage::Desktop).await.unwrap_err(), "ENGINE_INSTALL_VERIFY");
+            // Both desktop and account traffic use the native stable entry for direct proxies.
+            preflight::for_url(&address, preflight::Usage::Desktop).await
+                .expect("authenticated direct proxy must not depend on an engine");
+            for binding in ["trojan://secret@node.example:443", "cockpit-proxy://prerequisite-fixture"] {
+                for usage in [preflight::Usage::AccountRequest, preflight::Usage::Desktop] {
+                    assert_eq!(preflight::for_url(binding, usage).await.unwrap_err(), "ENGINE_INSTALL_VERIFY",
+                        "node and catalog bindings still require engine verification before use");
+                }
+            }
             let cleared = runtime::save_binding(account.id.clone(), None)
                 .await
                 .unwrap();
@@ -215,7 +228,7 @@ fn invalid_bindings_preserve_account_but_network_failure_does_not_block_saving()
 }
 
 #[test]
-fn default_and_managed_instance_preflight_requires_engine_only_for_desktop_mode() {
+fn default_and_managed_instance_preflight_only_requires_engine_for_node_desktop_routes() {
     use crate::models::{
         codex::{CodexAccount, CodexTokens},
         InstanceLaunchMode,
@@ -238,10 +251,10 @@ fn default_and_managed_instance_preflight_requires_engine_only_for_desktop_mode(
             refresh_token: Some("refresh".into()),
         },
     );
-    // API/CLI do not need a desktop credential bridge for this raw HTTP address.
-    account.egress_proxy_url = Some("http://user:secret@127.0.0.1:8080".into());
-    crate::modules::codex_account::save_account(&account).unwrap();
     tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async {
+        for binding in ["http://user:secret@127.0.0.1:8080", "trojan://secret@node.example:443"] {
+        account.egress_proxy_url = Some(binding.into());
+        crate::modules::codex_account::save_account(&account).unwrap();
         for (mode, expected_mode) in [("cli", InstanceLaunchMode::Cli), ("app", InstanceLaunchMode::App)] {
             let store = serde_json::json!({
                 "defaultSettings": {"bindAccountId": account.id, "followLocalAccount": false, "launchMode": mode},
@@ -259,13 +272,14 @@ fn default_and_managed_instance_preflight_requires_engine_only_for_desktop_mode(
                 assert_eq!(target.launch_mode, expected_mode);
                 assert_eq!(target.is_default, id == "__default__");
                 let result = crate::commands::codex_proxy_engine::codex_proxy_instance_preflight(id.into()).await;
-                if expected_mode == InstanceLaunchMode::Cli {
-                    result.expect("CLI must not require a desktop proxy bridge");
-                } else {
+                if expected_mode == InstanceLaunchMode::App && binding.starts_with("trojan://") {
                     assert_eq!(result.unwrap_err(), "ENGINE_INSTALL_VERIFY");
+                } else {
+                    result.expect("direct desktop routes and CLI preflight must not require an engine");
                 }
                 assert_eq!(fs::read(&store_path).unwrap(), bytes, "preflight must not rewrite settings");
             }
+        }
         }
     });
 }

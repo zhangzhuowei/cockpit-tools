@@ -78,7 +78,7 @@ export function mergeCodexModelProviderCredentialInput(
         baseUrl: provider?.baseUrl ?? fallback.apiBaseUrl,
       }).wireApi,
     supportsWebsockets:
-      provider?.supportsWebsockets ?? fallback.supportsWebsockets,
+      fallback.supportsWebsockets ?? provider?.supportsWebsockets,
     integrationType: provider?.integrationType ?? fallback.integrationType,
   };
 }

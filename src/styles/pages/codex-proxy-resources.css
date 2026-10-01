@@ -213,7 +213,15 @@
 .codex-resource-entry { min-width: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card); transition: border-color .15s; }
 .codex-resource-entry:hover { border-color: color-mix(in srgb, var(--primary) 28%, var(--border)); }
 .codex-resource-entry.is-expanded { border-color: color-mix(in srgb, var(--primary) 48%, var(--border)); }
-.codex-resource-entry-row { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(130px, .55fr) auto; align-items: center; gap: 20px; min-width: 0; padding: 14px 16px; }
+.codex-resource-entry-row { display: grid; grid-template-columns: 24px minmax(160px, 1fr) minmax(130px, .55fr) auto; align-items: center; gap: 12px; min-width: 0; padding: 14px 16px; }
+.codex-resource-sort-hint { margin: -3px 2px 10px; color: var(--text-muted); font-size: 11px; line-height: 1.5; }
+.codex-resource-list.is-sorting { user-select: none; cursor: grabbing; }
+.codex-resource-entry.is-dragging { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 6%, var(--bg-card)); }
+.codex-resource-entry-row .codex-resource-drag { appearance: none; width: 24px; min-width: 24px; height: 30px; min-height: 30px; padding: 0; font-family: inherit; font-size: 12px; font-weight: 500; line-height: 1.4; background: transparent; color: var(--text-muted); border-color: transparent; cursor: grab; }
+.codex-resource-entry-row .codex-resource-drag:hover:not(:disabled) { background: var(--bg-hover); color: var(--primary); border-color: var(--border); }
+.codex-resource-entry-row .codex-resource-drag:disabled { background: transparent; color: var(--text-muted); opacity: .4; cursor: not-allowed; }
+.codex-resource-entry-row .codex-resource-drag:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.codex-resource-list.is-sorting .codex-resource-drag { cursor: grabbing; }
 .codex-resource-entry-main { appearance: none; display: flex; align-items: center; gap: 12px; min-width: 0; width: 100%; border: 0; padding: 0; background: transparent; color: var(--text-primary); font: inherit; font-size: 13px; font-weight: 400; line-height: 1.5; text-align: start; cursor: pointer; }
 .codex-resource-entry-main:hover .codex-resource-entry-name strong { color: var(--primary); }
 .codex-resource-entry-main:disabled { cursor: not-allowed; opacity: .55; }
@@ -278,8 +286,8 @@
 .codex-resource-add-dialog > .modal-body { display: grid; gap: 16px; flex: 1 1 auto; min-height: 0; margin: 0; padding: 20px; overflow-y: auto; overscroll-behavior: contain; border: 0; border-radius: 0; background: var(--bg-card); }
 .codex-resource-import-notice .codex-proxy-page-note { margin-bottom: 0; }
 @container (max-width: 760px) {
-  .codex-resource-entry-row { grid-template-columns: minmax(120px, 1fr) auto; gap: 10px; padding: 12px; }
-  .codex-resource-entry-status { grid-column: 1 / -1; grid-row: 2; display: flex; flex-wrap: wrap; align-items: baseline; gap: 5px 12px; padding-inline-start: 52px; }
+  .codex-resource-entry-row { grid-template-columns: 24px minmax(100px, 1fr) auto; gap: 10px; padding: 12px; }
+  .codex-resource-entry-status { grid-column: 2 / -1; grid-row: 2; display: flex; flex-wrap: wrap; align-items: baseline; gap: 5px 12px; padding-inline-start: 52px; }
   .codex-resource-expanded { padding: 14px 12px; }
   .codex-resource-list-caption > span:last-child { display: none; }
 }

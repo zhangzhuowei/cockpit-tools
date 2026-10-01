@@ -123,7 +123,7 @@ fn automatic_routing_is_runtime_only_and_preserves_explicit_instance_routes() {
 
 /// 选择器只展示官方推荐集里的 GPT 模型，历史模型仍然可路由。
 #[test]
-fn automatic_routing_trims_visible_gpt_models_and_keeps_history_routable() {
+fn automatic_routing_excludes_retired_builtin_models() {
     // 只断言纯函数：清单不依赖全局实验目录（其它用例可能开启「模型管理」）。
     let trimmed = super::automatic_api_service_visible_model_ids(vec![
         "gpt-6-astra".into(),
@@ -158,8 +158,8 @@ fn automatic_routing_trims_visible_gpt_models_and_keeps_history_routable() {
     let routable = super::api_service_routable_codex_model_ids();
     for history_model in ["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.3-codex-spark"] {
         assert!(
-            routable.iter().any(|model| model.eq_ignore_ascii_case(history_model)),
-            "历史模型 {history_model} 必须保留可路由能力: {routable:?}"
+            !routable.iter().any(|model| model.eq_ignore_ascii_case(history_model)),
+            "历史模型 {history_model} 不得由内置路由自动加入: {routable:?}"
         );
         assert!(
             !trimmed

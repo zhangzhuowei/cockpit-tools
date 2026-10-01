@@ -1,3 +1,4 @@
+import { listenSafely as listen } from "./utils/tauriEventListener";
 import {
   Suspense,
   lazy,
@@ -11,7 +12,7 @@ import {
 import './App.css';
 import { getVersion } from '@tauri-apps/api/app';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { listen, UnlistenFn } from '@tauri-apps/api/event';
+import { UnlistenFn } from "@tauri-apps/api/event";
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
@@ -21,6 +22,7 @@ import { BootReadyMarker, VisibleBootPage } from './components/BootReadyMarker';
 import { GlobalModal } from './components/GlobalModal';
 import { WindowsOperationDialog } from './components/WindowsOperationDialog';
 import { CodexSwitchProgressModal } from './components/CodexSwitchProgressModal';
+import { CodexCliDaemonNotice } from './components/CodexCliDaemonNotice';
 import { CodexInstanceLaunchProgressModal } from './components/CodexInstanceLaunchProgressModal';
 import { CodexPelicanHost } from './components/codex/pelican/CodexPelicanHost';
 import { AnnouncementHost } from './components/AnnouncementCenter';
@@ -48,6 +50,7 @@ import { useWorkbuddyAccountStore } from './stores/useWorkbuddyAccountStore';
 import { useZedAccountStore } from './stores/useZedAccountStore';
 import { useSideNavLayoutStore } from './stores/useSideNavLayoutStore';
 import { usePlatformLayoutStore } from './stores/usePlatformLayoutStore';
+import { initializeClassicSidebar } from './utils/classicSidebarStartup';
 import { useTopRightAdStore } from './stores/useTopRightAdStore';
 import { useSponsorStore } from './stores/useSponsorStore';
 import { useRemoteConfigStore } from './stores/useRemoteConfigStore';
@@ -1299,8 +1302,13 @@ function MainApp() {
     if (sideNavLayoutMode !== 'classic' || sideNavClassicFirstSyncDone) {
       return;
     }
-    syncSidebarEntriesFromDashboard();
-    markSideNavClassicFirstSyncDone();
+    let current = true;
+    void initializeClassicSidebar({
+      isCurrent: () => current,
+      initialize: syncSidebarEntriesFromDashboard,
+      markInitialized: markSideNavClassicFirstSyncDone,
+    });
+    return () => { current = false; };
   }, [
     sideNavLayoutMode,
     sideNavClassicFirstSyncDone,
@@ -3770,6 +3778,7 @@ function MainApp() {
       )}
       <GlobalModal />
       <CodexSwitchProgressModal />
+      <CodexCliDaemonNotice />
       <CodexInstanceLaunchProgressModal />
       <CodexPelicanHost />
       <WindowsOperationDialog />

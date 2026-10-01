@@ -52,6 +52,8 @@ export interface CodexModelProvider {
   enableModePreference?: CodexProviderEnableModePreference;
   boundOauthAccountId?: string | null;
   apiKeys: CodexModelProviderApiKey[];
+  /** Explicit removals must survive background account-to-provider reconciliation. */
+  excludedApiKeyHashes?: string[];
   createdAt: number;
   updatedAt: number;
 }
@@ -81,6 +83,31 @@ interface UpsertFromCredentialInput {
 let providerIdCounter = 0;
 let keyIdCounter = 0;
 let cachedProviders: CodexModelProvider[] | null = null;
+let providerMutationTail: Promise<unknown> = Promise.resolve();
+
+function serializeProviderMutation<T>(operation: () => Promise<T>): Promise<T> {
+  const result = providerMutationTail.then(operation, operation);
+  providerMutationTail = result.catch(() => undefined);
+  return result;
+}
+
+function serializedProviderMutation<Args extends unknown[], Result>(
+  operation: (...args: Args) => Promise<Result>,
+): (...args: Args) => Promise<Result> {
+  return (...args) => serializeProviderMutation(() => operation(...args));
+}
+
+async function apiKeyFingerprint(apiKey: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(apiKey.trim()));
+  return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, '0')).join('');
+}
+
+async function allowExplicitApiKey(provider: CodexModelProvider, apiKey: string): Promise<void> {
+  if (!provider.excludedApiKeyHashes?.length) return;
+  const hash = await apiKeyFingerprint(apiKey);
+  provider.excludedApiKeyHashes = provider.excludedApiKeyHashes.filter((item) => item !== hash);
+}
+
 
 function createProviderId(): string {
   return `cmp_${Date.now()}_${++providerIdCounter}`;
@@ -353,6 +380,7 @@ function cloneProviders(providers: CodexModelProvider[]): CodexModelProvider[] {
       : undefined,
     visionRoutingModel: sanitizeName(provider.visionRoutingModel ?? '') || undefined,
     apiKeys: provider.apiKeys.map((apiKey) => ({ ...apiKey })),
+    excludedApiKeyHashes: provider.excludedApiKeyHashes ? [...provider.excludedApiKeyHashes] : undefined,
   }));
 }
 
@@ -431,6 +459,10 @@ function toValidProviderList(raw: unknown): CodexModelProvider[] {
       ),
       boundOauthAccountId,
       apiKeys: toValidApiKeys((item as { apiKeys?: unknown }).apiKeys, now),
+      excludedApiKeyHashes: Array.isArray((item as { excludedApiKeyHashes?: unknown }).excludedApiKeyHashes)
+        ? [...new Set(((item as { excludedApiKeyHashes: unknown[] }).excludedApiKeyHashes)
+            .filter((value): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value)))]
+        : undefined,
       createdAt: Number((item as { createdAt?: unknown }).createdAt ?? now),
       updatedAt: Number((item as { updatedAt?: unknown }).updatedAt ?? now),
     });
@@ -478,11 +510,7 @@ async function saveProvidersToDisk(providers: CodexModelProvider[]): Promise<voi
 
 async function ensureProvidersLoaded(): Promise<CodexModelProvider[]> {
   if (cachedProviders !== null) return cloneProviders(cachedProviders);
-  const loadResult = await loadProvidersFromDisk().catch(() => ({
-    providers: [],
-    removedImageGenerationSetting: false,
-    migratedSupportsWebsockets: false,
-  }));
+  const loadResult = await loadProvidersFromDisk();
   const loadedProviders = loadResult.providers;
   let loaded = loadedProviders.filter((provider) => {
     // 兼容清理：移除旧版本自动注入但未配置 API Key 的默认预设项
@@ -519,16 +547,16 @@ async function ensureProvidersLoaded(): Promise<CodexModelProvider[]> {
 
 async function writeProviders(providers: CodexModelProvider[]): Promise<void> {
   const next = cloneProviders(providers);
-  cachedProviders = next;
   await saveProvidersToDisk(next);
+  cachedProviders = next;
 }
 
 export async function listCodexModelProviders(): Promise<CodexModelProvider[]> {
-  return ensureProvidersLoaded();
+  return serializeProviderMutation(ensureProvidersLoaded);
 }
 
 /** Merge API Key accounts into the provider key list without changing provider metadata. */
-export async function mergeCodexModelProviderApiKeysFromAccounts(
+export const mergeCodexModelProviderApiKeysFromAccounts = serializedProviderMutation(async function (
   accounts: CodexAccount[],
 ): Promise<CodexModelProvider[]> {
   const providers = await ensureProvidersLoaded();
@@ -551,6 +579,8 @@ export async function mergeCodexModelProviderApiKeysFromAccounts(
       if (!apiKey || provider.apiKeys.some((item) => sanitizeApiKey(item.apiKey) === apiKey)) {
         continue;
       }
+      if (provider.excludedApiKeyHashes?.length &&
+          provider.excludedApiKeyHashes.includes(await apiKeyFingerprint(apiKey))) continue;
       provider.apiKeys.push({
         id: createApiKeyId(),
         name: sanitizeName(account.account_name ?? ''),
@@ -565,7 +595,7 @@ export async function mergeCodexModelProviderApiKeysFromAccounts(
 
   if (changed) await writeProviders(providers);
   return cloneProviders(providers);
-}
+});
 
 export function invalidateCodexModelProviderCache(): void {
   cachedProviders = null;
@@ -615,7 +645,7 @@ function ensureApiKeyOnProvider(
   });
 }
 
-export async function createCodexModelProvider(input: {
+export const createCodexModelProvider = serializedProviderMutation(async function (input: {
   name: string;
   baseUrl: string;
   sourceTag?: string;
@@ -682,9 +712,9 @@ export async function createCodexModelProvider(input: {
   providers.push(provider);
   await writeProviders(providers);
   return { ...provider, apiKeys: provider.apiKeys.map((apiKey) => ({ ...apiKey })) };
-}
+});
 
-export async function updateCodexModelProvider(
+export const updateCodexModelProvider = serializedProviderMutation(async function (
   providerId: string,
   patch: {
     name?: string;
@@ -807,9 +837,9 @@ export async function updateCodexModelProvider(
   provider.updatedAt = Date.now();
   await writeProviders(providers);
   return { ...provider, apiKeys: provider.apiKeys.map((apiKey) => ({ ...apiKey })) };
-}
+});
 
-export async function addApiKeyToCodexModelProvider(
+export const addApiKeyToCodexModelProvider = serializedProviderMutation(async function (
   providerId: string,
   apiKey: string,
   apiKeyName?: string,
@@ -818,30 +848,37 @@ export async function addApiKeyToCodexModelProvider(
   const provider = providers.find((item) => item.id === providerId);
   if (!provider) throw new Error('PROVIDER_NOT_FOUND');
   ensureApiKeyOnProvider(provider, apiKey, apiKeyName);
+  await allowExplicitApiKey(provider, apiKey);
   provider.updatedAt = Date.now();
   await writeProviders(providers);
   return { ...provider, apiKeys: provider.apiKeys.map((item) => ({ ...item })) };
-}
+});
 
-export async function removeApiKeyFromCodexModelProvider(
+export const removeApiKeyFromCodexModelProvider = serializedProviderMutation(async function (
   providerId: string,
   apiKeyId: string,
 ): Promise<CodexModelProvider> {
   const providers = await ensureProvidersLoaded();
   const provider = providers.find((item) => item.id === providerId);
   if (!provider) throw new Error('PROVIDER_NOT_FOUND');
+  const removedKey = provider.apiKeys.find((item) => item.id === apiKeyId);
   const nextApiKeys = provider.apiKeys.filter((item) => item.id !== apiKeyId);
   if (nextApiKeys.length === provider.apiKeys.length) {
     return { ...provider, apiKeys: provider.apiKeys.map((item) => ({ ...item })) };
   }
   provider.apiKeys = nextApiKeys;
+  if (removedKey) {
+    provider.excludedApiKeyHashes = [...new Set([
+      ...(provider.excludedApiKeyHashes ?? []), await apiKeyFingerprint(removedKey.apiKey),
+    ])];
+  }
   provider.updatedAt = Date.now();
   await writeProviders(providers);
   return { ...provider, apiKeys: provider.apiKeys.map((item) => ({ ...item })) };
-}
+});
 
 /** Explicit rename for an existing provider API key (#1510). Does not rewrite key material. */
-export async function renameApiKeyOnCodexModelProvider(
+export const renameApiKeyOnCodexModelProvider = serializedProviderMutation(async function (
   providerId: string,
   apiKeyId: string,
   name: string,
@@ -858,10 +895,10 @@ export async function renameApiKeyOnCodexModelProvider(
   provider.updatedAt = now;
   await writeProviders(providers);
   return { ...provider, apiKeys: provider.apiKeys.map((item) => ({ ...item })) };
-}
+});
 
 /** Replace the secret for an existing provider API key without changing its id. */
-export async function updateApiKeyOnCodexModelProvider(
+export const updateApiKeyOnCodexModelProvider = serializedProviderMutation(async function (
   providerId: string,
   apiKeyId: string,
   apiKey: string,
@@ -883,6 +920,7 @@ export async function updateApiKeyOnCodexModelProvider(
 
   const now = Date.now();
   existing.apiKey = normalizedApiKey;
+  await allowExplicitApiKey(provider, normalizedApiKey);
   if (name !== undefined) {
     existing.name = sanitizeName(name);
   }
@@ -890,7 +928,7 @@ export async function updateApiKeyOnCodexModelProvider(
   provider.updatedAt = now;
   await writeProviders(providers);
   return { ...provider, apiKeys: provider.apiKeys.map((item) => ({ ...item })) };
-}
+});
 
 export async function testCodexModelProviderConnection(input: {
   baseUrl: string;
@@ -988,14 +1026,14 @@ export async function saveCodexModelProviderDetectedIntegrationType(
   return updateCodexModelProvider(providerId, { integrationType });
 }
 
-export async function deleteCodexModelProvider(providerId: string): Promise<void> {
+export const deleteCodexModelProvider = serializedProviderMutation(async function (providerId: string): Promise<void> {
   const providers = await ensureProvidersLoaded();
   const next = providers.filter((item) => item.id !== providerId);
   if (next.length === providers.length) return;
   await writeProviders(next);
-}
+});
 
-export async function upsertCodexModelProviderFromCredential(
+export const upsertCodexModelProviderFromCredential = serializedProviderMutation(async function (
   input: UpsertFromCredentialInput,
 ): Promise<CodexModelProvider> {
   const apiBaseUrl = normalizeBaseUrlForStore(input.apiBaseUrl);
@@ -1056,6 +1094,7 @@ export async function upsertCodexModelProviderFromCredential(
   if (moveResult === 'not_moved' || moveResult === 'name_conflict') {
     ensureApiKeyOnProvider(provider, apiKey, input.apiKeyName);
   }
+  await allowExplicitApiKey(provider, apiKey);
   provider.baseUrl = apiBaseUrl;
   provider.modelCatalog =
     normalizeModelCatalog(input.modelCatalog) ??
@@ -1104,7 +1143,7 @@ export async function upsertCodexModelProviderFromCredential(
   provider.updatedAt = Date.now();
   await writeProviders(providers);
   return { ...provider, apiKeys: provider.apiKeys.map((item) => ({ ...item })) };
-}
+});
 
 function normalizeOptionalForCompare(value?: string | null): string {
   return value?.trim().toLowerCase() ?? '';

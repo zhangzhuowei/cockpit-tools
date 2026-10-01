@@ -1,6 +1,5 @@
 //! Startup preparation tests. All sockets target loopback; no desktop UI is launched.
 use super::*;
-use base64::Engine as _;
 
 async fn local_socks_greeting(url: &str) -> TcpStream {
     let port = url::Url::parse(url).unwrap().port().unwrap();
@@ -42,7 +41,10 @@ fn verify_launch_injection(proxy: &str) {
     assert_eq!(
         args,
         [
-            format!("--proxy-server={proxy}"),
+            format!(
+                "--proxy-server={}",
+                proxy.replace("socks5h://", "socks5://")
+            ),
             "--proxy-bypass-list=localhost;127.0.0.1;[::1]".into(),
         ]
     );
@@ -213,15 +215,10 @@ async fn entry_observes_upstream_failure_and_recovery_without_claiming_connectiv
 }
 
 #[tokio::test]
-#[ignore = "requires explicit installed engine; whole local startup/request path, no external requests or GUI"]
-async fn startup_request_crosses_entry_and_engine_to_loopback_upstream() {
-    let engine = PathBuf::from(
-        std::env::var_os("COCKPIT_TEST_PROXY_ENGINE_ROOT").expect("explicit engine installation"),
-    );
-    let fixture = LaunchFixture::new("entry-engine-request");
-    install_isolated_engine(&fixture, &engine);
+async fn startup_request_uses_native_authenticated_proxy_without_an_engine() {
+    let fixture = LaunchFixture::new("entry-native-authenticated-request");
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
-    let mut account = eligible_account("entry-engine-request");
+    let mut account = eligible_account("entry-native-authenticated-request");
     account.egress_proxy_url = Some(format!(
         "http://test-user:synthetic-secret@127.0.0.1:{}",
         listener.local_addr().unwrap().port()
@@ -253,7 +250,7 @@ async fn startup_request_crosses_entry_and_engine_to_loopback_upstream() {
             .unwrap();
     verify_launch_injection(&proxy);
     let before = codex_proxy_runtime::status(&account.id).await.unwrap();
-    assert_eq!(before.desktop, "idle");
+    assert_eq!(before.desktop, "direct");
     assert_eq!(before.desktop_entry.unwrap().state, "listening");
     tokio::time::timeout(Duration::from_secs(15), async {
         let mut client = local_socks_greeting(&proxy).await;
@@ -267,31 +264,23 @@ async fn startup_request_crosses_entry_and_engine_to_loopback_upstream() {
     .await
     .unwrap();
     let after = codex_proxy_runtime::status(&account.id).await.unwrap();
-    assert_eq!(after.desktop, "running");
+    assert_eq!(after.desktop, "direct");
     let entry = after.desktop_entry.as_ref().unwrap();
     assert_eq!(entry.port, url::Url::parse(&proxy).unwrap().port());
-    assert_ne!(
-        entry.port, after.desktop_port,
-        "entry and engine ports have different roles"
-    );
+    assert_eq!(entry.port, after.desktop_port);
+    assert_eq!(entry.port, after.account_port);
+    assert_eq!(entry.port, after.sidecar_port);
     assert_eq!(entry.request_count, 1);
     assert_eq!(entry.last_request_state, "forwarded");
     let public = serde_json::to_string(&after).unwrap();
     assert!(!public.contains("test-user"));
     assert!(!public.contains("synthetic-secret"));
     assert!(!public.contains("fixture.invalid"));
-    let engine_port = after.desktop_port.unwrap();
+    assert!(codex_proxy_runtime::active_controllers(&account.id)
+        .await
+        .is_empty());
+    assert!(!fixture.temp.0.join("proxy-engine").exists());
     drop(cleanup);
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while TcpStream::connect((Ipv4Addr::LOCALHOST, engine_port))
-            .await
-            .is_ok()
-        {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    })
-    .await
-    .expect("test-owned engine is reclaimed");
 }
 
 #[derive(Deserialize)]
@@ -374,14 +363,14 @@ async fn local_account_startup_prepares_ports_without_external_requests() {
     fixture.save(&account);
     let cleanup = RuntimeCleanup(account.id.clone());
 
-    // Reproduce saving an account proxy: account/API tunnel starts first.
+    // Account/API preparation also prepares the shared desktop/sidecar runtime.
     let account_url = codex_proxy_runtime::ensure(&account.id)
         .await
         .unwrap()
         .unwrap();
     let before = codex_proxy_runtime::status(&account.id).await.unwrap();
     assert_eq!(before.account, "running");
-    assert_eq!(before.desktop, "idle");
+    assert_eq!(before.desktop, "running");
     let proxy =
         crate::modules::codex_instance::resolve_egress_proxy_for_bind_account(Some(&account.id))
             .await
@@ -391,10 +380,11 @@ async fn local_account_startup_prepares_ports_without_external_requests() {
     drop(local_socks_greeting(&proxy).await);
     let after_launch = codex_proxy_runtime::status(&account.id).await.unwrap();
     assert_eq!(
-        after_launch.desktop, "idle",
-        "current launch preparation is lazy despite a listening entry"
+        after_launch.desktop, "running",
+        "desktop launch reuses the account engine already prepared"
     );
-    assert!(after_launch.desktop_port.is_none());
+    assert_eq!(after_launch.desktop_port, before.account_port);
+    assert_eq!(proxy, account_url);
 
     // Call the same upstream preparation used by the first desktop connection,
     // but never send a destination/CONNECT request to the real proxy.
@@ -402,15 +392,12 @@ async fn local_account_startup_prepares_ports_without_external_requests() {
         .await
         .unwrap()
         .unwrap();
-    drop(local_socks_greeting(&desktop_url).await);
+    assert!(lease.as_ref().unwrap().is_running());
     let ready = codex_proxy_runtime::status(&account.id).await.unwrap();
     assert_eq!(ready.desktop, "running");
     assert!(ready.desktop_port.is_some());
     assert_eq!(ensure(&account.id).await.unwrap(), Some(proxy.clone()));
-    let ports = [
-        url::Url::parse(&account_url).unwrap().port().unwrap(),
-        url::Url::parse(&desktop_url).unwrap().port().unwrap(),
-    ];
+    let ports = [url::Url::parse(&desktop_url).unwrap().port().unwrap()];
     drop(lease);
     drop(cleanup);
     tokio::time::timeout(Duration::from_secs(5), async {

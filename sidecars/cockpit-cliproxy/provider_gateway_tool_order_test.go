@@ -260,3 +260,113 @@ func TestProviderGatewayToolOrderHandlesCustomToolCalls(t *testing.T) {
 		t.Fatalf("order = %v, want %v: %s", toolOrderTypes(got), want, got)
 	}
 }
+
+func TestProviderGatewayToolOrderHandlesToolSearch(t *testing.T) {
+	const (
+		searchCall   = `{"type":"tool_search_call","id":"tsc_1","call_id":"search_1","execution":"client","arguments":{"query":"lookup"},"status":"completed"}`
+		searchOutput = `{"type":"tool_search_output","id":"tso_1","call_id":"search_1","execution":"client","tools":[{"type":"function","name":"lookup","parameters":{"type":"object"}}],"status":"completed"}`
+		functionCall = `{"type":"function_call","call_id":"call_1","name":"exec_command","arguments":"{\"cmd\":\"pwd\"}"}`
+		functionOut  = `{"type":"function_call_output","call_id":"call_1","output":"/tmp"}`
+		hook         = `{"type":"message","role":"developer","content":"hook note"}`
+	)
+	tests := []struct {
+		name      string
+		items     []string
+		wantOrder []int
+		relocated int
+	}{
+		{
+			name:      "search with hook",
+			items:     []string{searchCall, hook, searchOutput},
+			wantOrder: []int{0, 2, 1},
+			relocated: 1,
+		},
+		{
+			name:      "function and search batch preserves reverse output order",
+			items:     []string{functionCall, searchCall, hook, searchOutput, functionOut},
+			wantOrder: []int{0, 1, 3, 4, 2},
+			relocated: 2,
+		},
+		{
+			name:      "search and function batch",
+			items:     []string{searchCall, functionCall, hook, functionOut, searchOutput},
+			wantOrder: []int{0, 1, 3, 4, 2},
+			relocated: 2,
+		},
+		{
+			name:      "separate tool turns",
+			items:     []string{searchCall, hook, searchOutput, functionCall, functionOut},
+			wantOrder: []int{0, 2, 1, 3, 4},
+			relocated: 1,
+		},
+		{
+			name:      "ordered search is unchanged",
+			items:     []string{searchCall, searchOutput, hook},
+			wantOrder: []int{0, 1, 2},
+		},
+		{
+			name:      "ordered mixed batch is unchanged",
+			items:     []string{functionCall, searchCall, searchOutput, functionOut, hook},
+			wantOrder: []int{0, 1, 2, 3, 4},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := toolOrderBody(tt.items...)
+			if tt.relocated > 0 && providerToolOrderBatchesAreAdjacent(gjson.GetBytes(body, "input")) {
+				t.Error("validator accepted a displaced tool search output")
+			}
+			got, relocated, ok := providerGatewayRepairsToolCallOrderBody(body)
+			if !ok || relocated != tt.relocated {
+				t.Fatalf("ok=%v relocated=%d, want true/%d: %s", ok, relocated, tt.relocated, got)
+			}
+			items := gjson.GetBytes(got, "input").Array()
+			if len(items) != len(tt.items) {
+				t.Fatalf("input length=%d, want %d: %s", len(items), len(tt.items), got)
+			}
+			for index, originalIndex := range tt.wantOrder {
+				if items[index].Raw != tt.items[originalIndex] {
+					t.Fatalf("item %d changed or misplaced: got=%s want=%s", index, items[index].Raw, tt.items[originalIndex])
+				}
+			}
+			if tt.relocated == 0 && string(got) != string(body) {
+				t.Fatalf("ordered history must remain byte-for-byte unchanged: %s", got)
+			}
+			if !providerToolOrderBatchesAreAdjacent(gjson.GetBytes(got, "input")) {
+				t.Fatalf("repaired history failed validation: %s", got)
+			}
+			again, movedAgain, okAgain := providerGatewayRepairsToolCallOrderBody(got)
+			if !okAgain || movedAgain != 0 || string(again) != string(got) {
+				t.Fatalf("repair is not idempotent: ok=%v relocated=%d body=%s", okAgain, movedAgain, again)
+			}
+		})
+	}
+}
+
+func TestProviderGatewayToolOrderLeavesUnidentifiableToolSearchUntouched(t *testing.T) {
+	tests := []struct {
+		name string
+		call string
+		out  string
+	}{
+		{
+			name: "missing call ID",
+			call: `{"type":"tool_search_call","execution":"client","arguments":{"query":"lookup"}}`,
+			out:  `{"type":"tool_search_output","call_id":"search_1","execution":"client","tools":[]}`,
+		},
+		{
+			name: "missing output call ID",
+			call: `{"type":"tool_search_call","call_id":"search_1","execution":"client","arguments":{"query":"lookup"}}`,
+			out:  `{"type":"tool_search_output","execution":"client","tools":[]}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := toolOrderBody(tt.call, `{"type":"message","role":"developer","content":"hook note"}`, tt.out)
+			got, relocated, ok := providerGatewayRepairsToolCallOrderBody(body)
+			if ok || relocated != 0 || string(got) != string(body) {
+				t.Fatalf("unidentifiable search pair must abort repair unchanged: ok=%v relocated=%d body=%s", ok, relocated, got)
+			}
+		})
+	}
+}

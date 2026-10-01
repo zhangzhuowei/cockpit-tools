@@ -10,7 +10,7 @@
       "accountsRequired": "Chọn ít nhất một tài khoản.",
       "invalidAccount": "Mã tài khoản không hợp lệ.",
       "invalidRequest": "Tham số thử không hợp lệ.",
-      "invalidConcurrency": "Số tác vụ song song phải từ 1 đến 10.",
+      "invalidConcurrency": "Tác vụ song song · 1–200",
       "invalidRetention": "Thời gian lưu giữ phải từ 1 đến 3650 ngày.",
       "alreadyRunning": "Hãy đóng lần thử đang hoạt động trước.",
       "artifactMissing": "Không tìm thấy kết quả đã tạo.",
@@ -22,7 +22,9 @@
       "storage": "Không thể đọc hoặc lưu lịch sử thử.",
       "unsafePath": "Đường dẫn kết quả không an toàn.",
       "historyMissing": "Không tìm thấy bản ghi lần thử.",
-      "invalidId": "Mã bản ghi không hợp lệ."
+      "invalidId": "Mã bản ghi không hợp lệ.",
+      "providerUnavailable": "Nhà cung cấp hoặc khóa API đã lưu không khả dụng.",
+      "providerChanged": "Địa chỉ hoặc giao thức đã thay đổi. Hãy tạo phép thử mới."
     },
     "title": "Thử thách bồ nông",
     "description": "Tạo HTML song song với cùng lời nhắc. Bạn tự so sánh kết quả; không chấm điểm tự động.",
@@ -83,9 +85,52 @@
     "confirmClearAll": "Dọn dẹp tất cả bài kiểm thử Pelican?",
     "clearAllHelp": "Toàn bộ lịch sử kiểm thử và tệp đã tạo sẽ bị xóa vĩnh viễn. Không thể hoàn tác.",
     "search": "Tìm tài khoản",
-    "viewError": "Xem lỗi"
+    "viewError": "Xem lỗi",
+    "providers": "Nhà cung cấp",
+    "providerDescription": "So sánh các nhà cung cấp bằng cách tạo hoạt ảnh bồ nông.",
+    "providerHelp": "Chọn nhà cung cấp, khóa đã lưu và mô hình. Yêu cầu đi qua cổng tạm riêng; thông tin xác thực được đọc lại khi thử lại.",
+    "providerRequired": "Hãy chọn nhà cung cấp, khóa API và mô hình hợp lệ.",
+    "providerModelMismatch": "Mô hình khác: yêu cầu {{requested}}, nhận {{responded}}.",
+    "providerSearch": "Tìm nhà cung cấp hoặc tên khóa",
+    "providerEmpty": "Không có nhà cung cấp phù hợp",
+    "providerClear": "Bỏ chọn"
   },
   "common": {
+    "dragSortHint": "Kéo tay nắm bên trái để đổi thứ tự. Thay đổi tự động lưu khi thả.",
+    "dragSortFilteredHint": "Xóa nội dung tìm kiếm để đổi thứ tự.",
+    "recycleBin": {
+      "loadTimeout": "Đọc thùng rác đã hết thời gian chờ. Hãy làm mới để thử lại.",
+      "refreshFailed": "Đã khôi phục tài khoản nhưng không thể làm mới danh sách. Hãy tải lại danh sách tài khoản.",
+      "moveStarted": "Đã bắt đầu chuyển {{count}} tài khoản vào thùng rác",
+      "title": "Thùng rác",
+      "description": "Tài khoản đã xóa được lưu cục bộ và có thể khôi phục hoặc xuất. Khôi phục không tự chuyển tài khoản, mở ứng dụng hoặc khôi phục liên kết tác vụ hay dịch vụ API.",
+      "empty": "Thùng rác trống",
+      "restore": "Khôi phục",
+      "deletePermanently": "Xóa vĩnh viễn",
+      "emptyBin": "Dọn thùng rác",
+      "deletedAt": "Đã xóa: {{time}}",
+      "confirmDelete": "Xóa vĩnh viễn “{{name}}”? Dữ liệu tài khoản trong thùng rác sẽ bị xóa và không thể khôi phục.",
+      "confirmEmpty": "Xóa vĩnh viễn {{count}} tài khoản này? Dữ liệu trong thùng rác sẽ bị xóa và không thể khôi phục.",
+      "move": "Vào thùng rác",
+      "confirmMove": "Chuyển {{count}} tài khoản vào thùng rác? Bạn có thể khôi phục, xuất hoặc xóa vĩnh viễn tại đó.",
+      "moved": "Đã chuyển vào thùng rác",
+      "moveFailed": "Không thể chuyển vào thùng rác: {{error}}",
+      "operationFailed": "Thao tác thất bại: {{error}}",
+      "export": "Xuất",
+      "exportAll": "Xuất tất cả",
+      "exportAndDelete": "Xuất và xóa",
+      "exportAndEmpty": "Xuất và dọn sạch",
+      "count": "{{count}} tài khoản",
+      "exportHint": "Xuất tệp JSON có thể nhập lại, chứa thông tin xác thực tài khoản. Hãy lưu giữ an toàn. Hủy lưu hoặc xuất thất bại sẽ không xóa tài khoản.",
+      "exported": "Đã xuất tài khoản.",
+      "confirmTitle": "Xóa tài khoản vĩnh viễn?"
+    },
+    "requestProxy": {
+      "value": "Ủy nhiệm: {{name}}",
+      "direct": "Trực tiếp",
+      "unknown": "Chưa ghi nhận",
+      "entryHint": "Chỉ ghi nhận điểm vào ủy nhiệm; nút cuối chưa được xác định."
+    },
     "retry": "Thử lại",
     "quotaRefreshScheduler": {
       "busy": "Hàng đợi làm mới đã đầy. Vui lòng thử lại sau.",
@@ -124,7 +169,7 @@
     "windowsOperation": {
       "title": "Thao tác Windows chưa hoàn tất",
       "accessDeniedDescription": "Windows đã từ chối thao tác. Chương trình đích có thể chạy với quyền cao hơn hoặc nằm trong vị trí được bảo vệ.",
-      "storeLaunchBlockedDescription": "Windows không thể chạy ứng dụng Codex đã cấu hình: thư mục Store có thể đã bị bản cập nhật thay thế hoặc không còn cho phép thực thi. Đã chặn khởi chạy trực tiếp để tránh mở sai tài khoản. Hãy dùng “Dò lại đường dẫn và thử lại”; nếu vẫn lỗi, chuyển phiên bản này sang chế độ CLI.",
+      "storeLaunchBlockedDescription": "Không thể xác nhận phiên bản cô lập từ cửa hàng đã khởi động thành công. Cockpit không chuyển sang mở tài khoản mặc định. Hãy dò lại đường dẫn ứng dụng rồi thử lại. Nếu vẫn thất bại, hãy sao chép thông tin chẩn đoán hoặc chuyển phiên bản này sang chế độ CLI.",
       "repairPath": "Dò lại đường dẫn và thử lại",
       "fileInUseDescription": "Tệp đích đang được chương trình khác sử dụng. Hãy đóng chương trình rồi thử lại.",
       "programNotFoundDescription": "Windows không tìm thấy chương trình cần thiết. Hãy kiểm tra cài đặt hoặc đường dẫn đã cấu hình.",
@@ -309,7 +354,8 @@
         "unlimited": "Hạn mức không giới hạn",
         "leftPercent": "Còn {{value}}%",
         "cachedRefreshFailed": "Làm mới thất bại; đang hiển thị dữ liệu thành công gần nhất",
-        "lastSuccessfulQuery": "Lần thành công gần nhất: {{time}}"
+        "lastSuccessfulQuery": "Lần thành công gần nhất: {{time}}",
+        "cachedNeedsReauth": "⚠️ Cần xác minh web để tiếp tục (dữ liệu lưu trong bộ nhớ đệm bên dưới)"
       },
       "subtitle": "Quản lý các tài khoản GitHub Copilot",
       "time": {
@@ -369,7 +415,9 @@
     "quota": {
       "weeklyWindow": "Tuần"
     },
-    "optional": " (tùy chọn)"
+    "optional": " (tùy chọn)",
+    "hide": "Ẩn",
+    "show": "Hiện"
   },
   "nav": {
     "overview": "Antigravity IDE​",
@@ -741,7 +789,7 @@
     },
     "delete": {
       "title": "Xóa phiên bản",
-      "message": "Xóa phiên bản {{name}}? Hành động này sẽ gỡ bỏ cấu hình và xóa thư mục phiên bản."
+      "message": "Xóa phiên bản {{name}}? Mục đăng ký sẽ bị xóa và các thư mục phiên bản được quản lý sẽ chuyển vào thùng rác. Các thư mục tùy chỉnh và được bảo vệ sẽ được giữ lại."
     },
     "import": {
       "btnTitle": "Nhập thư mục hiện có",
@@ -764,6 +812,24 @@
     }
   },
   "settings": {
+    "instanceCleanup": {
+      "title": "Dọn dữ liệu phiên bản",
+      "description": "Quét thủ công thư mục của các phiên bản được quản lý và xóa dữ liệu không được cấu hình phiên bản hoặc tiến trình đang chạy tham chiếu. Không tự động xóa dữ liệu.",
+      "scan": "Quét",
+      "scanning": "Đang quét…",
+      "remove": "Xóa vĩnh viễn",
+      "removing": "Đang xóa…",
+      "empty": "Không có thư mục dư thừa để dọn",
+      "summary": "Tìm thấy {{count}} thư mục, chiếm {{size}}",
+      "confirm": "Các thư mục sau cùng phiên làm việc, không gian làm việc và bộ nhớ đệm bên trong sẽ bị xóa vĩnh viễn. Không thể hoàn tác thao tác này.",
+      "cancel": "Hủy",
+      "confirmRemove": "Xác nhận xóa",
+      "done": "Đã xóa {{count}} thư mục",
+      "failed": "Thao tác thất bại",
+      "path": "Thư mục",
+      "size": "Dung lượng",
+      "platform": "Nền tảng"
+    },
     "title": "Cài đặt ứng dụng",
     "subtitle": "Cá nhân hóa trải nghiệm Antigravity Cockpit Tools của bạn.",
     "tabs": {
@@ -1426,7 +1492,9 @@
       "normal": "Bình thường",
       "forbidden": "403​",
       "forbidden_tooltip": "API trả về 403 Forbidden, tài khoản không có quyền sử dụng Gemini Code Assist",
-      "forbidden_msg": "Tài khoản không có quyền, đã bỏ qua tự động làm mới"
+      "forbidden_msg": "Tài khoản không có quyền, đã bỏ qua tự động làm mới",
+      "needsReauth": "Cần xác minh web",
+      "needsReauthTooltip": "Google yêu cầu xác minh bảo mật web để tiếp tục"
     },
     "tier": {
       "pro": "PRO​",
@@ -1561,7 +1629,12 @@
       "delete": "Xóa",
       "deleteSelected": "Xóa mục đã chọn",
       "export": "Xuất",
-      "refreshAll": "Làm mới tất cả"
+      "refreshAll": "Làm mới tất cả",
+      "reauth": "Cấp quyền lại",
+      "reauthTooltip": "Google yêu cầu xác minh lại, nhấn để cấp quyền lại",
+      "openValidationUrl": "Xác minh web",
+      "copyValidationUrl": "Sao chép liên kết xác minh",
+      "copyValidationUrlTooltip": "Sao chép địa chỉ xác minh web"
     },
     "tabs": {
       "oauth": "Ủy quyền OAuth",
@@ -1800,7 +1873,8 @@
     "example": "Ví dụ",
     "actionRunning": "{{action}}...​",
     "actionSuccess": "{{action}} thành công",
-    "actionFailed": "{{action}} thất bại: {{error}}"
+    "actionFailed": "{{action}} thất bại: {{error}}",
+    "refreshFailed": "Làm mới thất bại"
   },
   "wakeup": {
     "title": "Nhiệm vụ đánh thức",
@@ -2063,6 +2137,11 @@
     "other_group": "Mô hình khác"
   },
   "codex": {
+    "launchErrors": {
+      "bindingFailed": "Không thể xác nhận tài khoản liên kết. Đã dừng khởi động; hãy thử chuyển tài khoản lại.",
+      "processScanFailed": "Không thể kiểm tra các tiến trình nền cũ. Đã dừng khởi động; hãy thử lại.",
+      "proxyEntryFailed": "Không thể khởi động proxy đã cấu hình. Không sử dụng tuyến thay thế; hãy thử lại."
+    },
     "oauthProxy": {
       "toggle": "Đăng nhập qua proxy",
       "hint": "Cửa sổ tích hợp, trao đổi token và lần kiểm tra hạn mức đầu dùng proxy này. Tắt tùy chọn này nếu đăng nhập cần cửa sổ bật lên.",
@@ -2548,7 +2627,7 @@
       "hideEntryEffectRestore": "Bạn có thể bật lại trong Cài đặt Codex hoặc Cài đặt nhanh",
       "riskNotice": {
         "title": "Lưu ý rủi ro",
-        "message": "Các tính năng liên quan đến dịch vụ Codex API hiện tại về bản chất là cách dùng thông qua reverse proxy. Ở thời điểm hiện tại, phía chính thức chưa hạn chế rõ ràng hành vi này, nhưng chính sách, quy định hoặc khả năng sử dụng có thể thay đổi trong tương lai. Khi tiếp tục sử dụng tính năng này, bạn xác nhận đã hiểu tình huống này và tự chịu các rủi ro liên quan.",
+        "message": "Việc sử dụng tài khoản chính thức thông thường qua proxy ngược hoặc chuyển tiếp có thể chịu các hạn chế nghiêm ngặt từ dịch vụ chính thức. Cách sử dụng này cũng có thể bị nhận diện là chuyển tiếp và ảnh hưởng đến chất lượng câu trả lời (“giảm trí thông minh”). Hãy sử dụng thận trọng, nhất là khi có nhiều tài khoản.",
         "remember": "Tôi đã hiểu, đừng nhắc lại",
         "acknowledge": "Tôi đã hiểu",
         "continueStart": "Tiếp tục",
@@ -3078,7 +3157,8 @@
         "medium": "Trung bình",
         "high": "Cao",
         "xhigh": "Rất cao",
-        "max": "Tối đa"
+        "max": "Tối đa",
+        "ultra": "Cực cao"
       },
       "scheduleQuotaResetHint": "Khi bật đánh thức sau khi đặt lại hạn mức, làm mới tự động sẽ được điều chỉnh mỗi 2 phút.",
       "scheduleQuotaResetSummary": "Chạy sau khi đặt lại hạn mức",
@@ -3640,7 +3720,8 @@
         "baseUrlExists": "Base URL này đã tồn tại.",
         "providerNotFound": "Không tìm thấy nhà cung cấp.",
         "apiKeyRequiredOnCreate": "Khi tạo nhà cung cấp, cần ít nhất một API Key.",
-        "apiKeyRequiredWhenEmpty": "Nhà cung cấp này chưa có API Key. Hãy thêm một key trước."
+        "apiKeyRequiredWhenEmpty": "Nhà cung cấp này chưa có API Key. Hãy thêm một key trước.",
+        "apiKeyUrlInvalid": "Dùng URL quản lý HTTP(S) không chứa thông tin xác thực; nhập khóa API vào trường khóa."
       },
       "saveSuccess": "Đã lưu nhà cung cấp mô hình.",
       "deleteBlocked": "Nhà cung cấp này đang được liên kết với {{count}} tài khoản nên không thể xóa.",
@@ -3793,7 +3874,7 @@
         "modelAuto": "Tự động (danh mục / phát hiện)",
         "modelCustom": "Mô hình tùy chỉnh…",
         "modelLabel": "Mô hình kiểm tra",
-        "modelCustomPlaceholder": "ID mô hình, vd. gpt-4.1-mini",
+        "modelCustomPlaceholder": "ID mô hình, vd. gpt-6.1-sol",
         "modelHint": "Tùy chọn: mô hình chung. Để trống sẽ tự chọn từ danh mục."
       },
       "enableAndStart": "Chạy",
@@ -3808,9 +3889,9 @@
       },
       "vision": {
         "providerDefault": "Nhà cung cấp này mặc định hỗ trợ nhập ảnh",
-        "providerDefaultHint": "Khi tắt, chỉ các mẫu bên dưới được nhận ảnh; các mẫu khác sẽ bị gateway cục bộ từ chối.",
+        "providerDefaultHint": "Mô hình chưa có cài đặt riêng dùng giá trị mặc định này; GPT-5.5 trở lên mặc định hỗ trợ ảnh. Có thể tắt từng mô hình trong danh sách. Nếu cổng không tìm thấy mô hình hỗ trợ ảnh, ảnh sẽ bị bỏ qua và văn bản tiếp tục được xử lý.",
         "modelsHint": "Mỗi dòng một mẫu. Dùng khi chỉ một số mẫu của nhà cung cấp hỗ trợ ảnh dán vào.",
-        "routingModelHint": "Khi mẫu hiện tại không đọc được ảnh, yêu cầu dùng mẫu này; để trống sẽ tự dùng mẫu ảnh duy nhất.",
+        "routingModelHint": "Khi mô hình hiện tại không đọc được ảnh, cổng dùng mô hình này. Để trống để dùng mô hình hỗ trợ ảnh duy nhất nếu có; nếu không, ảnh bị bỏ qua và văn bản tiếp tục được xử lý.",
         "allModels": "Ảnh",
         "partialModels": "Một số ảnh",
         "textOnly": "Chỉ văn bản"
@@ -3899,7 +3980,8 @@
       "importConfigFailed": "Không nhập được từ clipboard: {{error}}",
       "importConfigPlaceholder": "Dùng Sao chép cấu hình trên thẻ rồi dán nội dung vào đây",
       "importConfigAction": "Nhập cấu hình",
-      "importConfigFromClipboard": "Đọc clipboard"
+      "importConfigFromClipboard": "Đọc clipboard",
+      "settingsRestartHint": "Đã cập nhật cài đặt nhà cung cấp. Hãy khởi động lại phiên Codex hoặc dịch vụ API đang dùng nhà cung cấp này để áp dụng."
     },
     "quickSwitch": {
       "action": "Chuyển nhanh nhà cung cấp",
@@ -4260,7 +4342,7 @@
         "reasoningEffortValue": "Suy {{effort}}",
         "serviceTier": "Hạng dịch vụ",
         "serviceTierValue": "Hạng {{tier}}",
-        "upstreamModel": "Mô hình thực tế"
+        "upstreamModel": "Mô hình gửi đi"
       },
       "timeouts": {
         "entryLabel": "Nâng cao",
@@ -4535,8 +4617,6 @@
       "serverCount": "{{count}} máy chủ",
       "autoSyncBadge": "Tự động"
     },
-    "exportAuthFailed": "Xuất lỗi",
-    "exportAuthFailedTitle": "Xuất tất cả tài khoản auth lỗi",
     "accounts": {
       "showRelayQuota": "Hiện hạn mức relay",
       "hideRelayQuota": "Ẩn hạn mức relay"
@@ -4569,6 +4649,18 @@
       "restartFailed": "Không khởi động lại được gateway: {{error}}"
     },
     "proxy": {
+      "display": {
+        "title": "Hiển thị proxy",
+        "compact": "Gọn",
+        "summary": "Tóm tắt",
+        "detailed": "Chi tiết",
+        "hint": "Áp dụng cho mọi thẻ tài khoản Codex; lựa chọn được lưu và áp dụng ngay.",
+        "configuredNode": "Nút đã chọn",
+        "lastRequest": "Yêu cầu gần nhất",
+        "preview": "Xem trước kiểu",
+        "saveFailed": "Không thể lưu tùy chọn hiển thị. Vui lòng thử lại.",
+        "refresh": "Làm mới thông tin"
+      },
       "workspace": {
         "navLabel": "Các mục proxy",
         "overview": "Tổng quan",
@@ -4661,7 +4753,7 @@
       },
       "rules": {
         "title": "Quy tắc đầu ra",
-        "intro": "Proxy riêng của tài khoản được ưu tiên hơn proxy hợp nhất; khi cả hai đều không áp dụng, yêu cầu giữ nguyên đầu ra mặc định trước đó của ứng dụng.",
+        "intro": "Proxy riêng của tài khoản được ưu tiên hơn proxy hợp nhất; khi cả hai đều không áp dụng, yêu cầu giữ nguyên đầu ra mặc định trước đó của ứng dụng. Loại trừ các tài khoản đã chọn rõ chế độ Không dùng proxy.",
         "order": "Thứ tự áp dụng",
         "tableTitle": "Đầu ra theo tài khoản",
         "columnAccount": "Tài khoản",
@@ -4706,8 +4798,8 @@
       },
       "unified": {
         "title": "Đầu ra proxy hợp nhất",
-        "hint": "Tài khoản đủ điều kiện chưa có proxy riêng dùng chung đầu ra này; tài khoản mới tự động theo.",
-        "offState": "Tắt: proxy của tài khoản được ưu tiên; nếu không có thì dùng đầu ra mặc định.",
+        "hint": "Tài khoản đủ điều kiện chưa có proxy riêng dùng chung đầu ra này; tài khoản mới tự động theo. Loại trừ các tài khoản đã chọn rõ chế độ Không dùng proxy.",
+        "offState": "Tắt: proxy của tài khoản được ưu tiên; nếu không có thì dùng đầu ra mặc định. Loại trừ các tài khoản đã chọn rõ chế độ Không dùng proxy.",
         "enable": "Bật proxy hợp nhất",
         "disable": "Tắt",
         "change": "Đổi đầu ra",
@@ -4725,12 +4817,12 @@
         "changeMessage": "Ứng dụng đang chạy qua bộ chuyển tiếp cục bộ dùng đầu ra mới cho kết nối mới.",
         "changeConfirm": "Đổi",
         "disableTitle": "Tắt proxy hợp nhất",
-        "disableMessage": "Proxy riêng vẫn có hiệu lực; tài khoản chưa liên kết dùng đầu ra mặc định.",
+        "disableMessage": "Proxy riêng vẫn có hiệu lực; tài khoản chưa liên kết dùng đầu ra mặc định. Loại trừ các tài khoản đã chọn rõ chế độ Không dùng proxy.",
         "disableConfirm": "Tắt",
         "restartHint": "Ứng dụng khởi chạy qua bộ chuyển tiếp cục bộ chuyển ở kết nối mới. Ứng dụng khác đang chạy cần khởi động lại một lần.",
         "staleWarning": "Nguồn của đầu ra này không khả dụng. Hãy chọn đầu ra khác.",
         "removedWarning": "Proxy hợp nhất đã tắt vì nguồn của nó đã bị xóa.",
-        "accountsNotice": "Proxy tài khoản được ưu tiên; tài khoản chưa liên kết theo proxy hợp nhất.",
+        "accountsNotice": "Proxy tài khoản được ưu tiên; tài khoản chưa liên kết theo proxy hợp nhất. Loại trừ các tài khoản đã chọn rõ chế độ Không dùng proxy.",
         "unbindBlocked": "Sau khi bỏ liên kết, tài khoản này theo proxy hợp nhất.",
         "following": "Hợp nhất",
         "errorFailed": "Thao tác thất bại. Vui lòng thử lại.",
@@ -4794,6 +4886,11 @@
         "viewAll": "Xem tất cả"
       },
       "previewTitle": "Xem trước proxy",
+      "modeDisabled": "Không dùng proxy",
+      "disableAction": "Gỡ proxy",
+      "setIndependent": "Proxy riêng",
+      "disabledHint": "Bỏ qua proxy riêng và chung; thử kết nối trực tiếp cho kết nối mới.",
+      "disabledWarning": "Truy cập trực tiếp có thể thất bại. Thay đổi áp dụng cho kết nối mới của ứng dụng dùng bộ chuyển tiếp cục bộ; các ứng dụng khác đang chạy cần khởi động lại. Kết nối hiện có có thể tiếp tục dùng tuyến cũ.",
       "exitIp": "IP đầu ra",
       "sessionHistory": "Nhật ký chạy",
       "sessionHistoryHint": "Kiểm tra trạng thái mỗi 5 giây. Chỉ lưu trạng thái ban đầu và thay đổi trong lần xem này, tối đa 20 bản ghi; xóa khi đóng, không phải toàn bộ lịch sử.",
@@ -4824,9 +4921,17 @@
       "desktopRequest_forwarded": "Đã thiết lập chuyển tiếp cục bộ gần nhất",
       "desktopRequest_failed": "Chuyển tiếp cục bộ gần nhất thất bại",
       "desktopEntryReadyHint": "Cổng vào đang lắng nghe; nhân sẽ khởi động khi nhận yêu cầu kết nối.",
+      "sharedRuntime": "Proxy tài khoản",
       "runtimeMain": "Yêu cầu tài khoản",
       "runtimeDesktop": "Cầu nối máy tính",
       "runtimeHint": "Trạng thái chỉ phản ánh cổng vào và nhân cục bộ. Chuyển tiếp được thiết lập không xác nhận truy cập Internet hay xác định ứng dụng gửi yêu cầu.",
+      "restoreEntry": "Khôi phục chuyển tiếp",
+      "restoringEntry": "Đang khôi phục…",
+      "restoreEntryFailed": "Không thể khôi phục chuyển tiếp proxy cho máy tính. Vui lòng thử lại.",
+      "restoreEntryPortBusy": "Cổng proxy ban đầu đang được sử dụng. Hãy giải phóng cổng rồi thử lại; ứng dụng máy tính không thể tự động đổi sang cổng khác.",
+      "restoreEntryNotRunning": "Không tìm thấy ứng dụng máy tính đang chạy sử dụng đầu vào proxy đã ghi thuộc phiên bản Cockpit này.",
+      "restoreEntryBusy": "Proxy đang được khôi phục. Vui lòng thử lại sau ít phút.",
+      "restoreEntryTimeout": "Khôi phục proxy đã hết thời gian chờ. Vui lòng thử lại.",
       "restartHint": "Ứng dụng khởi chạy qua bộ chuyển tiếp cục bộ chuyển ở kết nối mới. Ứng dụng khác đang chạy cần khởi động lại một lần. Cầu nối máy tính chỉ lắng nghe trên loopback nhưng không cách ly người dùng khác trên máy. Proxy hệ thống không thay đổi.",
       "exportHint": "Dữ liệu xuất tài khoản không chứa thông tin xác thực proxy; cần thiết lập lại sau khi nhập.",
       "backToAccounts": "Về danh sách tài khoản",
@@ -5140,7 +5245,7 @@
         "assign": "Chỉ định proxy",
         "specific": "Tài khoản đã chọn",
         "shared": "Proxy dùng chung",
-        "sharedHint": "Các tài khoản Codex OAuth chưa có proxy riêng sẽ dùng proxy này, kể cả tài khoản phù hợp được thêm sau. Các thiết lập riêng hiện có vẫn có hiệu lực.",
+        "sharedHint": "Các tài khoản Codex OAuth chưa có proxy riêng sẽ dùng proxy này, kể cả tài khoản phù hợp được thêm sau. Các thiết lập riêng hiện có vẫn có hiệu lực. Loại trừ các tài khoản đã chọn rõ chế độ Không dùng proxy.",
         "apply": "Chỉ định"
       },
       "managerResources": {
@@ -5173,7 +5278,7 @@
       "managerUnified": {
         "off": "Chưa bật",
         "choose": "Đặt proxy",
-        "hint": "Tài khoản không có proxy riêng sẽ dùng proxy này."
+        "hint": "Tài khoản không có proxy riêng sẽ dùng proxy này. Loại trừ các tài khoản đã chọn rõ chế độ Không dùng proxy."
       },
       "setup": {
         "title": "Thiết lập proxy",
@@ -5187,13 +5292,20 @@
         "collapse": "Thu gọn chi tiết"
       },
       "runtime_entry_failed": "Cổng vào lỗi",
+      "measureCurrentLatency": "Đo độ trễ",
+      "measuringCurrentLatency": "Đang đo",
+      "currentLatencyNotRunning": "Không có nút đang chạy để kiểm tra. Hãy khởi động ứng dụng dùng proxy này hoặc kiểm tra nút đã cấu hình trong Quản lý proxy.",
+      "currentLatencyHint": "Đo độ trễ từ nút đang chạy đến URL kiểm tra mà không chuyển nút hay thay đổi chính sách proxy.",
       "latencyCheckedAt": "Thời điểm kiểm tra",
       "latencyPending": "Chưa kiểm tra",
       "latencyTimeout": "Hết thời gian",
       "quickSwitch": "Đổi nút",
       "quickSwitchHint": "Chỉ thay đổi tài khoản này. Kết nối mới dùng đường ra đã lưu; thao tác lưu không xác minh kết nối.",
       "currentNode": "Nút hiện tại",
-      "noCurrentNode": "Chưa có thông tin về nút hiện tại"
+      "noCurrentNode": "Chưa có thông tin về nút hiện tại",
+      "runtimeBusy": "Proxy cục bộ đang bận. Tạm thời không thể cập nhật.",
+      "runtimeCapacity": "Có quá nhiều proxy đang chạy. Hãy dừng các proxy không dùng rồi thử lại.",
+      "runtimeReadFailed": "Tạm thời không thể đọc trạng thái proxy cục bộ. Vui lòng thử lại."
     },
     "more": {
       "title": "Thêm",
@@ -5213,6 +5325,17 @@
       "moveUp": "Di chuyển lên",
       "moveDown": "Di chuyển xuống",
       "done": "Xong"
+    },
+    "cliDaemon": {
+      "title": "Làm mới tài khoản CLI",
+      "description": "Thông tin xác thực đã được lưu nhưng dịch vụ nền Codex CLI của hồ sơ này vẫn chạy và có thể tiếp tục dùng tài khoản cũ.",
+      "restartHint": "Hoàn tất các tác vụ CLI đang chạy rồi thực thi lệnh này trong cửa sổ dòng lệnh. Khởi động lại sẽ ngắt các phiên đang kết nối với dịch vụ này.",
+      "copyFailed": "Sao chép thất bại. Hãy chọn lệnh ở trên và sao chép thủ công."
+    },
+    "proxyQuality": {
+      "errors": {
+        "bindingChanged": "Liên kết tài khoản đã đổi. Giữ nguyên thiết lập hiện tại."
+      }
     }
   },
   "githubCopilot": {

@@ -60,6 +60,17 @@ pub(super) fn failed_to_listen(account_id: &str) {
         .insert(account_id.to_owned(), Arc::new(Entry(Mutex::new(status))));
 }
 
+pub(super) fn recovery_failed(account_id: &str, port: u16, error: &str) {
+    let mut status = Status::new("failed", Some(port));
+    status.last_error = Some(match error {
+        "PROXY_ENTRY_PORT_UNAVAILABLE" => "PROXY_ENTRY_PORT_UNAVAILABLE",
+        "PROXY_ENTRY_RECOVERY_TIMEOUT" => "PROXY_ENTRY_RECOVERY_TIMEOUT",
+        _ => "PROXY_ENTRY_RECOVERY_FAILED",
+    });
+    ENTRIES.lock().unwrap_or_else(|e| e.into_inner())
+        .insert(account_id.to_owned(), Arc::new(Entry(Mutex::new(status))));
+}
+
 /// Constructed before spawning so even cancellation before the first poll is observed.
 pub(super) struct Listener(Arc<Entry>);
 impl Listener {
@@ -127,7 +138,7 @@ impl Drop for Request {
     }
 }
 
-fn safe_error(error: &str) -> &'static str {
+pub(super) fn safe_error(error: &str) -> &'static str {
     match error {
         "PROXY_ENGINE_MISSING" => "PROXY_ENGINE_MISSING",
         "PROXY_ENGINE_TIMEOUT" => "PROXY_ENGINE_TIMEOUT",

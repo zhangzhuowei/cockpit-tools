@@ -28,6 +28,7 @@ pub mod grok_instance;
 pub mod group;
 pub mod import;
 pub mod instance;
+pub mod instance_storage_cleanup;
 pub mod kiro;
 pub mod kiro_instance;
 pub mod logs;

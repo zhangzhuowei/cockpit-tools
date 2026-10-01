@@ -166,6 +166,7 @@ async fn native_delay_has_a_bounded_controller_deadline() {
     assert_eq!(
         query_delay(
             &controller,
+            "account-node",
             "http://latency.invalid",
             Duration::from_millis(20)
         )

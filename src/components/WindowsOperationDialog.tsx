@@ -46,10 +46,7 @@ export function WindowsOperationDialog() {
       case "port_denied":
         return t("common.windowsOperation.portDeniedDescription");
       case "codex_store_launch_blocked":
-        return t(
-          "common.windowsOperation.storeLaunchBlockedDescription",
-          "Windows could not run the currently configured Codex client: the Store package folder may have been replaced by an update, or it no longer allows execution. Launching directly was blocked so the wrong account is not opened. Use \"Re-detect path and retry\"; if it still fails, switch this instance to CLI launch mode.",
-        );
+        return t("common.windowsOperation.storeLaunchBlockedDescription");
       default:
         return t("common.windowsOperation.genericDescription");
     }

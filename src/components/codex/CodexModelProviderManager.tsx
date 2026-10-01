@@ -1,3 +1,7 @@
+import { useCodexPelicanStore } from "../../stores/useCodexPelicanStore";
+import { pelicanProviderTarget } from "./pelican/pelicanProviderModel";
+import { isValidProviderApiKeyUrl } from "../../utils/codexProviderApiKeyUrl";
+import { getCodexAccountQuotaError } from "../../utils/codexProxyRuntimeError";
 import {
   useCallback,
   useEffect,
@@ -8,7 +12,6 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
-import { homeDir, join } from "@tauri-apps/api/path";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { MultiSelectFilterOption } from "../MultiSelectFilterDropdown";
 import { useEscClose } from "../../hooks/useEscClose";
@@ -27,6 +30,7 @@ import {
   addCodexAccountWithApiKey,
   deleteCodexAccounts,
   getCurrentCodexAccount,
+  getCodexStoragePaths,
   listCodexAccounts,
   syncCodexApiKeyProviderAccounts,
   updateCodexAccountName,
@@ -126,7 +130,8 @@ import {
   shouldSyncCodexModelProviderAccountName,
 } from "../../utils/codexModelProviderAccountName";
 import { findCodexAccountsReferencingModelProvider } from "../../utils/codexModelProviderAccountSync";
-import { providerModelDefaultsToVisionInput } from "../../utils/codexModelProviderVision";
+import { buildProviderModelVisionCapabilities } from "../../utils/codexModelProviderVision";
+import { isImageGenerationModelId, selectProviderBatchTestModelId } from "../../utils/codexTestModel";
 import { CodexModelProviderManagerView } from "./CodexModelProviderManagerView";
 
 
@@ -176,18 +181,6 @@ function parseModelCatalogText(value: string): string[] {
       models.push(model);
     });
   return models;
-}
-
-function parseVisionModelText(value: string): Record<string, { supportsVision: boolean }> {
-  const capabilities: Record<string, { supportsVision: boolean }> = {};
-  value
-    .split(/[\n,]+/)
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .forEach((model) => {
-      capabilities[model.toLowerCase()] = { supportsVision: true };
-    });
-  return capabilities;
 }
 
 /** 表单里的逐模型识图开关状态（含显式关闭）。 */
@@ -393,9 +386,8 @@ interface ProviderFormState {
   modelContextWindowsDraft: Record<string, string>;
   supportsVision: boolean;
   visionModelText: string;
+  /** 已保存的显式值或用户操作；继承的默认值只用于显示。 */
   visionModelStates: Record<string, boolean>;
-  /** 打开表单时的识图开关快照：只保存用户真正改动过的模型，避免覆盖供应商级默认。 */
-  visionModelStatesBaseline: Record<string, boolean>;
   visionRoutingModel: string;
   website: string;
   apiKeyUrl: string;
@@ -424,7 +416,6 @@ const EMPTY_FORM: ProviderFormState = {
   supportsVision: false,
   visionModelText: "",
   visionModelStates: {},
-  visionModelStatesBaseline: {},
   visionRoutingModel: "",
   website: "",
   apiKeyUrl: "",
@@ -491,9 +482,9 @@ function resolveProviderApiKeyLabel(
 }
 
 const DEFAULT_PROVIDER_PREVIEW_PATHS: ProviderPreviewPaths = {
-  providerStorePath: "~/.antigravity_cockpit/codex_model_providers.json",
-  codexConfigPath: "~/.codex/config.toml",
-  codexAuthPath: "~/.codex/auth.json",
+  providerStorePath: "codex_model_providers.json",
+  codexConfigPath: "config.toml",
+  codexAuthPath: "auth.json",
 };
 
 function resolveDefaultProviderWireApi(
@@ -531,46 +522,6 @@ function resolveProviderWireApi(provider: CodexModelProvider): CodexProviderWire
     baseUrl: provider.baseUrl,
     wireApi: provider.wireApi,
   }).wireApi;
-}
-
-const RESPONSES_NATIVE_CHAT_TEST_MODEL_PRIORITY = [
-  "gpt-5.5",
-  "gpt-5.4",
-  "gpt-5",
-  "gpt-4.1",
-  "gpt-4o",
-];
-
-function isImageGenerationModelId(modelId: string): boolean {
-  const lower = modelId.trim().toLowerCase();
-  return (
-    lower.startsWith("gpt-image") ||
-    lower.startsWith("dall-e") ||
-    lower.includes("image-gen")
-  );
-}
-
-function selectProviderBatchTestModelId(
-  wireApi: CodexProviderWireApi,
-  modelCatalog?: string[] | null,
-): string | null {
-  const models = (modelCatalog ?? [])
-    .map((item) => item.trim())
-    .filter((item) => item.length > 0);
-  if (models.length === 0) return null;
-
-  if (wireApi === "responses") {
-    for (const preferred of RESPONSES_NATIVE_CHAT_TEST_MODEL_PRIORITY) {
-      const model = models.find(
-        (item) => item.toLowerCase() === preferred.toLowerCase(),
-      );
-      if (model) return model;
-    }
-    const textModel = models.find((item) => !isImageGenerationModelId(item));
-    if (textModel) return textModel;
-  }
-
-  return models[0] ?? null;
 }
 
 function formatDateTime(value: number): string {
@@ -1093,21 +1044,15 @@ export function useCodexModelProviderManagerController({
 
     void (async () => {
       try {
-        const home = await homeDir();
-        const [providerStorePath, codexConfigPath, codexAuthPath] =
-          await Promise.all([
-            join(home, ".antigravity_cockpit", "codex_model_providers.json"),
-            join(home, ".codex", "config.toml"),
-            join(home, ".codex", "auth.json"),
-          ]);
+        const paths = await getCodexStoragePaths();
         if (cancelled) return;
         setPreviewPaths({
-          providerStorePath,
-          codexConfigPath,
-          codexAuthPath,
+          providerStorePath: paths.providerStorePath,
+          codexConfigPath: paths.configPath,
+          codexAuthPath: paths.authPath,
         });
       } catch {
-        // ignore path resolution failures and keep fallback preview paths
+        // Keep file names until the backend can report the actual configured paths.
       }
     })();
 
@@ -1379,6 +1324,15 @@ export function useCodexModelProviderManagerController({
     const trimmed = batchTestModelId.trim();
     return trimmed || null;
   }, [batchTestModelCustom, batchTestModelId]);
+
+  const openProviderPelican = useCallback(() => {
+    const source = selectedProviderIds.size > 0
+      ? filteredProviders.filter((provider) => selectedProviderIds.has(provider.id)) : filteredProviders;
+    useCodexPelicanStore.getState().openProviders(source.flatMap((provider) => {
+      const target = pelicanProviderTarget(provider, getSelectedProviderApiKey(provider)?.id);
+      return target ? [target] : [];
+    }));
+  }, [filteredProviders, selectedProviderIds, getSelectedProviderApiKey]);
 
   const openBatchTestModal = useCallback(() => {
     const defaultSource =
@@ -1688,9 +1642,6 @@ export function useCodexModelProviderManagerController({
       supportsVision: provider.supportsVision === true,
       visionModelText: visionModelTextFromCapabilities(provider.modelCapabilities),
       visionModelStates: visionModelStatesFromCapabilities(provider.modelCapabilities),
-      visionModelStatesBaseline: visionModelStatesFromCapabilities(
-        provider.modelCapabilities,
-      ),
       visionRoutingModel: provider.visionRoutingModel ?? "",
       website: provider.website ?? "",
       apiKeyUrl: provider.apiKeyUrl ?? "",
@@ -1722,6 +1673,7 @@ export function useCodexModelProviderManagerController({
   useEscClose(showModal, closeModal);
 
   const mutateForm = useCallback((patch: Partial<ProviderFormState>) => {
+    setFormError(null);
     setForm((prev) => ({ ...prev, ...patch }));
   }, []);
 
@@ -1752,12 +1704,6 @@ export function useCodexModelProviderManagerController({
         supportsVision: false,
         visionModelText: (preset.visionModelCatalog ?? []).join("\n"),
         visionModelStates: Object.fromEntries(
-          (preset.visionModelCatalog ?? []).map((model) => [
-            model.trim().toLowerCase(),
-            true,
-          ]),
-        ),
-        visionModelStatesBaseline: Object.fromEntries(
           (preset.visionModelCatalog ?? []).map((model) => [
             model.trim().toLowerCase(),
             true,
@@ -2266,23 +2212,10 @@ export function useCodexModelProviderManagerController({
       );
       return;
     }
-    const modelCapabilities = parseVisionModelText(form.visionModelText);
-    // 逐模型开关：显式写入 true/false，关闭官方默认支持的模型时也能生效。
-    for (const [model, supportsVision] of Object.entries(form.visionModelStates)) {
-      const key = model.trim().toLowerCase();
-      if (!key) continue;
-      // 未操作过的关闭状态不写，交给供应商级默认值决定；已保存过的显式值原样保留。
-      const baseline = form.visionModelStatesBaseline[key];
-      // gpt-5.5+ 默认支持识图，显式关闭必须落盘，否则会被默认值覆盖。
-      if (
-        baseline === undefined &&
-        !supportsVision &&
-        !providerModelDefaultsToVisionInput(key)
-      ) {
-        continue;
-      }
-      modelCapabilities[key] = { supportsVision };
-    }
+    const modelCapabilities = buildProviderModelVisionCapabilities(
+      form.visionModelText,
+      form.visionModelStates,
+    );
     const visionRoutingModel = form.visionRoutingModel.trim();
     const isCreate = !form.providerId;
     const existingKeyCount = currentEditingProvider?.apiKeys.length ?? 0;
@@ -2300,6 +2233,10 @@ export function useCodexModelProviderManagerController({
           "Base URL 格式无效",
         ),
       );
+      return;
+    }
+    if (!isValidProviderApiKeyUrl(form.apiKeyUrl)) {
+      setFormError(t("codex.modelProviders.validation.apiKeyUrlInvalid"));
       return;
     }
     if (isCreate && !newApiKey) {
@@ -2443,13 +2380,12 @@ export function useCodexModelProviderManagerController({
       setFormError(null);
       setNotice({
         tone: "success",
-        text:
-          Object.keys(parsedWindows.windows).length > 0
-            ? `${t("codex.modelProviders.saveSuccess", "模型供应商已保存")} ${t(
-                "codex.api.modelCatalog.restartHint",
-                "模型目录已更新。若 Codex 正在运行，请重启后生效。",
-              )}`
-            : t("codex.modelProviders.saveSuccess", "模型供应商已保存"),
+        text: currentEditingProvider
+          ? `${t("codex.modelProviders.saveSuccess", "模型供应商已保存")} ${t(
+              "codex.modelProviders.settingsRestartHint",
+              "供应商配置已更新。若关联的 Codex 或 API 服务正在运行，请重启后生效。",
+            )}`
+          : t("codex.modelProviders.saveSuccess", "模型供应商已保存"),
       });
     } catch (err) {
       setFormError(parseServiceError(err));
@@ -2512,20 +2448,23 @@ export function useCodexModelProviderManagerController({
 
   const handleDeleteApiKey = useCallback(
     async (provider: CodexModelProvider, apiKey: CodexModelProviderApiKey) => {
+      if (saving) return;
+      setFormError(null);
+      setNotice(null);
+      setSaving(true);
       try {
         await removeApiKeyFromCodexModelProvider(provider.id, apiKey.id);
-        await reloadProviders();
+        await reloadProviders(false);
       } catch (err) {
-        setNotice({
-          tone: "error",
-          text: t("codex.modelProviders.deleteApiKeyFailed", {
-            defaultValue: "删除 API Key 失败：{{error}}",
-            error: parseServiceError(err),
-          }),
-        });
+        setFormError(t("codex.modelProviders.deleteApiKeyFailed", {
+          defaultValue: "删除 API Key 失败：{{error}}",
+          error: parseServiceError(err),
+        }));
+      } finally {
+        setSaving(false);
       }
     },
-    [parseServiceError, reloadProviders, t],
+    [parseServiceError, reloadProviders, saving, t],
   );
 
   const handleSaveApiKeyEdit = useCallback(async () => {
@@ -2861,7 +2800,10 @@ export function useCodexModelProviderManagerController({
         splitValidityFilterValues(providerOauthFilterTypes);
       if (selectedTypes.size > 0) {
         result = result.filter((account) => {
-          if (selectedTypes.has("ERROR") && account.quota_error) return true;
+          if (
+            selectedTypes.has("ERROR") &&
+            getCodexAccountQuotaError(account.quota_error)
+          ) return true;
           return selectedTypes.has(resolvePlanKey(account));
         });
       }
@@ -3690,6 +3632,7 @@ export function useCodexModelProviderManagerController({
     mutateForm,
     notice,
     openBatchTestModal,
+    openProviderPelican,
     openCreateModal,
     openEditModal,
     parseModelCatalogText,

@@ -1,3 +1,4 @@
+import { installTauriEventCleanupGuard } from "./utils/tauriEventListener";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { initI18n } from "./i18n";
@@ -28,6 +29,7 @@ void (async () => {
   }
 
   recordFrontendStage("react_mount_start");
+  installTauriEventCleanupGuard();
   ReactDOM.createRoot(rootElement).render(
     <React.StrictMode>
       <AppRuntimeGuard>

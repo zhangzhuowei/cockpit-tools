@@ -10,7 +10,7 @@
       "accountsRequired": "Wybierz co najmniej jedno konto.",
       "invalidAccount": "Nieprawidłowy identyfikator konta.",
       "invalidRequest": "Nieprawidłowe parametry testu.",
-      "invalidConcurrency": "Liczba równoległych zadań musi wynosić od 1 do 10.",
+      "invalidConcurrency": "Zadania równoległe · 1–200",
       "invalidRetention": "Okres przechowywania musi wynosić od 1 do 3650 dni.",
       "alreadyRunning": "Najpierw zamknij aktywny test.",
       "artifactMissing": "Nie znaleziono wygenerowanego wyniku.",
@@ -22,7 +22,9 @@
       "storage": "Nie można odczytać ani zapisać historii testów.",
       "unsafePath": "Niebezpieczna ścieżka wyniku.",
       "historyMissing": "Nie znaleziono wpisu testu.",
-      "invalidId": "Nieprawidłowy identyfikator wpisu."
+      "invalidId": "Nieprawidłowy identyfikator wpisu.",
+      "providerUnavailable": "Dostawca lub zapisany klucz API jest niedostępny.",
+      "providerChanged": "Adres lub protokół uległ zmianie. Rozpocznij nowy test."
     },
     "title": "Test z pelikanem",
     "description": "Generuj HTML równolegle z tym samym poleceniem. Porównuj wyniki samodzielnie, bez automatycznej oceny.",
@@ -83,9 +85,52 @@
     "confirmClearAll": "Wyczyścić wszystkie testy Pelican?",
     "clearAllHelp": "Cała historia testów i wygenerowane pliki zostaną trwale usunięte. Tej operacji nie można cofnąć.",
     "search": "Szukaj kont",
-    "viewError": "Pokaż błąd"
+    "viewError": "Pokaż błąd",
+    "providers": "Dostawcy",
+    "providerDescription": "Porównaj dostawców, generując animację pelikana.",
+    "providerHelp": "Wybierz dostawcę, zapisany klucz i model. Żądania korzystają z oddzielnej bramy tymczasowej; przy ponowieniu dane dostępowe są odczytywane ponownie.",
+    "providerRequired": "Wybierz prawidłowego dostawcę, klucz API i model.",
+    "providerModelMismatch": "Inny model: żądano {{requested}}, otrzymano {{responded}}.",
+    "providerSearch": "Szukaj dostawcy lub nazwy klucza",
+    "providerEmpty": "Brak pasujących dostawców",
+    "providerClear": "Wyczyść wybór"
   },
   "common": {
+    "dragSortHint": "Przeciągnij lewy uchwyt, aby zmienić kolejność. Zmiany zapiszą się po puszczeniu.",
+    "dragSortFilteredHint": "Wyczyść wyszukiwanie, aby zmienić kolejność.",
+    "recycleBin": {
+      "loadTimeout": "Przekroczono czas odczytu kosza. Odśwież, aby spróbować ponownie.",
+      "refreshFailed": "Konto przywrócono, ale odświeżenie listy nie powiodło się. Wczytaj listę kont ponownie.",
+      "moveStarted": "Rozpoczęto przenoszenie kont ({{count}}) do kosza",
+      "title": "Kosz",
+      "description": "Usunięte konta pozostają lokalnie i można je przywrócić lub wyeksportować. Przywrócenie nie przełącza kont, nie uruchamia klientów ani nie przywraca powiązań z zadaniami lub usługą API.",
+      "empty": "Kosz jest pusty",
+      "restore": "Przywróć",
+      "deletePermanently": "Usuń na zawsze",
+      "emptyBin": "Opróżnij kosz",
+      "deletedAt": "Usunięto: {{time}}",
+      "confirmDelete": "Usunąć „{{name}}” na zawsze? Dane konta w koszu zostaną usunięte bez możliwości przywrócenia.",
+      "confirmEmpty": "Usunąć te konta ({{count}}) na zawsze? Ich dane w koszu zostaną usunięte bez możliwości przywrócenia.",
+      "move": "Do kosza",
+      "confirmMove": "Przenieść konta ({{count}}) do kosza? W koszu można je przywrócić, wyeksportować lub trwale usunąć.",
+      "moved": "Przeniesiono do kosza",
+      "moveFailed": "Nie udało się przenieść do kosza: {{error}}",
+      "operationFailed": "Operacja nie powiodła się: {{error}}",
+      "export": "Eksportuj",
+      "exportAll": "Eksportuj wszystko",
+      "exportAndDelete": "Eksportuj i usuń",
+      "exportAndEmpty": "Eksportuj i opróżnij",
+      "count": "Konta: {{count}}",
+      "exportHint": "Eksportuje plik JSON, który można ponownie zaimportować. Zawiera dane logowania do kont; przechowuj go bezpiecznie. Anulowanie zapisu lub błąd eksportu nie spowoduje usunięcia kont.",
+      "exported": "Konta wyeksportowane.",
+      "confirmTitle": "Trwale usunąć konta?"
+    },
+    "requestProxy": {
+      "value": "Serwer proxy: {{name}}",
+      "direct": "Bezpośrednio",
+      "unknown": "Brak zapisu",
+      "entryHint": "Zapisano tylko punkt wejścia proxy; końcowy węzeł jest nieznany."
+    },
     "retry": "Ponów",
     "quotaRefreshScheduler": {
       "busy": "Kolejka odświeżania jest pełna. Spróbuj za chwilę.",
@@ -124,7 +169,7 @@
     "windowsOperation": {
       "title": "Operacja Windows nie została ukończona",
       "accessDeniedDescription": "Windows odmówił wykonania operacji. Program może działać z wyższymi uprawnieniami lub znajdować się w chronionej lokalizacji.",
-      "storeLaunchBlockedDescription": "Windows nie mógł uruchomić skonfigurowanego klienta Codex: folder ze Sklepu mógł zostać zastąpiony przez aktualizację lub nie pozwala już na uruchamianie. Bezpośrednie uruchomienie zablokowano, aby nie otworzyć niewłaściwego konta. Użyj „Wykryj ścieżkę ponownie i spróbuj ponownie”; jeśli to nie pomoże, przełącz tę instancję na tryb CLI.",
+      "storeLaunchBlockedDescription": "Nie udało się potwierdzić uruchomienia izolowanej instancji ze sklepu. Cockpit nie użył konta domyślnego. Ponownie wykryj ścieżkę klienta i spróbuj jeszcze raz. Jeśli błąd się powtórzy, skopiuj dane diagnostyczne lub przełącz tę instancję w tryb CLI.",
       "repairPath": "Wykryj ścieżkę ponownie i spróbuj ponownie",
       "fileInUseDescription": "Plik jest używany przez inny program. Zamknij go i spróbuj ponownie.",
       "programNotFoundDescription": "Windows nie znalazł wymaganego programu. Sprawdź instalację lub skonfigurowaną ścieżkę.",
@@ -309,7 +354,8 @@
         "unlimited": "Bez limitu",
         "leftPercent": "Pozostało {{value}}%",
         "cachedRefreshFailed": "Odświeżanie nie powiodło się; wyświetlam ostatnie poprawne dane",
-        "lastSuccessfulQuery": "Ostatni sukces: {{time}}"
+        "lastSuccessfulQuery": "Ostatni sukces: {{time}}",
+        "cachedNeedsReauth": "⚠️ Wymagana weryfikacja internetowa, aby kontynuować (dane z pamięci podręcznej poniżej)"
       },
       "subtitle": "Zarządzaj kontami GitHub Copilot",
       "time": {
@@ -369,7 +415,9 @@
     "quota": {
       "weeklyWindow": "Tydzień"
     },
-    "optional": " (opcjonalne)"
+    "optional": " (opcjonalne)",
+    "hide": "Ukryj",
+    "show": "Pokaż"
   },
   "nav": {
     "overview": "Antigravity IDE​",
@@ -741,7 +789,7 @@
     },
     "delete": {
       "title": "Usuń instancję",
-      "message": "Czy usunąć instancję {{name}}? Spowoduje to usunięcie konfiguracji i folderu instancji."
+      "message": "Usunąć instancję {{name}}? Jej wpis zostanie usunięty, a zarządzane foldery trafią do kosza. Foldery niestandardowe i chronione zostaną zachowane."
     },
     "import": {
       "btnTitle": "Importuj istniejący katalog",
@@ -764,6 +812,24 @@
     }
   },
   "settings": {
+    "instanceCleanup": {
+      "title": "Czyszczenie instancji",
+      "description": "Ręcznie przeskanuj foldery zarządzanych instancji i usuń dane, do których nie odwołują się konfiguracje instancji ani uruchomione procesy. Nic nie jest usuwane automatycznie.",
+      "scan": "Skanuj",
+      "scanning": "Skanowanie…",
+      "remove": "Usuń trwale",
+      "removing": "Usuwanie…",
+      "empty": "Brak pozostałych folderów do usunięcia",
+      "summary": "Znaleziono {{count}} folderów zajmujących {{size}}",
+      "confirm": "Poniższe foldery wraz z sesjami, obszarami roboczymi i pamięcią podręczną zostaną trwale usunięte. Tej operacji nie można cofnąć.",
+      "cancel": "Anuluj",
+      "confirmRemove": "Potwierdź",
+      "done": "Usunięto {{count}} folderów",
+      "failed": "Operacja nie powiodła się",
+      "path": "Katalog",
+      "size": "Zajęte",
+      "platform": "Platforma"
+    },
     "title": "Ustawienia aplikacji",
     "subtitle": "Dostosuj działanie narzędzi Cockpit Tools.",
     "tabs": {
@@ -1426,7 +1492,9 @@
       "normal": "Normalne",
       "forbidden": "403​",
       "forbidden_tooltip": "API zwróciło 403 Forbidden, konto nie ma dostępu do Gemini Code Assist",
-      "forbidden_msg": "Konto zabronione, pominięto automatyczne odświeżanie"
+      "forbidden_msg": "Konto zabronione, pominięto automatyczne odświeżanie",
+      "needsReauth": "Wymagana weryfikacja internetowa",
+      "needsReauthTooltip": "Google wymaga weryfikacji bezpieczeństwa w sieci, aby kontynuować"
     },
     "tier": {
       "pro": "PRO​",
@@ -1561,7 +1629,12 @@
       "delete": "Usuń",
       "deleteSelected": "Usuń zaznaczone",
       "export": "Eksportuj",
-      "refreshAll": "Odśwież wszystko"
+      "refreshAll": "Odśwież wszystko",
+      "reauth": "Autoryzuj ponownie",
+      "reauthTooltip": "Google wymaga ponownej weryfikacji, kliknij aby autoryzować ponownie",
+      "openValidationUrl": "Weryfikacja internetowa",
+      "copyValidationUrl": "Kopiuj link do weryfikacji",
+      "copyValidationUrlTooltip": "Kopiuj adres weryfikacji internetowej"
     },
     "tabs": {
       "oauth": "Autoryzacja OAuth",
@@ -1800,7 +1873,8 @@
     "example": "Przykład",
     "actionRunning": "{{action}}...​",
     "actionSuccess": "{{action}} zakończone",
-    "actionFailed": "{{action}} niepowodzenie: {{error}}"
+    "actionFailed": "{{action}} niepowodzenie: {{error}}",
+    "refreshFailed": "Odświeżanie nie powiodło się"
   },
   "wakeup": {
     "title": "Zadania wybudzania",
@@ -2063,6 +2137,11 @@
     "other_group": "Inne modele"
   },
   "codex": {
+    "launchErrors": {
+      "bindingFailed": "Nie można potwierdzić powiązania konta. Uruchamianie zatrzymano. Spróbuj ponownie przełączyć konto.",
+      "processScanFailed": "Nie można sprawdzić poprzednich procesów w tle. Uruchamianie zatrzymano. Spróbuj ponownie.",
+      "proxyEntryFailed": "Nie można uruchomić skonfigurowanego proxy. Nie użyto innej trasy. Spróbuj ponownie."
+    },
     "oauthProxy": {
       "toggle": "Autoryzuj przez proxy",
       "hint": "Wbudowane okno, wymiana tokenu i pierwsza kontrola limitu używają tego proxy. Jeśli logowanie wymaga okna podręcznego, wyłącz tę opcję.",
@@ -2548,7 +2627,7 @@
       "hideEntryEffectRestore": "Możesz go ponownie włączyć w ustawieniach Codex lub w szybkich ustawieniach",
       "riskNotice": {
         "title": "Informacja o ryzyku",
-        "message": "Obecne funkcje związane z usługą Codex API opierają się w praktyce na użyciu reverse proxy. Na tę chwilę oficjalna usługa nie ogranicza tego zachowania wprost, ale przyszłe zasady, reguły lub dostępność mogą się zmienić. Kontynuując korzystanie z tej funkcji, potwierdzasz, że rozumiesz tę sytuację i samodzielnie bierzesz na siebie związane z nią ryzyko.",
+        "message": "Korzystanie ze zwykłych oficjalnych kont przez odwrotne proxy lub do przekazywania żądań może podlegać surowym ograniczeniom ze strony oficjalnej usługi. Takie użycie może też zostać rozpoznane jako pośredniczenie i wpłynąć na jakość odpowiedzi („obniżenie inteligencji”). Korzystaj ostrożnie, zwłaszcza jeśli masz wiele kont.",
         "remember": "Rozumiem, nie pokazuj ponownie",
         "acknowledge": "Rozumiem",
         "continueStart": "Dalej",
@@ -3078,7 +3157,8 @@
         "medium": "Średni",
         "high": "Wysoki",
         "xhigh": "Bardzo wysoki",
-        "max": "Maks."
+        "max": "Maks.",
+        "ultra": "Ekstremalny"
       },
       "scheduleQuotaResetHint": "Po włączeniu wybudzania po resecie limitu automatyczne odświeżanie zostanie ustawione co 2 minuty.",
       "scheduleQuotaResetSummary": "Uruchom po resecie limitu",
@@ -3640,7 +3720,8 @@
         "baseUrlExists": "Ten bazowy adres URL już istnieje.",
         "providerNotFound": "Nie znaleziono dostawcy.",
         "apiKeyRequiredOnCreate": "Przy tworzeniu dostawcy wymagany jest co najmniej jeden klucz API.",
-        "apiKeyRequiredWhenEmpty": "Ten dostawca nie ma jeszcze klucza API. Najpierw dodaj jeden."
+        "apiKeyRequiredWhenEmpty": "Ten dostawca nie ma jeszcze klucza API. Najpierw dodaj jeden.",
+        "apiKeyUrlInvalid": "Użyj adresu HTTP(S) strony zarządzania bez danych logowania; klucz API wpisz w polu klucza."
       },
       "saveSuccess": "Dostawca modelu został zapisany.",
       "deleteBlocked": "Ten dostawca jest powiązany z {{count}} kontami i nie można go usunąć.",
@@ -3793,7 +3874,7 @@
         "modelAuto": "Auto (katalog / wykrywanie)",
         "modelCustom": "Własny model…",
         "modelLabel": "Model testowy",
-        "modelCustomPlaceholder": "ID modelu, np. gpt-4.1-mini",
+        "modelCustomPlaceholder": "ID modelu, np. gpt-6.1-sol",
         "modelHint": "Opcjonalnie: wspólny model. Puste = auto z katalogu."
       },
       "enableAndStart": "Start​",
@@ -3808,9 +3889,9 @@
       },
       "vision": {
         "providerDefault": "Ten dostawca domyślnie obsługuje obrazy",
-        "providerDefaultHint": "Po wyłączeniu tylko modele z listy poniżej przyjmą obrazy; pozostałe odrzuci lokalna brama.",
+        "providerDefaultHint": "Modele bez osobnego ustawienia używają tej wartości; GPT-5.5 i nowsze domyślnie obsługują obrazy. Poszczególne modele można wyłączyć na liście. Jeśli brama nie znajdzie modelu wizyjnego, pomija obrazy i przetwarza dalej tekst.",
         "modelsHint": "Jeden model w wierszu. Użyj, gdy tylko część modeli dostawcy obsługuje wklejone obrazy.",
-        "routingModelHint": "Gdy bieżący model nie czyta obrazów, żądanie użyje tego modelu; puste pole automatycznie użyje jedynego modelu wizyjnego.",
+        "routingModelHint": "Gdy bieżący model nie czyta obrazów, brama używa tego modelu. Puste pole wybiera jedyny dostępny model wizyjny; w przeciwnym razie obrazy są pomijane, a tekst nadal przetwarzany.",
         "allModels": "Obrazy",
         "partialModels": "Część obrazów",
         "textOnly": "Tylko tekst"
@@ -3899,7 +3980,8 @@
       "importConfigFailed": "Nie udało się zaimportować ze schowka: {{error}}",
       "importConfigPlaceholder": "Użyj „Kopiuj konfigurację” na karcie i wklej treść tutaj",
       "importConfigAction": "Importuj konfigurację",
-      "importConfigFromClipboard": "Czytaj schowek"
+      "importConfigFromClipboard": "Czytaj schowek",
+      "settingsRestartHint": "Zaktualizowano ustawienia dostawcy. Aby je zastosować, uruchom ponownie działające instancje Codex lub usługę API korzystającą z tego dostawcy."
     },
     "quickSwitch": {
       "action": "Szybka zmiana dostawcy",
@@ -4260,7 +4342,7 @@
         "reasoningEffortValue": "Roz. {{effort}}",
         "serviceTier": "Poziom usługi",
         "serviceTierValue": "Poziom {{tier}}",
-        "upstreamModel": "Model rzeczywisty"
+        "upstreamModel": "Wysłany model"
       },
       "timeouts": {
         "entryLabel": "Zaawansowane",
@@ -4535,8 +4617,6 @@
       "serverCount": "{{count}} serwerów",
       "autoSyncBadge": "Automatyczny"
     },
-    "exportAuthFailed": "Eksport błędów",
-    "exportAuthFailedTitle": "Eksportuj konta z błędem auth",
     "accounts": {
       "showRelayQuota": "Pokaż limit relay",
       "hideRelayQuota": "Ukryj limit relay"
@@ -4569,6 +4649,18 @@
       "restartFailed": "Nie udało się ponownie uruchomić bramy: {{error}}"
     },
     "proxy": {
+      "display": {
+        "title": "Widok proxy",
+        "compact": "Zwięzły",
+        "summary": "Podsumowanie",
+        "detailed": "Szczegółowy",
+        "hint": "Dotyczy wszystkich kart kont Codex; wybór jest od razu zapisywany i stosowany.",
+        "configuredNode": "Wybrany węzeł",
+        "lastRequest": "Ostatnie żądanie",
+        "preview": "Podgląd stylu",
+        "saveFailed": "Nie udało się zapisać ustawienia widoku. Spróbuj ponownie.",
+        "refresh": "Odśwież dane"
+      },
       "workspace": {
         "navLabel": "Sekcje proxy",
         "overview": "Przegląd",
@@ -4661,7 +4753,7 @@
       },
       "rules": {
         "title": "Reguły wyjścia",
-        "intro": "Osobne proxy konta ma pierwszeństwo przed wspólnym proxy; gdy nie działa żadne z nich, żądania zachowują poprzednie domyślne wyjście klienta.",
+        "intro": "Osobne proxy konta ma pierwszeństwo przed wspólnym proxy; gdy nie działa żadne z nich, żądania zachowują poprzednie domyślne wyjście klienta. Konta z jawnie wybraną opcją „Bez proxy” są wyłączone.",
         "order": "Kolejność stosowania",
         "tableTitle": "Wyjścia kont",
         "columnAccount": "Konto",
@@ -4707,8 +4799,8 @@
       "batchClearAll": "Odznacz wszystkie",
       "unified": {
         "title": "Wspólne wyjście proxy",
-        "hint": "Uprawnione konta bez własnego proxy współdzielą to wyjście; nowe konta dołączają automatycznie.",
-        "offState": "Wyłączone: obowiązuje proxy konta, a bez niego wyjście domyślne.",
+        "hint": "Uprawnione konta bez własnego proxy współdzielą to wyjście; nowe konta dołączają automatycznie. Konta z jawnie wybraną opcją „Bez proxy” są wyłączone.",
+        "offState": "Wyłączone: obowiązuje proxy konta, a bez niego wyjście domyślne. Konta z jawnie wybraną opcją „Bez proxy” są wyłączone.",
         "enable": "Włącz dla wszystkich",
         "disable": "Wyłącz",
         "change": "Zmień wyjście",
@@ -4726,12 +4818,12 @@
         "changeMessage": "Działające klienty z lokalnym pośrednikiem użyją nowego wyjścia dla nowych połączeń.",
         "changeConfirm": "Zmień",
         "disableTitle": "Wyłącz wspólne wyjście proxy",
-        "disableMessage": "Własne proxy pozostają aktywne; bez powiązania obowiązuje wyjście domyślne.",
+        "disableMessage": "Własne proxy pozostają aktywne; bez powiązania obowiązuje wyjście domyślne. Konta z jawnie wybraną opcją „Bez proxy” są wyłączone.",
         "disableConfirm": "Wyłącz",
         "restartHint": "Klienty uruchomione przez lokalnego pośrednika przełączą nowe połączenia. Pozostałe działające klienty wymagają jednego restartu.",
         "staleWarning": "Źródło tego wyjścia jest niedostępne. Wybierz inne.",
         "removedWarning": "Wspólne wyjście proxy zostało wyłączone, ponieważ jego źródło zostało usunięte.",
-        "accountsNotice": "Proxy konta ma pierwszeństwo; konta bez powiązania korzystają ze wspólnego proxy.",
+        "accountsNotice": "Proxy konta ma pierwszeństwo; konta bez powiązania korzystają ze wspólnego proxy. Konta z jawnie wybraną opcją „Bez proxy” są wyłączone.",
         "unbindBlocked": "Po usunięciu powiązania konto będzie korzystać ze wspólnego proxy.",
         "following": "Wspólne",
         "errorFailed": "Operacja nie powiodła się. Spróbuj ponownie.",
@@ -4794,6 +4886,11 @@
         "viewAll": "Pokaż wszystko"
       },
       "previewTitle": "Podgląd proxy",
+      "modeDisabled": "Bez proxy",
+      "disableAction": "Odłącz proxy",
+      "setIndependent": "Własne proxy",
+      "disabledHint": "Pomiń indywidualne i wspólne proxy; próbuj łączyć się bezpośrednio.",
+      "disabledWarning": "Dostęp bezpośredni może nie działać. Zmiana obejmuje nowe połączenia klientów korzystających z lokalnego przekazywania; pozostałe uruchomione klienty wymagają restartu. Istniejące połączenia mogą zachować poprzednią trasę.",
       "exitIp": "Wyjściowy IP",
       "sessionHistory": "Dziennik pracy",
       "sessionHistoryHint": "Sprawdza stan co 5 sekund. Zachowuje stan początkowy i zmiany tylko z tego podglądu, do 20 wpisów. Usuwa je po zamknięciu; to nie jest pełna historia.",
@@ -4824,9 +4921,17 @@
       "desktopRequest_forwarded": "Ostatnie lokalne przekazanie nawiązane",
       "desktopRequest_failed": "Ostatnie lokalne przekazanie nieudane",
       "desktopEntryReadyHint": "Wejście nasłuchuje; silnik uruchomi się po otrzymaniu żądania połączenia.",
+      "sharedRuntime": "Proxy konta",
       "runtimeMain": "Żądania konta",
       "runtimeDesktop": "Most klienta",
       "runtimeHint": "Stan opisuje tylko lokalne wejście i silnik. Nawiązane przekazanie nie potwierdza dostępu do Internetu ani nie identyfikuje klienta wysyłającego żądanie.",
+      "restoreEntry": "Przywróć przekaźnik",
+      "restoringEntry": "Przywracanie…",
+      "restoreEntryFailed": "Nie udało się przywrócić przekaźnika proxy aplikacji. Spróbuj ponownie.",
+      "restoreEntryPortBusy": "Pierwotny port proxy jest zajęty. Zwolnij go i spróbuj ponownie; aplikacja nie może automatycznie użyć innego portu.",
+      "restoreEntryNotRunning": "Nie znaleziono uruchomionej aplikacji korzystającej z zapisanego wejścia proxy tej instancji Cockpit.",
+      "restoreEntryBusy": "Przywracanie proxy już trwa. Spróbuj ponownie za chwilę.",
+      "restoreEntryTimeout": "Upłynął limit czasu przywracania proxy. Spróbuj ponownie.",
       "restartHint": "Klienty uruchomione przez lokalnego pośrednika przełączą nowe połączenia. Pozostałe działające klienty wymagają jednego restartu. Most klienta nasłuchuje tylko na interfejsie zwrotnym, ale nie izoluje innych lokalnych użytkowników. Proxy systemowe pozostaje bez zmian.",
       "exportHint": "Eksport kont nie obejmuje danych logowania proxy; skonfiguruj je ponownie po imporcie.",
       "backToAccounts": "Wróć do kont",
@@ -5140,7 +5245,7 @@
         "assign": "Przypisz proxy",
         "specific": "Wybrane konta",
         "shared": "Wspólne proxy",
-        "sharedHint": "Konta Codex OAuth bez własnego proxy używają tego serwera, także obsługiwane konta dodane później. Istniejące ustawienia indywidualne pozostają aktywne.",
+        "sharedHint": "Konta Codex OAuth bez własnego proxy używają tego serwera, także obsługiwane konta dodane później. Istniejące ustawienia indywidualne pozostają aktywne. Konta z jawnie wybraną opcją „Bez proxy” są wyłączone.",
         "apply": "Przypisz"
       },
       "managerResources": {
@@ -5173,7 +5278,7 @@
       "managerUnified": {
         "off": "Wyłączone",
         "choose": "Ustaw proxy",
-        "hint": "Konta bez własnego proxy używają tego serwera."
+        "hint": "Konta bez własnego proxy używają tego serwera. Konta z jawnie wybraną opcją „Bez proxy” są wyłączone."
       },
       "setup": {
         "title": "Skonfiguruj proxy",
@@ -5187,13 +5292,20 @@
         "collapse": "Ukryj szczegóły"
       },
       "runtime_entry_failed": "Błąd wejścia",
+      "measureCurrentLatency": "Zmierz opóźnienie",
+      "measuringCurrentLatency": "Pomiar",
+      "currentLatencyNotRunning": "Brak działającego węzła do sprawdzenia. Uruchom klienta korzystającego z tego proxy lub przetestuj skonfigurowany węzeł w zarządzaniu proxy.",
+      "currentLatencyHint": "Mierzy opóźnienie działającego węzła do testowego adresu URL bez zmiany węzła ani reguł proxy.",
       "latencyCheckedAt": "Sprawdzono o",
       "latencyPending": "Niesprawdzony",
       "latencyTimeout": "Limit czasu",
       "quickSwitch": "Zmień węzeł",
       "quickSwitchHint": "Zmienia tylko to konto. Nowe połączenia używają zapisanego wyjścia; zapis nie sprawdza połączenia.",
       "currentNode": "Bieżący węzeł",
-      "noCurrentNode": "Bieżący węzeł nie jest jeszcze dostępny"
+      "noCurrentNode": "Bieżący węzeł nie jest jeszcze dostępny",
+      "runtimeBusy": "Lokalny serwer proxy jest zajęty. Aktualizacja jest chwilowo niedostępna.",
+      "runtimeCapacity": "Działa zbyt wiele serwerów proxy. Zatrzymaj nieużywane i spróbuj ponownie.",
+      "runtimeReadFailed": "Stan lokalnego serwera proxy jest chwilowo niedostępny. Spróbuj ponownie."
     },
     "more": {
       "title": "Więcej",
@@ -5213,6 +5325,17 @@
       "moveUp": "W górę",
       "moveDown": "W dół",
       "done": "Gotowe"
+    },
+    "cliDaemon": {
+      "title": "Odśwież konto CLI",
+      "description": "Dane logowania zapisano, ale usługa Codex CLI tego profilu nadal działa i może używać poprzedniego konta.",
+      "restartHint": "Zakończ aktywne zadania CLI, a następnie uruchom to polecenie w terminalu. Restart przerwie sesje połączone z tą usługą.",
+      "copyFailed": "Kopiowanie nie powiodło się. Zaznacz powyższe polecenie i skopiuj je ręcznie."
+    },
+    "proxyQuality": {
+      "errors": {
+        "bindingChanged": "Powiązanie konta się zmieniło. Zachowano bieżące ustawienie."
+      }
     }
   },
   "githubCopilot": {

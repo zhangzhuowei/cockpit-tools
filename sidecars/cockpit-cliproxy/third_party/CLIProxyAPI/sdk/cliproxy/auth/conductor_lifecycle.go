@@ -155,6 +155,10 @@ func (m *Manager) updateInternal(ctx context.Context, base, auth *Auth, mode upd
 		return nil, fmt.Errorf("update auth: %w", errWeight)
 	}
 	m.mu.Lock()
+	if mode == updateModeRefresh && ctx != nil && ctx.Err() != nil {
+		m.mu.Unlock()
+		return nil, ctx.Err()
+	}
 	existing, ok := m.auths[auth.ID]
 	if !ok || existing == nil {
 		m.mu.Unlock()
@@ -226,12 +230,17 @@ func (m *Manager) updateInternal(ctx context.Context, base, auth *Auth, mode upd
 	auth.EnsureIndex()
 	authClone := auth.Clone()
 	m.auths[auth.ID] = authClone
+	// authClone is now the shared published pointer; other goroutines mutate it
+	// in place under m.mu (e.g. ReconcileRegistryModelStates rewrites ModelStates,
+	// markRefreshPending sets NextRefreshAfter). Snapshot for the scheduler while
+	// still holding the lock so the copy cannot race a locked writer.
+	schedulerClone := authClone.Clone()
 	m.mu.Unlock()
 	if !shouldDeferAPIKeyModelAliasRebuild(ctx) {
 		m.rebuildAPIKeyModelAliasFromRuntimeConfig()
 	}
 	if m.scheduler != nil {
-		m.scheduler.upsertAuth(authClone.Clone())
+		m.scheduler.upsertAuth(schedulerClone)
 	}
 	m.queueRefreshReschedule(auth.ID)
 	_ = m.persist(ctx, auth)
@@ -386,6 +395,11 @@ func (m *Manager) persist(ctx context.Context, auth *Auth) error {
 	if m.store == nil || auth == nil {
 		return nil
 	}
+	// A cancelled caller (e.g., the auto-refresh loop during shutdown) must not
+	// start a new durable write; the store may already be tearing down.
+	if ctx != nil && ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if errWeight := ValidateAuthWeight(auth); errWeight != nil {
 		return fmt.Errorf("persist auth: %w", errWeight)
 	}
@@ -415,6 +429,9 @@ func (m *Manager) persist(ctx context.Context, auth *Auth) error {
 	if pLock != nil {
 		pLock.mu.Lock()
 		defer pLock.mu.Unlock()
+		if ctx != nil && ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if auth.RegistrationEpoch < pLock.lastEpoch || (auth.RegistrationEpoch == pLock.lastEpoch && auth.Generation < pLock.lastGeneration) {
 			return nil
 		}

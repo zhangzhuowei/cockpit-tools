@@ -256,11 +256,18 @@ export interface CodexTokenBreakdown {
   unclassified_tokens: number;
 }
 
+export interface CodexLocalAccessProxyRoute {
+  kind: "node" | "proxy" | "direct" | "unknown";
+  name: string;
+}
+
 export interface CodexLocalAccessUsageEvent {
   timestamp: number;
   requestId: string;
   accountId: string;
   email: string;
+  /** 请求执行时记录的代理快照；旧日志不按当前账号绑定回填。 */
+  proxyRoute?: CodexLocalAccessProxyRoute | null;
   apiKeyId: string;
   apiKeyLabel: string;
   /** 多开实例目录 ID（x-cockpit-instance-id） */

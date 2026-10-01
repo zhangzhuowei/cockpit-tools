@@ -180,6 +180,8 @@ type Manager struct {
 	// Auto refresh state
 	refreshCancel context.CancelFunc
 	refreshLoop   *authAutoRefreshLoop
+	// refreshRuns retains cancelled runs until all their workers have exited.
+	refreshRuns map[*authAutoRefreshLoop]context.CancelFunc
 
 	requestPrepareLocks sync.Map
 	// refreshLocks serializes credential refresh per auth ID so concurrent

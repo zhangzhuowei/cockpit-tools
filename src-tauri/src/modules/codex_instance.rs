@@ -19,6 +19,10 @@ static CODEX_INSTANCE_STORE_LOCK: std::sync::LazyLock<Mutex<()>> =
     std::sync::LazyLock::new(|| Mutex::new(()));
 static CODEX_INSTANCE_SAVE_NOTIFY_LOCK: Mutex<()> = Mutex::new(());
 
+#[cfg(test)]
+#[path = "codex_instance_switch_tests.rs"]
+mod switch_tests;
+
 const CODEX_INSTANCES_FILE: &str = "codex_instances.json";
 pub const CODEX_API_SERVICE_BIND_ACCOUNT_ID: &str = "__api_service__";
 const CODEX_PROVIDER_GATEWAY_BIND_ACCOUNT_PREFIX: &str = "__provider_gateway__:";
@@ -73,7 +77,11 @@ pub async fn preflight_egress_proxy_for_bind_account(bind_account_id: Option<&st
     crate::modules::codex_proxy_engine_preflight::for_account(
         &account_id,
         crate::modules::codex_proxy_engine_preflight::Usage::Desktop,
-    ).await
+    ).await?;
+    // Prepare the local listener before stopping a working desktop or writing
+    // credentials. This opens no upstream connection and does not test a model.
+    crate::modules::codex_proxy_desktop_router::ensure(&account_id).await?;
+    Ok(())
 }
 
 /// 解析实例绑定账号的出口代理。API 服务聚合入口不直接访问 OpenAI，不需要账号代理。
@@ -81,7 +89,7 @@ pub async fn preflight_egress_proxy_for_bind_account(bind_account_id: Option<&st
 /// 受管客户端启动时统一走 `codex_proxy_desktop_router::ensure`：账号符合资格且已有
 /// 生效出口（账号绑定或统一代理）时才注入固定入口。已接入入口的客户端换节点或解绑
 /// 只影响新连接；尚未接入的客户端首次绑定后需重启。未绑定账号的新启动沿用原有出口。
-/// 入口创建失败时 `ensure` 返回 `None`，不注入代理参数，也不阻断客户端启动。
+/// 已配置出口的入口创建失败时返回错误，禁止静默沿用其他代理或系统出口。
 pub async fn resolve_egress_proxy_for_bind_account(bind_account_id: Option<&str>) -> Result<Option<String>, String> {
     let Some(bind_account_id) = bind_account_id.map(str::trim).filter(|value| !value.is_empty()) else { return Ok(None); };
     if is_api_service_bind_account_id(bind_account_id) {
@@ -124,6 +132,7 @@ fn instances_path() -> Result<PathBuf, String> {
 }
 
 pub fn load_instance_store() -> Result<InstanceStore, String> {
+    let _creation_guard = crate::modules::instance_storage_cleanup::protect_instance_creation()?;
     let path = instances_path()?;
     let mut store = instance_store::load_instance_store(&path, CODEX_INSTANCES_FILE)?;
     if normalize_managed_instance_dirs(&mut store)? {
@@ -149,6 +158,29 @@ fn save_instance_store_raw(store: &InstanceStore) -> Result<(), String> {
 pub fn load_default_settings() -> Result<DefaultInstanceSettings, String> {
     let store = load_instance_store()?;
     Ok(store.default_settings)
+}
+
+/// A prepared profile must not launch through a different account's proxy.
+pub(crate) fn verify_prepared_launch_binding(
+    expected: Option<&str>,
+    actual: Option<&str>,
+) -> Result<(), String> {
+    if expected.is_some() && expected != actual {
+        return Err("CODEX_SWITCH_BINDING_FAILED".into());
+    }
+    Ok(())
+}
+
+pub(crate) fn bind_default_account_for_switch(account_id: &str) -> Result<(), String> {
+    let updated = update_default_settings(
+        Some(Some(account_id.to_owned())), None, None, Some(false), None, None,
+    ).map_err(|error| {
+        modules::logger::log_warn(&format!("更新 Codex 默认实例绑定失败，停止启动: {error}"));
+        "CODEX_SWITCH_BINDING_FAILED".to_owned()
+    })?;
+    verify_prepared_launch_binding(Some(account_id), updated.bind_account_id.as_deref())?;
+    let persisted = load_default_settings().map_err(|_| "CODEX_SWITCH_BINDING_FAILED")?;
+    verify_prepared_launch_binding(Some(account_id), persisted.bind_account_id.as_deref())
 }
 
 pub fn update_default_settings(
@@ -906,6 +938,7 @@ pub fn ensure_instance_shared_skills(profile_dir: &Path) -> Result<(), String> {
 }
 
 pub fn create_instance(params: CreateInstanceParams) -> Result<InstanceProfile, String> {
+    let _creation_guard = crate::modules::instance_storage_cleanup::protect_instance_creation()?;
     let _lock = CODEX_INSTANCE_STORE_LOCK
         .lock()
         .map_err(|_| "无法获取实例锁")?;
@@ -1107,6 +1140,7 @@ pub fn update_bound_instances_app_speed(
 }
 
 pub fn delete_instance(instance_id: &str) -> Result<(), String> {
+    let _creation_guard = crate::modules::instance_storage_cleanup::protect_instance_creation()?;
     let _lock = CODEX_INSTANCE_STORE_LOCK
         .lock()
         .map_err(|_| "无法获取实例锁")?;
@@ -1120,11 +1154,17 @@ pub fn delete_instance(instance_id: &str) -> Result<(), String> {
 
     if !user_data_dir.trim().is_empty() {
         let dir_path = PathBuf::from(&user_data_dir);
-        modules::instance::delete_instance_directory(&dir_path)?;
+        // Resolve the canonical home before moving it to the trash: desktop data
+        // is keyed by the original resolved path, including symlinked homes.
         #[cfg(target_os = "windows")]
-        delete_windows_app_user_data_dir(&dir_path)?;
+        let app_user_data_dir = get_windows_app_user_data_dir(&dir_path)?;
+        #[cfg(target_os = "macos")]
+        let app_user_data_dir = get_macos_app_user_data_dir(&dir_path)?;
         #[cfg(target_os = "linux")]
-        delete_linux_app_user_data_dir(&dir_path)?;
+        let app_user_data_dir = get_linux_app_user_data_dir(&dir_path)?;
+        modules::instance::delete_instance_directory(&dir_path)?;
+        #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+        modules::instance::delete_instance_directory(&app_user_data_dir)?;
     }
 
     store.instances.remove(index);

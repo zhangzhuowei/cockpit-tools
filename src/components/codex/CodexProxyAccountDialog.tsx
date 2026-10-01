@@ -22,18 +22,20 @@ import { CodexProxyActivityPanel } from './CodexProxyActivityPanel';
 import { useProxyLatency } from './useProxyLatency';
 import { useCodexProxyAccountName, useCodexProxyExitEditor } from './useCodexProxyExitEditor';
 import { useCodexProxyWorkspace } from './CodexProxyWorkspaceContext';
+import '../../styles/pages/codex-proxy-accounts.css';
+import '../../styles/pages/codex-proxy-resources.css';
 
 /** An account's saved exit and its draft are kept separate until the explicit Save action. */
-export function CodexProxyAccountDialog({ accountId, initialTab, onClose, onApplied }: {
-  accountId: string; initialTab: 'edit' | 'details'; onClose: () => void; onApplied: (account: CodexAccount) => void;
+export function CodexProxyAccountDialog({ accountId, initialTab, initialMode, onResources, onClose, onApplied }: {
+  accountId: string; initialTab: 'edit' | 'details'; initialMode?: 'follow' | 'independent' | 'disabled'; onResources?: () => void; onClose: () => void; onApplied: (account: CodexAccount) => void;
 }) {
   const { t } = useTranslation();
   const dialog = useRef<HTMLDivElement>(null);
   const editor = useCodexProxyExitEditor(accountId);
-  const { catalog, catalogLoading, catalogError, reloadCatalog, acceptCatalog, unified, goSection } = useCodexProxyWorkspace();
+  const { catalog, catalogLoading, catalogError, reloadCatalog, acceptCatalog, unified, unifiedErrorKey, reloadUnified, goSection } = useCodexProxyWorkspace();
   const resolveName = useCodexProxyAccountName();
   const [tab, setTab] = useState(initialTab);
-  const [mode, setMode] = useState<'follow' | 'independent'>(() => editor.bound ? 'independent' : 'follow');
+  const [mode, setMode] = useState<'follow' | 'independent' | 'disabled'>(() => initialMode ?? (editor.proxyDisabled ? 'disabled' : editor.bound ? 'independent' : 'follow'));
   const [noteOpen, setNoteOpen] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [catalogPending, setCatalogPending] = useState(false);
@@ -48,25 +50,27 @@ export function CodexProxyAccountDialog({ accountId, initialTab, onClose, onAppl
   const availableSources = useMemo(() => catalog.sources.filter(proxySourceInspectable), [catalog]);
   const activeUnified = unifiedProxyActive(unified);
   const sharedLabel = unified?.binding ? [unified.binding.sourceName, unified.binding.name, unified.binding.selectedName].filter(Boolean).join(' · ') : '';
-  const effectiveLabel = editor.bound ? proxySummary(editor.savedBinding) : activeUnified ? sharedLabel : t('codex.proxy.modeDefault');
-  const canSave = mode === 'follow' ? editor.bound : editor.selectionReady && !editor.saved;
+  const effectiveLabel = editor.proxyDisabled ? t('codex.proxy.modeDisabled') : editor.bound ? proxySummary(editor.savedBinding) : activeUnified ? sharedLabel : t('codex.proxy.modeDefault');
+  const canSave = mode === 'disabled' ? !editor.proxyDisabled : mode === 'follow'
+    ? (editor.bound || editor.proxyDisabled) && Boolean(unified) && !unifiedErrorKey
+    : editor.selectionReady && !editor.saved;
 
   useEscCloseTopmost(!noteOpen, () => { if (!editor.busy || editor.testing) onClose(); });
   useModalScrollLock(true);
   useModalFocusTrap(dialog, !noteOpen);
   useEffect(() => {
     if ((previousBusy.current === 'save' || previousBusy.current === 'unbind') && !editor.busy && !editor.error && editor.account) {
-      applied.current({ ...editor.account, egress_proxy: editor.savedBinding });
+      applied.current({ ...editor.account, egress_proxy: editor.savedBinding, egress_proxy_disabled: editor.proxyDisabled });
       closeAfterSave.current();
     }
     previousBusy.current = editor.busy;
-  }, [editor.account, editor.busy, editor.error, editor.savedBinding]);
+  }, [editor.account, editor.busy, editor.error, editor.savedBinding, editor.proxyDisabled]);
 
-  const chooseMode = (next: 'follow' | 'independent') => {
+  const chooseMode = (next: 'follow' | 'independent' | 'disabled') => {
     setMode(next); setSubmitted(false);
     editor.select({ sourceId: editor.sourceId, itemId: editor.itemId, groupId: editor.groupId, selections: editor.selections });
   };
-  const submit = () => { setSubmitted(true); if (mode === 'follow') editor.unbind(); else editor.save(); };
+  const submit = () => { setSubmitted(true); if (mode === 'independent') editor.save(); else editor.unbind(mode === 'disabled'); };
   const chooseSource = (id: string) => {
     const preset = sourceDefaultDraft(catalog.sources.find((entry) => entry.id === id));
     editor.select({ sourceId: id, itemId: preset?.itemId ?? '', groupId: preset?.groupId ?? '', selections: preset?.selections ?? {} });
@@ -89,21 +93,22 @@ export function CodexProxyAccountDialog({ accountId, initialTab, onClose, onAppl
         {submitted && editor.notice && <p className="codex-proxy-account-saved" role="status"><Check size={16} />{t('codex.proxy.saved')}</p>}
         {tab === 'edit' ? <>
           <div className="codex-proxy-account-mode-options" role="radiogroup" aria-label={t('codex.proxy.managerAccounts.mode')}>
-            {(['follow', 'independent'] as const).map((value) => <button type="button" key={value} role="radio" aria-checked={mode === value}
+            {(['follow', 'independent', 'disabled'] as const).map((value) => <button type="button" key={value} role="radio" aria-checked={mode === value}
               className={`btn codex-proxy-account-mode-option${mode === value ? ' active' : ''}`} disabled={measuring} onClick={() => chooseMode(value)}>
               <span className="codex-proxy-account-mode-dot">{mode === value && <Check size={12} />}</span>
-              <span><strong>{t(value === 'follow' ? 'codex.proxy.managerAccounts.following' : 'codex.proxy.modeIndependent')}</strong>
-                <small>{t(value === 'follow' ? 'codex.proxy.managerAccounts.followHint' : 'codex.proxy.managerAccounts.independentHint')}</small></span>
+              <span><strong>{t(value === 'disabled' ? 'codex.proxy.modeDisabled' : value === 'follow' ? 'codex.proxy.managerAccounts.following' : 'codex.proxy.modeIndependent')}</strong>
+                <small>{t(value === 'disabled' ? 'codex.proxy.disabledHint' : value === 'follow' ? 'codex.proxy.managerAccounts.followHint' : 'codex.proxy.managerAccounts.independentHint')}</small></span>
             </button>)}
           </div>
-          {mode === 'follow' ? <div className="codex-proxy-account-follow-preview"><ShieldCheck size={21} /><div>
-            <span>{t('codex.proxy.managerAccounts.proxy')}</span><strong>{activeUnified ? sharedLabel : t('codex.proxy.modeDefault')}</strong>
+          {mode === 'disabled' ? <p className="codex-proxy-page-note">{t('codex.proxy.disabledWarning')}</p> : mode === 'follow' ? <div className="codex-proxy-account-follow-preview"><ShieldCheck size={21} /><div>
+            <span>{t('codex.proxy.managerAccounts.proxy')}</span><strong>{unifiedErrorKey ? t(unifiedErrorKey) : !unified ? t('common.loading') : activeUnified ? sharedLabel : t('codex.proxy.modeDefault')}</strong>
+            {unifiedErrorKey && <button type="button" className="btn btn-secondary compact" onClick={reloadUnified}>{t('common.retry')}</button>}
           </div></div> : <div className="codex-proxy-account-choice">
             {catalogError ? <div><ModalErrorMessage message={catalogError} />
               <button type="button" className="btn btn-secondary compact" onClick={reloadCatalog}>{t('common.retry')}</button></div>
               : catalogLoading && availableSources.length === 0 ? <p role="status">{t('common.loading')}</p>
                 : availableSources.length === 0 ? <div className="codex-proxy-account-guide"><Server size={24} /><p>{t('codex.proxy.unified.emptyCatalog')}</p>
-                  <button type="button" className="btn btn-primary" onClick={() => { onClose(); goSection('resources'); }}>{t('codex.proxy.manager.proxies')}</button></div>
+                  <button type="button" className="btn btn-primary" onClick={() => { onClose(); if (onResources) onResources(); else goSection('resources'); }}>{t('codex.proxy.manager.proxies')}</button></div>
                   : <><label className="codex-proxy-field"><span>{t('codex.proxy.catalog.sources')}</span>
                     <SingleSelectDropdown value={editor.sourceId} disabled={measuring} ariaLabel={t('codex.proxy.catalog.sources')}
                       options={availableSources.map((entry) => ({ value: entry.id, label: entry.name }))} onChange={chooseSource} /></label>

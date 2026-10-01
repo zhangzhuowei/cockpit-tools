@@ -534,6 +534,7 @@ pub async fn codex_local_access_activate(
                 true,
                 Some("instance-launch"),
                 None,
+                launch_target.bind_account_id.as_deref(),
             )
             .await
         } else {

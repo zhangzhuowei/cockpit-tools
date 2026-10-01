@@ -638,8 +638,8 @@ const DEEPSEEK_OFFICIAL_SHELL_SLOTS: &[(&str, &str)] = &[
     ("deepseek-flash", "gpt-5.5"),
     // 旧模型名保留同一套壳位，已存在的账号不需要迁移。
     ("deepseek-v4-flash", "gpt-5.5"),
-    ("deepseek-v4-pro", "gpt-5.4"),
-    ("deepseek-v4-flash-vision-exp", "gpt-5.4-mini"),
+    ("deepseek-v4-pro", "gpt-5.6-sol"),
+    ("deepseek-v4-flash-vision-exp", "gpt-5.6-terra"),
 ];
 
 /// DeepSeek 目录壳位映射（客户端可见名 → 上游模型）。
@@ -1162,109 +1162,8 @@ fn is_official_deepseek_account(account: &CodexAccount) -> bool {
     codex_account::is_deepseek_account(account)
 }
 
-/// 供应商网关上游是否是 DeepSeek 官方。
-///
-/// 以 collection 里记录的上游地址为准：账号文件是加密存储的，网关配置是运行态直接可读的
-/// 权威来源，且对 Responses 与 Chat Completions 两种 DeepSeek 接入都成立。
-fn provider_gateway_points_at_official_deepseek(gateway: &CodexLocalAccessProviderGateway) -> bool {
-    Url::parse(gateway.base_url.trim())
-        .ok()
-        .and_then(|url| url.host_str().map(str::to_string))
-        .is_some_and(|host| host.eq_ignore_ascii_case("api.deepseek.com"))
-}
-
-/// 账号池里是否包含 DeepSeek 账号（含混合模型路由的渠道）。
-fn collection_pool_contains_official_deepseek_account(
-    collection: &CodexLocalAccessCollection,
-) -> bool {
-    let gateway_is_deepseek = |gateway: &Option<CodexLocalAccessProviderGateway>| {
-        gateway
-            .as_ref()
-            .is_some_and(provider_gateway_points_at_official_deepseek)
-    };
-    if collection
-        .api_keys
-        .iter()
-        .any(|api_key| gateway_is_deepseek(&api_key.provider_gateway))
-    {
-        return true;
-    }
-    if collection.api_keys.iter().any(|api_key| {
-        api_key.model_routing.as_ref().is_some_and(|routing| {
-            routing
-                .routes
-                .iter()
-                .any(|route| provider_gateway_points_at_official_deepseek(&route.provider_gateway))
-        })
-    }) {
-        return true;
-    }
-    collection.account_ids.iter().any(|account_id| {
-        codex_account::load_account(account_id.trim())
-            .is_some_and(|account| is_official_deepseek_account(&account))
-    })
-}
-
-/// 账号池里只要有 DeepSeek 账号，转发 profile 的压缩就必须回到本地流程。
-/// 账号池里有没有账号能承接官方 GPT / Codex 模型（判断依据与模型清单一致）。
-fn collection_pool_provides_gpt_models(collection: &CodexLocalAccessCollection) -> bool {
-    // 只按对话账号判断：仅用于生图转发的 OAuth 账号不承接对话模型。
-    let accounts: Vec<CodexAccount> = conversation_sidecar_account_ids(collection)
-        .into_iter()
-        .filter_map(|account_id| codex_account::load_account(&account_id))
-        .filter(|account| {
-            is_local_access_eligible_account(account, collection.restrict_free_accounts)
-        })
-        .collect();
-    pool_provides_gpt_models(&accounts)
-}
-
-/// 账号池里只要有 DeepSeek 账号、或完全没有能承接官方 GPT 模型的账号（例如只有 Grok），
-/// 转发 profile 的压缩就必须回到本地流程。
-///
-/// DeepSeek 没有服务端压缩：`/responses/compact` 返回 404，`compaction_trigger` 只会返回普通
-/// message；Codex 的远程压缩 v2 要求响应里恰好有一个 compaction 输出项，所以请求一旦被路由到
-/// DeepSeek 账号就必然失败，并且会先撞上
-/// `The reasoning_text in the thinking mode must be passed back to the API`。
-/// xAI（Grok）、第三方 Chat 协议账号同理没有可用的服务端压缩：一旦客户端走远程压缩，
-/// 压缩请求会带着切换前的旧模型 ID 发出去，压缩结果与当前选择无关。回到本地摘要流程后，
-/// 压缩由当前选择的模型完成。
-/// 这里只关闭该 profile 的远程压缩、并移除会切成「换窗口」模式的 `token_budget`，
-/// 让压缩留在本地摘要流程；不写其它 DeepSeek 专属覆盖，避免影响同一账号池里的官方账号。
-pub(crate) fn ensure_local_compaction_for_account_pool(
-    profile_dir: &Path,
-    collection: &CodexLocalAccessCollection,
-) -> Result<(), String> {
-    let contains_deepseek = collection_pool_contains_official_deepseek_account(collection);
-    let provides_gpt = collection_pool_provides_gpt_models(collection);
-    if !contains_deepseek && provides_gpt {
-        return Ok(());
-    }
-    let reason = if contains_deepseek {
-        "账号池含 DeepSeek 账号"
-    } else {
-        "账号池没有可承接官方 GPT 模型的账号"
-    };
-    if crate::modules::codex_account::ensure_local_compaction_fallback_for_dir(profile_dir)? {
-        logger::log_codex_api_info(&format!(
-            "[CodexLocalAccess][local-compaction] {}，已为该 profile 启用本地压缩: profile={}",
-            reason,
-            profile_dir.display()
-        ));
-    }
-    Ok(())
-}
-
-/// 实例网关接管 profile 后补回 DeepSeek 压缩兜底。
-///
-/// 接管流程会把 profile 当成「非 DeepSeek 账号」清掉切号时写入的兜底，但 profile 的上游仍是
-/// DeepSeek：本地网关出口已经把第三方推理正文改写成官方形状，远程压缩会把整段历史交给上游
-/// 校验，上游会以 `The reasoning_text in the thinking mode must be passed back to the API`
-/// 拒绝压缩。只有上游确实是 DeepSeek 官方账号时才补写，其它供应商不受影响。
-///
-/// 补写只关远端压缩并移除 `token_budget`：后者会把压缩换成不产摘要的「窗口重置」，
-/// 让任务在压缩后丢失。
-fn reapply_deepseek_profile_compaction_fallback(
+/// 实例网关接管后补回 DeepSeek 的有效参数覆盖，不改写压缩方式。
+fn reapply_deepseek_profile_config_overrides(
     profile_dir: &Path,
     account: &CodexAccount,
 ) -> Result<(), String> {
@@ -1273,7 +1172,7 @@ fn reapply_deepseek_profile_compaction_fallback(
     }
     if crate::modules::codex_account::reapply_deepseek_config_overrides_for_dir(profile_dir)? {
         logger::log_codex_api_info(&format!(
-            "[CodexLocalAccess][provider-gateway] 已写回 DeepSeek 压缩兜底: profile={}",
+            "[CodexLocalAccess][provider-gateway] 已写回 DeepSeek 参数兼容配置: profile={}",
             profile_dir.display()
         ));
     }
@@ -1912,7 +1811,12 @@ fn build_mixed_model_gateway_collection_for_profile(
         last_used_at: None,
     });
     collection.updated_at = now;
-    let (changed, _) = sanitize_collection(&mut collection)?;
+    // This profile's OAuth account and each route have already been validated above.
+    // API Service membership rules (including its Free-account restriction) must not
+    // erase the mixed gateway's client key scope. A second account-index snapshot
+    // can also omit an account while it is being reauthorized. Keep the explicit
+    // OAuth scope; sidecar preparation still excludes unusable upstream credentials.
+    let changed = sanitize_collection_structure(&mut collection)?;
     if changed {
         collection.updated_at = now_ms();
     }
@@ -2196,10 +2100,7 @@ fn model_provider_test_uses_provider_gateway(
 }
 
 fn model_provider_direct_test_client_model() -> String {
-    supported_codex_model_ids()
-        .into_iter()
-        .find(|model| model.eq_ignore_ascii_case("gpt-5.4"))
-        .unwrap_or_else(|| "gpt-5.4".to_string())
+    crate::modules::codex_wakeup::DEFAULT_WAKEUP_MODEL.to_string()
 }
 
 fn build_model_provider_gateway_test_collection(
@@ -2920,7 +2821,7 @@ pub async fn activate_provider_gateway_for_dir(
         )?;
     }
     codex_account::reapply_experimental_model_policy_if_enabled(profile_dir)?;
-    reapply_deepseek_profile_compaction_fallback(profile_dir, &account)?;
+    reapply_deepseek_profile_config_overrides(profile_dir, &account)?;
     ensure_runtime_loaded_without_start().await?;
     let runtime = gateway_runtime().lock().await;
     Ok(build_state_snapshot(&runtime))
@@ -3411,18 +3312,7 @@ pub async fn ensure_provider_gateway_for_dir(
         )?;
     }
     codex_account::reapply_experimental_model_policy_if_enabled(profile_dir)?;
-    reapply_deepseek_profile_compaction_fallback(profile_dir, &account)?;
-    // 实例绑定的是没有 GPT 能力的供应商账号（例如 Grok）时，压缩同样只能走本地流程，
-    // 否则远端压缩会带着旧模型 ID 发出去，压缩结果与当前选择的模型无关。
-    if !collection_pool_provides_gpt_models(&collection)
-        && crate::modules::codex_account::ensure_local_compaction_fallback_for_dir(profile_dir)?
-    {
-        logger::log_codex_api_info(&format!(
-            "[CodexLocalAccess][local-compaction] 供应商账号没有 GPT 能力，已为该 profile 启用本地压缩: profile={}, account_id={}",
-            profile_dir.display(),
-            account.id
-        ));
-    }
+    reapply_deepseek_profile_config_overrides(profile_dir, &account)?;
 
     let runtime_key = provider_gateway_runtime_key(profile_dir, account_id);
     if let Some(endpoint) = stop_provider_gateway_runtime(&runtime_key).await {

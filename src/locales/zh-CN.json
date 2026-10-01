@@ -10,7 +10,7 @@
       "accountsRequired": "请至少选择一个账号",
       "invalidAccount": "账号标识无效",
       "invalidRequest": "测试参数无效",
-      "invalidConcurrency": "并行数需为 1 至 10",
+      "invalidConcurrency": "并发数 · 1–200",
       "invalidRetention": "保留天数需为 1 至 3650 天",
       "alreadyRunning": "已有活动测试，请先关闭",
       "artifactMissing": "未找到生成结果",
@@ -22,14 +22,16 @@
       "storage": "无法读写测试记录",
       "unsafePath": "结果路径不安全",
       "historyMissing": "未找到测试记录",
-      "invalidId": "记录标识无效"
+      "invalidId": "记录标识无效",
+      "providerUnavailable": "供应商或已保存的 API Key 不可用。",
+      "providerChanged": "供应商地址或协议已变更，请新建测试。"
     },
     "title": "鹈鹕测智",
     "description": "同题并行生成 HTML，由你比较结果，不自动评分。",
     "model": "模型",
     "effort": "思考强度",
-    "concurrency": "并行数",
-    "prompt": "测试消息",
+    "concurrency": "并发数",
+    "prompt": "鹈鹕提示词",
     "accounts": "测试账号",
     "accountHelp": "测试会发送消息并消耗各账号额度；API Key 与仅网页会话账号不参与。",
     "emptyAccounts": "暂无可测试账号",
@@ -83,9 +85,52 @@
     "confirmClearAll": "清理全部鹈鹕测智记录？",
     "clearAllHelp": "将永久删除所有测试记录及生成文件，且无法恢复。",
     "search": "搜索账号",
-    "viewError": "查看错误"
+    "viewError": "查看错误",
+    "providers": "供应商",
+    "providerDescription": "比较供应商生成鹈鹕动画的效果。",
+    "providerHelp": "选择供应商、已保存的 Key 和模型。请求通过独立临时网关发送，重试时重新读取已保存的凭据。",
+    "providerRequired": "请选择有效的供应商、API Key 和模型。",
+    "providerModelMismatch": "模型不一致：请求 {{requested}}，返回 {{responded}}。",
+    "providerSearch": "搜索供应商或 Key 名称",
+    "providerEmpty": "没有匹配的供应商",
+    "providerClear": "清空选择"
   },
   "common": {
+    "dragSortHint": "拖动左侧手柄调整顺序，松开后自动保存。",
+    "dragSortFilteredHint": "清除搜索后可调整顺序。",
+    "recycleBin": {
+      "loadTimeout": "读取回收站超时，请刷新重试。",
+      "refreshFailed": "账号已恢复，但账号列表刷新失败，请重新加载账号列表。",
+      "moveStarted": "已开始移入回收站（{{count}} 个账号）",
+      "title": "回收站",
+      "description": "删除的账号保留在本地，可恢复或导出。恢复不会自动切号、启动客户端或恢复任务及 API 服务绑定。",
+      "empty": "回收站为空",
+      "restore": "恢复",
+      "deletePermanently": "彻底删除",
+      "emptyBin": "清空回收站",
+      "deletedAt": "删除于 {{time}}",
+      "confirmDelete": "彻底删除“{{name}}”？回收站中的账号数据将永久移除，无法恢复。",
+      "confirmEmpty": "彻底清空这 {{count}} 个账号？回收站中的账号数据将永久移除，无法恢复。",
+      "move": "移入回收站",
+      "confirmMove": "将 {{count}} 个账号移入回收站？之后可在回收站中恢复、导出或彻底删除。",
+      "moved": "已移入回收站",
+      "moveFailed": "移入回收站失败：{{error}}",
+      "operationFailed": "操作失败：{{error}}",
+      "export": "导出",
+      "exportAll": "全部导出",
+      "exportAndDelete": "导出并删除",
+      "exportAndEmpty": "导出并清空",
+      "count": "{{count}} 个账号",
+      "exportHint": "导出为可重新导入的 JSON 文件，包含账号凭据，请妥善保管。取消保存或导出失败时不会删除账号。",
+      "exported": "账号已导出。",
+      "confirmTitle": "永久移除账号？"
+    },
+    "requestProxy": {
+      "value": "代理：{{name}}",
+      "direct": "直连",
+      "unknown": "未记录",
+      "entryHint": "仅记录代理入口，最终节点未记录。"
+    },
     "retry": "重试",
     "quotaRefreshScheduler": {
       "busy": "刷新队列繁忙，请稍后重试。",
@@ -124,7 +169,7 @@
     "windowsOperation": {
       "title": "Windows 操作未完成",
       "accessDeniedDescription": "Windows 拒绝了本次操作。目标程序可能以更高权限运行，或位于受保护目录中。",
-      "storeLaunchBlockedDescription": "Windows 拒绝了商店版 Codex 客户端的全部启动方式（直接启动、PowerShell 启动、包身份启动），已阻止启动以免打开错误的账号。多数情况下需要修复或重新安装商店版 Codex（可在 Microsoft Store 检查更新并重新安装）；也可「重新检测路径并重试」；仍失败时请把该实例的启动方式改为 CLI。",
+      "storeLaunchBlockedDescription": "未能确认商店版隔离实例已正常启动，Cockpit 未回退打开默认账号。请重新检测客户端路径并重试；仍失败时可复制诊断信息反馈，或将该实例切换为 CLI 模式。",
       "repairPath": "重新检测路径并重试",
       "fileInUseDescription": "目标文件正在被其他程序使用。请关闭占用程序后重试。",
       "programNotFoundDescription": "Windows 找不到完成本次操作所需的程序。请检查安装状态或路径设置。",
@@ -321,6 +366,7 @@
         "unlimited": "无限额度",
         "leftPercent": "剩余 {{value}}%",
         "cachedRefreshFailed": "刷新失败，以下为上次成功数据",
+        "cachedNeedsReauth": "⚠️ 账号需完成网页验证以继续使用（以下为上次成功数据）",
         "lastSuccessfulQuery": "上次成功：{{time}}"
       },
       "subtitle": "实时监控所有账号的配额状态。",
@@ -367,9 +413,11 @@
     "processing": "处理中...",
     "selectAll": "全选",
     "quota": {
-      "weeklyWindow": "周"
+      "weeklyWindow": "Weekly"
     },
-    "optional": "（可选）"
+    "optional": "（可选）",
+    "hide": "隐藏",
+    "show": "显示"
   },
   "floatingCard": {
     "selectPlatform": "切换平台",
@@ -980,10 +1028,28 @@
     },
     "delete": {
       "title": "删除实例",
-      "message": "确认删除实例 {{name}}？将移除配置并删除实例目录。"
+      "message": "确认删除实例 {{name}}？将移除实例记录，并将受管实例目录移入回收站；自定义目录和受保护目录会保留。"
     }
   },
   "settings": {
+    "instanceCleanup": {
+      "title": "实例残留清理",
+      "description": "手动扫描受管实例目录，清理未被实例配置或运行中进程引用的数据。不会自动删除。",
+      "scan": "扫描",
+      "scanning": "扫描中…",
+      "remove": "永久删除",
+      "removing": "删除中…",
+      "empty": "未发现可清理的残留目录",
+      "summary": "发现 {{count}} 个目录，共 {{size}}",
+      "confirm": "将永久删除下列目录及其中的会话、工作区和缓存，无法撤销。",
+      "cancel": "取消",
+      "confirmRemove": "确认删除",
+      "done": "已删除 {{count}} 个目录",
+      "failed": "操作失败",
+      "path": "目录",
+      "size": "占用",
+      "platform": "平台"
+    },
     "title": "应用设置",
     "subtitle": "个性化您的 Cockpit Tools 体验。",
     "general": {
@@ -1004,7 +1070,7 @@
       "themeDark": "深色 (Dark)",
       "themeSystem": "跟随系统",
       "uiScale": "界面缩放",
-      "uiScaleDesc": "调整界面缩放比例（⌘+/⌘- 缩放，⌘0 重置）",
+      "uiScaleDesc": "调整界面缩放比例（⌘+/⌘- 或 Ctrl+/Ctrl-，⌘0/Ctrl+0 重置）",
       "accountManagement": "账号管理",
       "autoRefresh": "Antigravity IDE 自动刷新配额",
       "codexAutoRefresh": "Codex 自动刷新配额",
@@ -1646,7 +1712,9 @@
       "normal": "正常",
       "forbidden": "403",
       "forbidden_tooltip": "API 返回 403 Forbidden，账号无权使用 Gemini Code Assist",
-      "forbidden_msg": "账号无权限，已跳过自动刷新"
+      "forbidden_msg": "账号无权限，已跳过自动刷新",
+      "needsReauth": "需网页验证",
+      "needsReauthTooltip": "Google 要求进行网页安全验证以继续使用"
     },
     "tier": {
       "pro": "PRO",
@@ -1781,7 +1849,12 @@
       "delete": "删除",
       "deleteSelected": "删除选中",
       "export": "导出",
-      "refreshAll": "刷新全部"
+      "refreshAll": "刷新全部",
+      "reauth": "重新授权",
+      "reauthTooltip": "Google 要求重新验证，点击立即重新授权",
+      "openValidationUrl": "网页验证",
+      "copyValidationUrl": "复制验证链接",
+      "copyValidationUrlTooltip": "复制网页验证地址"
     },
     "switchHistory": {
       "title": "切换记录",
@@ -2020,7 +2093,8 @@
     "example": "示例",
     "actionRunning": "{{action}}中...",
     "actionSuccess": "{{action}}成功",
-    "actionFailed": "{{action}}失败: {{error}}"
+    "actionFailed": "{{action}}失败: {{error}}",
+    "refreshFailed": "刷新失败"
   },
   "wakeup": {
     "title": "唤醒任务",
@@ -2283,6 +2357,11 @@
     "other_group": "其他模型"
   },
   "codex": {
+    "launchErrors": {
+      "bindingFailed": "无法确认账号绑定，已停止启动，请重试切号。",
+      "processScanFailed": "无法检查旧后台进程，已停止启动，请重试。",
+      "proxyEntryFailed": "配置的代理入口无法启动，未改用其他出口，请重试。"
+    },
     "oauthProxy": {
       "toggle": "带代理授权",
       "hint": "内置授权窗口、令牌交换与首次配额查询使用此代理。 需要弹窗登录时请关闭此选项。",
@@ -2887,7 +2966,7 @@
       "hideEntryEffectRestore": "可在 Codex 设置或快捷设置中重新开启",
       "riskNotice": {
         "title": "使用风险提示",
-        "message": "当前 Codex API 服务相关功能，本质上属于代理转发使用方式。就目前情况看，官方暂未对此类行为进行明确管控，但后续政策、规则或可用性是否发生变化，仍存在不确定性。继续使用该功能，即表示您已知悉相关情况，并愿意自行承担可能产生的风险。",
+        "message": "普通官方账号用于反代/中转可能受到官方严格限制，也可能被识别为中转并影响回答质量（“降智”）。账号较多时请谨慎使用。",
         "remember": "我已知晓，不再提示",
         "acknowledge": "我已知晓",
         "continueStart": "继续启动",
@@ -3330,7 +3409,8 @@
         "baseUrlExists": "该 Base URL 已存在",
         "providerNotFound": "供应商不存在",
         "apiKeyRequiredOnCreate": "新增供应商时必须至少填写一个 API Key",
-        "apiKeyRequiredWhenEmpty": "当前供应商没有可用 API Key，请先添加一个"
+        "apiKeyRequiredWhenEmpty": "当前供应商没有可用 API Key，请先添加一个",
+        "apiKeyUrlInvalid": "请填写不含内嵌凭据的 HTTP(S) 管理页面网址；API Key 请填入密钥栏。"
       },
       "saveSuccess": "模型供应商已保存",
       "deleteBlocked": "该供应商已被 {{count}} 个账号引用，禁止删除。",
@@ -3483,7 +3563,7 @@
         "modelAuto": "自动选择（按目录/探测）",
         "modelCustom": "自定义模型…",
         "modelLabel": "测试模型",
-        "modelCustomPlaceholder": "输入模型 ID，例如 gpt-4.1-mini",
+        "modelCustomPlaceholder": "输入模型 ID，例如 gpt-6.1-sol",
         "modelHint": "可选统一模型。留空则按各供应商目录或探测结果自动选择。"
       },
       "enableAndStart": "启动",
@@ -3498,9 +3578,9 @@
       },
       "vision": {
         "providerDefault": "该供应商默认支持图片输入",
-        "providerDefaultHint": "关闭时，只有下方列出的模型会允许图片输入；其他模型会在本地网关直接提示不支持。",
+        "providerDefaultHint": "未单独设置的模型使用此默认值，GPT-5.5 及更新模型默认支持图片。可在模型列表中单独关闭。网关无法匹配视觉模型时会省略图片并继续处理文本。",
         "modelsHint": "每行一个模型名。适合同一供应商里只有部分视觉模型支持粘贴图片的情况。",
-        "routingModelHint": "当前模型不支持图片时，带图片请求会改用该模型；留空且只有一个视觉模型时自动使用。",
+        "routingModelHint": "当前模型不支持图片时，网关会改用该模型；留空时自动使用唯一视觉模型，否则省略图片并继续处理文本。",
         "allModels": "图片输入",
         "partialModels": "部分图片",
         "textOnly": "仅文本"
@@ -3589,7 +3669,8 @@
       "importConfigFailed": "从剪贴板导入失败：{{error}}",
       "importConfigPlaceholder": "在供应商卡片上点「复制配置」后，把内容粘贴到这里",
       "importConfigAction": "导入配置",
-      "importConfigFromClipboard": "一键读取剪贴板"
+      "importConfigFromClipboard": "一键读取剪贴板",
+      "settingsRestartHint": "供应商配置已更新。若关联的 Codex 或 API 服务正在运行，请重启后生效。"
     },
     "quickSwitch": {
       "action": "快速切换供应商",
@@ -3979,7 +4060,8 @@
         "medium": "中",
         "high": "高",
         "xhigh": "超高",
-        "max": "最大"
+        "max": "最大",
+        "ultra": "极致"
       }
     },
     "sessionManager": {
@@ -4571,7 +4653,7 @@
         "reasoningEffortValue": "思考 {{effort}}",
         "serviceTier": "服务等级",
         "serviceTierValue": "等级 {{tier}}",
-        "upstreamModel": "实际模型"
+        "upstreamModel": "发送模型"
       }
     },
     "apiKey": {
@@ -4755,8 +4837,6 @@
       "serverCount": "{{count}} 台",
       "autoSyncBadge": "自动同步"
     },
-    "exportAuthFailed": "导出失败账号",
-    "exportAuthFailedTitle": "导出全部授权失败账号",
     "accounts": {
       "showRelayQuota": "显示中转额度",
       "hideRelayQuota": "隐藏中转额度"
@@ -4789,6 +4869,18 @@
       "restartFailed": "重启网关失败：{{error}}"
     },
     "proxy": {
+      "display": {
+        "title": "代理展示",
+        "compact": "简略",
+        "summary": "摘要",
+        "detailed": "详细",
+        "hint": "应用于所有 Codex 账号卡片，立即生效并记住选择。",
+        "configuredNode": "已配置节点",
+        "lastRequest": "最近请求",
+        "preview": "样式预览",
+        "saveFailed": "无法保存展示偏好，请重试。",
+        "refresh": "刷新信息"
+      },
       "workspace": {
         "navLabel": "代理分区导航",
         "overview": "概览",
@@ -4881,7 +4973,7 @@
       },
       "rules": {
         "title": "出口规则",
-        "intro": "账号独立代理优先于统一代理；两者都不生效时，请求沿用客户端原有默认出口。",
+        "intro": "账号独立代理优先于统一代理；两者都不生效时，请求沿用客户端原有默认出口。 明确选择“不使用代理”的账号除外。",
         "order": "生效顺序",
         "tableTitle": "账号出口一览",
         "columnAccount": "账号",
@@ -4926,8 +5018,8 @@
       },
       "unified": {
         "title": "统一代理出口",
-        "hint": "未绑定独立代理的可用账号共用此出口，新增账号自动跟随。",
-        "offState": "未启用：使用账号独立代理；无独立绑定时使用默认出口。",
+        "hint": "未绑定独立代理的可用账号共用此出口，新增账号自动跟随。 明确选择“不使用代理”的账号除外。",
+        "offState": "未启用：使用账号独立代理；无独立绑定时使用默认出口。 明确选择“不使用代理”的账号除外。",
         "enable": "启用统一代理",
         "disable": "关闭统一代理",
         "change": "更换出口",
@@ -4945,12 +5037,12 @@
         "changeMessage": "更换后，使用本地转接的运行中客户端从新连接起使用新出口。",
         "changeConfirm": "确认更换",
         "disableTitle": "关闭统一代理",
-        "disableMessage": "关闭后，账号独立代理继续生效；无独立绑定时使用默认出口。",
+        "disableMessage": "关闭后，账号独立代理继续生效；无独立绑定时使用默认出口。 明确选择“不使用代理”的账号除外。",
         "disableConfirm": "确认关闭",
         "restartHint": "通过本地转接启动的客户端，新连接自动使用新出口；其他运行中的客户端需重启一次。",
         "staleWarning": "统一代理引用的来源已失效，请重新选择出口。",
         "removedWarning": "统一代理引用的来源已被删除，功能已自动关闭。",
-        "accountsNotice": "账号独立代理优先；未绑定账号跟随统一代理。",
+        "accountsNotice": "账号独立代理优先；未绑定账号跟随统一代理。 明确选择“不使用代理”的账号除外。",
         "unbindBlocked": "解绑后将跟随统一代理。",
         "following": "统一",
         "errorFailed": "操作失败，请重试。",
@@ -5014,6 +5106,11 @@
         "viewAll": "查看全部"
       },
       "previewTitle": "代理预览",
+      "modeDisabled": "不使用代理",
+      "disableAction": "解除代理",
+      "setIndependent": "设置独立代理",
+      "disabledHint": "跳过独立与统一代理，新连接尝试直连。",
+      "disabledWarning": "直连可能无法访问服务。已接入本地转接的桌面对新连接生效，其他运行中的客户端需重启；已有连接可能继续使用旧出口。",
       "exitIp": "出口 IP",
       "sessionHistory": "运行记录",
       "sessionHistoryHint": "每 5 秒读取状态，仅记录本次预览的初始状态与变化（最多 20 条）；关闭后清空，并非完整历史日志。",
@@ -5044,9 +5141,17 @@
       "desktopRequest_forwarded": "最近一次本地转接已建立",
       "desktopRequest_failed": "最近一次本地转接失败",
       "desktopEntryReadyHint": "入口已监听，内核会在收到连接请求后启动。",
+      "sharedRuntime": "账号代理",
       "runtimeMain": "账号请求",
       "runtimeDesktop": "桌面转接",
       "runtimeHint": "状态仅反映本地入口与内核；转接建立不代表外网可达，也不能确认请求来自哪个客户端。",
+      "restoreEntry": "恢复转接",
+      "restoringEntry": "恢复中…",
+      "restoreEntryFailed": "桌面代理转接恢复失败，请重试。",
+      "restoreEntryPortBusy": "原代理端口已被占用，请释放端口后重试；桌面端无法自动改用其他端口。",
+      "restoreEntryNotRunning": "未找到仍在运行且使用当前 Cockpit 已记录代理入口的桌面端。",
+      "restoreEntryBusy": "代理正在恢复，请稍后重试。",
+      "restoreEntryTimeout": "代理恢复超时，请重试。",
       "restartHint": "通过本地转接启动的客户端，新连接自动使用新出口；其他运行中的客户端需重启一次。桌面转接仅监听本机，但不隔离本机其他用户；不修改系统代理。",
       "exportHint": "账号导出不含代理凭据，导入后需重新配置。",
       "backToAccounts": "返回账号",
@@ -5360,7 +5465,7 @@
         "assign": "分配代理",
         "specific": "指定账号",
         "shared": "设为统一代理",
-        "sharedHint": "未单独配置的 Codex OAuth 账号使用此代理，之后新增的适用账号也会跟随。已有独立配置保持不变。",
+        "sharedHint": "未单独配置的 Codex OAuth 账号使用此代理，之后新增的适用账号也会跟随。已有独立配置保持不变。 明确选择“不使用代理”的账号除外。",
         "apply": "确认分配"
       },
       "managerResources": {
@@ -5393,7 +5498,7 @@
       "managerUnified": {
         "off": "未开启",
         "choose": "设置代理",
-        "hint": "未单独配置的账号使用此代理。"
+        "hint": "未单独配置的账号使用此代理。 明确选择“不使用代理”的账号除外。"
       },
       "setup": {
         "title": "开始使用代理",
@@ -5407,13 +5512,20 @@
         "collapse": "收起详情"
       },
       "runtime_entry_failed": "入口失败",
+      "measureCurrentLatency": "检测延迟",
+      "measuringCurrentLatency": "检测中",
+      "currentLatencyNotRunning": "暂无可检测的运行节点，请先启动使用该代理的客户端，或在代理管理中检测已配置节点。",
+      "currentLatencyHint": "检测当前运行节点到测试地址的延迟；不会切换节点或修改代理策略。",
       "latencyCheckedAt": "检测时间",
       "latencyPending": "待检测",
       "latencyTimeout": "超时",
       "quickSwitch": "切换节点",
       "quickSwitchHint": "仅切换此账号；保存后，新连接使用新出口。保存不代表已验证连通。",
       "currentNode": "当前节点",
-      "noCurrentNode": "尚未获取当前节点"
+      "noCurrentNode": "尚未获取当前节点",
+      "runtimeBusy": "本地代理繁忙，暂时无法更新",
+      "runtimeCapacity": "运行中的代理过多，请停止不用的代理后重试",
+      "runtimeReadFailed": "本地代理状态暂时无法读取，请重试"
     },
     "more": {
       "title": "更多",
@@ -5433,6 +5545,17 @@
       "moveUp": "上移",
       "moveDown": "下移",
       "done": "完成"
+    },
+    "cliDaemon": {
+      "title": "CLI 账号需刷新",
+      "description": "凭据已写入，但检测到此配置目录的 Codex CLI 后台服务仍在运行，可能继续使用原账号。",
+      "restartHint": "请先结束正在运行的 CLI 任务，再在终端执行以下命令。重启会中断连接到该服务的会话。",
+      "copyFailed": "复制失败，请选中上方命令手动复制。"
+    },
+    "proxyQuality": {
+      "errors": {
+        "bindingChanged": "账号绑定已更改，保留当前设置"
+      }
     }
   },
   "codebuddy": {

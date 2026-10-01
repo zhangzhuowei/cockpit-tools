@@ -25,27 +25,45 @@ type openAIResponsesStreamFailedResponse struct {
 	Error  map[string]any `json:"error"`
 }
 
-func openAIResponsesStreamErrorCode(status int) string {
-	switch status {
-	case http.StatusUnauthorized:
-		return "invalid_api_key"
-	case http.StatusForbidden:
-		return "insufficient_quota"
-	case http.StatusTooManyRequests:
-		return "rate_limit_exceeded"
-	case http.StatusNotFound:
-		return "model_not_found"
-	case http.StatusRequestTimeout:
-		return "request_timeout"
-	default:
-		if status >= http.StatusInternalServerError {
-			return "internal_server_error"
-		}
-		if status >= http.StatusBadRequest {
-			return "invalid_request_error"
-		}
-		return "unknown_error"
+type openAIResponsesStreamErrorClass struct {
+	code      string
+	errorType string
+}
+
+const (
+	openAIResponsesClientErrorType = "invalid_request_error"
+	openAIResponsesServerErrorType = "server_error"
+)
+
+var openAIResponsesStreamErrorClasses = map[int]openAIResponsesStreamErrorClass{
+	http.StatusUnauthorized:    {code: "invalid_api_key", errorType: openAIResponsesClientErrorType},
+	http.StatusForbidden:       {code: "insufficient_quota", errorType: openAIResponsesClientErrorType},
+	http.StatusTooManyRequests: {code: "rate_limit_exceeded", errorType: openAIResponsesClientErrorType},
+	http.StatusNotFound:        {code: "model_not_found", errorType: openAIResponsesClientErrorType},
+	// An incomplete stream is retryable: the request was valid, but the
+	// upstream connection ended before response.completed.
+	http.StatusRequestTimeout: {code: "request_timeout", errorType: openAIResponsesServerErrorType},
+}
+
+func openAIResponsesStreamErrorClassFor(status int) openAIResponsesStreamErrorClass {
+	if class, ok := openAIResponsesStreamErrorClasses[status]; ok {
+		return class
 	}
+	if status >= http.StatusInternalServerError {
+		return openAIResponsesStreamErrorClass{code: "internal_server_error", errorType: openAIResponsesServerErrorType}
+	}
+	if status >= http.StatusBadRequest {
+		return openAIResponsesStreamErrorClass{code: "invalid_request_error", errorType: openAIResponsesClientErrorType}
+	}
+	return openAIResponsesStreamErrorClass{code: "unknown_error", errorType: openAIResponsesClientErrorType}
+}
+
+func openAIResponsesStreamErrorCode(status int) string {
+	return openAIResponsesStreamErrorClassFor(status).code
+}
+
+func openAIResponsesStreamErrorType(status int) string {
+	return openAIResponsesStreamErrorClassFor(status).errorType
 }
 
 func unmarshalJSONWithNumber(data []byte, v any) error {
@@ -146,10 +164,7 @@ func openAIResponsesStreamErrorDetail(status int, errText, code, message string)
 		}
 	}
 
-	errorType := "invalid_request_error"
-	if status >= http.StatusInternalServerError {
-		errorType = "server_error"
-	}
+	errorType := openAIResponsesStreamErrorType(status)
 	detail := map[string]any{
 		"type":    errorType,
 		"code":    code,

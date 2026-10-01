@@ -17,6 +17,7 @@ pub struct UnifiedProxyView {
     binding: Option<serde_json::Value>,
     eligible_account_ids: Vec<String>,
     independent_account_ids: Vec<String>,
+    disabled_account_ids: Vec<String>,
     stale_error: Option<String>,
 }
 
@@ -26,18 +27,22 @@ pub struct UnifiedProxyPreview {
     binding: serde_json::Value,
     eligible_account_ids: Vec<String>,
     independent_account_ids: Vec<String>,
+    disabled_account_ids: Vec<String>,
 }
 
 /// 可用账号与「已有独立绑定」的账号清单；账号读取是磁盘操作，必须离开异步线程。
-async fn account_totals() -> Result<(Vec<String>, Vec<String>), String> {
+async fn account_totals() -> Result<(Vec<String>, Vec<String>, Vec<String>), String> {
     tauri::async_runtime::spawn_blocking(|| {
         let mut eligible = Vec::new();
         let mut independent = Vec::new();
+        let mut disabled = Vec::new();
         for account in crate::modules::codex_account::list_accounts() {
             if !crate::modules::codex_account_proxy::eligible(&account) {
                 continue;
             }
-            if account
+            if account.egress_proxy_disabled {
+                disabled.push(account.id.clone());
+            } else if account
                 .egress_proxy_url
                 .as_deref()
                 .is_some_and(|value| !value.trim().is_empty())
@@ -46,7 +51,7 @@ async fn account_totals() -> Result<(Vec<String>, Vec<String>), String> {
             }
             eligible.push(account.id);
         }
-        (eligible, independent)
+        (eligible, independent, disabled)
     })
     .await
     .map_err(|_| "UNIFIED_PROXY_FAILED".to_string())
@@ -54,12 +59,13 @@ async fn account_totals() -> Result<(Vec<String>, Vec<String>), String> {
 
 async fn current_view() -> Result<UnifiedProxyView, String> {
     let state = unified::ensure_loaded().await?;
-    let (eligible_account_ids, independent_account_ids) = account_totals().await?;
+    let (eligible_account_ids, independent_account_ids, disabled_account_ids) = account_totals().await?;
     Ok(UnifiedProxyView {
         mode: state.mode,
         binding: state.snapshot.as_deref().and_then(crate::modules::codex_proxy_catalog_binding::summary),
         eligible_account_ids,
         independent_account_ids,
+        disabled_account_ids,
         stale_error: state.stale_error,
     })
 }
@@ -81,11 +87,12 @@ pub async fn codex_unified_proxy_preview(
         catalog::snapshot_with_group(source_id, item_id, selections, group_id).await?;
     let binding = crate::modules::codex_proxy_catalog_binding::summary(&snapshot)
         .ok_or_else(|| "UNIFIED_PROXY_STALE".to_string())?;
-    let (eligible_account_ids, independent_account_ids) = account_totals().await?;
+    let (eligible_account_ids, independent_account_ids, disabled_account_ids) = account_totals().await?;
     Ok(UnifiedProxyPreview {
         binding,
         eligible_account_ids,
         independent_account_ids,
+        disabled_account_ids,
     })
 }
 

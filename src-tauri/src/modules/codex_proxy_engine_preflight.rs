@@ -140,7 +140,7 @@ mod tests {
     };
 
     #[test]
-    fn raw_request_paths_are_exempt_but_catalog_and_desktop_auth_are_not() {
+    fn direct_proxies_share_the_native_entry_without_an_engine() {
         for value in [
             "http://proxy.example:8080",
             "https://user:secret@proxy.example:443",
@@ -153,7 +153,7 @@ mod tests {
             "http://proxy.example:8080",
             Usage::Desktop
         ));
-        assert!(requires_engine(
+        assert!(!requires_engine(
             "http://user:secret@proxy.example:8080",
             Usage::Desktop
         ));

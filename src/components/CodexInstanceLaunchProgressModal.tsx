@@ -30,6 +30,7 @@ import { presentWindowsOperationError } from "../utils/windowsOperationDialog";
 import { parseWindowsOperationError } from "../utils/windowsOperationError";
 import {
   mapCodexSwitchProgressToLaunch,
+  codexLaunchErrorKey,
   type CodexLaunchOperation,
   type CodexLaunchStepId,
   type CodexLaunchStepStatus,
@@ -147,6 +148,8 @@ export function CodexInstanceLaunchProgressModal() {
         presentProxyEnginePrerequisite(payload.error);
         payload = { ...payload, error: t(prerequisiteKey) };
       }
+      const lifecycleKey = payload.type === "error" ? codexLaunchErrorKey(payload.error) : null;
+      if (lifecycleKey) payload = { ...payload, error: t(lifecycleKey) };
       setState((previous) => {
         if (payload.type === "start") {
           setActionError(null);

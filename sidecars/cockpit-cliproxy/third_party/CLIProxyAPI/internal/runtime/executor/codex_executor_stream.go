@@ -96,6 +96,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 		return nil, err
 	}
 	applyCodexHeaders(httpReq, auth, apiKey, true, e.cfg, opts.Headers)
+	applyCodexRoutingHint(httpReq.Header, auth, baseModel, upstreamBody)
 	if !useFullResponses && liteHeaderValue != "" {
 		httpReq.Header.Set(codexResponsesLiteHeaderName, liteHeaderValue)
 	}

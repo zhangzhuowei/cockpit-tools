@@ -841,6 +841,11 @@ fn save_account_and_index(mut account: ClaudeAccount) -> Result<ClaudeAccount, S
             ));
         }
     }
+    let _lock = CLAUDE_ACCOUNT_INDEX_LOCK.lock().map_err(|_| "无法获取 Claude 账号锁")?;
+    save_account_and_index_locked(account)
+}
+
+fn save_account_and_index_locked(mut account: ClaudeAccount) -> Result<ClaudeAccount, String> {
     slim_claude_account_snapshots(&mut account);
     write_account_file(&account)?;
     let mut index = load_index()?;

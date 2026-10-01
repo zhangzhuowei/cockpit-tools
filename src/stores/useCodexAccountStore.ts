@@ -170,6 +170,7 @@ interface CodexAccountState {
   updateAccountEgressProxy: (
     accountId: string,
     egressProxyUrl: string | null,
+    disabled?: boolean,
   ) => Promise<CodexAccount>;
   updateAccountNote: (
     accountId: string,
@@ -557,10 +558,9 @@ export const useCodexAccountStore = create<CodexAccountState>((set, get) => ({
     return account;
   },
 
-  updateAccountEgressProxy: async (accountId: string, egressProxyUrl: string | null) => {
-    const account = await codexService.updateCodexAccountEgressProxy(accountId, egressProxyUrl);
-    await get().fetchAccounts();
-    await get().fetchCurrentAccount();
+  updateAccountEgressProxy: async (accountId: string, egressProxyUrl: string | null, disabled = false) => {
+    const account = await codexService.updateCodexAccountEgressProxy(accountId, egressProxyUrl, disabled);
+    get().applyAccountSnapshot(account);
     return account;
   },
 

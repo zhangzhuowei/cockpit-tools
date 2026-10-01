@@ -695,6 +695,7 @@ export function InstancesManager<TAccount extends AccountLike>({
   const [formCodexQuickConfigError, setFormCodexQuickConfigError] = useState<
     string | null
   >(null);
+  const formModelManagementSession = useRef(0);
   const [formCodexOpenConfigLoading, setFormCodexOpenConfigLoading] =
     useState(false);
   const [formCopySourceInstanceId, setFormCopySourceInstanceId] = useState("");
@@ -1067,6 +1068,7 @@ export function InstancesManager<TAccount extends AccountLike>({
   }, [defaultRoot, editing, formName, pathAuto, formInitMode]);
 
   const resetForm = (showRoot = false) => {
+    formModelManagementSession.current += 1;
     setFormName("");
     setFormPath(showRoot && defaultRoot ? defaultRoot : "");
     setFormWorkingDir("");
@@ -1142,6 +1144,7 @@ export function InstancesManager<TAccount extends AccountLike>({
   ]);
 
   const openEditModal = (instance: InstanceProfile) => {
+    formModelManagementSession.current += 1;
     setOpenInlineMenuId(null);
     setEditing(instance);
     setFormName(
@@ -1221,6 +1224,26 @@ export function InstancesManager<TAccount extends AccountLike>({
     resetForm();
     setEditing(null);
   };
+
+  const handleFormModelCatalogEnabledChange = useCallback(async (enabled: boolean) => {
+    if (!showModal || !editing || actionLoading === editing.id) return;
+    if (enabled) {
+      if (!formCodexQuickConfig?.experimental_model_catalog_available) return;
+      const session = formModelManagementSession.current;
+      const confirmed = await confirmDialog(
+        t("codex.modelManagement.enableConfirmDescription"),
+        {
+          title: t("codex.modelManagement.enableConfirmTitle", "开启模型管理？"),
+          okLabel: t("codex.modelManagement.enableConfirmAction", "开启并配置"),
+          cancelLabel: t("common.cancel", "取消"),
+          kind: "warning",
+        },
+      );
+      if (!confirmed || session !== formModelManagementSession.current) return;
+    }
+    setFormCodexQuickConfigError(null);
+    setFormExperimentalModelCatalogEnabled(enabled);
+  }, [actionLoading, editing, formCodexQuickConfig, showModal, t]);
 
   const clearDeleteConfirm = useCallback(() => {
     setDeleteConfirmInstance(null);
@@ -3103,7 +3126,7 @@ export function InstancesManager<TAccount extends AccountLike>({
               <p className="form-hint">
                 {t(
                   "instances.delete.message",
-                  "确认删除实例 {{name}}？将移除配置并删除实例目录。",
+                  "确认删除实例 {{name}}？将移除实例记录，并将受管实例目录移入回收站；自定义目录和受保护目录会保留。",
                   {
                     name: deleteConfirmInstance.name,
                   },
@@ -3661,33 +3684,7 @@ export function InstancesManager<TAccount extends AccountLike>({
                             id="instance-codex-experimental-model-catalog"
                             type="checkbox"
                             checked={formExperimentalModelCatalogEnabled}
-                            onChange={(event) => {
-                              setFormCodexQuickConfigError(null);
-                              const enabled = event.target.checked;
-                              if (enabled) {
-                                void confirmDialog(
-                                  t("codex.modelManagement.enableConfirmDescription"),
-                                  {
-                                    title: t(
-                                      "codex.modelManagement.enableConfirmTitle",
-                                      "开启模型管理？",
-                                    ),
-                                    okLabel: t(
-                                      "codex.modelManagement.enableConfirmAction",
-                                      "开启并配置",
-                                    ),
-                                    cancelLabel: t("common.cancel", "取消"),
-                                    kind: "warning",
-                                  },
-                                ).then((confirmed) => {
-                                  if (confirmed) {
-                                    setFormExperimentalModelCatalogEnabled(true);
-                                  }
-                                });
-                                return;
-                              }
-                              setFormExperimentalModelCatalogEnabled(false);
-                            }}
+                            onChange={(event) => void handleFormModelCatalogEnabledChange(event.target.checked)}
                             disabled={
                               actionLoading === editing.id ||
                               (!formExperimentalModelCatalogEnabled &&
@@ -3723,7 +3720,7 @@ export function InstancesManager<TAccount extends AccountLike>({
                               toggleRouteModelInRoutes(prevRoutes, addedId, accounts, "add"),
                             );
                           }}
-                          disabled={actionLoading === editing.id}
+                          disabled={actionLoading === editing.id || !formExperimentalModelCatalogEnabled}
                         />
                       )}
                       {formCodexQuickConfigError && (

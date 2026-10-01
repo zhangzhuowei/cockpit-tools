@@ -6,7 +6,7 @@ import ts from 'typescript';
 import * as enginePrerequisite from './codexProxyEnginePrerequisite';
 import type { ProxyCatalogNode, ProxyCatalogGroup, ProxyCatalogSource } from '../services/codexProxyCatalogService';
 import {
-  strategyCandidates, filterStrategyCandidates, isPossibleProxyNotice, strategyEditorMembers, strategyErrorKey, strategyKindKey, strategyMemberViews, strategyNameTaken, strategyNoticeKey,
+  PROXY_STRATEGY_DEFAULTS, strategyCandidates, filterStrategyCandidates, isPossibleProxyNotice, strategyEditorMembers, strategyErrorKey, strategyKindKey, strategyMemberViews, strategyNameTaken, strategyNoticeKey,
   strategyOptionErrors, strategyOptions, strategyOptionsForm, strategyOrderedMembers, strategyViews,
   type ProxyStrategyOptionsForm,
 } from '../services/codexProxyStrategyService';
@@ -35,6 +35,16 @@ const source = (id: string, name: string, kind: ProxyCatalogSource['kind'], node
   id, name, kind, nodes, groups, updatedAt: 1, lastAttemptAt: null, revision: '1', autoUpdate: false, error: null, default: null, defaultInvalidated: false, strategyMembers,
 });
 const emptyForm = (): ProxyStrategyOptionsForm => ({ url: '', interval: '', timeout: '', tolerance: '', lazy: true });
+
+test('new strategies default to 30 seconds while saved intervals remain editable', () => {
+  assert.equal(PROXY_STRATEGY_DEFAULTS.interval, 30);
+  const saved = strategyOptionsForm(savedSource({ kind: 'url-test', interval: 180 }));
+  assert.equal(saved.interval, '180');
+  assert.equal(strategyOptions(saved, 'url-test').interval, 180);
+  const edited = { ...saved, interval: '30' };
+  assert.deepEqual(strategyOptionErrors(edited, 'url-test'), {});
+  assert.equal(strategyOptions(edited, 'url-test').interval, 30);
+});
 
 test('member search matches node endpoints, independently of source names and selection', () => {
   const candidates = strategyCandidates([

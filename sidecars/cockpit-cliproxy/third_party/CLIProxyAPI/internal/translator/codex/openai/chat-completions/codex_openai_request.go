@@ -63,6 +63,9 @@ func ConvertOpenAIRequestToCodex(modelName string, inputRawJSON []byte, stream b
 	} else {
 		out, _ = sjson.SetBytes(out, "reasoning.effort", "medium")
 	}
+	if tier := normalizeCodexServiceTier(root.Get("service_tier")); tier != "" {
+		out, _ = sjson.SetBytes(out, "service_tier", tier)
+	}
 	out, _ = sjson.SetBytes(out, "parallel_tool_calls", true)
 	// OpenAI documents reasoning summaries as explicit opt-in output. Leave
 	// reasoning.summary to the source request's canonical summary intent instead
@@ -508,6 +511,20 @@ func ConvertOpenAIRequestToCodex(modelName string, inputRawJSON []byte, stream b
 
 	out, _ = sjson.SetBytes(out, "store", false)
 	return out
+}
+
+func normalizeCodexServiceTier(value gjson.Result) string {
+	if !value.Exists() || value.Type != gjson.String {
+		return ""
+	}
+	switch tier := strings.ToLower(strings.TrimSpace(value.String())); tier {
+	case "fast", "priority":
+		return "priority"
+	case "ultrafast":
+		return tier
+	default:
+		return ""
+	}
 }
 
 func setToolCallOutputContent(funcOutput []byte, content gjson.Result) []byte {

@@ -1,6 +1,7 @@
+import { listenSafely as listen } from "../utils/tauriEventListener";
 import { useCallback, useEffect, useRef, type MutableRefObject } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { type UnlistenFn } from "@tauri-apps/api/event";
 import { useAccountStore } from '../stores/useAccountStore';
 import { useCodexAccountStore } from '../stores/useCodexAccountStore';
 import { useClaudeAccountStore } from '../stores/useClaudeAccountStore';

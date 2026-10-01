@@ -111,12 +111,63 @@ fn extract_error_code_from_message(message: &str) -> Option<String> {
     }
 }
 
-fn write_quota_error(account: &mut CodexAccount, message: String) {
+/// Only recognize errors emitted by local proxy preparation. Do not inspect
+/// upstream HTTP bodies or quota_error.code: an upstream can return the same code.
+pub(crate) fn is_local_proxy_error(message: &str) -> bool {
+    let message = message.trim();
+    let message = message
+        .strip_prefix("Token 已过期，刷新 Token 失败: ")
+        .unwrap_or(message);
+    let message = message
+        .strip_prefix("Token 已过期且刷新失败: ")
+        .unwrap_or(message);
+    super::codex_proxy_engine_preflight::is_prerequisite_error(message)
+        || matches!(
+            message,
+            "PROXY_RUNTIME_LIMIT"
+                | "PROXY_RUNTIME_BUSY"
+                | "PROXY_RUNTIME_READ_TIMEOUT"
+                | "PROXY_RUNTIME_CAPACITY"
+                | "PROXY_RUNTIME_FAILED"
+                | "PROXY_RUNTIME_NOT_READY"
+                | "PROXY_ENGINE_STOPPED"
+                | "PROXY_ENGINE_STOP_FAILED"
+                | "PROXY_STATUS_FAILED"
+                | "PROXY_CLIENT_FAILED"
+                | "PROXY_INVALID_URL"
+                | "PROXY_UNSUPPORTED_PROTOCOL"
+                | "PROXY_RESOURCE_INVALID"
+                | "PROXY_UNSUPPORTED_OPTION"
+                | "PROXY_RESOURCE_SELECTION_REQUIRED"
+                | "PROXY_BINDING_CHANGED"
+                | "PROXY_ACCOUNT_UNSUPPORTED"
+                | "UNIFIED_PROXY_LOADING"
+                | "UNIFIED_PROXY_TIMEOUT"
+                | "UNIFIED_PROXY_STORAGE"
+                | "UNIFIED_PROXY_INVALID"
+        )
+}
+
+/// Returns whether persistence is needed. Local infrastructure failures leave
+/// both cached quota and any genuine upstream error untouched.
+fn write_quota_error(account: &mut CodexAccount, message: String) -> bool {
+    if is_local_proxy_error(&message) {
+        if account
+            .quota_error
+            .as_ref()
+            .is_some_and(|previous| is_local_proxy_error(&previous.message))
+        {
+            account.quota_error = None;
+            return true;
+        }
+        return false;
+    }
     account.quota_error = Some(CodexQuotaErrorInfo {
         code: extract_error_code_from_message(&message),
         message,
         timestamp: chrono::Utc::now().timestamp(),
     });
+    true
 }
 
 /// 使用率窗口（5小时/周）
@@ -1618,12 +1669,13 @@ async fn refresh_account_quota_once(
                 return Err("暂未获取到最新额度，请稍后重试".to_string());
             }
             if let Some(mut stored_account) = codex_account::load_account(account_id) {
-                write_quota_error(&mut stored_account, error.clone());
-                if let Err(save_error) = codex_account::save_account(&stored_account) {
-                    logger::log_warn(&format!(
-                        "准备 Codex 账号失败后写入配额错误失败: {}",
-                        save_error
-                    ));
+                if write_quota_error(&mut stored_account, error.clone()) {
+                    if let Err(save_error) = codex_account::save_account(&stored_account) {
+                        logger::log_warn(&format!(
+                            "准备 Codex 账号失败后写入配额错误失败: {}",
+                            save_error
+                        ));
+                    }
                 }
             }
             return Err(error);
@@ -1634,9 +1686,10 @@ async fn refresh_account_quota_once(
             let result = match fetch_new_api_quota(&account).await {
                 Ok(result) => result,
                 Err(e) => {
-                    write_quota_error(&mut account, e.clone());
-                    if let Err(save_err) = codex_account::save_account(&account) {
-                        logger::log_warn(&format!("写入 Cockpit Api 配额错误失败: {}", save_err));
+                    if write_quota_error(&mut account, e.clone()) {
+                        if let Err(save_err) = codex_account::save_account(&account) {
+                            logger::log_warn(&format!("写入 Cockpit Api 配额错误失败: {}", save_err));
+                        }
                     }
                     return Err(e);
                 }
@@ -1661,9 +1714,10 @@ async fn refresh_account_quota_once(
         let result = match fetch_quota(&account).await {
             Ok(result) => result,
             Err(error) => {
-                write_quota_error(&mut account, error.clone());
-                if let Err(save_error) = codex_account::save_account(&account) {
-                    logger::log_warn(&format!("写入 Agent Identity 配额错误失败: {}", save_error));
+                if write_quota_error(&mut account, error.clone()) {
+                    if let Err(save_error) = codex_account::save_account(&account) {
+                        logger::log_warn(&format!("写入 Agent Identity 配额错误失败: {}", save_error));
+                    }
                 }
                 return Err(error);
             }
@@ -1693,9 +1747,10 @@ async fn refresh_account_quota_once(
             Err(e) => {
                 logger::log_error(&format!("账号 {} Token 刷新失败: {}", account.email, e));
                 let message = e;
-                write_quota_error(&mut account, message.clone());
-                if let Err(save_err) = codex_account::save_account(&account) {
-                    logger::log_warn(&format!("写入 Codex 配额错误失败: {}", save_err));
+                if write_quota_error(&mut account, message.clone()) {
+                    if let Err(save_err) = codex_account::save_account(&account) {
+                        logger::log_warn(&format!("写入 Codex 配额错误失败: {}", save_err));
+                    }
                 }
                 return Err(message);
             }
@@ -1708,17 +1763,22 @@ async fn refresh_account_quota_once(
     let result = match fetch_quota(&account).await {
         Ok(result) => result,
         Err(e) => {
-            if let Err(subscription_error) =
-                refresh_subscription_state(&mut account, subscription_options).await
-            {
-                logger::log_warn(&format!(
-                    "Codex 账号 {} 刷新配额失败后补拉订阅信息失败: {}",
-                    account.email, subscription_error
-                ));
+            // Retrying subscription through an unavailable local proxy only adds
+            // more work to the same saturated resource and cannot repair quota.
+            if !is_local_proxy_error(&e) {
+                if let Err(subscription_error) =
+                    refresh_subscription_state(&mut account, subscription_options).await
+                {
+                    logger::log_warn(&format!(
+                        "Codex 账号 {} 刷新配额失败后补拉订阅信息失败: {}",
+                        account.email, subscription_error
+                    ));
+                }
             }
-            write_quota_error(&mut account, e.clone());
-            if let Err(save_err) = codex_account::save_account(&account) {
-                logger::log_warn(&format!("写入 Codex 配额错误失败: {}", save_err));
+            if write_quota_error(&mut account, e.clone()) {
+                if let Err(save_err) = codex_account::save_account(&account) {
+                    logger::log_warn(&format!("写入 Codex 配额错误失败: {}", save_err));
+                }
             }
             return Err(e);
         }
@@ -1824,12 +1884,13 @@ pub async fn refresh_freshly_authorized_account_quota(
         Err(error) => {
             if let Some(mut latest) = codex_account::load_account(account_id) {
                 if latest.token_generation == expected_token_generation {
-                    write_quota_error(&mut latest, error.clone());
-                    if let Err(save_error) = codex_account::save_account(&latest) {
-                        logger::log_warn(&format!(
-                            "写入 OAuth 授权后配额错误失败: account_id={}, error={}",
-                            account_id, save_error
-                        ));
+                    if write_quota_error(&mut latest, error.clone()) {
+                        if let Err(save_error) = codex_account::save_account(&latest) {
+                            logger::log_warn(&format!(
+                                "写入 OAuth 授权后配额错误失败: account_id={}, error={}",
+                                account_id, save_error
+                            ));
+                        }
                     }
                 }
             }
@@ -2133,8 +2194,8 @@ async fn refresh_all_quotas_with_options(
 #[cfg(test)]
 mod tests {
     use super::{
-        attach_runtime_snapshot_to_account_ids, build_codex_api_headers,
-        normalize_http_error_body_for_display, normalize_remaining_percentage,
+        attach_runtime_snapshot_to_account_ids, build_codex_api_headers, is_local_proxy_error,
+        normalize_http_error_body_for_display, normalize_remaining_percentage, write_quota_error,
         parse_account_check_snapshot, parse_reset_credits_snapshot,
         send_codex_api_request_with_agent_auth_base_url, WindowInfo, CODEX_DESKTOP_ORIGINATOR,
         HTTP_ERROR_BODY_DISPLAY_MAX_CHARS,
@@ -2201,6 +2262,112 @@ mod tests {
                 refresh_token: None,
             },
         )
+    }
+
+    fn cached_quota_test_account() -> CodexAccount {
+        let mut account = subscription_test_account();
+        account.quota = Some(
+            serde_json::from_value(json!({
+                "hourly_percentage": 83,
+                "weekly_percentage": 41,
+                "weekly_reset_time": 123456789,
+                "reset_credits_available": 2,
+                "raw_data": { "cached": true }
+            }))
+            .expect("cached quota"),
+        );
+        account.usage_updated_at = Some(123456000);
+        account
+    }
+
+    #[test]
+    fn local_proxy_errors_preserve_cached_quota_without_persistence() {
+        for error in [
+            "PROXY_RUNTIME_LIMIT",
+            "PROXY_RUNTIME_BUSY",
+            "PROXY_RUNTIME_CAPACITY",
+            "PROXY_RUNTIME_READ_TIMEOUT",
+            "PROXY_RUNTIME_FAILED",
+            "PROXY_RUNTIME_NOT_READY",
+            "PROXY_ENGINE_TIMEOUT",
+            "PROXY_ENGINE_START_FAILED",
+            "PROXY_ENGINE_MISSING",
+            "PROXY_CLIENT_FAILED",
+            "PROXY_STATUS_FAILED",
+            "PROXY_INVALID_URL",
+            "PROXY_RESOURCE_SELECTION_REQUIRED",
+            "UNIFIED_PROXY_LOADING",
+            "UNIFIED_PROXY_TIMEOUT",
+            "ENGINE_INSTALL_BUSY",
+            "Token 已过期且刷新失败: PROXY_RUNTIME_BUSY",
+            "Token 已过期，刷新 Token 失败: PROXY_RUNTIME_READ_TIMEOUT",
+            "Token 已过期，刷新 Token 失败: Token 已过期且刷新失败: PROXY_RUNTIME_LIMIT",
+        ] {
+            let mut account = cached_quota_test_account();
+            let before = serde_json::to_value(&account).unwrap();
+            assert!(is_local_proxy_error(error), "{error}");
+            assert!(!write_quota_error(&mut account, error.into()), "{error}");
+            assert_eq!(serde_json::to_value(&account).unwrap(), before, "{error}");
+        }
+    }
+
+    #[test]
+    fn local_proxy_errors_preserve_genuine_upstream_error() {
+        let mut account = cached_quota_test_account();
+        assert!(write_quota_error(
+            &mut account,
+            "API 返回错误 401 Unauthorized [error_code:token_expired]".into()
+        ));
+        let before = serde_json::to_value(&account).unwrap();
+        assert!(!write_quota_error(
+            &mut account,
+            "PROXY_RUNTIME_BUSY".into()
+        ));
+        assert_eq!(serde_json::to_value(&account).unwrap(), before);
+    }
+
+    #[test]
+    fn local_proxy_error_clears_only_legacy_local_error() {
+        let mut account = cached_quota_test_account();
+        let before = serde_json::to_value(&account).unwrap();
+        account.quota_error = Some(crate::models::codex::CodexQuotaErrorInfo {
+            code: None,
+            message: "PROXY_RUNTIME_LIMIT".into(),
+            timestamp: 123450000,
+        });
+        assert!(write_quota_error(
+            &mut account,
+            "PROXY_ENGINE_TIMEOUT".into()
+        ));
+        assert_eq!(serde_json::to_value(&account).unwrap(), before);
+        assert!(!write_quota_error(
+            &mut account,
+            "PROXY_ENGINE_TIMEOUT".into()
+        ));
+    }
+
+    #[test]
+    fn upstream_errors_with_proxy_codes_are_still_persisted() {
+        for message in [
+            "API 返回错误 401 Unauthorized [error_code:token_expired]",
+            "API 返回错误 403 Forbidden [error_code:PROXY_RUNTIME_LIMIT]",
+            "API 返回错误 429 Too Many Requests [body:PROXY_RUNTIME_BUSY]",
+            "Token 已过期且刷新失败: Token 刷新失败: status=401 Unauthorized, error_code=invalid_grant",
+            "Token 已过期，刷新 Token 失败: Token 刷新失败: status=403 Forbidden, error_code=PROXY_ENGINE_TIMEOUT",
+            "API 返回错误 500 [body:Token 已过期且刷新失败: PROXY_RUNTIME_LIMIT]",
+            "PROXY_RUNTIME_BUSY_UNRECOGNIZED",
+        ] {
+            let mut account = cached_quota_test_account();
+            let quota = serde_json::to_value(&account.quota).unwrap();
+            assert!(!is_local_proxy_error(message), "{message}");
+            assert!(write_quota_error(&mut account, message.into()), "{message}");
+            assert_eq!(account.quota_error.as_ref().unwrap().message, message);
+            let before = serde_json::to_value(&account).unwrap();
+            assert!(!write_quota_error(&mut account, "PROXY_RUNTIME_CAPACITY".into()));
+            assert_eq!(serde_json::to_value(&account).unwrap(), before);
+            assert_eq!(serde_json::to_value(&account.quota).unwrap(), quota);
+            assert_eq!(account.usage_updated_at, Some(123456000));
+        }
     }
 
     fn assertion_task_id(request: &str) -> Option<String> {

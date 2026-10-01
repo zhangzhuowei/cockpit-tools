@@ -9,6 +9,8 @@ import { applyCodexUnifiedProxy, previewCodexUnifiedProxy, unifiedProxyErrorKey,
 import { batchBindSummary, batchBindTargets, executeProxyBatch, proxyBatchCompletedSuccessfully, type BatchBindResult } from '../../utils/codexProxyBatch';
 import { proxyAssignmentAccounts } from '../../utils/codexProxyAssignment';
 import { canUseCodexAccountProxy } from '../../utils/codexAccountProxy';
+import { getCodexPlanBadgePresentation } from '../../types/codex';
+import { CODEX_PLAN_BADGE_STYLE_CHANGED_EVENT, getCodexPlanBadgeStyle, withCodexPlanBadgeStyle } from '../../utils/codexPreferences';
 import { useCodexAccountStore } from '../../stores/useCodexAccountStore';
 import { useCodexProxyWorkspace } from './CodexProxyWorkspaceContext';
 import { useCodexProxyAccountName } from './useCodexProxyExitEditor';
@@ -16,6 +18,9 @@ import { ModalErrorMessage } from '../ModalErrorMessage';
 import { useEscCloseTopmost } from '../../hooks/useEscClose';
 import { useModalScrollLock } from '../../hooks/useModalScrollLock';
 import { useModalFocusTrap } from '../../hooks/useModalFocusTrap';
+import { defaultProxySelections } from '../../utils/codexProxySelection';
+import { CodexProxyPicker } from './CodexProxyPicker';
+import { useProxyLatency } from './useProxyLatency';
 import '../../styles/pages/codex-proxy-assign.css';
 
 export interface ProxyAssignment {
@@ -27,8 +32,9 @@ export interface ProxyAssignment {
 }
 
 /** Choose a scope and confirm in place; importing or browsing never writes an account. */
-export function CodexProxyAssignDialog({ choice, onClose }: { choice: ProxyAssignment; onClose: () => void }) {
+export function CodexProxyAssignDialog({ choice: initialChoice, onClose }: { choice: ProxyAssignment; onClose: () => void }) {
   const { t } = useTranslation();
+  const [choice, setChoice] = useState(initialChoice);
   const { accounts, reloadUnified, acceptUnified } = useCodexProxyWorkspace();
   const name = useCodexProxyAccountName();
   const dialog = useRef<HTMLDivElement>(null);
@@ -39,6 +45,7 @@ export function CodexProxyAssignDialog({ choice, onClose }: { choice: ProxyAssig
   const [scope, setScope] = useState<'accounts' | 'unified'>('accounts');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [search, setSearch] = useState('');
+  const [planBadgeStyle, setPlanBadgeStyle] = useState(getCodexPlanBadgeStyle);
   const [preview, setPreview] = useState<CodexUnifiedProxyPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState('');
@@ -50,11 +57,16 @@ export function CodexProxyAssignDialog({ choice, onClose }: { choice: ProxyAssig
   const [appliedIds, setAppliedIds] = useState<string[]>([]);
   const source = choice.catalog.sources.find((entry) => entry.id === choice.sourceId);
   const item = source?.nodes.find((entry) => entry.id === choice.itemId) ?? source?.groups.find((entry) => entry.id === choice.itemId);
+  const selections = useMemo(() => source ? defaultProxySelections(source, choice.itemId, choice.selections) : null, [source, choice]);
+  const selectionReady = !!item?.supported && selections !== null;
+  const latency = useProxyLatency(source);
+  const showPicker = source && (source.kind === 'subscription' || (source.kind !== 'strategy' && source.nodes.length > 1)
+    || defaultProxySelections(source, initialChoice.itemId, initialChoice.selections) === null);
   const eligible = useMemo(() => accounts.filter(canUseCodexAccountProxy), [accounts]);
   const visible = eligible.filter((entry) => name(entry).toLowerCase().includes(search.trim().toLowerCase()));
   const picked = proxyAssignmentAccounts(accounts, selectedIds);
-  const targets = batchBindTargets(picked.filter((entry) => !appliedIds.includes(entry.id)), (entry) => entry.egress_proxy,
-    choice.sourceId, choice.itemId, choice.groupId, choice.selections);
+  const targets = selectionReady ? batchBindTargets(picked.filter((entry) => !appliedIds.includes(entry.id)), (entry) => entry.egress_proxy,
+    choice.sourceId, choice.itemId, choice.groupId, selections) : [];
   const overwrite = targets.filter((entry) => entry.willOverwrite).length;
   const summary = batchBindSummary(results);
   const allVisible = visible.length > 0 && visible.every((entry) => selectedIds.includes(entry.id));
@@ -63,16 +75,21 @@ export function CodexProxyAssignDialog({ choice, onClose }: { choice: ProxyAssig
   useModalScrollLock(true);
   useModalFocusTrap(dialog, true);
   useEffect(() => {
+    const update = () => setPlanBadgeStyle(getCodexPlanBadgeStyle());
+    window.addEventListener(CODEX_PLAN_BADGE_STYLE_CHANGED_EVENT, update);
+    return () => window.removeEventListener(CODEX_PLAN_BADGE_STYLE_CHANGED_EVENT, update);
+  }, []);
+  useEffect(() => {
     mounted.current = true;
     cancelled.current = false;
     return () => { mounted.current = false; cancelled.current = true; };
   }, []);
   useEffect(() => {
-    if (scope !== 'unified') return;
+    if (scope !== 'unified' || !selectionReady) return;
     let live = true;
     setPreview(null); setPreviewLoading(true); setPreviewError('');
     // The promise is shared across StrictMode's replay; source snapshots take a backend lock.
-    const task = previewTask.current ?? previewCodexUnifiedProxy(choice.sourceId, choice.itemId, choice.selections, choice.groupId || undefined);
+    const task = previewTask.current ?? previewCodexUnifiedProxy(choice.sourceId, choice.itemId, selections!, choice.groupId || undefined);
     previewTask.current = task;
     void task.then((next) => { if (live) setPreview(next); }).catch((caught) => {
       if (live) { setPreview(null); setPreviewError(t(unifiedProxyErrorKey(caught))); }
@@ -87,22 +104,28 @@ export function CodexProxyAssignDialog({ choice, onClose }: { choice: ProxyAssig
     return () => { live = false; };
     // Language changes should not repeat backend work.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scope, attempt, choice]);
+  }, [scope, attempt, choice, selectionReady, selections]);
 
   const clearFeedback = () => { setError(''); setResults([]); setUnifiedSaved(false); };
+  const changeChoice = (next: ProxyAssignment) => {
+    if (running.current) return;
+    previewTask.current = null;
+    setPreview(null); setPreviewLoading(false); setPreviewError('');
+    setAppliedIds([]); clearFeedback(); setChoice(next);
+  };
   const changeScope = (next: 'accounts' | 'unified') => {
     if (running.current || next === scope) return;
     setScope(next); setPreview(null); clearFeedback();
   };
   const toggle = (id: string) => { clearFeedback(); setSelectedIds((old) => old.includes(id) ? old.filter((value) => value !== id) : [...old, id]); };
   const save = async () => {
-    if (running.current || previewTask.current || previewLoading || !item?.supported || (scope === 'unified' ? !preview || unifiedSaved : !targets.length)) return;
+    if (running.current || previewTask.current || previewLoading || !selectionReady || (scope === 'unified' ? !preview || unifiedSaved : !targets.length)) return;
     running.current = true; cancelled.current = false; setBusy(true); setError(''); setResults([]);
     try {
       await preflightCodexProxyEngine();
       if (!mounted.current || cancelled.current) return;
       if (scope === 'unified') {
-        const next = await applyCodexUnifiedProxy(choice.sourceId, choice.itemId, choice.selections, choice.groupId || undefined);
+        const next = await applyCodexUnifiedProxy(choice.sourceId, choice.itemId, selections!, choice.groupId || undefined);
         acceptUnified(next);
         if (mounted.current) setUnifiedSaved(true);
         if (mounted.current) onClose();
@@ -110,7 +133,7 @@ export function CodexProxyAssignDialog({ choice, onClose }: { choice: ProxyAssig
         let completed: BatchBindResult[] = [];
         await executeProxyBatch(targets, {
           cancelled: () => cancelled.current,
-          bind: (account) => bindProxyCatalog(account.id, choice.sourceId, choice.itemId, choice.selections, choice.groupId),
+          bind: (account) => bindProxyCatalog(account.id, choice.sourceId, choice.itemId, selections!, choice.groupId),
           applied: (updated) => {
             useCodexAccountStore.getState().applyAccountSnapshot(updated);
             if (mounted.current) setAppliedIds((old) => [...old, updated.id]);
@@ -143,6 +166,11 @@ export function CodexProxyAssignDialog({ choice, onClose }: { choice: ProxyAssig
         <button type="button" className="btn btn-secondary compact" disabled={busy} aria-label={t('common.close')} onClick={onClose}><X size={18} /></button>
       </header>
       <div className="modal-body">
+        {showPicker && <CodexProxyPicker source={source} itemId={choice.itemId} selectedGroupId={choice.groupId}
+          selections={choice.selections} busy={busy} latency={latency}
+          choose={(itemId, groupId) => changeChoice({ ...choice, itemId, groupId, selections: {} })}
+          chooseMember={(groupId, member) => changeChoice({ ...choice, selections: { ...choice.selections, [groupId]: member } })} />}
+        {!selectionReady && <p className="codex-proxy-page-note" role="status">{t('codex.proxy.managerResources.pickNode')}</p>}
         <div className="codex-proxy-assign-scopes" role="group" aria-label={t('codex.proxy.manager.assign')}>
           <button type="button" className={`btn codex-proxy-assign-scope${scope === 'accounts' ? ' is-active' : ''}`} disabled={busy} aria-pressed={scope === 'accounts'} onClick={() => changeScope('accounts')}>
             <Users size={19} /><span>{t('codex.proxy.manager.specific')}</span></button>
@@ -157,20 +185,26 @@ export function CodexProxyAssignDialog({ choice, onClose }: { choice: ProxyAssig
               setSelectedIds((old) => allVisible ? old.filter((id) => !ids.has(id)) : [...new Set([...old, ...ids])]);
             }}>{t(allVisible ? 'codex.proxy.batchClearAll' : 'common.selectAll')}</button>
           </div>
-          <div className="codex-proxy-assign-accounts">{visible.map((account) => <button key={account.id} type="button" className={`btn codex-proxy-assign-account${selectedIds.includes(account.id) ? ' is-active' : ''}`} disabled={busy} aria-pressed={selectedIds.includes(account.id)} onClick={() => toggle(account.id)}>
-            {selectedIds.includes(account.id) ? <CheckSquare size={17} /> : <Square size={17} />}<span>{name(account)}</span>
-          </button>)}</div>
+          <div className="codex-proxy-assign-accounts">{visible.map((account) => {
+            const plan = account.plan_type?.trim();
+            const planClass = plan ? withCodexPlanBadgeStyle(getCodexPlanBadgePresentation(account).className, planBadgeStyle) : '';
+            return <button key={account.id} type="button" className={`btn codex-proxy-assign-account${selectedIds.includes(account.id) ? ' is-active' : ''}`} disabled={busy} aria-pressed={selectedIds.includes(account.id)} onClick={() => toggle(account.id)}>
+              {selectedIds.includes(account.id) ? <CheckSquare size={17} /> : <Square size={17} />}
+              <span className="codex-proxy-assign-account-name">{name(account)}</span>
+              {plan && <span className={`tier-badge ${planClass}`} title={plan}>{plan}</span>}
+            </button>;
+          })}</div>
           {!eligible.length && <p className="codex-proxy-page-note">{t('codex.proxy.emptyDescription')}</p>}
           {eligible.length > 0 && !visible.length && <p className="codex-proxy-page-note">{t('codex.proxy.noMatches')}</p>}
           <p className="codex-proxy-page-note">{t('codex.proxy.batchSelectedCount', { count: picked.length })}
             {overwrite > 0 && <span> · {t('codex.proxy.batchOverwrite', { count: overwrite })}</span>}</p>
-          {picked.length > 0 && !targets.length && !results.length && <p className="codex-proxy-page-note">{t('codex.proxy.batchEmpty')}</p>}
+          {selectionReady && picked.length > 0 && !targets.length && !results.length && <p className="codex-proxy-page-note">{t('codex.proxy.batchEmpty')}</p>}
         </> : <div className="codex-proxy-assign-shared">
           <p>{t('codex.proxy.manager.sharedHint')}</p>
           {previewLoading && <p role="status">{t('common.loading')}</p>}
           {previewError && <><ModalErrorMessage message={previewError} /><button type="button" className="btn btn-secondary compact" disabled={busy} onClick={() => { previewTask.current = null; setAttempt((old) => old + 1); }}>{t('common.retry')}</button></>}
           {!previewLoading && preview && <p>{t('codex.proxy.unified.enableMessage', {
-            count: Math.max(0, preview.eligibleAccountIds.length - preview.independentAccountIds.length), independent: preview.independentAccountIds.length,
+            count: Math.max(0, preview.eligibleAccountIds.length - preview.independentAccountIds.length - (preview.disabledAccountIds?.length ?? 0)), independent: preview.independentAccountIds.length,
           })}</p>}
         </div>}
         <ModalErrorMessage message={error} />
@@ -184,7 +218,7 @@ export function CodexProxyAssignDialog({ choice, onClose }: { choice: ProxyAssig
       <footer className="modal-footer">
         {busy && scope === 'accounts' ? <button type="button" className="btn btn-secondary" onClick={() => { cancelled.current = true; }}>{t('common.cancel')}</button>
           : <button type="button" className="btn btn-secondary" disabled={busy} onClick={onClose}>{t('common.close')}</button>}
-        <button type="button" className="btn btn-primary" disabled={busy || previewLoading || !item?.supported || (scope === 'unified' ? !preview || unifiedSaved : targets.length === 0)} onClick={() => void save()}>
+        <button type="button" className="btn btn-primary" disabled={busy || previewLoading || !selectionReady || (scope === 'unified' ? !preview || unifiedSaved : targets.length === 0)} onClick={() => void save()}>
           {busy || previewLoading ? <RefreshCw size={15} className="loading-spinner" /> : <Check size={15} />}{t(previewLoading ? 'common.loading' : busy ? 'common.processing' : 'codex.proxy.manager.apply')}</button>
       </footer>
     </div>

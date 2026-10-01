@@ -22,12 +22,6 @@ const SERVER_STATUS_FILE: &str = "server.json";
 const USER_CONFIG_FILE: &str = "config.json";
 const USER_CONFIG_LOCK_FILE: &str = "config.json.lock";
 
-/// 数据目录名
-const DATA_DIR: &str = ".antigravity_cockpit";
-const DEV_DATA_DIR: &str = ".antigravity_cockpit_dev";
-const DATA_DIR_ENV: &str = "COCKPIT_TOOLS_DATA_DIR";
-const PROFILE_ENV: &str = "COCKPIT_TOOLS_PROFILE";
-
 /// 服务状态（写入共享文件供其他客户端读取）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerStatus {
@@ -1064,26 +1058,12 @@ pub fn sync_global_proxy_env(config: &UserConfig) {
 
 /// 获取数据目录路径
 pub fn get_data_dir() -> Result<PathBuf, String> {
-    if let Ok(raw) = std::env::var(DATA_DIR_ENV) {
-        let trimmed = raw.trim();
-        if !trimmed.is_empty() {
-            return Ok(PathBuf::from(trimmed));
-        }
-    }
-
-    let home = dirs::home_dir().ok_or("无法获取 Home 目录")?;
-    let dir_name = std::env::var(PROFILE_ENV)
-        .map(|value| value.trim().eq_ignore_ascii_case("dev"))
-        .unwrap_or(false)
-        .then_some(DEV_DATA_DIR)
-        .unwrap_or(DATA_DIR);
-    Ok(home.join(dir_name))
+    crate::modules::data_paths::resolve_data_dir()
 }
 
 /// 获取共享目录路径（供其他模块使用）
-/// 与 get_data_dir 相同，但不返回 Result
 pub fn get_shared_dir() -> PathBuf {
-    get_data_dir().unwrap_or_else(|_| PathBuf::from(DATA_DIR))
+    get_data_dir().unwrap_or_else(|_| crate::modules::data_paths::fallback_data_dir())
 }
 
 /// 获取服务状态文件路径

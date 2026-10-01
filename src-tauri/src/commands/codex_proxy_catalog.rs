@@ -8,6 +8,10 @@ pub async fn codex_proxy_catalog_list() -> Result<CatalogView, String> {
     catalog::list().await
 }
 #[tauri::command]
+pub async fn codex_proxy_catalog_reorder(source_ids: Vec<String>) -> Result<CatalogView, String> {
+    catalog::reorder(source_ids).await
+}
+#[tauri::command]
 pub async fn codex_proxy_catalog_import(
     request_id: String,
     name: String,
@@ -287,7 +291,7 @@ pub async fn codex_proxy_catalog_bind(
     let _guard = catalog::SourceGuard::new(source_id.clone())?;
     let snapshot = catalog::snapshot_with_group(source_id, item_id, selections, group_id).await?;
     // Same binding transaction and API-service synchronization as the existing account form.
-    super::codex::update_codex_account_egress_proxy(account_id, Some(snapshot)).await
+    super::codex::update_codex_account_egress_proxy(account_id, Some(snapshot), None).await
 }
 #[tauri::command]
 pub async fn codex_proxy_catalog_probe(

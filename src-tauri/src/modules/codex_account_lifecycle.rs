@@ -469,6 +469,7 @@ fn upsert_account_with_hints_and_reauth_target(
 
     if let Some(proxy) = selected_proxy {
         account.egress_proxy_url = Some(proxy);
+        account.egress_proxy_disabled = false;
     }
 
     if has_reauth_target && generated_id != account.id {
@@ -575,12 +576,20 @@ pub fn remove_accounts(account_ids: &[String]) -> Result<(), String> {
         .lock()
         .map_err(|_| "Codex 账号写入锁已损坏".to_string())?;
 
-    let mut index = load_account_index();
+    let mut index = load_account_index_checked()?;
     let accounts_dir = get_accounts_dir();
+    // Stage every recoverable snapshot before deleting any account. A failed
+    // read/encryption/write leaves the original account available.
+    let mut generations = HashMap::new();
     for account_id in &remove_ids {
-        let account_generation = load_account(account_id)
-            .map(|account| account.token_generation)
-            .unwrap_or(0);
+        validate_recycle_account_id(account_id)?;
+        if let Some(account) = load_account_with_summary(account_id, None)? {
+            archive_codex_account(&account)?;
+            generations.insert(account_id.clone(), account.token_generation);
+        }
+    }
+    for account_id in &remove_ids {
+        let account_generation = generations.get(account_id).copied().unwrap_or(0);
         let previous_generation = read_account_tombstone(account_id)
             .map(|tombstone| tombstone.generation)
             .unwrap_or(0);
@@ -628,6 +637,7 @@ pub fn remove_accounts(account_ids: &[String]) -> Result<(), String> {
     for account_id in remove_ids {
         delete_account_file_unlocked(&account_id)?;
     }
+    drop(_guard);
     // 账号删除后，引用它的混合模型路由必须自动关闭（渠道配置保留），
     // 否则后台监控会反复尝试恢复失败的网关，并弹出与删除账号无关的报错。
     match crate::modules::codex_instance::disable_model_routing_for_deleted_accounts(

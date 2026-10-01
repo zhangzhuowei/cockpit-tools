@@ -209,6 +209,7 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
     #[test]
     fn sidecar_response_failed_overrides_generic_request_failed() {
         let event = SidecarUsageEvent {
+            proxy_route: None,
             request_id: "req-1".to_string(),
             model: "gpt-5.4".to_string(),
             alias: String::new(),
@@ -857,12 +858,12 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
     #[test]
     fn maps_snapshot_model_ids_to_supported_aliases() {
         assert_eq!(
-            resolve_supported_model_alias("gpt-5.4-2026-03-05"),
-            "gpt-5.4"
+            resolve_supported_model_alias("gpt-6.1-sol-2026-03-05"),
+            "gpt-6.1-sol"
         );
         assert_eq!(
-            resolve_supported_model_alias("GPT-5.4-Mini-2026-03-05"),
-            "gpt-5.4-mini"
+            resolve_supported_model_alias("GPT-6-LUNA-2026-03-05"),
+            "gpt-6-luna"
         );
         assert_eq!(
             resolve_supported_model_alias("custom-model-2026-03-05"),
@@ -998,7 +999,7 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
             assert!(models.iter().any(|item| item == model));
         }
 
-        api_key.allowed_models = vec!["gpt-5.4".to_string()];
+        api_key.allowed_models = vec!["gpt-5.5".to_string()];
         let restricted = visible_codex_model_ids_for_api_key_with_supported_models(
             &collection,
             &api_key,
@@ -1006,7 +1007,7 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
             None,
             supported_codex_model_ids(),
         );
-        assert!(restricted.iter().any(|model| model == "gpt-5.4"));
+        assert!(restricted.iter().any(|model| model == "gpt-5.5"));
         assert!(!restricted.iter().any(|model| model.starts_with("gpt-5.6-")));
     }
 
@@ -1103,7 +1104,7 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
             method: "POST".to_string(),
             target: "/v1/chat/completions".to_string(),
             headers: HashMap::new(),
-            body: br#"{"model":"GPT-5.4","stream":true,"messages":[{"role":"user","content":"hello"}]}"#
+            body: br#"{"model":"GPT-5.5","stream":true,"messages":[{"role":"user","content":"hello"}]}"#
                 .to_vec(),
         };
 
@@ -1113,7 +1114,7 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
             serde_json::from_slice(&prepared.body).expect("mapped body should be json");
         assert_eq!(
             mapped_body.get("model").and_then(Value::as_str),
-            Some("gpt-5.4")
+            Some("gpt-5.5")
         );
         assert!(mapped_body.get("input").is_some());
         assert_eq!(mapped_body.get("store"), Some(&Value::Bool(false)));
@@ -1144,7 +1145,7 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
                 original_request_body: _,
             } => {
                 assert!(stream);
-                assert_eq!(requested_model, "gpt-5.4");
+                assert_eq!(requested_model, "gpt-5.5");
             }
             _ => panic!("expected chat completions adapter"),
         }
@@ -1600,7 +1601,7 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
             method: "POST".to_string(),
             target: "/v1/responses".to_string(),
             headers: HashMap::new(),
-            body: br#"{"model":"gpt-5.4-2026-03-05","input":"hello"}"#.to_vec(),
+            body: br#"{"model":"gpt-6.1-sol-2026-03-05","input":"hello"}"#.to_vec(),
         };
 
         let (prepared, adapter) = prepare_gateway_request(request).expect("request should map");
@@ -1608,7 +1609,7 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
             serde_json::from_slice(&prepared.body).expect("mapped body should be json");
         assert_eq!(
             mapped_body.get("model").and_then(Value::as_str),
-            Some("gpt-5.4")
+            Some("gpt-6.1-sol")
         );
         assert_eq!(
             mapped_body.get("stream").and_then(Value::as_bool),
@@ -2258,7 +2259,7 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
             target: "/v1/chat/completions".to_string(),
             headers: HashMap::new(),
             body:
-                br#"{"model":"gpt-5.4-2026-03-05","messages":[{"role":"user","content":"hello"}]}"#
+                br#"{"model":"gpt-6.1-sol-2026-03-05","messages":[{"role":"user","content":"hello"}]}"#
                     .to_vec(),
         };
 
@@ -2267,14 +2268,14 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
             serde_json::from_slice(&prepared.body).expect("mapped body should be json");
         assert_eq!(
             mapped_body.get("model").and_then(Value::as_str),
-            Some("gpt-5.4")
+            Some("gpt-6.1-sol")
         );
 
         match adapter {
             GatewayResponseAdapter::ChatCompletions {
                 requested_model, ..
             } => {
-                assert_eq!(requested_model, "gpt-5.4");
+                assert_eq!(requested_model, "gpt-6.1-sol");
             }
             _ => panic!("expected chat completions adapter"),
         }
@@ -3141,6 +3142,11 @@ data: {"error":{"code":"server_error","type":"upstream","message":"stream aborte
     fn model_provider_direct_test_client_model_is_codex_visible() {
         let client_model = model_provider_direct_test_client_model();
 
+        assert_eq!(
+            client_model,
+            crate::modules::codex_wakeup::DEFAULT_WAKEUP_MODEL
+        );
+
         assert!(
             supported_codex_model_ids()
                 .iter()
@@ -3150,8 +3156,9 @@ data: {"error":{"code":"server_error","type":"upstream","message":"stream aborte
     }
 
     #[test]
-    fn supported_codex_models_include_official_and_compatibility_models() {
+    fn supported_codex_models_include_current_official_models() {
         let models = supported_codex_model_ids();
+        assert!(models.iter().all(|model| !crate::modules::codex_wakeup::is_codex_model_before_5_5(model)));
 
         for model_id in [
             "gpt-5.6-sol",
@@ -3160,8 +3167,7 @@ data: {"error":{"code":"server_error","type":"upstream","message":"stream aborte
             "gpt-6-astra",
             "gpt-6-sol",
             "gpt-6-luna",
-            "gpt-5.3-codex",
-            "gpt-5.3-codex-spark",
+            "gpt-6.1-sol",
         ] {
             assert!(
                 models.iter().any(|model| model == model_id),
@@ -3171,10 +3177,11 @@ data: {"error":{"code":"server_error","type":"upstream","message":"stream aborte
     }
 
     #[test]
-    fn default_codex_models_include_compatibility_5_3_models() {
+    fn default_codex_models_exclude_retired_models() {
         assert_eq!(
             default_codex_model_ids(),
             vec![
+                "gpt-6.1-sol",
                 "gpt-6-astra",
                 "gpt-6-sol",
                 "gpt-6-luna",
@@ -3182,10 +3189,6 @@ data: {"error":{"code":"server_error","type":"upstream","message":"stream aborte
                 "gpt-5.6-terra",
                 "gpt-5.6-luna",
                 "gpt-5.5",
-                "gpt-5.4",
-                "gpt-5.4-mini",
-                "gpt-5.3-codex",
-                "gpt-5.3-codex-spark",
             ]
         );
     }

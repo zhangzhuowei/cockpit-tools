@@ -2,7 +2,28 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { CodexAccount } from "../types/codex.ts";
-import { findCodexAccountsReferencingModelProvider } from "./codexModelProviderAccountSync.ts";
+import { buildCodexModelProviderAccountSnapshot, findCodexAccountsReferencingModelProvider } from "./codexModelProviderAccountSync.ts";
+
+test("Responses provider account snapshots retain vision defaults, overrides and routing", () => {
+  const snapshot = buildCodexModelProviderAccountSnapshot({
+    id: "cmp_custom",
+    name: "Custom Responses",
+    baseUrl: "https://relay.example.com/v1",
+    wireApi: "responses",
+    modelCatalog: ["Qwen-VL", "text-only"],
+    supportsVision: true,
+    modelCapabilities: { "qwen-vl": { supportsVision: true }, "text-only": { supportsVision: false } },
+    visionRoutingModel: "Qwen-VL",
+    supportsWebsockets: false,
+    apiKeys: [],
+    createdAt: 1,
+    updatedAt: 1,
+  });
+  assert.equal(snapshot.apiSupportsVision, true);
+  assert.deepEqual(snapshot.apiModelVisionSupport, { "qwen-vl": true, "text-only": false });
+  assert.equal(snapshot.apiVisionRoutingModel, "Qwen-VL");
+  assert.equal(snapshot.apiWireApi, "responses");
+});
 
 function account(overrides: Partial<CodexAccount>): CodexAccount {
   return {

@@ -10,7 +10,7 @@
       "accountsRequired": "Pilih setidaknya satu akun.",
       "invalidAccount": "Pengenal akun tidak valid.",
       "invalidRequest": "Parameter pengujian tidak valid.",
-      "invalidConcurrency": "Jumlah tugas paralel harus antara 1 dan 10.",
+      "invalidConcurrency": "Tugas paralel · 1–200",
       "invalidRetention": "Masa simpan harus antara 1 hingga 3650 hari.",
       "alreadyRunning": "Tutup pengujian aktif terlebih dahulu.",
       "artifactMissing": "Hasil yang dibuat tidak ditemukan.",
@@ -22,7 +22,9 @@
       "storage": "Tidak dapat membaca atau menyimpan riwayat uji.",
       "unsafePath": "Jalur hasil tidak aman.",
       "historyMissing": "Catatan pengujian tidak ditemukan.",
-      "invalidId": "Pengenal catatan tidak valid."
+      "invalidId": "Pengenal catatan tidak valid.",
+      "providerUnavailable": "Penyedia atau kunci API tersimpan tidak tersedia.",
+      "providerChanged": "Alamat atau protokol berubah. Mulai tes baru."
     },
     "title": "Uji pelikan",
     "description": "Buat HTML secara paralel dengan perintah yang sama. Bandingkan hasilnya sendiri tanpa penilaian otomatis.",
@@ -83,9 +85,52 @@
     "confirmClearAll": "Bersihkan semua pengujian Pelican?",
     "clearAllHelp": "Semua riwayat pengujian dan file yang dihasilkan akan dihapus permanen. Tindakan ini tidak dapat dibatalkan.",
     "search": "Cari akun",
-    "viewError": "Lihat kesalahan"
+    "viewError": "Lihat kesalahan",
+    "providers": "Penyedia",
+    "providerDescription": "Bandingkan penyedia dengan membuat animasi pelikan.",
+    "providerHelp": "Pilih penyedia, kunci tersimpan, dan model. Permintaan memakai gerbang sementara terpisah; kredensial dibaca ulang saat mencoba lagi.",
+    "providerRequired": "Pilih penyedia, kunci API, dan model yang valid.",
+    "providerModelMismatch": "Model berbeda: diminta {{requested}}, diterima {{responded}}.",
+    "providerSearch": "Cari penyedia atau nama kunci",
+    "providerEmpty": "Tidak ada penyedia yang cocok",
+    "providerClear": "Hapus pilihan"
   },
   "common": {
+    "dragSortHint": "Seret pegangan kiri untuk mengubah urutan. Perubahan otomatis disimpan saat dilepas.",
+    "dragSortFilteredHint": "Hapus pencarian untuk mengubah urutan.",
+    "recycleBin": {
+      "loadTimeout": "Waktu membaca sampah habis. Segarkan untuk mencoba lagi.",
+      "refreshFailed": "Akun dipulihkan, tetapi daftar akun gagal disegarkan. Muat ulang daftar akun.",
+      "moveStarted": "Mulai memindahkan {{count}} akun ke sampah",
+      "title": "Sampah",
+      "description": "Akun yang dihapus disimpan secara lokal dan dapat dipulihkan atau diekspor. Pemulihan tidak mengganti akun, menjalankan klien, atau memulihkan tautan tugas maupun layanan API.",
+      "empty": "Sampah kosong",
+      "restore": "Pulihkan",
+      "deletePermanently": "Hapus permanen",
+      "emptyBin": "Kosongkan sampah",
+      "deletedAt": "Dihapus: {{time}}",
+      "confirmDelete": "Hapus “{{name}}” secara permanen? Data akun di sampah akan dihapus dan tidak dapat dipulihkan.",
+      "confirmEmpty": "Hapus {{count}} akun ini secara permanen? Data di sampah akan dihapus dan tidak dapat dipulihkan.",
+      "move": "Ke sampah",
+      "confirmMove": "Pindahkan {{count}} akun ke sampah? Di sana Anda dapat memulihkan, mengekspor, atau menghapusnya secara permanen.",
+      "moved": "Dipindahkan ke sampah",
+      "moveFailed": "Gagal memindahkan ke sampah: {{error}}",
+      "operationFailed": "Operasi gagal: {{error}}",
+      "export": "Ekspor",
+      "exportAll": "Ekspor semua",
+      "exportAndDelete": "Ekspor & hapus",
+      "exportAndEmpty": "Ekspor & kosongkan",
+      "count": "{{count}} akun",
+      "exportHint": "Mengekspor berkas JSON yang dapat diimpor kembali. Berkas berisi kredensial akun; simpan dengan aman. Membatalkan penyimpanan atau ekspor yang gagal tidak akan menghapus akun.",
+      "exported": "Akun diekspor.",
+      "confirmTitle": "Hapus akun secara permanen?"
+    },
+    "requestProxy": {
+      "value": "Proksi: {{name}}",
+      "direct": "Langsung",
+      "unknown": "Tidak tercatat",
+      "entryHint": "Hanya pintu masuk proksi yang tercatat; simpul akhir tidak diketahui."
+    },
     "retry": "Coba lagi",
     "quotaRefreshScheduler": {
       "busy": "Antrean pembaruan penuh. Coba lagi sebentar.",
@@ -124,7 +169,7 @@
     "windowsOperation": {
       "title": "Operasi Windows belum selesai",
       "accessDeniedDescription": "Windows menolak operasi ini. Target mungkin berjalan dengan izin lebih tinggi atau berada di lokasi terlindungi.",
-      "storeLaunchBlockedDescription": "Windows tidak dapat menjalankan klien Codex yang dikonfigurasi: folder Store mungkin sudah diganti oleh pembaruan atau tidak lagi mengizinkan eksekusi. Peluncuran langsung diblokir agar akun yang salah tidak terbuka. Gunakan “Deteksi ulang jalur dan coba lagi”; jika masih gagal, ubah instans ini ke mode CLI.",
+      "storeLaunchBlockedDescription": "Startup instans terisolasi versi Store tidak dapat dikonfirmasi. Cockpit tidak beralih ke akun bawaan. Deteksi ulang lokasi klien lalu coba lagi. Jika masih gagal, salin informasi diagnostik atau ubah instans ini ke mode CLI.",
       "repairPath": "Deteksi ulang jalur dan coba lagi",
       "fileInUseDescription": "File target sedang digunakan program lain. Tutup program tersebut lalu coba lagi.",
       "programNotFoundDescription": "Windows tidak menemukan program yang diperlukan. Periksa instalasi atau jalur yang diatur.",
@@ -321,7 +366,8 @@
         "unlimited": "Kuota tak terbatas",
         "leftPercent": "Tersisa {{value}}%",
         "cachedRefreshFailed": "Pembaruan gagal; menampilkan data terakhir yang berhasil",
-        "lastSuccessfulQuery": "Keberhasilan terakhir: {{time}}"
+        "lastSuccessfulQuery": "Keberhasilan terakhir: {{time}}",
+        "cachedNeedsReauth": "⚠️ Verifikasi web diperlukan untuk melanjutkan (data cache di bawah)"
       },
       "subtitle": "Pantau status kuota seluruh akun secara real-time.",
       "time": {
@@ -369,7 +415,9 @@
     "quota": {
       "weeklyWindow": "Mingguan"
     },
-    "optional": " (opsional)"
+    "optional": " (opsional)",
+    "hide": "Sembunyikan",
+    "show": "Tampilkan"
   },
   "floatingCard": {
     "selectPlatform": "Ganti platform",
@@ -800,7 +848,7 @@
     },
     "delete": {
       "title": "Hapus Instansi",
-      "message": "Hapus instansi {{name}}? Tindakan ini akan menghapus konfigurasi dan folder instansi."
+      "message": "Hapus instansi {{name}}? Pendaftarannya akan dihapus dan folder instansi terkelola dipindahkan ke tempat sampah. Folder khusus dan terlindungi akan dipertahankan."
     },
     "launchDialog": {
       "title": "Luncurkan instans",
@@ -811,6 +859,24 @@
     }
   },
   "settings": {
+    "instanceCleanup": {
+      "title": "Pembersihan instans",
+      "description": "Pindai folder instans terkelola secara manual dan hapus data yang tidak dirujuk oleh konfigurasi instans atau proses yang sedang berjalan. Tidak ada penghapusan otomatis.",
+      "scan": "Pindai",
+      "scanning": "Memindai…",
+      "remove": "Hapus permanen",
+      "removing": "Menghapus…",
+      "empty": "Tidak ada folder sisa untuk dibersihkan",
+      "summary": "Ditemukan {{count}} folder yang menggunakan {{size}}",
+      "confirm": "Folder berikut beserta sesi, ruang kerja, dan cache di dalamnya akan dihapus permanen. Tindakan ini tidak dapat dibatalkan.",
+      "cancel": "Batal",
+      "confirmRemove": "Konfirmasi",
+      "done": "{{count}} folder dihapus",
+      "failed": "Operasi gagal",
+      "path": "Direktori",
+      "size": "Ruang terpakai",
+      "platform": "Jenis platform"
+    },
     "title": "Pengaturan",
     "subtitle": "Sesuaikan pengalaman Cockpit Tools Anda.",
     "tabs": {
@@ -1473,7 +1539,9 @@
       "normal": "Normal​",
       "forbidden": "403​",
       "forbidden_tooltip": "API mengembalikan 403 Forbidden, akun tidak memiliki akses ke Gemini Code Assist",
-      "forbidden_msg": "Akun diblokir, penyegaran otomatis dilewati"
+      "forbidden_msg": "Akun diblokir, penyegaran otomatis dilewati",
+      "needsReauth": "Perlu Verifikasi Web",
+      "needsReauthTooltip": "Google memerlukan verifikasi keamanan web untuk melanjutkan"
     },
     "tier": {
       "pro": "PRO​",
@@ -1608,7 +1676,12 @@
       "delete": "Hapus",
       "deleteSelected": "Hapus yang Dipilih",
       "export": "Ekspor",
-      "refreshAll": "Refresh Semua"
+      "refreshAll": "Refresh Semua",
+      "reauth": "Otorisasi ulang",
+      "reauthTooltip": "Google memerlukan verifikasi ulang, klik untuk mengotorisasi ulang",
+      "openValidationUrl": "Verifikasi Web",
+      "copyValidationUrl": "Salin tautan verifikasi",
+      "copyValidationUrlTooltip": "Salin alamat verifikasi web"
     },
     "switchHistory": {
       "title": "Riwayat Penggantian",
@@ -1847,7 +1920,8 @@
     "example": "Contoh",
     "actionRunning": "{{action}}...​",
     "actionSuccess": "{{action}} berhasil",
-    "actionFailed": "{{action}} gagal: {{error}}"
+    "actionFailed": "{{action}} gagal: {{error}}",
+    "refreshFailed": "Gagal menyegarkan"
   },
   "wakeup": {
     "title": "Tugas Bangun",
@@ -2110,6 +2184,11 @@
     "other_group": "Model Lainnya"
   },
   "codex": {
+    "launchErrors": {
+      "bindingFailed": "Tidak dapat memastikan akun yang terhubung. Proses mulai dihentikan; coba beralih akun lagi.",
+      "processScanFailed": "Tidak dapat memeriksa proses latar belakang sebelumnya. Proses mulai dihentikan; coba lagi.",
+      "proxyEntryFailed": "Proxy yang dikonfigurasi tidak dapat dimulai. Rute lain tidak digunakan; coba lagi."
+    },
     "oauthProxy": {
       "toggle": "Masuk lewat proksi",
       "hint": "Jendela bawaan, pertukaran token, dan pemeriksaan kuota pertama memakai proksi ini. Matikan opsi ini jika proses masuk memerlukan jendela pop-up.",
@@ -2598,7 +2677,7 @@
       "hideEntryEffectRestore": "Anda bisa menyalakannya lagi di Pengaturan Codex atau Pengaturan Cepat",
       "riskNotice": {
         "title": "Pemberitahuan Risiko",
-        "message": "Fitur terkait layanan Codex API saat ini pada dasarnya menggunakan pola proxy terbalik. Untuk saat ini, pihak resmi belum secara tegas membatasi perilaku ini, tetapi kebijakan, aturan, atau ketersediaannya dapat berubah di masa mendatang. Dengan tetap menggunakan fitur ini, Anda menyatakan telah memahami kondisi tersebut dan bersedia menanggung risikonya sendiri.",
+        "message": "Penggunaan akun resmi biasa melalui proksi balik atau penerusan dapat dikenai pembatasan ketat oleh layanan resmi. Penggunaan ini juga dapat terdeteksi sebagai penerusan dan memengaruhi kualitas jawaban («penurunan kecerdasan»). Gunakan dengan hati-hati, terutama jika Anda memiliki banyak akun.",
         "remember": "Saya paham, jangan tampilkan lagi",
         "acknowledge": "Saya paham",
         "continueStart": "Lanjutkan",
@@ -3275,7 +3354,8 @@
         "medium": "Sedang",
         "high": "Tinggi",
         "xhigh": "Sangat Tinggi",
-        "max": "Maks"
+        "max": "Maks",
+        "ultra": "Tertinggi"
       }
     },
     "sessionManager": {
@@ -3687,7 +3767,8 @@
         "baseUrlExists": "Base URL ini sudah ada.",
         "providerNotFound": "Penyedia tidak ditemukan.",
         "apiKeyRequiredOnCreate": "Saat membuat penyedia, Anda harus mengisi setidaknya satu API Key.",
-        "apiKeyRequiredWhenEmpty": "Penyedia ini belum memiliki API Key. Tambahkan satu terlebih dahulu."
+        "apiKeyRequiredWhenEmpty": "Penyedia ini belum memiliki API Key. Tambahkan satu terlebih dahulu.",
+        "apiKeyUrlInvalid": "Gunakan URL pengelolaan HTTP(S) tanpa kredensial tertanam; masukkan kunci API di kolom kunci."
       },
       "saveSuccess": "Penyedia model disimpan.",
       "deleteBlocked": "Penyedia ini tertaut ke {{count}} akun dan tidak bisa dihapus.",
@@ -3840,7 +3921,7 @@
         "modelAuto": "Otomatis (katalog / deteksi)",
         "modelCustom": "Model kustom…",
         "modelLabel": "Model uji",
-        "modelCustomPlaceholder": "ID model, mis. gpt-4.1-mini",
+        "modelCustomPlaceholder": "ID model, mis. gpt-6.1-sol",
         "modelHint": "Opsional: model bersama. Kosong = otomatis dari katalog."
       },
       "enableAndStart": "Mulai",
@@ -3855,9 +3936,9 @@
       },
       "vision": {
         "providerDefault": "Provider ini mendukung input gambar secara default",
-        "providerDefaultHint": "Jika mati, hanya model di bawah yang boleh menerima gambar; model lain ditolak oleh gateway lokal.",
+        "providerDefaultHint": "Model tanpa pengaturan khusus menggunakan nilai bawaan ini; GPT-5.5 dan versi lebih baru mendukung gambar secara bawaan. Nonaktifkan model tertentu dalam daftar. Jika gateway tidak menemukan model visual, gambar dilewati dan teks tetap diproses.",
         "modelsHint": "Satu model per baris. Cocok jika hanya sebagian model provider mendukung gambar tempel.",
-        "routingModelHint": "Jika model saat ini tidak membaca gambar, permintaan memakai model ini; kosong berarti otomatis memakai satu-satunya model visual.",
+        "routingModelHint": "Jika model saat ini tidak dapat membaca gambar, gateway menggunakan model ini. Kosongkan untuk memakai satu-satunya model visual yang tersedia; jika tidak ada, gambar dilewati dan teks tetap diproses.",
         "allModels": "Gambar",
         "partialModels": "Sebagian gambar",
         "textOnly": "Teks saja"
@@ -3946,7 +4027,8 @@
       "importConfigFailed": "Gagal mengimpor dari papan klip: {{error}}",
       "importConfigPlaceholder": "Gunakan Salin konfigurasi pada kartu lalu tempel isinya di sini",
       "importConfigAction": "Impor konfigurasi",
-      "importConfigFromClipboard": "Baca papan klip"
+      "importConfigFromClipboard": "Baca papan klip",
+      "settingsRestartHint": "Pengaturan penyedia diperbarui. Mulai ulang instans Codex atau layanan API yang sedang menggunakan penyedia ini untuk menerapkannya."
     },
     "quickSwitch": {
       "action": "Alih cepat penyedia",
@@ -4307,7 +4389,7 @@
         "reasoningEffortValue": "Nalar {{effort}}",
         "serviceTier": "Tingkat layanan",
         "serviceTierValue": "Tingkat {{tier}}",
-        "upstreamModel": "Model sebenarnya"
+        "upstreamModel": "Model terkirim"
       },
       "timeouts": {
         "entryLabel": "Lanjutan",
@@ -4582,8 +4664,6 @@
       "serverCount": "{{count}} server",
       "autoSyncBadge": "Mobil"
     },
-    "exportAuthFailed": "Ekspor gagal",
-    "exportAuthFailedTitle": "Ekspor semua akun auth gagal",
     "accounts": {
       "showRelayQuota": "Tampilkan kuota relay",
       "hideRelayQuota": "Sembunyikan kuota relay"
@@ -4616,6 +4696,18 @@
       "restartFailed": "Gagal memulai ulang gateway: {{error}}"
     },
     "proxy": {
+      "display": {
+        "title": "Tampilan proksi",
+        "compact": "Ringkas",
+        "summary": "Ringkasan",
+        "detailed": "Terperinci",
+        "hint": "Berlaku untuk semua kartu akun Codex; pilihan langsung disimpan dan diterapkan.",
+        "configuredNode": "Simpul terkonfigurasi",
+        "lastRequest": "Permintaan terakhir",
+        "preview": "Pratinjau gaya",
+        "saveFailed": "Preferensi tampilan tidak dapat disimpan. Coba lagi.",
+        "refresh": "Segarkan info"
+      },
       "workspace": {
         "navLabel": "Bagian proksi",
         "overview": "Ringkasan",
@@ -4708,7 +4800,7 @@
       },
       "rules": {
         "title": "Aturan keluar",
-        "intro": "Proksi khusus akun diprioritaskan di atas proksi terpadu; jika keduanya tidak berlaku, permintaan memakai jalur keluar bawaan klien sebelumnya.",
+        "intro": "Proksi khusus akun diprioritaskan di atas proksi terpadu; jika keduanya tidak berlaku, permintaan memakai jalur keluar bawaan klien sebelumnya. Akun yang secara khusus memilih Tanpa proksi dikecualikan.",
         "order": "Urutan berlaku",
         "tableTitle": "Daftar jalur keluar akun",
         "columnAccount": "Akun",
@@ -4753,8 +4845,8 @@
       },
       "unified": {
         "title": "Egress proxy terpadu",
-        "hint": "Akun yang memenuhi syarat tanpa proksi sendiri memakai egress ini bersama; akun baru ikut otomatis.",
-        "offState": "Nonaktif: proksi akun berlaku; jika tidak ada, egress bawaan digunakan.",
+        "hint": "Akun yang memenuhi syarat tanpa proksi sendiri memakai egress ini bersama; akun baru ikut otomatis. Akun yang secara khusus memilih Tanpa proksi dikecualikan.",
+        "offState": "Nonaktif: proksi akun berlaku; jika tidak ada, egress bawaan digunakan. Akun yang secara khusus memilih Tanpa proksi dikecualikan.",
         "enable": "Aktifkan egress proxy",
         "disable": "Matikan",
         "change": "Ganti egress",
@@ -4772,12 +4864,12 @@
         "changeMessage": "Klien aktif dengan penerus lokal memakai egress baru untuk koneksi baru.",
         "changeConfirm": "Ganti",
         "disableTitle": "Matikan egress proxy terpadu",
-        "disableMessage": "Proksi akun tetap berlaku; tanpa ikatan, egress bawaan digunakan.",
+        "disableMessage": "Proksi akun tetap berlaku; tanpa ikatan, egress bawaan digunakan. Akun yang secara khusus memilih Tanpa proksi dikecualikan.",
         "disableConfirm": "Matikan",
         "restartHint": "Klien yang dibuka melalui penerus lokal beralih pada koneksi baru. Klien aktif lainnya perlu sekali dimulai ulang.",
         "staleWarning": "Sumber egress ini tidak tersedia. Pilih egress lain.",
         "removedWarning": "Egress proxy terpadu dimatikan karena sumbernya dihapus.",
-        "accountsNotice": "Proksi akun diutamakan; akun tanpa ikatan mengikuti proksi terpadu.",
+        "accountsNotice": "Proksi akun diutamakan; akun tanpa ikatan mengikuti proksi terpadu. Akun yang secara khusus memilih Tanpa proksi dikecualikan.",
         "unbindBlocked": "Setelah dilepas, akun ini mengikuti proksi terpadu.",
         "following": "Terpadu",
         "errorFailed": "Tindakan gagal. Coba lagi.",
@@ -4841,6 +4933,11 @@
         "viewAll": "Lihat semua"
       },
       "previewTitle": "Pratinjau proksi",
+      "modeDisabled": "Tanpa proksi",
+      "disableAction": "Lepas proksi",
+      "setIndependent": "Proksi sendiri",
+      "disabledHint": "Lewati proksi akun dan bersama; coba koneksi langsung untuk sambungan baru.",
+      "disabledWarning": "Akses langsung bisa gagal. Perubahan berlaku pada sambungan baru klien dengan penerus lokal; klien lain yang sedang berjalan perlu dimulai ulang. Sambungan yang ada dapat tetap memakai rute sebelumnya.",
       "exitIp": "IP keluar",
       "sessionHistory": "Riwayat operasi",
       "sessionHistoryHint": "Memeriksa status setiap 5 detik. Hanya menyimpan status awal dan perubahan selama pratinjau ini, maksimal 20 catatan. Dihapus saat ditutup; bukan riwayat lengkap.",
@@ -4871,9 +4968,17 @@
       "desktopRequest_forwarded": "Penerusan lokal terakhir tersambung",
       "desktopRequest_failed": "Penerusan lokal terakhir gagal",
       "desktopEntryReadyHint": "Pintu masuk sedang mendengarkan; mesin dimulai saat permintaan koneksi diterima.",
+      "sharedRuntime": "Proksi akun",
       "runtimeMain": "Permintaan akun",
       "runtimeDesktop": "Jembatan desktop",
       "runtimeHint": "Status hanya menjelaskan pintu masuk dan mesin lokal. Penerusan yang tersambung tidak memastikan akses Internet atau mengidentifikasi klien pengirim permintaan.",
+      "restoreEntry": "Pulihkan relai",
+      "restoringEntry": "Memulihkan…",
+      "restoreEntryFailed": "Relai proksi desktop tidak dapat dipulihkan. Coba lagi.",
+      "restoreEntryPortBusy": "Port proksi semula sedang digunakan. Bebaskan port lalu coba lagi; desktop tidak dapat memakai port lain secara otomatis.",
+      "restoreEntryNotRunning": "Tidak ditemukan desktop aktif yang memakai pintu masuk proksi tercatat milik Cockpit ini.",
+      "restoreEntryBusy": "Pemulihan proksi sedang berlangsung. Coba lagi sebentar.",
+      "restoreEntryTimeout": "Pemulihan proksi kehabisan waktu. Coba lagi.",
       "restartHint": "Klien yang dibuka melalui penerus lokal beralih pada koneksi baru. Klien aktif lainnya perlu sekali dimulai ulang. Jembatan desktop hanya mendengarkan pada loopback, tetapi tidak mengisolasi pengguna lokal lain. Proksi sistem tidak berubah.",
       "exportHint": "Ekspor akun tidak menyertakan kredensial proksi; atur kembali setelah mengimpor.",
       "backToAccounts": "Kembali ke akun",
@@ -5187,7 +5292,7 @@
         "assign": "Tetapkan proksi",
         "specific": "Akun terpilih",
         "shared": "Proksi bersama",
-        "sharedHint": "Akun Codex OAuth tanpa proksi sendiri menggunakan proksi ini, termasuk akun yang memenuhi syarat yang ditambahkan nanti. Pengaturan individual yang ada tetap berlaku.",
+        "sharedHint": "Akun Codex OAuth tanpa proksi sendiri menggunakan proksi ini, termasuk akun yang memenuhi syarat yang ditambahkan nanti. Pengaturan individual yang ada tetap berlaku. Akun yang secara khusus memilih Tanpa proksi dikecualikan.",
         "apply": "Tetapkan"
       },
       "managerResources": {
@@ -5220,7 +5325,7 @@
       "managerUnified": {
         "off": "Nonaktif",
         "choose": "Atur proksi",
-        "hint": "Akun tanpa proksi sendiri menggunakan proksi ini."
+        "hint": "Akun tanpa proksi sendiri menggunakan proksi ini. Akun yang secara khusus memilih Tanpa proksi dikecualikan."
       },
       "setup": {
         "title": "Siapkan proksi",
@@ -5234,13 +5339,20 @@
         "collapse": "Sembunyikan rincian"
       },
       "runtime_entry_failed": "Pintu masuk gagal",
+      "measureCurrentLatency": "Uji latensi",
+      "measuringCurrentLatency": "Menguji",
+      "currentLatencyNotRunning": "Tidak ada simpul aktif yang dapat diuji. Jalankan klien yang menggunakan proksi ini, atau uji simpul yang dikonfigurasi di Manajemen Proksi.",
+      "currentLatencyHint": "Menguji latensi simpul aktif ke URL pengujian tanpa mengganti simpul atau mengubah kebijakan proksi.",
       "latencyCheckedAt": "Waktu pemeriksaan",
       "latencyPending": "Belum diuji",
       "latencyTimeout": "Waktu habis",
       "quickSwitch": "Ganti simpul",
       "quickSwitchHint": "Hanya mengubah akun ini. Koneksi baru menggunakan jalur keluar yang disimpan; penyimpanan tidak memverifikasi koneksi.",
       "currentNode": "Node saat ini",
-      "noCurrentNode": "Node saat ini belum tersedia"
+      "noCurrentNode": "Node saat ini belum tersedia",
+      "runtimeBusy": "Proksi lokal sibuk. Pembaruan sementara tidak tersedia.",
+      "runtimeCapacity": "Terlalu banyak proksi aktif. Hentikan yang tidak digunakan dan coba lagi.",
+      "runtimeReadFailed": "Status proksi lokal sementara tidak tersedia. Coba lagi."
     },
     "more": {
       "title": "Lainnya",
@@ -5260,6 +5372,17 @@
       "moveUp": "Naik",
       "moveDown": "Turun",
       "done": "Selesai"
+    },
+    "cliDaemon": {
+      "title": "Perbarui akun CLI",
+      "description": "Kredensial telah disimpan, tetapi layanan latar belakang Codex CLI untuk profil ini masih berjalan dan mungkin tetap memakai akun sebelumnya.",
+      "restartHint": "Selesaikan tugas CLI yang aktif, lalu jalankan perintah ini di terminal. Memulai ulang akan memutus sesi yang terhubung ke layanan ini.",
+      "copyFailed": "Gagal menyalin. Pilih perintah di atas dan salin secara manual."
+    },
+    "proxyQuality": {
+      "errors": {
+        "bindingChanged": "Ikatan akun berubah. Pengaturan saat ini dipertahankan."
+      }
     }
   },
   "codebuddy": {

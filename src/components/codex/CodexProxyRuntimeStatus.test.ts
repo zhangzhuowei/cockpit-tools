@@ -114,7 +114,7 @@ test('current-node card shows the actual leaf beside the switch action and keeps
   assert.match(current, /US actual leaf/);
   assert.match(current, /216 ms/);
   assert.match(current, /aria-haspopup="dialog"/);
-  assert.match(current, /Switch node/);
+  assert.match(current, /Set own proxy/);
   assert.doesNotMatch(current, /US automatic policy/);
   assert.doesNotMatch(current, /aria-expanded|Collapse/);
   const stopped = render({ ...status, account: 'stopped', sidecar: 'stopped' });
@@ -126,7 +126,9 @@ test('current-node card distinguishes channels, deduplicates shared leaves and n
   const i18n = await translator();
   const render = (status: CodexProxyRuntimeStatus) => renderToStaticMarkup(createElement(I18nextProvider, { i18n },
     createElement(CodexProxyConnectionSummary, { account, status, failed: false })));
-  const status: CodexProxyRuntimeStatus = { ...base, desktop: 'running', accountNode: 'API leaf', sidecarNode: 'API leaf', desktopNode: 'Desktop leaf',
+  const status: CodexProxyRuntimeStatus = { ...base, proxySource: 'unified',
+    effectiveProxy: { protocol: 'RESOURCE', name: 'Automatic policy' },
+    desktop: 'running', accountNode: 'API leaf', sidecarNode: 'API leaf', desktopNode: 'Desktop leaf',
     accountSelection: { name: 'Old leaf', delayMs: 999, checkedAt: 1750000000000 },
     desktopSelection: { name: 'Desktop leaf', delayMs: 123, checkedAt: 1750000000000 } };
   const html = render(status);

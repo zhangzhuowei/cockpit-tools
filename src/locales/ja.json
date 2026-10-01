@@ -10,7 +10,7 @@
       "accountsRequired": "アカウントを1つ以上選択してください。",
       "invalidAccount": "アカウント ID が無効です。",
       "invalidRequest": "テストの設定が無効です。",
-      "invalidConcurrency": "並列数は1〜10で指定してください。",
+      "invalidConcurrency": "並列数 · 1–200",
       "invalidRetention": "保持期間は1〜3650日で指定してください。",
       "alreadyRunning": "先にアクティブなテストを閉じてください。",
       "artifactMissing": "生成結果が見つかりません。",
@@ -22,7 +22,9 @@
       "storage": "テスト履歴の読み込みまたは保存ができません。",
       "unsafePath": "結果のパスが安全ではありません。",
       "historyMissing": "テスト履歴が見つかりません。",
-      "invalidId": "履歴 ID が無効です。"
+      "invalidId": "履歴 ID が無効です。",
+      "providerUnavailable": "プロバイダーまたは保存済み API キーを利用できません。",
+      "providerChanged": "接続先またはプロトコルが変更されました。新しいテストを開始してください。"
     },
     "title": "ペリカンテスト",
     "description": "同じプロンプトで HTML を並列生成します。結果は自分で比較でき、自動採点は行いません。",
@@ -83,9 +85,52 @@
     "confirmClearAll": "Pelican のテストをすべて削除しますか？",
     "clearAllHelp": "すべてのテスト履歴と生成ファイルを完全に削除します。この操作は元に戻せません。",
     "search": "アカウント検索",
-    "viewError": "エラーを見る"
+    "viewError": "エラーを見る",
+    "providers": "プロバイダー",
+    "providerDescription": "ペリカンのアニメーション生成でプロバイダーを比較します。",
+    "providerHelp": "プロバイダー、保存済みキー、モデルを選択します。独立した一時ゲートウェイ経由で送信し、再試行時に認証情報を再読み込みします。",
+    "providerRequired": "有効なプロバイダー、API キー、モデルを選択してください。",
+    "providerModelMismatch": "モデル不一致：要求 {{requested}}、応答 {{responded}}。",
+    "providerSearch": "プロバイダーやキー名を検索",
+    "providerEmpty": "一致するプロバイダーがありません",
+    "providerClear": "選択を解除"
   },
   "common": {
+    "dragSortHint": "左のハンドルをドラッグして並べ替えます。離すと自動保存されます。",
+    "dragSortFilteredHint": "並べ替えるには検索をクリアしてください。",
+    "recycleBin": {
+      "loadTimeout": "ごみ箱の読み込みがタイムアウトしました。更新して再試行してください。",
+      "refreshFailed": "アカウントは復元されましたが、一覧を更新できませんでした。一覧を再読み込みしてください。",
+      "moveStarted": "{{count}} 件をごみ箱へ移動しています",
+      "title": "ごみ箱",
+      "description": "削除したアカウントはローカルに保存され、復元やエクスポートが可能です。復元してもアカウントの切り替え、クライアントの起動、タスクや API サービスの紐付けの復元は行いません。",
+      "empty": "ごみ箱は空です",
+      "restore": "復元",
+      "deletePermanently": "完全に削除",
+      "emptyBin": "ごみ箱を空に",
+      "deletedAt": "削除日時：{{time}}",
+      "confirmDelete": "「{{name}}」を完全に削除しますか？ごみ箱内のアカウントデータは削除され、復元できません。",
+      "confirmEmpty": "この {{count}} 件を完全に削除しますか？ごみ箱内のアカウントデータは削除され、復元できません。",
+      "move": "ごみ箱へ",
+      "confirmMove": "{{count}} 件をごみ箱に移しますか？ごみ箱で復元、エクスポート、完全削除ができます。",
+      "moved": "ごみ箱に移動しました",
+      "moveFailed": "ごみ箱への移動に失敗：{{error}}",
+      "operationFailed": "操作に失敗：{{error}}",
+      "export": "エクスポート",
+      "exportAll": "すべて出力",
+      "exportAndDelete": "出力して削除",
+      "exportAndEmpty": "出力して空に",
+      "count": "{{count}} 件",
+      "exportHint": "再インポート可能な JSON ファイルを出力します。アカウントの認証情報を含むため、安全に保管してください。保存をキャンセルした場合や出力に失敗した場合、アカウントは削除されません。",
+      "exported": "アカウントを出力しました。",
+      "confirmTitle": "アカウントを完全に削除しますか？"
+    },
+    "requestProxy": {
+      "value": "プロキシ：{{name}}",
+      "direct": "直接接続",
+      "unknown": "記録なし",
+      "entryHint": "プロキシの入口のみ記録されています。最終ノードは不明です。"
+    },
     "retry": "再試行",
     "quotaRefreshScheduler": {
       "busy": "更新キューが混雑しています。しばらくしてから再試行してください。",
@@ -124,7 +169,7 @@
     "windowsOperation": {
       "title": "Windows 操作が完了していません",
       "accessDeniedDescription": "Windows により操作が拒否されました。対象が高い権限で実行中か、保護された場所にある可能性があります。",
-      "storeLaunchBlockedDescription": "Windows は現在設定されている Codex クライアントを実行できませんでした。ストア版のフォルダーが更新で置き換わったか、実行が許可されていない可能性があります。誤ったアカウントで開かないよう、直接起動をブロックしました。「パスの再検出と再試行」を実行し、それでも失敗する場合はこのインスタンスの起動方式を CLI に変更してください。",
+      "storeLaunchBlockedDescription": "ストア版の独立したインスタンスが正常に起動したことを確認できませんでした。Cockpit は既定のアカウントを代わりに開いていません。クライアントのパスを再検出して再試行してください。解決しない場合は診断情報をコピーして報告するか、このインスタンスを CLI モードに切り替えてください。",
       "repairPath": "パスを再検出して再試行",
       "fileInUseDescription": "対象ファイルは別のプログラムで使用中です。そのプログラムを閉じて再試行してください。",
       "programNotFoundDescription": "操作に必要なプログラムが見つかりません。インストール状態または設定パスを確認してください。",
@@ -314,7 +359,8 @@
         "unlimited": "無制限",
         "leftPercent": "残り {{value}}%",
         "cachedRefreshFailed": "更新に失敗したため、最後に成功したデータを表示しています",
-        "lastSuccessfulQuery": "最終成功: {{time}}"
+        "lastSuccessfulQuery": "最終成功: {{time}}",
+        "cachedNeedsReauth": "⚠️ 続行するにはウェブ検証が必要です（以下は前回の成功データです）"
       },
       "subtitle": "GitHub Copilot アカウントを管理します",
       "time": {
@@ -369,7 +415,9 @@
     "quota": {
       "weeklyWindow": "週間"
     },
-    "optional": "（任意）"
+    "optional": "（任意）",
+    "hide": "非表示",
+    "show": "表示"
   },
   "nav": {
     "overview": "Antigravity IDE​",
@@ -741,7 +789,7 @@
     },
     "delete": {
       "title": "インスタンスを削除",
-      "message": "インスタンス {{name}} を削除しますか？設定が削除され、インスタンスフォルダーも削除されます。"
+      "message": "インスタンス {{name}} を削除しますか？登録を解除し、管理対象のインスタンスフォルダーをごみ箱に移動します。カスタムフォルダーと保護されたフォルダーは保持されます。"
     },
     "import": {
       "btnTitle": "既存ディレクトリをインポート",
@@ -764,6 +812,24 @@
     }
   },
   "settings": {
+    "instanceCleanup": {
+      "title": "インスタンスの残存データ削除",
+      "description": "管理対象のインスタンスフォルダーを手動でスキャンし、インスタンス設定や実行中のプロセスから参照されていないデータを削除します。自動では削除されません。",
+      "scan": "スキャン",
+      "scanning": "スキャン中…",
+      "remove": "完全に削除",
+      "removing": "削除中…",
+      "empty": "削除できる残存フォルダーはありません",
+      "summary": "{{count}} 個のフォルダーを検出、使用量 {{size}}",
+      "confirm": "以下のフォルダーと、その中のセッション、ワークスペース、キャッシュを完全に削除します。この操作は取り消せません。",
+      "cancel": "キャンセル",
+      "confirmRemove": "削除を確定",
+      "done": "{{count}} 個のフォルダーを削除しました",
+      "failed": "操作に失敗しました",
+      "path": "フォルダー",
+      "size": "使用量",
+      "platform": "プラットフォーム"
+    },
     "title": "アプリ設定",
     "subtitle": "Cockpit Tools の利用体験をカスタマイズします。",
     "tabs": {
@@ -1426,7 +1492,9 @@
       "normal": "通常",
       "forbidden": "403​",
       "forbidden_tooltip": "APIが403 Forbiddenを返しました。アカウントはGemini Code Assistにアクセスできません",
-      "forbidden_msg": "アカウント禁止、自動更新をスキップしました"
+      "forbidden_msg": "アカウント禁止、自動更新をスキップしました",
+      "needsReauth": "ウェブ検証が必要",
+      "needsReauthTooltip": "続行するにはGoogleによるウェブセキュリティ検証が必要です"
     },
     "tier": {
       "pro": "PRO​",
@@ -1561,7 +1629,12 @@
       "delete": "削除",
       "deleteSelected": "選択項目を削除",
       "export": "エクスポート",
-      "refreshAll": "すべて更新"
+      "refreshAll": "すべて更新",
+      "reauth": "再認証",
+      "reauthTooltip": "Googleが再検証を要求しています。クリックして再認証してください",
+      "openValidationUrl": "ウェブ検証",
+      "copyValidationUrl": "検証リンクをコピー",
+      "copyValidationUrlTooltip": "ウェブ検証アドレスをコピー"
     },
     "tabs": {
       "oauth": "OAuth 認証",
@@ -1800,7 +1873,8 @@
     "example": "例",
     "actionRunning": "{{action}}中...",
     "actionSuccess": "{{action}}成功",
-    "actionFailed": "{{action}}失敗: {{error}}"
+    "actionFailed": "{{action}}失敗: {{error}}",
+    "refreshFailed": "更新に失敗しました"
   },
   "wakeup": {
     "title": "ウェイクアップタスク",
@@ -2063,6 +2137,11 @@
     "other_group": "その他のモデル"
   },
   "codex": {
+    "launchErrors": {
+      "bindingFailed": "アカウントの関連付けを確認できません。起動を中止しました。切り替えを再試行してください。",
+      "processScanFailed": "既存のバックグラウンドプロセスを確認できません。起動を中止しました。再試行してください。",
+      "proxyEntryFailed": "設定されたプロキシを起動できません。別の経路は使用していません。再試行してください。"
+    },
     "oauthProxy": {
       "toggle": "プロキシで認証",
       "hint": "内蔵画面、トークン交換、初回の利用枠確認にこのプロキシを使用します。 ログインにポップアップが必要な場合は、この設定をオフにしてください。",
@@ -2548,7 +2627,7 @@
       "hideEntryEffectRestore": "Codex 設定またはクイック設定から再度有効化できます",
       "riskNotice": {
         "title": "リスクに関する注意",
-        "message": "現在の Codex API サービス関連機能は、本質的にはリバースプロキシ型の利用です。現時点では公式がこの挙動を明確に制限していませんが、今後の方針、ルール、提供状況が変わる可能性があります。この機能を引き続き利用する場合は、その点を理解し、関連するリスクを自己責任で負うことに同意したものとみなされます。",
+        "message": "通常の公式アカウントをリバースプロキシや中継に使用すると、公式サービスから厳しい制限を受ける可能性があります。また、中継として検知され、回答品質に影響（「知能低下」）が出る可能性もあります。特に多数のアカウントをお持ちの場合は、慎重にご利用ください。",
         "remember": "理解しました。今後は表示しない",
         "acknowledge": "理解しました",
         "continueStart": "続行",
@@ -3078,7 +3157,8 @@
         "medium": "中",
         "high": "高",
         "xhigh": "最高",
-        "max": "最大"
+        "max": "最大",
+        "ultra": "極限"
       },
       "scheduleQuotaResetHint": "クォータリセット後の起動を有効にすると、自動更新は2分ごとに調整されます。",
       "scheduleQuotaResetSummary": "クォータリセット後に実行",
@@ -3640,7 +3720,8 @@
         "baseUrlExists": "この Base URL はすでに存在します。",
         "providerNotFound": "プロバイダーが見つかりません。",
         "apiKeyRequiredOnCreate": "プロバイダーを作成するには、少なくとも 1 つの API キーが必要です。",
-        "apiKeyRequiredWhenEmpty": "このプロバイダーにはまだ API キーがありません。先に追加してください。"
+        "apiKeyRequiredWhenEmpty": "このプロバイダーにはまだ API キーがありません。先に追加してください。",
+        "apiKeyUrlInvalid": "認証情報を含まない HTTP(S) 管理ページ URL を入力してください。API Key はキー欄に入力します。"
       },
       "saveSuccess": "モデルプロバイダーを保存しました。",
       "deleteBlocked": "このプロバイダーは {{count}} 件のアカウントに関連付けられているため、削除できません。",
@@ -3793,7 +3874,7 @@
         "modelAuto": "自動（カタログ/検出）",
         "modelCustom": "カスタムモデル…",
         "modelLabel": "テストモデル",
-        "modelCustomPlaceholder": "モデル ID（例: gpt-4.1-mini）",
+        "modelCustomPlaceholder": "モデル ID（例: gpt-6.1-sol）",
         "modelHint": "任意：共通テストモデル。空欄時は各プロバイダーの一覧から自動選択します。"
       },
       "enableAndStart": "起動",
@@ -3808,9 +3889,9 @@
       },
       "vision": {
         "providerDefault": "このプロバイダーは既定で画像入力に対応します",
-        "providerDefaultHint": "オフの場合、下に記載したモデルだけが画像入力を受け付け、それ以外はローカルゲートウェイで拒否されます。",
+        "providerDefaultHint": "個別設定のないモデルにはこの既定値を使います。GPT-5.5 以降は既定で画像に対応します。モデル一覧で個別に無効化できます。ゲートウェイが画像対応モデルを見つけられない場合、画像を省略してテキスト処理を続行します。",
         "modelsHint": "1 行に 1 モデル。プロバイダー内の一部モデルだけが貼り付け画像に対応する場合に使います。",
-        "routingModelHint": "現在のモデルが画像を読めない場合、このモデルを使います。空欄なら唯一の画像対応モデルを自動使用します。",
+        "routingModelHint": "現在のモデルが画像を読めない場合、ゲートウェイはこのモデルを使います。空欄なら唯一の画像対応モデルを自動使用し、見つからない場合は画像を省略してテキスト処理を続行します。",
         "allModels": "画像対応",
         "partialModels": "一部画像",
         "textOnly": "テキストのみ"
@@ -3899,7 +3980,8 @@
       "importConfigFailed": "クリップボードからの読み込みに失敗しました：{{error}}",
       "importConfigPlaceholder": "カードの「設定をコピー」を使い、内容をここに貼り付けます",
       "importConfigAction": "設定を読み込む",
-      "importConfigFromClipboard": "クリップボードを読み取る"
+      "importConfigFromClipboard": "クリップボードを読み取る",
+      "settingsRestartHint": "プロバイダー設定を更新しました。適用するには、このプロバイダーを使用中の Codex または API サービスを再起動してください。"
     },
     "quickSwitch": {
       "action": "プロバイダーをクイック切り替え",
@@ -4260,7 +4342,7 @@
         "reasoningEffortValue": "思考 {{effort}}",
         "serviceTier": "サービス階層",
         "serviceTierValue": "階層 {{tier}}",
-        "upstreamModel": "実際のモデル"
+        "upstreamModel": "送信モデル"
       },
       "timeouts": {
         "entryLabel": "詳細",
@@ -4535,8 +4617,6 @@
       "serverCount": "{{count}} 台",
       "autoSyncBadge": "自動"
     },
-    "exportAuthFailed": "失敗を書き出し",
-    "exportAuthFailedTitle": "認証失敗アカウントをすべて書き出す",
     "accounts": {
       "showRelayQuota": "中継枠を表示",
       "hideRelayQuota": "中継枠を非表示"
@@ -4569,6 +4649,18 @@
       "restartFailed": "ゲートウェイの再起動に失敗しました：{{error}}"
     },
     "proxy": {
+      "display": {
+        "title": "プロキシ表示",
+        "compact": "簡易",
+        "summary": "概要",
+        "detailed": "詳細",
+        "hint": "すべての Codex アカウントカードに適用され、選択はすぐに保存・反映されます。",
+        "configuredNode": "設定済みノード",
+        "lastRequest": "最新のリクエスト",
+        "preview": "表示プレビュー",
+        "saveFailed": "表示設定を保存できませんでした。もう一度お試しください。",
+        "refresh": "情報を更新"
+      },
       "workspace": {
         "navLabel": "プロキシの各セクション",
         "overview": "概要",
@@ -4661,7 +4753,7 @@
       },
       "rules": {
         "title": "出口ルール",
-        "intro": "アカウント個別のプロキシは統一プロキシより優先されます。どちらも適用されない場合、リクエストはクライアント本来の既定出口を使用します。",
+        "intro": "アカウント個別のプロキシは統一プロキシより優先されます。どちらも適用されない場合、リクエストはクライアント本来の既定出口を使用します。 「プロキシなし」を明示的に選択したアカウントは対象外です。",
         "order": "適用順序",
         "tableTitle": "アカウント出口一覧",
         "columnAccount": "アカウント",
@@ -4706,8 +4798,8 @@
       },
       "unified": {
         "title": "統一プロキシ出口",
-        "hint": "個別プロキシを設定していない対象アカウントがこの出口を共用し、新規アカウントも自動で対象になります。",
-        "offState": "オフ：個別の割り当てを優先し、ない場合は既定の出口を使用します。",
+        "hint": "個別プロキシを設定していない対象アカウントがこの出口を共用し、新規アカウントも自動で対象になります。 「プロキシなし」を明示的に選択したアカウントは対象外です。",
+        "offState": "オフ：個別の割り当てを優先し、ない場合は既定の出口を使用します。 「プロキシなし」を明示的に選択したアカウントは対象外です。",
         "enable": "統一プロキシを有効化",
         "disable": "無効化",
         "change": "出口を変更",
@@ -4725,12 +4817,12 @@
         "changeMessage": "ローカル転送を使う実行中のクライアントは、新しい接続から新しい出口を使用します。",
         "changeConfirm": "変更",
         "disableTitle": "統一プロキシをオフにする",
-        "disableMessage": "個別プロキシは引き続き有効です。未設定のアカウントは既定の出口を使用します。",
+        "disableMessage": "個別プロキシは引き続き有効です。未設定のアカウントは既定の出口を使用します。 「プロキシなし」を明示的に選択したアカウントは対象外です。",
         "disableConfirm": "オフにする",
         "restartHint": "ローカル転送で起動したクライアントは新しい接続から切り替わります。それ以外は一度再起動が必要です。",
         "staleWarning": "この出口の接続元が利用できません。別の出口を選択してください。",
         "removedWarning": "接続元が削除されたため、統一プロキシはオフになりました。",
-        "accountsNotice": "個別プロキシを優先し、未設定のアカウントは統一プロキシを使用します。",
+        "accountsNotice": "個別プロキシを優先し、未設定のアカウントは統一プロキシを使用します。 「プロキシなし」を明示的に選択したアカウントは対象外です。",
         "unbindBlocked": "解除すると統一プロキシを使用します。",
         "following": "統一",
         "errorFailed": "操作に失敗しました。もう一度お試しください。",
@@ -4794,6 +4886,11 @@
         "viewAll": "すべて表示"
       },
       "previewTitle": "プロキシの概要",
+      "modeDisabled": "プロキシなし",
+      "disableAction": "プロキシ解除",
+      "setIndependent": "個別設定",
+      "disabledHint": "個別・共通プロキシを使わず、新規接続は直接接続を試みます。",
+      "disabledWarning": "直接接続ではサービスにアクセスできない場合があります。ローカル中継を使うデスクトップは新規接続から反映され、それ以外の起動中クライアントは再起動が必要です。既存接続は以前の経路を使い続ける場合があります。",
       "exitIp": "出口 IP",
       "sessionHistory": "稼働記録",
       "sessionHistoryHint": "5 秒ごとに状態を確認。このプレビューの初期状態と変化を最大 20 件記録し、閉じると消去します。完全な履歴ログではありません。",
@@ -4824,9 +4921,17 @@
       "desktopRequest_forwarded": "直近のローカル中継を確立",
       "desktopRequest_failed": "直近のローカル中継が失敗",
       "desktopEntryReadyHint": "入口は待ち受け中です。接続要求を受信するとコアが起動します。",
+      "sharedRuntime": "アカウントプロキシ",
       "runtimeMain": "アカウント通信",
       "runtimeDesktop": "デスクトップ中継",
       "runtimeHint": "ローカルの入口とコアの状態のみを示します。中継の確立はインターネットへの接続を保証せず、要求元のクライアントも特定しません。",
+      "restoreEntry": "中継を復元",
+      "restoringEntry": "復元中…",
+      "restoreEntryFailed": "デスクトップのプロキシ中継を復元できませんでした。再試行してください。",
+      "restoreEntryPortBusy": "元のプロキシポートは使用中です。ポートを解放して再試行してください。デスクトップ側では別のポートへ自動変更できません。",
+      "restoreEntryNotRunning": "この Cockpit に記録されたプロキシ入口を使用する、実行中のデスクトップが見つかりません。",
+      "restoreEntryBusy": "プロキシの復元中です。しばらくしてから再試行してください。",
+      "restoreEntryTimeout": "プロキシの復元がタイムアウトしました。再試行してください。",
       "restartHint": "ローカル転送で起動したクライアントは新しい接続から切り替わります。それ以外は一度再起動が必要です。デスクトップ中継はループバックのみで待ち受けますが、他のローカルユーザーを隔離しません。システムプロキシは変更しません。",
       "exportHint": "アカウントのエクスポートにプロキシ認証情報は含まれません。インポート後に再設定してください。",
       "backToAccounts": "アカウントに戻る",
@@ -5140,7 +5245,7 @@
         "assign": "プロキシを割り当て",
         "specific": "指定アカウント",
         "shared": "共通プロキシ",
-        "sharedHint": "専用プロキシを設定していない Codex OAuth アカウントは、このプロキシを使用します。今後追加する対象アカウントにも適用されます。既存の個別設定は維持されます。",
+        "sharedHint": "専用プロキシを設定していない Codex OAuth アカウントは、このプロキシを使用します。今後追加する対象アカウントにも適用されます。既存の個別設定は維持されます。 「プロキシなし」を明示的に選択したアカウントは対象外です。",
         "apply": "割り当て"
       },
       "managerResources": {
@@ -5173,7 +5278,7 @@
       "managerUnified": {
         "off": "無効",
         "choose": "プロキシを設定",
-        "hint": "個別プロキシを設定していないアカウントが使用します。"
+        "hint": "個別プロキシを設定していないアカウントが使用します。 「プロキシなし」を明示的に選択したアカウントは対象外です。"
       },
       "setup": {
         "title": "プロキシの利用を始める",
@@ -5187,13 +5292,20 @@
         "collapse": "詳細を閉じる"
       },
       "runtime_entry_failed": "入口エラー",
+      "measureCurrentLatency": "遅延を測定",
+      "measuringCurrentLatency": "測定中",
+      "currentLatencyNotRunning": "測定できる稼働中のノードがありません。このプロキシを使用するクライアントを起動するか、プロキシ管理で設定済みのノードを測定してください。",
+      "currentLatencyHint": "稼働中のノードからテスト先URLへの遅延を測定します。ノードの切り替えやプロキシポリシーの変更は行いません。",
       "latencyCheckedAt": "確認時刻",
       "latencyPending": "未確認",
       "latencyTimeout": "タイムアウト",
       "quickSwitch": "ノード切替",
       "quickSwitchHint": "このアカウントのみ変更します。新しい接続には保存した接続先を使用します。保存時に接続確認は行いません。",
       "currentNode": "現在のノード",
-      "noCurrentNode": "現在のノードはまだ取得できていません"
+      "noCurrentNode": "現在のノードはまだ取得できていません",
+      "runtimeBusy": "ローカルプロキシが混雑しているため、一時的に更新できません。",
+      "runtimeCapacity": "実行中のプロキシが多すぎます。不要なプロキシを停止して再試行してください。",
+      "runtimeReadFailed": "ローカルプロキシの状態を一時的に取得できません。再試行してください。"
     },
     "more": {
       "title": "その他",
@@ -5213,6 +5325,17 @@
       "moveUp": "上へ",
       "moveDown": "下へ",
       "done": "完了"
+    },
+    "cliDaemon": {
+      "title": "CLI アカウントの更新",
+      "description": "認証情報は保存されましたが、このプロファイルの Codex CLI バックグラウンドサービスが稼働中のため、以前のアカウントを引き続き使用する可能性があります。",
+      "restartHint": "実行中の CLI タスクを終了してから、ターミナルで次のコマンドを実行してください。再起動すると、このサービスに接続しているセッションが中断されます。",
+      "copyFailed": "コピーに失敗しました。上のコマンドを選択して手動でコピーしてください。"
+    },
+    "proxyQuality": {
+      "errors": {
+        "bindingChanged": "紐付けが変更されました。現在の設定を維持しました。"
+      }
     }
   },
   "githubCopilot": {

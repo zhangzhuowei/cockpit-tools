@@ -141,7 +141,10 @@ fn switch_auth_reason_code(reason: &str) -> &'static str {
 /// 其它启动、落盘或网络地区错误仍保持原错误，避免误导用户重新登录。
 pub(crate) fn format_account_switch_error(account_id: &str, error: String) -> String {
     // An engine prerequisite is independent of a previously recorded reauth state.
-    if super::codex_proxy_engine_preflight::is_prerequisite_error(&error) {
+    if super::codex_proxy_engine_preflight::is_prerequisite_error(&error)
+        || matches!(error.as_str(), "CODEX_SWITCH_BINDING_FAILED" | "CODEX_PROCESS_SCAN_FAILED"
+            | "PROXY_ENTRY_PORT_UNAVAILABLE" | "PROXY_RUNTIME_NOT_READY")
+    {
         return error;
     }
     // 统一错误可能经过账号切换、默认实例和 API 服务多层转发；已经带有结构化

@@ -102,7 +102,7 @@
         assert!(!super::account_wire_api_is_responses(&account));
     }
 
-    /// 历史遗留的 Codex/GPT 内置 id（例如 gpt-5.6-sol / gpt-5.6-terra）不能再作为 DeepSeek
+    /// 历史遗留的 Codex/GPT 内置 id（例如 gpt-5.4 / gpt-5.4-mini）不能再作为 DeepSeek
     /// 的客户端可见模型名：客户端会用内置 GPT 元数据生成工具定义，DeepSeek 上游只能把工具调用
     /// 写成文本标记（DSML）返回，链路无法解析，正文里就会直接出现原始标记。
     #[test]
@@ -120,15 +120,15 @@
         account.api_wire_api = Some("responses".to_string());
         account.api_model_mappings = vec![
             CodexApiModelMapping {
-                client_model: "gpt-5.6-sol".to_string(),
+                client_model: "gpt-5.4".to_string(),
                 upstream_model: "deepseek-v4-flash".to_string(),
             },
             CodexApiModelMapping {
-                client_model: "gpt-5.6-terra".to_string(),
+                client_model: "gpt-5.4-mini".to_string(),
                 upstream_model: "deepseek-v4-pro".to_string(),
             },
             CodexApiModelMapping {
-                client_model: "gpt-5.6-luna".to_string(),
+                client_model: "gpt-5.3-codex".to_string(),
                 upstream_model: "deepseek-v4-flash".to_string(),
             },
             CodexApiModelMapping {
@@ -144,7 +144,7 @@
             .iter()
             .map(|mapping| mapping.client_model.as_str())
             .collect();
-        for legacy in ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"] {
+        for legacy in ["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex"] {
             assert!(
                 !client_models
                     .iter()
@@ -160,8 +160,8 @@
         );
         for expected in [
             "gpt-5.5",
-            "gpt-5.4",
-            "gpt-5.4-mini",
+            "gpt-5.6-sol",
+            "gpt-5.6-terra",
             "deepseek-flash",
             "deepseek-v4-flash",
             "deepseek-v4-pro",
@@ -180,8 +180,8 @@
             "deepseek-flash"
         );
         assert_eq!(
-            super::resolve_account_upstream_model(&account, "gpt-5.6-sol"),
-            "gpt-5.6-sol"
+            super::resolve_account_upstream_model(&account, "gpt-5.4"),
+            "gpt-5.4"
         );
     }
 
@@ -241,7 +241,7 @@
         );
         account.api_wire_api = Some("responses".to_string());
         account.api_model_mappings = vec![CodexApiModelMapping {
-            client_model: "gpt-5.4-mini".to_string(),
+            client_model: "gpt-5.6-terra".to_string(),
             upstream_model: "custom-vision".to_string(),
         }];
 
@@ -250,7 +250,7 @@
             account
                 .api_model_mappings
                 .iter()
-                .find(|mapping| mapping.client_model.eq_ignore_ascii_case("gpt-5.4-mini"))
+                .find(|mapping| mapping.client_model.eq_ignore_ascii_case("gpt-5.6-terra"))
                 .map(|mapping| mapping.upstream_model.as_str()),
             Some("custom-vision")
         );
@@ -447,7 +447,7 @@
     }
 
     #[test]
-    fn deepseek_compaction_fallback_round_trips_user_values() {
+    fn deepseek_overrides_do_not_add_compaction_features() {
         let base_dir = make_temp_dir("codex-deepseek-compaction-fallback");
         let mut doc = crate::modules::codex_config_format::read_codex_config_doc_from_str(
             "model = \"gpt-5\"\n\n[features]\njs_repl = false\n",
@@ -455,8 +455,7 @@
         .expect("parse config");
         super::apply_deepseek_config_overrides(&mut doc, &base_dir);
         let applied = crate::modules::codex_config_format::codex_config_doc_to_string(&mut doc);
-        assert!(applied.contains("remote_compaction_v2 = false"));
-        // `token_budget = true` 会让客户端把压缩换成不产摘要的窗口重置，必须保持清除状态。
+        assert!(!applied.contains("remote_compaction_v2"));
         assert!(!applied.contains("token_budget"));
         assert!(applied.contains("js_repl = false"));
 
@@ -469,7 +468,7 @@
     }
 
     #[test]
-    fn deepseek_compaction_fallback_restores_original_user_settings() {
+    fn deepseek_overrides_preserve_unmanaged_user_features() {
         let base_dir = make_temp_dir("codex-deepseek-compaction-restore");
         let mut doc = crate::modules::codex_config_format::read_codex_config_doc_from_str(
             "[features]\nremote_compaction_v2 = true\ntoken_budget = false\n",
@@ -477,14 +476,120 @@
         .expect("parse config");
         super::apply_deepseek_config_overrides(&mut doc, &base_dir);
         let applied = crate::modules::codex_config_format::codex_config_doc_to_string(&mut doc);
-        assert!(applied.contains("remote_compaction_v2 = false"));
-        assert!(!applied.contains("token_budget"));
+        assert!(applied.contains("remote_compaction_v2 = true"));
+        assert!(applied.contains("token_budget = false"));
 
         assert!(super::restore_deepseek_config_overrides(&mut doc, &base_dir));
         let restored = crate::modules::codex_config_format::codex_config_doc_to_string(&mut doc);
         assert!(restored.contains("remote_compaction_v2 = true"));
         assert!(restored.contains("token_budget = false"));
         fs::remove_dir_all(&base_dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn deepseek_legacy_backup_never_replays_removed_compaction_flag() {
+        for (backup_remote, current_remote, current_budget, expected_remote, expected_budget) in [
+            (Some(true), Some(false), None, None, Some(false)),
+            (None, Some(false), None, None, Some(false)),
+            (Some(false), Some(false), None, Some(false), None),
+            (Some(true), None, None, None, None),
+            (Some(true), Some(true), None, Some(true), None),
+            (Some(true), Some(false), Some(true), None, Some(true)),
+            (
+                Some(false),
+                Some(false),
+                Some(true),
+                Some(false),
+                Some(true),
+            ),
+        ] {
+            let base_dir = make_temp_dir("codex-deepseek-legacy-backup");
+            let remote_record = match backup_remote {
+                Some(value) => serde_json::json!({"present": true, "value": value}),
+                None => serde_json::json!({"present": false}),
+            };
+            fs::write(
+                base_dir.join(super::DEEPSEEK_COMPACTION_BACKUP_FILE),
+                serde_json::json!({"remote_compaction_v2": remote_record,
+                    "token_budget": {"present": true, "value": false}})
+                .to_string(),
+            )
+            .expect("write legacy backup");
+            let mut doc = crate::modules::codex_config_format::read_codex_config_doc_from_str(
+                "[features]\njs_repl = false\n",
+            )
+            .expect("parse config");
+            if let Some(value) = current_remote {
+                doc["features"]["remote_compaction_v2"] = toml_edit::value(value);
+            }
+            if let Some(value) = current_budget {
+                doc["features"]["token_budget"] = toml_edit::value(value);
+            }
+            assert!(super::restore_deepseek_config_overrides(
+                &mut doc, &base_dir
+            ));
+            assert_eq!(
+                doc["features"]
+                    .get("remote_compaction_v2")
+                    .and_then(|item| item.as_bool()),
+                expected_remote
+            );
+            assert_eq!(
+                doc["features"]
+                    .get("token_budget")
+                    .and_then(|item| item.as_bool()),
+                expected_budget
+            );
+            assert_eq!(doc["features"]["js_repl"].as_bool(), Some(false));
+            assert!(!base_dir
+                .join(super::DEEPSEEK_COMPACTION_BACKUP_FILE)
+                .exists());
+            fs::remove_dir_all(base_dir).expect("cleanup");
+        }
+    }
+
+    #[test]
+    fn deepseek_legacy_backup_is_retained_until_restore() {
+        let base_dir = make_temp_dir("codex-deepseek-legacy-restore");
+        let backup_path = base_dir.join(super::DEEPSEEK_COMPACTION_BACKUP_FILE);
+        let backup = r#"{"remote_compaction_v2":{"present":true,"value":true},"token_budget":{"present":true,"value":false}}"#;
+        fs::write(&backup_path, backup).expect("write legacy backup");
+        let mut doc = crate::modules::codex_config_format::read_codex_config_doc_from_str(
+            "web_search = \"live\"\n[features]\nremote_compaction_v2 = false\n",
+        )
+        .expect("parse config");
+        super::apply_deepseek_config_overrides(&mut doc, &base_dir);
+        assert_eq!(
+            fs::read_to_string(&backup_path).expect("read legacy backup"),
+            backup
+        );
+        assert_eq!(
+            doc["features"]["remote_compaction_v2"].as_bool(),
+            Some(false)
+        );
+        assert!(doc["features"].get("token_budget").is_none());
+        assert!(super::restore_deepseek_config_overrides(
+            &mut doc, &base_dir
+        ));
+        assert!(doc["features"].get("remote_compaction_v2").is_none());
+        assert_eq!(doc["features"]["token_budget"].as_bool(), Some(false));
+        assert!(!backup_path.exists());
+        // 旧备份消费后，用户重新写值、删除 token_budget，后续切号必须保留。
+        doc["features"]["remote_compaction_v2"] = toml_edit::value(false);
+        doc["features"]
+            .as_table_mut()
+            .expect("features")
+            .remove("token_budget");
+        super::apply_deepseek_config_overrides(&mut doc, &base_dir);
+        assert!(super::restore_deepseek_config_overrides(
+            &mut doc, &base_dir
+        ));
+        assert_eq!(
+            doc["features"]["remote_compaction_v2"].as_bool(),
+            Some(false)
+        );
+        assert!(doc["features"].get("token_budget").is_none());
+        fs::remove_dir_all(base_dir).expect("cleanup");
     }
 
     #[test]
@@ -504,7 +609,7 @@
 
         assert!(super::reapply_deepseek_config_overrides_for_dir(&base_dir).expect("reapply"));
         let applied = fs::read_to_string(&config_path).expect("read config");
-        assert!(applied.contains("remote_compaction_v2 = false"));
+        assert!(!applied.contains("remote_compaction_v2"));
         assert!(!applied.contains("token_budget"));
         assert!(applied.contains("js_repl = false"));
         assert!(applied.contains("name = \"OpenAI\""));
@@ -526,59 +631,30 @@
     }
 
     #[test]
-    fn local_compaction_fallback_forwards_profile_and_is_idempotent() {
-        let base_dir = make_temp_dir("codex-local-compaction-fallback");
-        // 接管还没写入 profile 配置时跳过，避免生成没有 provider 的残缺配置。
-        assert!(!super::ensure_local_compaction_fallback_for_dir(&base_dir).expect("skip missing"));
-
-        let config_path = super::get_config_toml_path(&base_dir);
-        crate::modules::codex_config_format::write_codex_config_toml_atomic(
-            &config_path,
-            "model = \"gpt-5.6-sol\"\nservice_tier = \"priority\"\nweb_search = \"live\"\n\n[features]\njs_repl = false\n\n[model_providers.codex_local_access]\nname = \"OpenAI\"\n",
-        )
-        .expect("write config");
-
-        assert!(super::ensure_local_compaction_fallback_for_dir(&base_dir).expect("apply"));
-        let applied = fs::read_to_string(&config_path).expect("read config");
-        assert!(applied.contains("remote_compaction_v2 = false"));
-        assert!(!applied.contains("token_budget"));
-        // 只动压缩键：账号池里的官方账号仍要保留 service_tier / web_search 等原有设置。
-        assert!(applied.contains("service_tier = \"priority\""));
-        assert!(applied.contains("web_search = \"live\""));
-        assert!(!applied.contains("web_search = \"disabled\""));
-
-        assert!(!super::ensure_local_compaction_fallback_for_dir(&base_dir).expect("idempotent"));
-        assert_eq!(
-            fs::read_to_string(&config_path).expect("read config"),
-            applied
-        );
-        fs::remove_dir_all(&base_dir).expect("cleanup temp dir");
+    fn legacy_compaction_cleanup_preserves_other_features_and_is_idempotent() {
+        let mut doc = crate::modules::codex_config_format::read_codex_config_doc_from_str(
+            "model = \"gpt-5\"\nservice_tier = \"priority\"\n[features]\nremote_compaction_v2 = false\ntoken_budget = true\njs_repl = false\n",
+        ).expect("parse legacy managed config");
+        assert!(super::remove_legacy_remote_compaction_override(&mut doc));
+        assert!(!super::remove_legacy_remote_compaction_override(&mut doc));
+        assert_eq!(doc["features"]["token_budget"].as_bool(), Some(true));
+        assert_eq!(doc["features"]["js_repl"].as_bool(), Some(false));
+        assert_eq!(doc["service_tier"].as_str(), Some("priority"));
+        assert_eq!(doc["model"].as_str(), Some("gpt-5"));
     }
 
     #[test]
-    fn local_compaction_fallback_clears_legacy_token_budget_override() {
-        let base_dir = make_temp_dir("codex-local-compaction-legacy-cleanup");
-        let config_path = super::get_config_toml_path(&base_dir);
-        // 复现 1.3.54 / 1.3.55 写下的受管状态：远端压缩关闭 + token_budget 打开（换窗口模式）。
-        crate::modules::codex_config_format::write_codex_config_toml_atomic(
-            &config_path,
-            "model = \"gpt-5.6-sol\"\n\n[features]\nremote_compaction_v2 = false\ntoken_budget = true\njs_repl = false\n",
-        )
-        .expect("write config");
-
-        assert!(super::ensure_local_compaction_fallback_for_dir(&base_dir).expect("apply"));
-        let applied = fs::read_to_string(&config_path).expect("read config");
-        assert!(applied.contains("remote_compaction_v2 = false"));
-        assert!(!applied.contains("token_budget"));
-        assert!(applied.contains("js_repl = false"));
-
-        // 清理后保持幂等，避免每次启动都改写配置。
-        assert!(!super::ensure_local_compaction_fallback_for_dir(&base_dir).expect("idempotent"));
-        assert_eq!(
-            fs::read_to_string(&config_path).expect("read config"),
-            applied
-        );
-        fs::remove_dir_all(&base_dir).expect("cleanup temp dir");
+    fn legacy_compaction_cleanup_does_not_create_or_overwrite_features() {
+        for config in [
+            "",
+            "[features]\nremote_compaction_v2 = true\ntoken_budget = false\n",
+        ] {
+            let mut doc = crate::modules::codex_config_format::read_codex_config_doc_from_str(config)
+                .expect("parse config");
+            let before = doc.to_string();
+            assert!(!super::remove_legacy_remote_compaction_override(&mut doc));
+            assert_eq!(doc.to_string(), before);
+        }
     }
 
     #[test]
@@ -1283,7 +1359,7 @@ model_catalog_json = "cockpit-local-access-model-catalog.json"
 
         let catalog = fs::read_to_string(&catalog_path).expect("read official catalog");
         assert!(catalog.contains("\"slug\": \"gpt-5.5\""));
-        assert!(catalog.contains("\"slug\": \"gpt-5.4\""));
+        assert!(catalog.contains("\"slug\": \"gpt-5.6-sol\""));
         assert!(catalog.contains("DeepSeek-V4-Flash"));
         assert!(catalog.contains("apply_patch_tool_type"));
         assert!(catalog.contains("shell_command"));
@@ -1314,7 +1390,7 @@ model_catalog_json = "cockpit-provider-model-catalog.json"
         .expect("write leftover models.json");
         fs::write(
             instance_dir.join("models_cache.json"),
-            r#"{"models":[{"slug":"gpt-5.4"}]}"#,
+            r#"{"models":[{"slug":"gpt-5.6-sol"}]}"#,
         )
         .expect("write stale extra-instance model cache");
 
@@ -1376,7 +1452,7 @@ model_catalog_json = "cockpit-provider-model-catalog.json"
             Some("freeform")
         );
         assert!(models.iter().any(|model| {
-            model.get("slug").and_then(serde_json::Value::as_str) == Some("gpt-5.4")
+            model.get("slug").and_then(serde_json::Value::as_str) == Some("gpt-5.6-sol")
                 && model
                     .get("display_name")
                     .and_then(serde_json::Value::as_str)
@@ -1448,7 +1524,7 @@ model_catalog_json = "cockpit-provider-model-catalog.json"
         write_account_bundle_to_dir(&instance_dir, &account).expect("write gateway bundle");
 
         let config = fs::read_to_string(instance_dir.join("config.toml")).expect("read config");
-        assert!(config.contains("model = \"gpt-5.4\""));
+        assert!(config.contains("model = \"gpt-5.6-sol\""));
         assert!(config.contains("model_catalog_json"));
         assert!(instance_dir
             .join(super::CODEX_MANAGED_MODEL_CATALOG_FILE)

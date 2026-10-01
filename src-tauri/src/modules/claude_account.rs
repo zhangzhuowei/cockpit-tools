@@ -5,8 +5,15 @@ include!("claude_account_core_storage.rs");
 include!("claude_account_oauth_provider.rs");
 include!("claude_account_desktop_profile.rs");
 include!("claude_account_desktop_auth.rs");
+include!("claude_account_cli_sync.rs");
+include!("claude_account_oauth_updates.rs");
 
 #[cfg(test)]
 mod tests {
     include!("claude_account_tests.rs");
+}
+
+#[cfg(test)]
+mod cli_sync_tests {
+    include!("claude_account_cli_sync_tests.rs");
 }

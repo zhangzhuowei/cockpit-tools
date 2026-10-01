@@ -2518,7 +2518,7 @@ func TestExcludedModelsForAuthMergesManifestAndMetadata(t *testing.T) {
 
 func TestRegisterManifestModelsForAuthRespectsPerAccountExclusions(t *testing.T) {
 	m := &manifest{
-		ModelIDs: []string{"gpt-5.3-codex", codexSparkModel, "gpt-5.4"},
+		ModelIDs: []string{"gpt-5.3-codex", "gpt-5.3-codex-spark", "gpt-5.4"},
 		Accounts: []accountSpec{{
 			ID:     "plus-account",
 			AuthID: "plus-auth",
@@ -2529,7 +2529,7 @@ func TestRegisterManifestModelsForAuthRespectsPerAccountExclusions(t *testing.T)
 	auth := &coreauth.Auth{
 		ID: "plus-auth",
 		Metadata: map[string]any{
-			"excluded_models": []string{codexSparkModel},
+			"excluded_models": []string{"gpt-5.3-codex-spark"},
 		},
 		Attributes: map[string]string{
 			"account_id": "plus-account",
@@ -2542,7 +2542,7 @@ func TestRegisterManifestModelsForAuthRespectsPerAccountExclusions(t *testing.T)
 	registerManifestModelsForAuth(manager, m, auth)
 	models := registry.GetGlobalRegistry().GetModelsForClient(auth.ID)
 	for _, model := range models {
-		if strings.EqualFold(model.ID, codexSparkModel) {
+		if strings.EqualFold(model.ID, "gpt-5.3-codex-spark") {
 			t.Fatalf("spark should not be registered for excluded auth: %#v", models)
 		}
 	}
@@ -2573,7 +2573,7 @@ func TestCoreAuthSelectorFiltersNewModelExclusionsBeforeSessionAffinity(t *testi
 		Headers: http.Header{"Session_id": []string{"spark-session"}},
 	}
 
-	first, err := selector.Pick(context.Background(), "codex", codexSparkModel, opts, auths)
+	first, err := selector.Pick(context.Background(), "codex", "gpt-5.3-codex-spark", opts, auths)
 	if err != nil {
 		t.Fatalf("initial Pick: %v", err)
 	}
@@ -2581,8 +2581,8 @@ func TestCoreAuthSelectorFiltersNewModelExclusionsBeforeSessionAffinity(t *testi
 		t.Fatalf("initial Pick = %#v, want %q", first, plus.ID)
 	}
 
-	plus.Metadata["excluded_models"] = []any{codexSparkModel}
-	second, err := selector.Pick(context.Background(), "codex", codexSparkModel, opts, auths)
+	plus.Metadata["excluded_models"] = []any{"gpt-5.3-codex-spark"}
+	second, err := selector.Pick(context.Background(), "codex", "gpt-5.3-codex-spark", opts, auths)
 	if err != nil {
 		t.Fatalf("Pick after exclusion: %v", err)
 	}

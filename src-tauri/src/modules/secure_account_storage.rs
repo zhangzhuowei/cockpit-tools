@@ -145,6 +145,16 @@ pub fn serialize_account_file<T: Serialize>(kind: &str, account: &T) -> Result<S
     serde_json::to_string_pretty(&envelope).map_err(|e| format!("序列化账号详情密文失败: {}", e))
 }
 
+/// Decode an immutable encrypted snapshot without restoring backups, rotating
+/// storage, or creating a replacement key when the original key is missing.
+pub(crate) fn deserialize_encrypted_snapshot<T: DeserializeOwned>(content: &str) -> Result<T, String> {
+    let envelope: SecureAccountEnvelope = serde_json::from_str(content)
+        .map_err(|error| format!("Invalid encrypted account snapshot: {error}"))?;
+    let cipher = Aes256Gcm::new_from_slice(&read_key(&key_path()?)?)
+        .map_err(|error| format!("Cannot initialize snapshot decryption: {error}"))?;
+    decrypt_envelope(&envelope, cipher)
+}
+
 /// Returns `(account, needs_rewrite)` where `needs_rewrite` is true for legacy
 /// plaintext files or envelopes past the rotation window.
 pub fn deserialize_account_file<T: DeserializeOwned>(

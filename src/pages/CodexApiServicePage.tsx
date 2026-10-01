@@ -2831,7 +2831,7 @@ export function useCodexApiServicePageController() {
       if (unsetUnknown) {
         continue;
       }
-      // 阈值可空：非长上下文模型（如 gpt-5.4-mini）不填是合法的。
+      // 阈值可空：自定义非长上下文模型不填是合法的。
       // 仅当用户填写了内容但不是正整数（解析为 NaN）时才拦截。
       // 若填写了任一长上下文价格档，则必须同时提供合法阈值。
       const hasLongContextTier =

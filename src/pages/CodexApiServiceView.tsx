@@ -13,6 +13,7 @@ import { CodexLocalAccessModal } from "../components/CodexLocalAccessModal";
 import { CodexAccountPoolHealthModal } from "../components/CodexAccountPoolHealthModal";
 import { CodexStatsRangePicker } from "../components/CodexStatsRangePicker";
 import { CodexUsageTrend } from "../components/codex/CodexUsageTrend";
+import { CodexRequestProxyLabel } from "../components/codex/CodexRequestProxyLabel";
 import { PaginationControls } from "../components/PaginationControls";
 import { resolveCodexApiServiceLogModelPair } from "../utils/codexApiServiceLogModel";
 import { requestCodexOpenAddAccount } from "../utils/codexAddAccountRequest";
@@ -292,7 +293,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
       <div className="page-top-strip">
         <div className="page-top-strip-left">
           <span className="page-top-strip-label">
-            {t("settings.general.account", "Accounts")}
+            {t("settings.general.accountManagement", "Account")}
           </span>
           <ManualHelpIconButton className="platform-header-help" />
         </div>
@@ -2524,6 +2525,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                           <span>
                             {maskAccountText(accountDisplayName)}
                           </span>
+                          <CodexRequestProxyLabel route={event.proxyRoute} t={t} />
                           <span>{formatLatencyMs(event.latencyMs)}</span>
                           <span>
                             {formatCompactNumber(event.totalTokens)} Tokens
@@ -3152,7 +3154,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                     }
                     placeholder={t(
                       "codex.apiService.accountModelRules.placeholder",
-                      "gpt-5.4-mini\ngpt-5.3-*",
+                      "gpt-6-luna\ngpt-6-*",
                     )}
                   />
                 </label>
@@ -3234,7 +3236,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                         }
                         placeholder={t(
                           "codex.apiService.accountModelRules.placeholder",
-                          "gpt-5.4-mini\ngpt-5.3-*",
+                          "gpt-6-luna\ngpt-6-*",
                         )}
                         disabled={busy}
                       />

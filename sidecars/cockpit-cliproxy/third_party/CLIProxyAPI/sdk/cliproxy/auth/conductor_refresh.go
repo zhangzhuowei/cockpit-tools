@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	internalconfig "github.com/router-for-me/CLIProxyAPI/v7/internal/config"
@@ -38,19 +37,13 @@ const (
 
 // StartAutoRefresh launches a background loop that evaluates auth freshness
 // every few seconds and triggers refresh operations when required.
-// Only one loop is kept alive; starting a new one cancels the previous run.
+// Only one loop remains active; starting a new one cancels the previous run.
 func (m *Manager) StartAutoRefresh(parent context.Context, interval time.Duration) {
+	if parent == nil {
+		parent = context.Background()
+	}
 	if interval <= 0 {
 		interval = refreshCheckInterval
-	}
-
-	m.mu.Lock()
-	cancelPrev := m.refreshCancel
-	m.refreshCancel = nil
-	m.refreshLoop = nil
-	m.mu.Unlock()
-	if cancelPrev != nil {
-		cancelPrev()
 	}
 
 	ctx, cancelCtx := context.WithCancel(parent)
@@ -61,27 +54,66 @@ func (m *Manager) StartAutoRefresh(parent context.Context, interval time.Duratio
 	loop := newAuthAutoRefreshLoop(m, interval, workers)
 
 	m.mu.Lock()
+	cancelPrev := m.refreshCancel
 	m.refreshCancel = cancelCtx
 	m.refreshLoop = loop
+	if m.refreshRuns == nil {
+		m.refreshRuns = make(map[*authAutoRefreshLoop]context.CancelFunc)
+	}
+	m.refreshRuns[loop] = cancelCtx
 	m.mu.Unlock()
+	if cancelPrev != nil {
+		cancelPrev()
+	}
 
-	loop.rebuild(time.Now())
-	go loop.run(ctx)
+	go func() {
+		defer func() {
+			cancelCtx()
+			m.mu.Lock()
+			delete(m.refreshRuns, loop)
+			if m.refreshLoop == loop {
+				m.refreshLoop = nil
+				m.refreshCancel = nil
+			}
+			m.mu.Unlock()
+		}()
+		loop.run(ctx)
+	}()
 }
 
 // StopAutoRefresh cancels the background refresh loop, if running.
+// It waits up to ten seconds for in-flight workers across all cancelled runs.
+// Executors and stores must honor cancellation; a timeout is logged if they do not.
 // It also stops the selector if it implements StoppableSelector.
 func (m *Manager) StopAutoRefresh() {
 	m.mu.Lock()
 	cancel := m.refreshCancel
+	runs := make(map[*authAutoRefreshLoop]context.CancelFunc, len(m.refreshRuns))
+	for loop, cancelRun := range m.refreshRuns {
+		runs[loop] = cancelRun
+	}
+	selector := m.selector
 	m.refreshCancel = nil
 	m.refreshLoop = nil
 	m.mu.Unlock()
 	if cancel != nil {
 		cancel()
 	}
+	for _, cancelRun := range runs {
+		cancelRun()
+	}
+	// Share one deadline across all generations, including runs replaced by a
+	// concurrent start and runs another stop is already waiting for.
+	waitCtx, cancelWait := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelWait()
+	for loop := range runs {
+		if errWait := loop.wait(waitCtx); errWait != nil {
+			log.WithError(errWait).Warn("auth refresh workers did not stop within the shutdown timeout")
+			break
+		}
+	}
 	// Stop selector if it implements StoppableSelector (e.g., SessionAffinitySelector)
-	if stoppable, ok := m.selector.(StoppableSelector); ok {
+	if stoppable, ok := selector.(StoppableSelector); ok {
 		stoppable.Stop()
 	}
 }
@@ -340,7 +372,24 @@ func (m *Manager) markRefreshPending(id string, now time.Time) bool {
 }
 
 type authRefreshLock struct {
-	mu sync.Mutex
+	gate chan struct{}
+}
+
+func newAuthRefreshLock() *authRefreshLock {
+	return &authRefreshLock{gate: make(chan struct{}, 1)}
+}
+
+func (l *authRefreshLock) acquire(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case l.gate <- struct{}{}:
+		return nil
+	}
+}
+
+func (l *authRefreshLock) release() {
+	<-l.gate
 }
 
 func authAccessToken(auth *Auth) string {
@@ -506,14 +555,19 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
 		return nil, errors.New("auth id is empty")
 	}
 
-	lockValue, _ := m.refreshLocks.LoadOrStore(id, &authRefreshLock{})
+	lockValue, _ := m.refreshLocks.LoadOrStore(id, newAuthRefreshLock())
 	lock, _ := lockValue.(*authRefreshLock)
 	if lock == nil {
-		lock = &authRefreshLock{}
+		lock = newAuthRefreshLock()
 		m.refreshLocks.Store(id, lock)
 	}
-	lock.mu.Lock()
-	defer lock.mu.Unlock()
+	if errLock := lock.acquire(ctx); errLock != nil {
+		return nil, errLock
+	}
+	defer lock.release()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	m.mu.RLock()
 	auth := m.auths[id]
@@ -522,6 +576,7 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
 		// Use the same effective provider key as request execution so OpenAI-compat
 		// auths registered under namespaced keys still resolve for refresh.
 		exec = m.executors[executorKeyFromAuth(auth)]
+		auth = auth.Clone()
 	}
 	m.mu.RUnlock()
 	if auth == nil || exec == nil {
@@ -537,6 +592,9 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
 
 	base := auth.Clone()
 	updated, err := exec.Refresh(ctx, base.Clone())
+	if canceled := ctx.Err(); canceled != nil {
+		return nil, canceled
+	}
 	if err != nil && errors.Is(err, context.Canceled) {
 		log.Debugf("refresh canceled for %s, %s", auth.Provider, auth.ID)
 		return nil, err
@@ -547,6 +605,10 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
 		unauthorized := isUnauthorizedError(err)
 		shouldReschedule := false
 		m.mu.Lock()
+		if errCanceled := ctx.Err(); errCanceled != nil {
+			m.mu.Unlock()
+			return nil, errCanceled
+		}
 		if current := m.auths[id]; current != nil {
 			if base != nil && current.RegistrationEpoch != base.RegistrationEpoch {
 				m.mu.Unlock()
@@ -607,6 +669,9 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
 		updated.NextRefreshAfter = now.Add(refreshIneffectiveBackoff)
 	}
 	saved, errUpdate := m.UpdateRefreshedAuth(ctx, base, updated)
+	if errUpdate != nil && (errors.Is(errUpdate, context.Canceled) || errors.Is(errUpdate, context.DeadlineExceeded)) {
+		return nil, errUpdate
+	}
 	for _, model := range modelsToResume {
 		registry.GetGlobalRegistry().ResumeClientModel(id, model)
 	}

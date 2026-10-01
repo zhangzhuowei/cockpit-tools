@@ -2,8 +2,7 @@ const STRUCTURED_PREFIX = "WINDOWS_OPERATION_ERROR:";
 
 /**
  * 多开实例（客户端模式）与「官方登录」启动被系统拒绝时后端回传的标记：
- * 直启 WindowsApps 内的 ChatGPT.exe、PowerShell 兜底与包身份启动都被拒绝，
- * 后端为避免打开默认账号而放弃商店入口兜底。
+ * 注册包解析、包身份激活或目标实例确认失败；后端不会回退到默认账号。
  */
 export const CODEX_MANAGED_STORE_LAUNCH_UNSAFE_PREFIX =
   "CODEX_MANAGED_STORE_LAUNCH_UNSAFE:";
@@ -144,6 +143,7 @@ const CODEX_STORE_LAUNCH_DIAGNOSTIC_KEYS = [
   "launch_path_exists",
   "registered_path",
   "path_matches_registered",
+  "launch_stage",
 ] as const;
 
 function readDiagnosticField(payload: string, name: string): string | null {
@@ -155,8 +155,8 @@ function readDiagnosticField(payload: string, name: string): string | null {
 /**
  * 解析 `CODEX_MANAGED_STORE_LAUNCH_UNSAFE:` 错误。
  *
- * 这类错误说明商店版 Codex 的三种启动方式（直启 / PowerShell / 包身份）都被系统拒绝，
- * 后端已阻止启动以免打开错误账号。前端据此给出「重新检测路径并重试」的修复入口。
+ * 注册信息、包身份或隔离实例未确认。前端提供「重新检测路径并重试」，
+ * 不把启动器返回成功当作客户端已启动，也不建议自动打开默认账号。
  */
 function parseCodexStoreLaunchBlocked(
   raw: string,

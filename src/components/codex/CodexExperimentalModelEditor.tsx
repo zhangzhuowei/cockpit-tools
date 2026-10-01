@@ -334,13 +334,41 @@ export function CodexExperimentalModelEditor({
   mode = "summary",
   availableChannels,
   resolveModelSource,
-  onChange,
+  onChange: onModelsChange,
   onDefaultModelChange,
   onValidationChange,
   onModelRemoved,
   onModelAdded,
 }: CodexExperimentalModelEditorProps) {
   const { t } = useTranslation();
+  // Editor identity is independent of editable IDs and list positions.
+  const rowKeys = useRef(new WeakMap<CodexExperimentalModelDefinition, number>());
+  const nextRowKey = useRef(0);
+  const rowKey = (model: CodexExperimentalModelDefinition) => {
+    let key = rowKeys.current.get(model);
+    if (key === undefined) {
+      key = nextRowKey.current++;
+      rowKeys.current.set(model, key);
+    }
+    return key;
+  };
+  const onChange = (nextModels: CodexExperimentalModelDefinition[]) => {
+    const assignedKeys = new Set(
+      nextModels.map((model) => rowKeys.current.get(model)).filter((key) => key !== undefined),
+    );
+    for (const model of nextModels) {
+      if (rowKeys.current.has(model)) continue;
+      const previous = models.find(
+        (item) => item.model_id === model.model_id && !assignedKeys.has(rowKey(item)),
+      );
+      if (previous) {
+        const key = rowKey(previous);
+        rowKeys.current.set(model, key);
+        assignedKeys.add(key);
+      }
+    }
+    onModelsChange(nextModels);
+  };
   const [managerOpen, setManagerOpen] = useState(false);
   const [openReasoningIndex, setOpenReasoningIndex] = useState<number | null>(
     null,
@@ -602,9 +630,12 @@ export function CodexExperimentalModelEditor({
   ) => {
     const previous = models[index];
     onChange(
-      models.map((model, modelIndex) =>
-        modelIndex === index ? { ...model, [field]: value } : model,
-      ),
+      models.map((model, modelIndex) => {
+        if (modelIndex !== index) return model;
+        const updated = { ...model, [field]: value };
+        rowKeys.current.set(updated, rowKey(model));
+        return updated;
+      }),
     );
     if (field === "model_id" && defaultModelId === previous?.model_id) {
       onDefaultModelChange?.(value.trim() || null);
@@ -968,7 +999,7 @@ export function CodexExperimentalModelEditor({
             className={`codex-experimental-model-editor__row${
               draggingModelId === model.model_id ? " is-dragging" : ""
             }`}
-            key={`${index}:${model.model_id}`}
+            key={rowKey(model)}
             onMouseEnter={() => handleReorderDragMove(index)}
           >
             <div
@@ -1370,7 +1401,7 @@ export function CodexExperimentalModelEditor({
                 }${
                   draggingModelId === model.model_id ? " is-dragging" : ""
                 }`}
-                key={`${model.model_id}:${model.display_name}`}
+                key={rowKey(model)}
                 onMouseEnter={() => handleReorderDragMove(index)}
               >
                 <button

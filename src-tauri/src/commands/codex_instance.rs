@@ -17,6 +17,10 @@ use crate::models::{
 };
 use crate::modules;
 
+#[path = "codex_instance_terminal.rs"]
+mod terminal;
+use terminal::build_codex_terminal_launch_plan;
+
 #[cfg(test)]
 use super::codex_instance_app_exit::idle_codex_profile_dirs_for_app_exit;
 pub use super::codex_instance_app_exit::restore_mixed_model_profiles_for_app_exit;
@@ -304,14 +308,6 @@ pub struct CodexInstanceLaunchPreviewInfo {
 pub struct CodexInstanceConfigurationSaveResult {
     pub instance: CodexInstanceProfileView,
     pub quick_config: CodexQuickConfig,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct CodexTerminalLaunchPlan {
-    program: String,
-    args: Vec<String>,
-    display_command: String,
-    terminal_name: String,
 }
 
 struct CodexLaunchContext {
@@ -892,90 +888,9 @@ mod tests {
     }
 
     #[test]
-    fn windows_system_terminal_keeps_powershell_compatibility_behavior() {
-        let plan = build_windows_codex_terminal_launch_plan("codex", "system");
-
-        assert_eq!(plan.program, "powershell");
-        assert_eq!(plan.args, ["-NoExit", "-Command", "codex"]);
-        assert_eq!(plan.terminal_name, "PowerShell");
-    }
-
-    #[test]
-    fn windows_terminal_launch_plans_match_explicit_user_choice() {
-        let powershell = build_windows_codex_terminal_launch_plan("codex", "PowerShell");
-        assert_eq!(powershell.program, "powershell");
-        assert_eq!(powershell.args, ["-NoExit", "-Command", "codex"]);
-
-        let legacy_powershell = build_windows_codex_terminal_launch_plan("codex", "powershell");
-        assert_eq!(legacy_powershell.program, "powershell");
-        assert_eq!(legacy_powershell.terminal_name, "PowerShell");
-
-        let pwsh = build_windows_codex_terminal_launch_plan("codex", "pwsh");
-        assert_eq!(pwsh.program, "pwsh");
-        assert_eq!(pwsh.args, ["-NoExit", "-Command", "codex"]);
-
-        let windows_terminal = build_windows_codex_terminal_launch_plan("codex", "wt");
-        assert_eq!(windows_terminal.program, "wt");
-        assert_eq!(
-            windows_terminal.args,
-            ["powershell", "-NoExit", "-Command", "codex"]
-        );
-
-        let cmd = build_windows_codex_terminal_launch_plan("codex", "cmd");
-        assert_eq!(cmd.program, "cmd");
-        assert_eq!(
-            cmd.args,
-            [
-                "/C",
-                "start",
-                "",
-                "powershell",
-                "-NoExit",
-                "-Command",
-                "codex",
-            ]
-        );
-    }
-
-    #[test]
-    fn linux_system_terminal_launch_plan_uses_terminal_emulator_fallbacks() {
-        let plan = build_linux_codex_terminal_launch_plan("codex --version", "system");
-
-        assert_eq!(plan.program, "x-terminal-emulator");
-        assert_eq!(
-            plan.args,
-            ["-e", "bash", "-lc", "codex --version; exec bash"]
-        );
-        assert_eq!(plan.terminal_name, "系统终端");
-    }
-
-    #[test]
-    fn linux_gnome_terminal_launch_plan_uses_gnome_argument_shape() {
-        let plan = build_linux_codex_terminal_launch_plan("codex", "gnome-terminal");
-
-        assert_eq!(plan.program, "gnome-terminal");
-        assert_eq!(plan.args, ["--", "bash", "-lc", "codex; exec bash"]);
-        assert_eq!(plan.terminal_name, "gnome-terminal");
-    }
-
-    #[test]
     fn cli_launch_mode_does_not_manage_a_desktop_runtime() {
         assert!(launch_mode_uses_desktop_runtime(&InstanceLaunchMode::App));
         assert!(!launch_mode_uses_desktop_runtime(&InstanceLaunchMode::Cli));
-    }
-
-    #[test]
-    fn macos_ghostty_launch_plan_uses_ghostty_applescript() {
-        let plan = build_macos_codex_terminal_launch_plan("codex --version", "Ghostty")
-            .expect("Ghostty should have a macOS launch plan");
-
-        assert_eq!(plan.program, "osascript");
-        assert_eq!(plan.terminal_name, "Ghostty");
-        assert_eq!(plan.args.len(), 2);
-        assert_eq!(plan.args[0], "-e");
-        assert!(plan.args[1].contains("tell application \"Ghostty\""));
-        assert!(plan.args[1].contains("new surface configuration"));
-        assert!(plan.args[1].contains("set command of cfg to \"codex --version\""));
     }
 
     #[test]
@@ -1537,53 +1452,6 @@ mod tests {
         assert!(content.contains("model_context_window = 516000"));
         assert!(content.contains("model_auto_compact_token_limit = 460000"));
     }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn windows_terminal_probe_detects_wt_exe_on_path() {
-        let temp = std::env::temp_dir().join(format!("cockpit-wt-probe-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&temp).expect("create temp dir");
-        std::fs::write(temp.join("wt.exe"), b"placeholder").expect("write wt.exe stub");
-
-        // Build a synthetic PATH-like OsString containing the temp dir. split_paths uses ';' as
-        // the separator on Windows. This never touches the real process environment, so it is
-        // safe to run alongside other tests.
-        let synthetic_path =
-            std::env::join_paths(std::iter::once(temp.as_path())).expect("join synthetic path");
-
-        let detected = windows_terminal_available_on_paths(Some(synthetic_path));
-
-        let _ = std::fs::remove_dir_all(&temp);
-        assert!(detected, "wt.exe on PATH should be detected");
-    }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn windows_terminal_probe_returns_false_when_wt_absent() {
-        let temp =
-            std::env::temp_dir().join(format!("cockpit-wt-probe-empty-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&temp).expect("create temp dir");
-
-        let synthetic_path =
-            std::env::join_paths(std::iter::once(temp.as_path())).expect("join synthetic path");
-
-        let detected = windows_terminal_available_on_paths(Some(synthetic_path));
-
-        let _ = std::fs::remove_dir_all(&temp);
-        assert!(
-            !detected,
-            "wt.exe absent from the controlled PATH should not be detected"
-        );
-    }
-
-    #[cfg(target_os = "windows")]
-    #[test]
-    fn windows_terminal_probe_returns_false_when_path_unset() {
-        assert!(
-            !windows_terminal_available_on_paths(None),
-            "missing PATH should never report Windows Terminal available"
-        );
-    }
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -1699,256 +1567,6 @@ fn build_launch_command(context: &CodexLaunchContext) -> Result<String, String> 
     sanitize_codex_config_before_launch(Path::new(&context.user_data_dir))?;
     let runtime = modules::codex_wakeup::resolve_cli_runtime()?;
     build_launch_command_text(context, &runtime.binary_path, runtime.node_path.as_deref())
-}
-
-fn escape_applescript(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-}
-
-/// Whether Windows Terminal (`wt.exe`) is reachable on `PATH`.
-///
-/// Win11 ships `wt.exe` under `%LOCALAPPDATA%\Microsoft\WindowsApps` (on PATH by default).
-/// Cockpit's `Command::spawn` uses `CreateProcess` directly and bypasses the OS default-terminal
-/// redirection, so for `default_terminal = "system"` we probe for `wt.exe` and route through
-/// Windows Terminal when available.
-///
-/// Compiled on all targets so shared helpers (and macOS/Linux CI) type-check; non-Windows always
-/// returns false.
-fn windows_terminal_available() -> bool {
-    #[cfg(target_os = "windows")]
-    {
-        return windows_terminal_available_on_paths(std::env::var_os("PATH"));
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        false
-    }
-}
-
-#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
-fn windows_terminal_available_on_paths(path: Option<std::ffi::OsString>) -> bool {
-    #[cfg(target_os = "windows")]
-    {
-        let candidates = ["wt.exe", "wt"];
-        let paths = path.as_deref();
-        return std::env::split_paths(paths.unwrap_or_default())
-            .any(|dir| candidates.iter().any(|name| dir.join(name).is_file()));
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = path;
-        false
-    }
-}
-
-#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
-fn format_terminal_display_command(program: &str, args: &[String]) -> String {
-    std::iter::once(program.to_string())
-        .chain(args.iter().map(|arg| {
-            if arg.is_empty() {
-                "\"\"".to_string()
-            } else if arg
-                .chars()
-                .any(|ch| ch.is_whitespace() || matches!(ch, '"' | '&' | '|' | ';'))
-            {
-                format!("\"{}\"", arg.replace('"', "\\\""))
-            } else {
-                arg.clone()
-            }
-        }))
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
-fn build_windows_codex_terminal_launch_plan(
-    command: &str,
-    terminal: &str,
-) -> CodexTerminalLaunchPlan {
-    let normalized = terminal.trim().to_ascii_lowercase();
-    // `system` honors OS default: prefer Windows Terminal when installed, else PowerShell.
-    // `windows_terminal_available()` is a no-op false on non-Windows so this helper stays
-    // cross-platform for unit tests and CI.
-    let use_windows_terminal =
-        (normalized == "system" && windows_terminal_available()) || normalized == "wt";
-    let (program, args, terminal_name) = if normalized == "pwsh" {
-        (
-            "pwsh",
-            vec!["-NoExit", "-Command", command],
-            "PowerShell Core",
-        )
-    } else if normalized == "powershell" {
-        (
-            "powershell",
-            vec!["-NoExit", "-Command", command],
-            "PowerShell",
-        )
-    } else if normalized == "cmd" {
-        (
-            "cmd",
-            vec![
-                "/C",
-                "start",
-                "",
-                "powershell",
-                "-NoExit",
-                "-Command",
-                command,
-            ],
-            "Command Prompt",
-        )
-    } else if use_windows_terminal {
-        (
-            "wt",
-            vec!["powershell", "-NoExit", "-Command", command],
-            "Windows Terminal",
-        )
-    } else {
-        (
-            "powershell",
-            vec!["-NoExit", "-Command", command],
-            "PowerShell",
-        )
-    };
-    let args = args.into_iter().map(str::to_string).collect::<Vec<_>>();
-
-    CodexTerminalLaunchPlan {
-        program: program.to_string(),
-        display_command: format_terminal_display_command(program, &args),
-        args,
-        terminal_name: terminal_name.to_string(),
-    }
-}
-
-fn build_macos_codex_terminal_launch_plan(
-    command: &str,
-    terminal: &str,
-) -> Result<CodexTerminalLaunchPlan, String> {
-    let normalized = terminal.trim();
-    let is_iterm = normalized.to_ascii_lowercase().contains("iterm");
-    let is_ghostty = normalized.eq_ignore_ascii_case("Ghostty");
-    let is_terminal_app =
-        normalized.is_empty() || normalized == "system" || normalized == "Terminal";
-    let (terminal_name, script) = if is_iterm {
-        (
-            "iTerm2",
-            format!(
-                "tell application \"iTerm\"
-                    activate
-                    if not (exists window 1) then
-                        create window with default profile
-                        tell current session of current window
-                            write text \"{}\"
-                        end tell
-                    else
-                        tell current window
-                            create tab with default profile
-                            tell current session
-                                write text \"{}\"
-                            end tell
-                        end tell
-                    end if
-                end tell",
-                escape_applescript(command),
-                escape_applescript(command)
-            ),
-        )
-    } else if is_ghostty {
-        (
-            "Ghostty",
-            format!(
-                "tell application \"Ghostty\"
-                    activate
-                    set cfg to new surface configuration
-                    set command of cfg to \"{}\"
-                    new window with configuration cfg
-                end tell",
-                escape_applescript(command)
-            ),
-        )
-    } else if is_terminal_app {
-        (
-            "Terminal.app",
-            format!(
-                "tell application \"Terminal\"
-                    activate
-                    do script \"{}\"
-                end tell",
-                escape_applescript(command)
-            ),
-        )
-    } else {
-        return Err(format!(
-            "当前终端暂不支持直接执行：{}。请改用 Terminal、iTerm2 或 Ghostty。",
-            normalized
-        ));
-    };
-
-    Ok(CodexTerminalLaunchPlan {
-        program: "osascript".to_string(),
-        args: vec!["-e".to_string(), script],
-        display_command: format!("{} → {}", terminal_name, command),
-        terminal_name: terminal_name.to_string(),
-    })
-}
-
-#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
-fn build_linux_codex_terminal_launch_plan(
-    command: &str,
-    terminal: &str,
-) -> CodexTerminalLaunchPlan {
-    let normalized = terminal.trim();
-    let use_system_terminal = normalized.is_empty() || normalized.eq_ignore_ascii_case("system");
-    let program = if use_system_terminal {
-        "x-terminal-emulator"
-    } else {
-        normalized
-    };
-    let shell_command = format!("{}; exec bash", command);
-    let args = if program.eq_ignore_ascii_case("gnome-terminal") {
-        vec!["--", "bash", "-lc", shell_command.as_str()]
-    } else {
-        vec!["-e", "bash", "-lc", shell_command.as_str()]
-    };
-    let args = args.into_iter().map(str::to_string).collect::<Vec<_>>();
-    let terminal_name = if use_system_terminal {
-        "系统终端"
-    } else {
-        program
-    };
-
-    CodexTerminalLaunchPlan {
-        program: program.to_string(),
-        display_command: format_terminal_display_command(program, &args),
-        args,
-        terminal_name: terminal_name.to_string(),
-    }
-}
-
-fn build_codex_terminal_launch_plan(
-    command: &str,
-    terminal: &str,
-) -> Result<CodexTerminalLaunchPlan, String> {
-    #[cfg(target_os = "macos")]
-    {
-        return build_macos_codex_terminal_launch_plan(command, terminal);
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        return Ok(build_windows_codex_terminal_launch_plan(command, terminal));
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        return Ok(build_linux_codex_terminal_launch_plan(command, terminal));
-    }
-
-    #[allow(unreachable_code)]
-    Err("Codex CLI 终端执行仅支持 macOS、Windows 和 Linux".to_string())
 }
 
 fn resolve_codex_launch_terminal(terminal: Option<String>) -> String {
@@ -2924,10 +2542,14 @@ async fn codex_start_instance_internal(
     skip_failed_step: Option<&str>,
     emit_launch_progress: bool,
     launch_operation: Option<&str>,
+    expected_prepared_binding: Option<&str>,
 ) -> Result<CodexInstanceProfileView, String> {
     let _start_guard = CodexInstanceStartGuard::acquire(&instance_id)?;
     clear_codex_instance_start_cancel(&instance_id);
     let mut launch_target = resolve_codex_instance_start_target(&instance_id)?;
+    modules::codex_instance::verify_prepared_launch_binding(
+        expected_prepared_binding, launch_target.bind_account_id.as_deref(),
+    )?;
     let configured_launch_mode = launch_target.launch_mode.clone();
     // 绑定账号不再是可直接登录的 OAuth 订阅账号时，路由按关闭处理：
     // 这里必须用归一化结果，否则启动阶段仍会尝试建立混合路由网关。
@@ -3134,6 +2756,9 @@ async fn codex_start_instance_internal(
         let previous_kind = read_applied_launch_credential_kind_for_dir(&default_dir);
         let default_settings = modules::codex_instance::load_default_settings()?;
         let default_bind_account_id = resolve_default_account_id(&default_settings);
+        modules::codex_instance::verify_prepared_launch_binding(
+            expected_prepared_binding, default_bind_account_id.as_deref(),
+        )?;
         if default_settings.launch_mode != InstanceLaunchMode::Cli {
             modules::process::ensure_codex_launch_path_configured()?;
         }
@@ -3391,6 +3016,8 @@ async fn codex_start_instance_internal(
         ).await?;
         if let Some(proxy_url) = egress_proxy_url.as_deref() {
             modules::process::append_electron_proxy_args(&mut injection_plan.args, proxy_url);
+        } else {
+            modules::process::append_global_electron_proxy_args(&mut injection_plan.args);
         }
         emit_codex_instance_launch_step(
             &app,
@@ -3403,17 +3030,24 @@ async fn codex_start_instance_internal(
         );
         let launch_started = Instant::now();
         ensure_codex_instance_start_not_cancelled(&instance_id)?;
-        let pid = if skip_default_bind_account_injection {
-            modules::process::start_codex_default_fast_after_close_with_egress(
-                &injection_plan.args,
-                egress_proxy_url.as_deref(),
-            )?
-        } else {
-            modules::process::start_codex_default_with_egress(
-                &injection_plan.args,
-                egress_proxy_url.as_deref(),
-            )?
-        };
+        let launch_args = injection_plan.args.clone();
+        // Package registration, activation and PID confirmation can wait on
+        // Windows services. Keep that synchronous work off the async runtime.
+        let pid = tauri::async_runtime::spawn_blocking(move || {
+            if skip_default_bind_account_injection {
+                modules::process::start_codex_default_fast_after_close_with_egress(
+                    &launch_args,
+                    egress_proxy_url.as_deref(),
+                )
+            } else {
+                modules::process::start_codex_default_with_egress(
+                    &launch_args,
+                    egress_proxy_url.as_deref(),
+                )
+            }
+        })
+        .await
+        .map_err(|error| format!("Codex launch worker failed: {error}"))??;
         if codex_instance_start_cancelled(&instance_id) {
             let _ = modules::process::close_pid(pid, 5);
             return Err("CODEX_START_CANCELLED".to_string());
@@ -3471,6 +3105,9 @@ async fn codex_start_instance_internal(
         .find(|item| item.id == instance_id)
         .ok_or("实例不存在")?;
 
+    modules::codex_instance::verify_prepared_launch_binding(
+        expected_prepared_binding, instance.bind_account_id.as_deref(),
+    )?;
     modules::codex_instance::ensure_instance_shared_skills(Path::new(&instance.user_data_dir))?;
     let instance_dir = Path::new(&instance.user_data_dir);
     let previous_kind = read_applied_launch_credential_kind_for_dir(instance_dir);
@@ -3485,10 +3122,11 @@ async fn codex_start_instance_internal(
 
     let close_started = Instant::now();
     modules::codex_app_injection::stop_for_profile(instance_dir);
-    if let Some(pid) =
-        modules::process::resolve_codex_pid(instance.last_pid, Some(&instance.user_data_dir))
-    {
-        modules::process::close_pid(pid, 20)?;
+    if modules::process::resolve_codex_pid(instance.last_pid, Some(&instance.user_data_dir)).is_some() {
+        let target_home = instance.user_data_dir.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            modules::process::close_codex_instances(&[target_home], 20)
+        }).await.map_err(|error| error.to_string())??;
         let _ = modules::codex_instance::update_instance_pid(&instance.id, None)?;
     }
     modules::codex_local_access::stop_provider_gateways_for_profile(instance_dir).await;
@@ -3705,6 +3343,8 @@ async fn codex_start_instance_internal(
     ).await?;
     if let Some(proxy_url) = egress_proxy_url.as_deref() {
         modules::process::append_electron_proxy_args(&mut injection_plan.args, proxy_url);
+    } else {
+        modules::process::append_global_electron_proxy_args(&mut injection_plan.args);
     }
     emit_codex_instance_launch_step(
         &app,
@@ -3717,12 +3357,18 @@ async fn codex_start_instance_internal(
     );
     let launch_started = Instant::now();
     ensure_codex_instance_start_not_cancelled(&instance_id)?;
-    let pid = modules::process::start_codex_with_args_and_env_and_egress(
-        &instance.user_data_dir,
-        &injection_plan.args,
-        &[],
-        egress_proxy_url.as_deref(),
-    )?;
+    let launch_home = instance.user_data_dir.clone();
+    let launch_args = injection_plan.args.clone();
+    let pid = tauri::async_runtime::spawn_blocking(move || {
+        modules::process::start_codex_with_args_and_env_and_egress(
+            &launch_home,
+            &launch_args,
+            &[],
+            egress_proxy_url.as_deref(),
+        )
+    })
+    .await
+    .map_err(|error| format!("Codex launch worker failed: {error}"))??;
     if codex_instance_start_cancelled(&instance_id) {
         let _ = modules::process::close_pid(pid, 5);
         return Err("CODEX_START_CANCELLED".to_string());
@@ -3783,6 +3429,7 @@ pub(crate) async fn codex_start_default_with_prepared_profile(
     emit_launch_progress: bool,
     launch_operation: Option<&str>,
     skip_failed_step: Option<&str>,
+    expected_prepared_binding: Option<&str>,
 ) -> Result<CodexInstanceProfileView, String> {
     let mut launch_target = resolve_codex_instance_start_target(DEFAULT_INSTANCE_ID)?;
     launch_target.launch_operation = launch_operation.map(str::to_owned);
@@ -3794,6 +3441,7 @@ pub(crate) async fn codex_start_default_with_prepared_profile(
         skip_failed_step,
         emit_launch_progress,
         launch_operation,
+        expected_prepared_binding,
     )
     .await;
     let result = match result {
@@ -3862,6 +3510,7 @@ pub(crate) async fn codex_start_instance_with_prepared_profile(
         skip_failed_step,
         emit_launch_progress,
         launch_operation,
+        launch_target.bind_account_id.as_deref(),
     )
     .await;
     let result = match result {
@@ -3931,6 +3580,7 @@ pub async fn codex_start_instance(
         transfer_conflicting_account.unwrap_or(false),
         skip_failed_step.as_deref(),
         true,
+        None,
         None,
     )
     .await;
@@ -4026,10 +3676,11 @@ pub async fn codex_stop_instance(instance_id: String) -> Result<CodexInstancePro
         .ok_or("实例不存在")?;
 
     modules::codex_app_injection::stop_for_profile(Path::new(&instance.user_data_dir));
-    if let Some(pid) =
-        modules::process::resolve_codex_pid(instance.last_pid, Some(&instance.user_data_dir))
-    {
-        modules::process::close_pid(pid, 20)?;
+    if modules::process::resolve_codex_pid(instance.last_pid, Some(&instance.user_data_dir)).is_some() {
+        let target_home = instance.user_data_dir.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            modules::process::close_codex_instances(&[target_home], 20)
+        }).await.map_err(|error| error.to_string())??;
     }
     modules::codex_local_access::stop_provider_gateways_for_profile(Path::new(
         &instance.user_data_dir,

@@ -39,10 +39,17 @@ pub struct QuotaCloudCodeContext {
 impl QuotaCloudCodeContext {
     pub fn from_token(token: &TokenData) -> Self {
         Self {
-            preferred_project_id: token.project_id.clone(),
+            preferred_project_id: valid_cloud_code_project_id(token.project_id.as_deref())
+                .map(str::to_string),
             is_gcp_tos: token.is_gcp_tos.unwrap_or(false),
         }
     }
+}
+
+fn valid_cloud_code_project_id(project_id: Option<&str>) -> Option<&str> {
+    project_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && *value != "aicode-consumers")
 }
 
 fn env_var_trimmed(name: &str) -> Option<String> {
@@ -251,16 +258,34 @@ fn build_cloud_code_metadata(duet_project: Option<&str>) -> Value {
 }
 
 fn resolve_cloud_code_base_url(ctx: &QuotaCloudCodeContext) -> String {
-    // 与 Antigravity IDE.app 的 IYs(...) 选择顺序保持一致：override > gcpTos > internal(insider/dev) > daily
-    if let Some(override_url) = env_var_trimmed("ANTIGRAVITY_CLOUD_CODE_URL_OVERRIDE") {
-        return override_url;
+    select_cloud_code_base_url(
+        ctx,
+        env_var_trimmed("ANTIGRAVITY_CLOUD_CODE_URL_OVERRIDE").as_deref(),
+        env_bool("ANTIGRAVITY_IS_GOOGLE_INTERNAL"),
+        env_quality_is_insider_or_dev(),
+    )
+}
+
+fn select_cloud_code_base_url(
+    ctx: &QuotaCloudCodeContext,
+    override_url: Option<&str>,
+    is_google_internal: bool,
+    is_insider_or_dev: bool,
+) -> String {
+    // Preserve the host routing order: override > GCP ToS with project > internal > daily.
+    if let Some(override_url) = override_url
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return override_url.to_string();
     }
 
-    if ctx.is_gcp_tos {
+    if ctx.is_gcp_tos && valid_cloud_code_project_id(ctx.preferred_project_id.as_deref()).is_some()
+    {
         return CLOUD_CODE_PROD_BASE_URL.to_string();
     }
 
-    if env_bool("ANTIGRAVITY_IS_GOOGLE_INTERNAL") && env_quality_is_insider_or_dev() {
+    if is_google_internal && is_insider_or_dev {
         return CLOUD_CODE_AUTOPUSH_SANDBOX_BASE_URL.to_string();
     }
 
@@ -285,6 +310,10 @@ fn cloud_code_candidate_urls(ctx: &QuotaCloudCodeContext) -> Vec<String> {
     }
     urls
 }
+
+#[cfg(test)]
+#[path = "quota_cloud_code_routing_tests.rs"]
+mod cloud_code_routing_tests;
 
 fn header_value(headers: &reqwest::header::HeaderMap, name: reqwest::header::HeaderName) -> String {
     headers
@@ -401,10 +430,64 @@ struct QuotaInfo {
     reset_time: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QuotaFetchError {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code: Option<u16>,
     pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validation_url: Option<String>,
+}
+
+pub fn parse_google_api_error(status: u16, text: &str) -> QuotaFetchError {
+    let mut message = if text.trim().is_empty() {
+        format!("API returned status {}", status)
+    } else {
+        text.to_string()
+    };
+    let mut reason: Option<String> = None;
+    let mut validation_url: Option<String> = None;
+
+    if let Ok(val) = serde_json::from_str::<serde_json::Value>(text) {
+        if let Some(err_obj) = val.get("error") {
+            if let Some(msg) = err_obj.get("message").and_then(|v| v.as_str()) {
+                message = msg.to_string();
+            }
+            if let Some(details) = err_obj.get("details").and_then(|v| v.as_array()) {
+                for detail in details {
+                    if reason.is_none() {
+                        if let Some(r) = detail.get("reason").and_then(|v| v.as_str()) {
+                            reason = Some(r.to_string());
+                        }
+                    }
+                    if validation_url.is_none() {
+                        if let Some(metadata) = detail.get("metadata") {
+                            if let Some(url) = metadata.get("validation_url").and_then(|v| v.as_str()) {
+                                validation_url = Some(url.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if reason.is_none() {
+        if message.contains("Verify your account") {
+            reason = Some("VALIDATION_REQUIRED".to_string());
+        } else if message.contains("Subscription required") {
+            reason = Some("SUBSCRIPTION_REQUIRED".to_string());
+        }
+    }
+
+    QuotaFetchError {
+        code: Some(status),
+        message,
+        reason,
+        validation_url,
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1048,8 +1131,22 @@ fn build_quota_data_from_response(
 
 enum ModelsFetchOutcome {
     Ok(serde_json::Value),
-    Forbidden { status: u16, message: String },
+    Forbidden(QuotaFetchError),
     Failed(crate::error::AppError),
+}
+
+/// retrieveUserQuotaSummary 的结果：value 为成功拿到的 summary；
+/// validation_error 仅在接口要求账号验证时保留，作为本次查询的 error 返回给上层。
+#[derive(Debug, Default)]
+struct QuotaSummaryFetch {
+    value: Option<serde_json::Value>,
+    validation_error: Option<QuotaFetchError>,
+}
+
+fn is_validation_required_error(error: &QuotaFetchError) -> bool {
+    error.reason.as_deref() == Some("VALIDATION_REQUIRED")
+        || error.validation_url.is_some()
+        || error.message.contains("Verify your account")
 }
 
 fn quota_request_payload(ctx: &QuotaCloudCodeContext) -> serde_json::Value {
@@ -1094,15 +1191,10 @@ async fn fetch_available_models_json(
                         let status = response.status();
                         let text = response.text().await.unwrap_or_default();
                         if status == reqwest::StatusCode::FORBIDDEN {
-                            let message = if text.trim().is_empty() {
-                                "API returned 403 Forbidden".to_string()
-                            } else {
-                                text
-                            };
-                            return ModelsFetchOutcome::Forbidden {
-                                status: status.as_u16(),
-                                message,
-                            };
+                            return ModelsFetchOutcome::Forbidden(parse_google_api_error(
+                                status.as_u16(),
+                                &text,
+                            ));
                         }
                         last_error = Some(AppError::Unknown(format!(
                             "API 错误: {} - {}",
@@ -1174,7 +1266,8 @@ async fn fetch_user_quota_summary_json(
     base_urls: &[String],
     payload: &serde_json::Value,
     user_agent: &str,
-) -> Option<serde_json::Value> {
+) -> QuotaSummaryFetch {
+    let mut validation_error: Option<QuotaFetchError> = None;
     for (host_index, base_url) in base_urls.iter().enumerate() {
         let summary_url = format!("{}/v1internal:retrieveUserQuotaSummary", base_url);
         crate::modules::logger::log_info(&format!(
@@ -1204,7 +1297,12 @@ async fn fetch_user_quota_summary_json(
                                 summary_body.len()
                             ));
                             match serde_json::from_str::<serde_json::Value>(&summary_body) {
-                                Ok(val) => return Some(val),
+                                Ok(val) => {
+                                    return QuotaSummaryFetch {
+                                        value: Some(val),
+                                        validation_error: None,
+                                    };
+                                }
                                 Err(_) => {
                                     crate::modules::logger::log_error(
                                         "[Quota] retrieveUserQuotaSummary JSON 解析失败",
@@ -1220,19 +1318,26 @@ async fn fetch_user_quota_summary_json(
                     }
                 } else {
                     let err_text = res.text().await.unwrap_or_default();
-                    crate::modules::logger::log_error(&format!(
+                    crate::modules::logger::log_warn(&format!(
                         "[Quota] retrieveUserQuotaSummary 请求未成功: {}, body: {}",
                         status, err_text
                     ));
+                    let parsed = parse_google_api_error(status.as_u16(), &err_text);
+                    if is_validation_required_error(&parsed) {
+                        validation_error = Some(parsed);
+                    }
                     if status == reqwest::StatusCode::UNAUTHORIZED
                         || status == reqwest::StatusCode::FORBIDDEN
                     {
-                        return None;
+                        return QuotaSummaryFetch {
+                            value: None,
+                            validation_error,
+                        };
                     }
                 }
             }
             Err(e) => {
-                crate::modules::logger::log_error(&format!(
+                crate::modules::logger::log_warn(&format!(
                     "[Quota] retrieveUserQuotaSummary 发送失败: {}",
                     e
                 ));
@@ -1245,7 +1350,10 @@ async fn fetch_user_quota_summary_json(
             }
         }
     }
-    None
+    QuotaSummaryFetch {
+        value: None,
+        validation_error,
+    }
 }
 
 pub async fn fetch_quota_for_token(
@@ -1304,7 +1412,7 @@ pub async fn fetch_quota_with_context(
         }
     }
 
-    let (meta, models_outcome, quota_summary_val) = tokio::join!(
+    let (meta, models_outcome, summary_fetch) = tokio::join!(
         fetch_project_id_with_fallback(access_token, email, ctx),
         fetch_available_models_json(
             &client,
@@ -1330,7 +1438,7 @@ pub async fn fetch_quota_with_context(
         .or_else(|| ctx.preferred_project_id.clone());
 
     match models_outcome {
-        ModelsFetchOutcome::Forbidden { status, message } => {
+        ModelsFetchOutcome::Forbidden(error) => {
             crate::modules::logger::log_warn(&format!(
                 "账号无权限 (403 Forbidden), 标记为 forbidden 状态: {}",
                 email
@@ -1340,15 +1448,12 @@ pub async fn fetch_quota_with_context(
             q.subscription_tier = meta.subscription_tier;
             Ok(QuotaFetchResult {
                 quota: q,
-                error: Some(QuotaFetchError {
-                    code: Some(status),
-                    message,
-                }),
+                error: Some(error),
             })
         }
         ModelsFetchOutcome::Failed(err) => Err(err),
         ModelsFetchOutcome::Ok(mut payload_value) => {
-            if let Some(val) = quota_summary_val.clone() {
+            if let Some(val) = summary_fetch.value.clone() {
                 if let Some(obj) = payload_value.as_object_mut() {
                     obj.insert("quota_summary".to_string(), val);
                     crate::modules::logger::log_info(
@@ -1371,12 +1476,12 @@ pub async fn fetch_quota_with_context(
                 quota_response,
                 meta.subscription_tier,
                 meta.credits,
-                quota_summary_val,
+                summary_fetch.value,
             );
 
             Ok(QuotaFetchResult {
                 quota: quota_data,
-                error: None,
+                error: summary_fetch.validation_error,
             })
         }
     }
@@ -1386,9 +1491,11 @@ pub async fn fetch_quota_with_context(
 mod tests {
     use super::*;
 
+    // 上游要求 GCP ToS 账号带真实 project 才走正式域名（aicode-consumers 占位符会直接走 daily），
+    // 所以这里用真实 project 才能覆盖“正式域名 + daily 回退”的路径。
     fn gcp_tos_ctx() -> QuotaCloudCodeContext {
         QuotaCloudCodeContext {
-            preferred_project_id: Some("aicode-consumers".to_string()),
+            preferred_project_id: Some("project-123".to_string()),
             is_gcp_tos: true,
         }
     }

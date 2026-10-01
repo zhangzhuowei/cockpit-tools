@@ -119,7 +119,7 @@
     }
 
     #[tokio::test]
-    async fn takeover_cleanup_restores_managed_local_compaction_fallback() {
+    async fn takeover_cleanup_does_not_replay_removed_compaction_flag() {
         let profile_dir = make_temp_dir("local-compaction-takeover-restore");
         // 接管前用户没有任何压缩相关设置。
         let original = "model = \"gpt-6-astra\"\n\n[features]\njs_repl = false\n";
@@ -146,10 +146,10 @@
         super::write_local_access_profile_takeover(&profile_dir, &collection, None, true)
             .await
             .expect("write takeover");
-        let config = fs::read_to_string(profile_dir.join(CODEX_PROFILE_CONFIG_FILE))
-            .expect("read config");
-        assert!(config.contains("remote_compaction_v2 = false"));
-        // 只有远端压缩被关闭；`token_budget` 会把压缩换成不产摘要的窗口重置，不能写入。
+        let config =
+            fs::read_to_string(profile_dir.join(CODEX_PROFILE_CONFIG_FILE)).expect("read config");
+        assert!(!config.contains("remote_compaction_v2"));
+        // 新接管不再新增压缩设置。
         assert!(!config.contains("token_budget"));
 
         let restored = restore_config_toml_from_takeover_backup(Some(&config), Some(original))
@@ -159,14 +159,34 @@
         assert!(!restored.contains("token_budget"));
         assert!(restored.contains("js_repl = false"));
 
-        // 用户原本就设过这两个键时按原值还原。
+        // 当前已经没有旧受管标记时，备份不得复活任何压缩设置。
         let user_config =
             "model = \"gpt-6-astra\"\n\n[features]\nremote_compaction_v2 = true\ntoken_budget = false\n";
         let restored = restore_config_toml_from_takeover_backup(Some(&config), Some(user_config))
             .expect("restore")
             .expect("config exists");
-        assert!(restored.contains("remote_compaction_v2 = true"));
-        assert!(restored.contains("token_budget = false"));
+        assert!(!restored.contains("remote_compaction_v2"));
+        assert!(!restored.contains("token_budget"));
+
+        let legacy_config = config.replace(
+            "js_repl = false",
+            "js_repl = false\nremote_compaction_v2 = false",
+        );
+        let legacy_restored =
+            restore_config_toml_from_takeover_backup(Some(&legacy_config), Some(user_config))
+                .expect("restore legacy takeover")
+                .expect("config exists");
+        assert!(!legacy_restored.contains("remote_compaction_v2"));
+        assert!(legacy_restored.contains("token_budget = false"));
+        assert!(legacy_restored.contains("js_repl = false"));
+
+        let edited_config =
+            legacy_config.replace("js_repl = false", "js_repl = false\ntoken_budget = true");
+        let edited_restored =
+            restore_config_toml_from_takeover_backup(Some(&edited_config), Some(user_config))
+                .expect("restore edited takeover")
+                .expect("config exists");
+        assert!(edited_restored.contains("token_budget = true"));
 
         // 接管前的配置里没有 profile 时不应凭空生成 features 段。
         let no_backup = restore_config_toml_from_takeover_backup(Some(&config), None)
@@ -176,6 +196,26 @@
         assert!(!no_backup.contains("token_budget"));
 
         fs::remove_dir_all(profile_dir).expect("cleanup fixture");
+    }
+
+    #[test]
+    fn takeover_cleanup_preserves_unmanaged_compaction_features() {
+        for value in ["false", "true"] {
+            let current = format!(
+                "[features]\nremote_compaction_v2 = {value}\ntoken_budget = true\njs_repl = false\n"
+            );
+            let restored = restore_config_toml_from_takeover_backup(Some(&current), Some(&current))
+                .expect("restore user settings")
+                .expect("config exists");
+            let doc = crate::modules::codex_config_format::read_codex_config_doc_from_str(&restored)
+                .expect("parse restored");
+            assert_eq!(
+                doc["features"]["remote_compaction_v2"].as_bool(),
+                Some(value == "true")
+            );
+            assert_eq!(doc["features"]["token_budget"].as_bool(), Some(true));
+            assert_eq!(doc["features"]["js_repl"].as_bool(), Some(false));
+        }
     }
 
     #[test]
@@ -701,6 +741,18 @@
         )
         .expect("direct collection should build");
 
+        let default_model = crate::modules::codex_wakeup::DEFAULT_WAKEUP_MODEL;
+        assert_eq!(direct_collection.model_aliases.len(), 1);
+        assert_eq!(direct_collection.model_aliases[0].alias, default_model);
+        assert_eq!(
+            direct_collection.model_aliases[0].source_model,
+            request.model_id.trim()
+        );
+        assert_eq!(
+            direct_collection.api_keys[0].allowed_models,
+            vec![default_model]
+        );
+
         assert_eq!(
             direct_collection.image_generation_mode,
             CodexLocalAccessImageGenerationMode::Enabled
@@ -1206,7 +1258,7 @@
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
-        assert!(excluded.iter().any(|item| item.as_str() == Some("gpt-5.4")));
+        assert!(excluded.iter().any(|item| item.as_str() == Some("gpt-6.1-sol")));
         assert!(!excluded
             .iter()
             .any(|item| item.as_str() == Some("gpt-5.6-sol")));

@@ -57,11 +57,13 @@ func TestWithXAIBuiltinsIncludesImage20(t *testing.T) {
 
 func TestPaidCodexModelsIncludeGPT6FamilyButFreeDoesNot(t *testing.T) {
 	wantOrder := []string{
+		codexBuiltinGPT61SolModelID,
 		codexBuiltinGPT6AstraModelID,
 		codexBuiltinGPT6SolModelID,
 		codexBuiltinGPT6LunaModelID,
 	}
 	wantDisplayNames := map[string]string{
+		codexBuiltinGPT61SolModelID:  "GPT-6.1 Sol",
 		codexBuiltinGPT6AstraModelID: "GPT-6 Astra",
 		codexBuiltinGPT6SolModelID:   "GPT-6 Sol",
 		codexBuiltinGPT6LunaModelID:  "GPT-6 Luna",
@@ -92,7 +94,11 @@ func TestPaidCodexModelsIncludeGPT6FamilyButFreeDoesNot(t *testing.T) {
 			if model == nil {
 				t.Fatalf("paid Codex models do not contain %s", modelID)
 			}
-			if model.ContextLength != 256000 || model.MaxCompletionTokens != 128000 {
+			if modelID == codexBuiltinGPT61SolModelID {
+				if model.ContextLength != 272000 || model.MaxCompletionTokens != 128000 {
+					t.Fatalf("GPT-6.1 Sol limits = %#v", model)
+				}
+			} else if model.ContextLength != 256000 || model.MaxCompletionTokens != 128000 {
 				t.Fatalf("%s limits = %d/%d, want 256000/128000", modelID, model.ContextLength, model.MaxCompletionTokens)
 			}
 			if model.DisplayName != wantDisplayNames[modelID] {
@@ -207,5 +213,28 @@ func TestAntigravityWebSearchModelForRequiresRequestedModelCapability(t *testing
 	}
 	if got := AntigravityWebSearchModelFor("unknown-model"); got != "" {
 		t.Fatalf("unknown model should not get Antigravity web search model, got %q", got)
+	}
+}
+
+func TestCodexCatalogsDoNotRestoreRetiredModels(t *testing.T) {
+	for _, models := range [][]*ModelInfo{GetCodexFreeModels(), GetCodexPlusModels(), GetCodexTeamModels(), GetCodexProModels()} {
+		for _, model := range models {
+			if isRetiredCodexModelID(model.ID) {
+				t.Fatalf("retired built-in model: %s", model.ID)
+			}
+		}
+	}
+	models := WithCodexBuiltins([]*ModelInfo{{ID: "gpt-5.4"}, {ID: "gpt-4.1"}, {ID: "gpt-6.1-sol"}, {ID: "custom-model"}})
+	found := false
+	for _, model := range models {
+		if isRetiredCodexModelID(model.ID) {
+			t.Fatalf("remote refresh restored %s", model.ID)
+		}
+		if model.ID == "custom-model" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("custom provider models must remain")
 	}
 }

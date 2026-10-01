@@ -4,7 +4,7 @@ import * as codexService from "../services/codexService";
 import * as codexInstanceService from "../services/codexInstanceService";
 import * as codexLocalAccessService from "../services/codexLocalAccessService";
 import { useModalErrorState } from "../components/ModalErrorMessage";
-import { isCodexApiKeyAccount, type CodexApiProviderMode } from "../types/codex";
+import { isCodexApiKeyAccount, type CodexProviderWireApi, type CodexApiProviderMode } from "../types/codex";
 import { isCodexOAuthBindingEligibleAccount } from "../utils/codexLocalAccessAccounts";
 import { mergeIdListsPreferExisting, subscribeUserMemory } from "../utils/userMemory";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
@@ -219,6 +219,9 @@ export function useCodexAccountsOAuthController(context: Pick<ReturnType<typeof 
     const [editingApiProviderPresetId, setEditingApiProviderPresetId] = useState(
       DEFAULT_CODEX_API_PROVIDER_ID,
     );
+    const [editingApiWireApi, setEditingApiWireApi] = useState<CodexProviderWireApi>("responses");
+    const [editingApiSupportsWebsockets, setEditingApiSupportsWebsockets] = useState(false);
+    const [editingApiCredentialsError, setEditingApiCredentialsError] = useState<string | null>(null);
     const [editingApiModelCatalogInput, setEditingApiModelCatalogInput] =
       useState("");
     const [
@@ -398,12 +401,12 @@ export function useCodexAccountsOAuthController(context: Pick<ReturnType<typeof 
         resolveCodexProviderCapabilityProfile({
           presetId: editingApiProviderPresetId,
           baseUrl: editingApiBaseUrlCredentialsValue,
-          wireApi: selectedEditingManagedProvider?.wireApi ?? null,
+          wireApi: editingApiWireApi,
         }).wireApi === "responses",
       [
         editingApiBaseUrlCredentialsValue,
         editingApiProviderPresetId,
-        selectedEditingManagedProvider?.wireApi,
+        editingApiWireApi,
       ],
     );
     useEffect(() => {
@@ -2146,6 +2149,12 @@ export function useCodexAccountsOAuthController(context: Pick<ReturnType<typeof 
     deviceCodeCopied,
     draggedCustomSortAccountId,
     editingApiBaseUrlCredentialsValue,
+    editingApiWireApi,
+    editingApiSupportsWebsockets,
+    editingApiCredentialsError,
+    setEditingApiWireApi,
+    setEditingApiSupportsWebsockets,
+    setEditingApiCredentialsError,
     editingApiKeyCredentialsId,
     editingApiKeyCredentialsValue,
     editingApiKeyCredentialsVisible,

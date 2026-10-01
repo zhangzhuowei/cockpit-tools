@@ -1,5 +1,210 @@
 // Process 模块测试：平台路径、Codex 启动参数和进程清理行为。
 // 保持测试模块位于原作用域，super 引用和 cfg 条件不变。
+#[cfg(all(test, target_os = "windows"))]
+mod windows_passive_exec_scan_tests {
+    use super::{
+        build_windows_exec_path_scan_script, parse_windows_exec_candidates, powershell_quote,
+        WINDOWS_EXEC_CANDIDATE_FUNCTIONS,
+    };
+    use std::process::Command;
+
+    fn run_scan_script(script: &str) -> std::process::Output {
+        use std::os::windows::process::CommandExt;
+        let mut command = Command::new("powershell.exe");
+        command.args(["-NoProfile", "-NonInteractive", "-Command", script]);
+        command.creation_flags(super::CREATE_NO_WINDOW);
+        crate::modules::process_timeout::output_with_timeout(
+            &mut command,
+            std::time::Duration::from_secs(10),
+        )
+        .expect("PowerShell scan must finish within its timeout")
+    }
+
+    #[test]
+    fn stopped_wsl_shortcut_target_is_skipped_before_existence_check() {
+        let script = format!(
+            r#"$visited = @()
+$global:wslQueries = 0
+
+function Test-Path([string]$LiteralPath) {{
+  $script:visited += "VISIT:$LiteralPath"
+  return $true
+}}
+{WINDOWS_EXEC_CANDIDATE_FUNCTIONS}
+function Get-RunningWslNames {{ $global:wslQueries++; return @{{ Success = $true; Names = @() }} }}
+Emit-Candidate '\\wsl.localhost\Ubuntu-22.04\home\demo\Antigravity IDE.exe'
+Emit-Candidate '\\WSL$\Ubuntu-22.04\Antigravity IDE.exe'
+Emit-Candidate '\\?\UNC\wsl.localhost\Ubuntu-22.04\Antigravity IDE.exe'
+Emit-Candidate '\\?\unc\WSL$\Ubuntu-22.04\Antigravity IDE.exe'
+Emit-Candidate '\\wsl.localhost\Ubuntu-22.04\home\demo\Antigravity IDE.exe'
+Emit-Candidate '  '
+Emit-Candidate 'C:\Program Files\Antigravity IDE\Antigravity IDE.exe'
+Emit-Candidate '\\server\share\Antigravity IDE.exe'
+Emit-Candidate '\\wsl.localhost.example\share\Antigravity IDE.exe'
+$visited
+"WSL_QUERIES:$global:wslQueries"
+"#
+        );
+        let output = run_scan_script(&script);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let lines = String::from_utf8_lossy(&output.stdout);
+        assert!(!lines.contains(r"VISIT:\\wsl.localhost\"), "{lines}");
+        assert!(!lines.contains(r"VISIT:\\WSL$"), "{lines}");
+        assert!(!lines.contains(r"VISIT:\\?\"), "{lines}");
+        assert!(lines.contains("VISIT:C:\\Program Files"), "{lines}");
+        assert!(lines.contains(r"VISIT:\\server\share"), "{lines}");
+        assert!(lines.contains(r"VISIT:\\wsl.localhost.example"), "{lines}");
+        assert!(lines.contains("WSL_QUERIES:1"), "{lines}");
+    }
+
+    #[test]
+    fn running_wsl_shortcut_target_is_checked() {
+        let script = format!(
+            r#"$global:wslQueries = 0
+$script:visited = @()
+
+function Test-Path([string]$LiteralPath) {{ $script:visited += "VISIT:$LiteralPath"; return $true }}
+{WINDOWS_EXEC_CANDIDATE_FUNCTIONS}
+function Get-RunningWslNames {{ $global:wslQueries++; return @{{ Success = $true; Names = @('Ubuntu-22.04') }} }}
+Emit-Candidate '\\wsl.localhost\Ubuntu-22.04\Antigravity IDE.exe'
+Emit-Candidate '\\WSL$\Other-Distro\Antigravity IDE.exe'
+$visited
+"WSL_QUERIES:$global:wslQueries"
+"#
+        );
+        let output = run_scan_script(&script);
+        assert!(output.status.success());
+        let lines = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            lines.contains(r"VISIT:\\wsl.localhost\Ubuntu-22.04"),
+            "{lines}"
+        );
+        assert!(!lines.contains(r"VISIT:\\WSL$\Other-Distro"), "{lines}");
+        assert!(lines.contains("WSL_QUERIES:1"), "{lines}");
+    }
+
+    #[test]
+    fn failed_wsl_status_query_skips_target() {
+        let script = format!(
+            r#"
+function Test-Path([string]$LiteralPath) {{ Write-Output "VISIT:$LiteralPath"; return $true }}
+{WINDOWS_EXEC_CANDIDATE_FUNCTIONS}
+function Get-RunningWslNames {{ $global:wslQueries++; return @{{ Success = $false; Names = @('Ubuntu-22.04') }} }}
+Emit-Candidate '\\wsl.localhost\Ubuntu-22.04\Antigravity IDE.exe'
+"#
+        );
+        let output = run_scan_script(&script);
+        assert!(output.status.success());
+        let lines = String::from_utf8_lossy(&output.stdout);
+        assert!(!lines.contains("VISIT:"), "{lines}");
+    }
+
+    #[test]
+    fn shortcut_scan_finishes_without_probing_wsl_target() {
+        let scan = build_windows_exec_path_scan_script(
+            &["cockpit-regression-ide.exe"],
+            &["cockpit-regression-command-not-found"],
+            &["cockpit-regression-protocol-not-found"],
+            &["cockpit-regression-product-not-found"],
+        );
+        let root = std::env::temp_dir().join(format!(
+            "cockpit-wsl-shortcut-scan-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let root_literal = powershell_quote(&root.to_string_lossy());
+        let setup = format!(
+            r#"$ErrorActionPreference = 'Stop'
+$root = {root_literal}
+$env:APPDATA = $root
+$env:ProgramData = $root
+$env:USERPROFILE = $root
+$env:PUBLIC = $root
+$desktop = Join-Path $root 'Desktop'
+[void][System.IO.Directory]::CreateDirectory($desktop)
+$shell = New-Object -ComObject WScript.Shell
+$shortcut = $shell.CreateShortcut((Join-Path $desktop 'wsl.lnk'))
+$wslTarget = '\\wsl.localhost\cockpit-regression-missing\cockpit-regression-ide.exe'
+$shortcut.TargetPath = $wslTarget
+$shortcut.Save()
+if (-not [System.IO.File]::Exists((Join-Path $desktop 'wsl.lnk'))) {{ throw 'WSL shortcut was not saved' }}
+if ($shell.CreateShortcut((Join-Path $desktop 'wsl.lnk')).TargetPath -ne $wslTarget) {{ throw 'WSL shortcut target changed' }}
+
+function Test-Path([string]$LiteralPath) {{
+  Write-Host "VISIT:$LiteralPath"
+  return $true
+}}
+"#
+        );
+        let stubbed_scan = scan.replace(
+            "function Get-RunningWslNames {",
+            "function Get-RunningWslNames { return @{ Success = $true; Names = @() };",
+        );
+        let script = format!("{setup}\n{stubbed_scan}");
+        let output = run_scan_script(&script);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("STAGE:END"), "{stdout}");
+        assert!(!stdout.contains("VISIT:\\\\wsl.localhost"), "{stdout}");
+        assert!(
+            !stdout
+                .lines()
+                .any(|line| line.starts_with(r"\\wsl.localhost")),
+            "{stdout}"
+        );
+        assert!(parse_windows_exec_candidates(
+            "antigravity",
+            &["cockpit-regression-ide.exe"],
+            &[],
+            output
+        )
+        .is_none());
+
+        let local_exe = root.join("cockpit-regression-ide.exe");
+        std::fs::write(&local_exe, []).unwrap();
+        let local_literal = powershell_quote(&local_exe.to_string_lossy());
+        let add_local_shortcut = format!(
+            r#"$ErrorActionPreference = 'Stop'
+$shell = New-Object -ComObject WScript.Shell
+$shortcut = $shell.CreateShortcut((Join-Path {root_literal} 'Desktop\local.lnk'))
+$shortcut.TargetPath = {local_literal}
+$shortcut.Save()
+"#
+        );
+        let added = run_scan_script(&add_local_shortcut);
+        assert!(
+            added.status.success(),
+            "{}",
+            String::from_utf8_lossy(&added.stderr)
+        );
+        let output = run_scan_script(&script);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let detected = parse_windows_exec_candidates(
+            "antigravity",
+            &["cockpit-regression-ide.exe"],
+            &[],
+            output,
+        );
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(detected.as_deref(), Some(local_exe.as_path()));
+    }
+}
+
 #[cfg(test)]
 mod legacy_platform_adapter_cleanup_tests {
     use super::{orphaned_legacy_platform_adapter_pid_from_ps_line, utf8_command_output_snippet};
@@ -105,9 +310,7 @@ mod managed_sidecar_port_cleanup_tests {
     #[test]
     fn normalizes_windows_process_arguments() {
         assert_eq!(
-            normalized_process_argument(
-                r#""C:\Program Files\Cockpit Tools\cockpit-cliproxy.exe""#
-            ),
+            normalized_process_argument(r#""C:\Program Files\Cockpit Tools\cockpit-cliproxy.exe""#),
             "c:/program files/cockpit tools/cockpit-cliproxy.exe"
         );
     }
@@ -129,14 +332,8 @@ mod managed_sidecar_port_cleanup_tests {
             1805,
             true
         ));
-        assert!(!managed_sidecar_parent_allows_cleanup(
-            Some(0),
-            1805,
-            false
-        ));
-        assert!(!managed_sidecar_parent_allows_cleanup(
-            None, 1805, false
-        ));
+        assert!(!managed_sidecar_parent_allows_cleanup(Some(0), 1805, false));
+        assert!(!managed_sidecar_parent_allows_cleanup(None, 1805, false));
     }
 }
 
@@ -444,8 +641,8 @@ mod codex_path_migration_tests {
 
     #[test]
     fn scan_rejects_codex_keyword_helper_executables() {
-        let exe_names = HashSet::from(["chatgpt.exe".to_string(), "codex.exe".to_string()]);
-        let keywords = vec!["chatgpt".to_string(), "codex".to_string()];
+        let exe_names = HashSet::from(["chatgpt.exe".to_string()]);
+        let keywords = vec!["chatgpt".to_string()];
 
         assert!(score_windows_candidate(
             Path::new("C:/Tools/CodexHelper.exe"),
@@ -534,13 +731,13 @@ mod tests {
     }
 
     #[test]
-    fn codex_signature_accepts_chatgpt_and_legacy_codex_executables() {
+    fn codex_signature_accepts_only_chatgpt_gui_executable() {
         let signature = windows_app_launch_signature("codex").expect("codex signature must exist");
         assert!(signature
             .exe_names
             .iter()
             .any(|name| name.eq_ignore_ascii_case("ChatGPT.exe")));
-        assert!(signature
+        assert!(!signature
             .exe_names
             .iter()
             .any(|name| name.eq_ignore_ascii_case("Codex.exe")));
@@ -560,6 +757,13 @@ mod tests {
             "codex",
             Path::new(
                 r"C:\Program Files\WindowsApps\OpenAI.Codex_26.707.9564.0_x64__2p2nqsd0c76g0\app\resources\codex.exe"
+            ),
+            signature,
+        ));
+        assert!(!running_app_candidate_matches(
+            "codex",
+            Path::new(
+                r"C:\Program Files\WindowsApps\OpenAI.Codex_26.707.9564.0_x64__2p2nqsd0c76g0\app\Codex.exe"
             ),
             signature,
         ));
@@ -616,12 +820,112 @@ mod tests {
 }
 
 #[cfg(test)]
+mod codex_windows_default_instance_tests {
+    use super::{
+        codex_windows_process_snapshot_is_stale, filter_codex_windows_default_process_entries,
+        is_codex_windows_default_process_dir, next_codex_default_start_candidate,
+        normalize_path_for_compare,
+    };
+    use std::collections::HashSet;
+
+    const DEFAULT_APP_DIR: &str = r"C:\Users\me\AppData\Roaming\Codex\web\Codex";
+    const MANAGED_APP_DIR: &str =
+        r"C:\Users\me\AppData\Roaming\.antigravity_cockpit\instances\codex-app-data\5184";
+
+    #[test]
+    fn ignores_last_pid_reused_by_an_unrelated_process() {
+        assert!(codex_windows_process_snapshot_is_stale(Some((
+            "notepad.exe",
+            Some(r"C:\Windows\System32\notepad.exe"),
+        ))));
+        // PID 仍存在但路径不可读时，明确的非 ChatGPT 进程名也能证明历史 PID 已失效。
+        assert!(codex_windows_process_snapshot_is_stale(Some((
+            "explorer.exe",
+            None
+        ))));
+    }
+
+    #[test]
+    fn ignores_last_pid_that_exited_between_probes() {
+        assert!(codex_windows_process_snapshot_is_stale(None));
+    }
+
+    #[test]
+    fn preserves_ownership_guard_for_chatgpt_and_unreadable_identity() {
+        for process in [
+            ("ChatGPT.exe", None),
+            ("CHATGPT.EXE", Some("")),
+            ("", None),
+            (
+                "",
+                Some(r"C:\Program Files\WindowsApps\OpenAI.Codex_26.930_x64__test\app\ChatGPT.exe"),
+            ),
+            ("ChatGPT.exe", Some("C:/Apps/ChatGPT.exe")),
+        ] {
+            assert!(
+                !codex_windows_process_snapshot_is_stale(Some(process)),
+                "{process:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn classifies_default_processes_without_mixing_managed_instances() {
+        let default_dirs = HashSet::from([normalize_path_for_compare(DEFAULT_APP_DIR)]);
+        assert!(is_codex_windows_default_process_dir(None, &default_dirs));
+        assert!(is_codex_windows_default_process_dir(
+            Some(DEFAULT_APP_DIR),
+            &default_dirs
+        ));
+        assert!(!is_codex_windows_default_process_dir(
+            Some(MANAGED_APP_DIR),
+            &default_dirs
+        ));
+
+        let entries = vec![(4584, None), (5184, Some(MANAGED_APP_DIR.to_string()))];
+        let filtered = filter_codex_windows_default_process_entries(&entries, &default_dirs);
+        assert_eq!(filtered, vec![(4584, None)]);
+    }
+
+    #[test]
+    fn rejects_start_result_while_old_default_pid_is_still_present() {
+        let before = HashSet::from([4584]);
+        assert_eq!(
+            next_codex_default_start_candidate(&[4584], &before, None, 0),
+            (None, 0)
+        );
+        assert_eq!(
+            next_codex_default_start_candidate(&[4584, 18500], &before, None, 0),
+            (None, 0)
+        );
+        assert_eq!(
+            next_codex_default_start_candidate(&[18500], &before, None, 0),
+            (Some(18500), 1)
+        );
+    }
+
+    #[test]
+    fn requires_the_new_default_pid_to_remain_stable() {
+        let before = HashSet::from([4584]);
+        let (pid, streak) = next_codex_default_start_candidate(&[18500], &before, Some(18500), 1);
+        assert_eq!((pid, streak), (Some(18500), 2));
+        let (pid, streak) = next_codex_default_start_candidate(&[18500], &before, Some(18500), 2);
+        assert_eq!((pid, streak), (Some(18500), 3));
+        let (pid, streak) = next_codex_default_start_candidate(&[], &before, Some(18500), 3);
+        assert_eq!((pid, streak), (None, 0));
+        let (pid, streak) = next_codex_default_start_candidate(&[18500], &before, None, 0);
+        assert_eq!((pid, streak), (Some(18500), 1));
+    }
+}
+
+#[cfg(test)]
 mod windows_codex_exe_match_tests {
     use super::{is_matching_codex_windows_exe, windowsapps_package_family};
 
     const OLD_STORE: &str = r"c:\program files\windowsapps\openai.codex_26.820.7780.0_x64__2p2nqsd0c76g0\app\chatgpt.exe";
     const NEW_STORE: &str = r"c:\program files\windowsapps\openai.codex_26.908.4834.0_x64__2p2nqsd0c76g0\app\chatgpt.exe";
-    const OTHER_FAMILY: &str = r"c:\program files\windowsapps\openai.chatgpt_1.0.0.0_x64__2p2nqsd0c76g0\app\chatgpt.exe";
+    const OTHER_FAMILY: &str =
+        r"c:\program files\windowsapps\openai.chatgpt_1.0.0.0_x64__2p2nqsd0c76g0\app\chatgpt.exe";
 
     #[test]
     fn windowsapps_family_is_parsed_from_package_directory() {
@@ -630,8 +934,10 @@ mod windows_codex_exe_match_tests {
             Some("openai.codex")
         );
         assert_eq!(
-            windowsapps_package_family(r"C:/Program Files/WindowsApps/OpenAI.Codex_1.0_x64__abc/app/Codex.exe")
-                .as_deref(),
+            windowsapps_package_family(
+                r"C:/Program Files/WindowsApps/OpenAI.Codex_1.0_x64__abc/app/Codex.exe"
+            )
+            .as_deref(),
             Some("openai.codex")
         );
         assert!(windowsapps_package_family(r"c:\users\me\codex\codex.exe").is_none());
@@ -848,10 +1154,8 @@ mod codex_store_gui_exe_tests {
     fn resolves_gui_exe_from_manifest_and_falls_back_to_convention() {
         use super::codex_store_gui_exe_in;
 
-        let root = std::env::temp_dir().join(format!(
-            "cockpit-tools-codex-store-{}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("cockpit-tools-codex-store-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
 
         // 1) 清单声明 app/ChatGPT.exe 且文件存在 → 采信清单
@@ -859,8 +1163,7 @@ mod codex_store_gui_exe_tests {
         std::fs::create_dir_all(with_manifest.join("app")).expect("create app dir");
         std::fs::write(with_manifest.join("AppxManifest.xml"), REAL_MANIFEST)
             .expect("write manifest");
-        std::fs::write(with_manifest.join("app").join("ChatGPT.exe"), b"stub")
-            .expect("write exe");
+        std::fs::write(with_manifest.join("app").join("ChatGPT.exe"), b"stub").expect("write exe");
         assert_eq!(
             codex_store_gui_exe_in(&with_manifest),
             Some(with_manifest.join("app").join("ChatGPT.exe"))
@@ -893,5 +1196,109 @@ mod codex_store_gui_exe_tests {
         assert_eq!(codex_store_gui_exe_in(&manifest_other), None);
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
+#[cfg(test)]
+mod passive_wsl_path_tests {
+    use super::{running_wsl_output_contains_distro, wsl_unc_distro};
+    #[test]
+    fn wsl_unc_paths_identify_target_distro_without_accessing_it() {
+        for path in [
+            r"\\wsl.localhost\Ubuntu-22.04\Antigravity IDE.exe",
+            r"\\WSL$\Ubuntu-22.04\Antigravity IDE.exe",
+            r"\\?\UNC\wsl.localhost\Ubuntu-22.04\Antigravity IDE.exe",
+            r"\\?\unc\WSL$\Ubuntu-22.04\Antigravity IDE.exe",
+        ] {
+            assert_eq!(
+                wsl_unc_distro(path).as_deref(),
+                Some("ubuntu-22.04"),
+                "{path}"
+            );
+        }
+        assert!(wsl_unc_distro(r"C:\Program Files\Antigravity IDE.exe").is_none());
+        assert!(wsl_unc_distro(r"\\server\share\Antigravity IDE.exe").is_none());
+        assert!(wsl_unc_distro(r"\\wsl.localhost.example\share\app.exe").is_none());
+    }
+
+    #[test]
+    fn running_distro_status_requires_exact_name_in_utf16_output() {
+        let bytes: Vec<u8> = "Ubuntu-22.04\0\r\nDebian\0\r\n"
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        assert!(running_wsl_output_contains_distro(&bytes, "ubuntu-22.04"));
+        assert!(running_wsl_output_contains_distro(&bytes, "Debian"));
+        assert!(!running_wsl_output_contains_distro(&bytes, "Ubuntu"));
+        assert!(!running_wsl_output_contains_distro(&bytes, ""));
+        assert!(!running_wsl_output_contains_distro(
+            &bytes[..bytes.len() - 1],
+            "Debian"
+        ));
+    }
+}
+
+#[cfg(test)]
+mod managed_proxy_env_tests {
+    use super::build_managed_proxy_env_pairs;
+
+    #[test]
+    fn direct_launch_does_not_inject_a_bypass_list() {
+        for enabled in [false, true] {
+            assert!(build_managed_proxy_env_pairs(
+                enabled,
+                " ",
+                "example.test",
+                &[],
+                "existing.test",
+                "upper.test"
+            )
+            .is_empty());
+        }
+        assert!(build_managed_proxy_env_pairs(
+            false,
+            "http://localhost:8080",
+            "",
+            &[" ".into()],
+            "",
+            ""
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn configured_and_inherited_proxies_keep_local_bypass_and_user_entries() {
+        for managed in [false, true] {
+            let inherited = if managed {
+                vec![]
+            } else {
+                vec!["socks5://localhost:9999".into()]
+            };
+            let pairs = build_managed_proxy_env_pairs(
+                managed,
+                " http://localhost:8080 ",
+                "configured.test",
+                &inherited,
+                "lower.test",
+                "upper.test",
+            );
+            assert_eq!(pairs.len(), if managed { 8 } else { 2 });
+            let bypass = &pairs.iter().find(|(key, _)| *key == "NO_PROXY").unwrap().1;
+            for entry in [
+                "localhost",
+                "127.0.0.1",
+                "configured.test",
+                "lower.test",
+                "upper.test",
+            ] {
+                assert!(
+                    bypass.split(',').any(|value| value.trim() == entry),
+                    "{bypass}"
+                );
+            }
+            if managed {
+                assert_eq!(pairs[0].1, "http://localhost:8080");
+            }
+        }
     }
 }

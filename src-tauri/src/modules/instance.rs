@@ -183,6 +183,7 @@ pub fn inject_account_to_profile_with_account(
 }
 
 pub fn create_instance(params: CreateInstanceParams) -> Result<InstanceProfile, String> {
+    let _creation_guard = crate::modules::instance_storage_cleanup::protect_instance_creation()?;
     let _lock = INSTANCE_STORE_LOCK.lock().map_err(|_| "无法获取实例锁")?;
     let mut store = load_instance_store()?;
 
@@ -328,6 +329,7 @@ pub fn update_instance(params: UpdateInstanceParams) -> Result<InstanceProfile, 
 }
 
 pub fn delete_instance(instance_id: &str) -> Result<(), String> {
+    let _creation_guard = crate::modules::instance_storage_cleanup::protect_instance_creation()?;
     let _lock = INSTANCE_STORE_LOCK.lock().map_err(|_| "无法获取实例锁")?;
     let mut store = load_instance_store()?;
     let index = store
@@ -349,6 +351,14 @@ pub fn delete_instance(instance_id: &str) -> Result<(), String> {
 
 pub fn delete_instance_directory(dir_path: &Path) -> Result<(), String> {
     if !dir_path.exists() {
+        return Ok(());
+    }
+
+    if !modules::instance_storage_cleanup::can_delete_registered_instance_directory(dir_path)? {
+        modules::logger::log_warn(&format!(
+            "[Instance] Preserving directory outside owned instance storage; removing only its registration: {}",
+            dir_path.display()
+        ));
         return Ok(());
     }
 

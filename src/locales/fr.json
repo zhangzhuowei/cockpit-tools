@@ -10,7 +10,7 @@
       "accountsRequired": "Sélectionnez au moins un compte.",
       "invalidAccount": "Identifiant de compte invalide.",
       "invalidRequest": "Paramètres de test invalides.",
-      "invalidConcurrency": "Le nombre de tâches parallèles doit être compris entre 1 et 10.",
+      "invalidConcurrency": "Tâches parallèles · 1–200",
       "invalidRetention": "La conservation doit être comprise entre 1 et 3650 jours.",
       "alreadyRunning": "Fermez d’abord le test actif.",
       "artifactMissing": "Résultat généré introuvable.",
@@ -22,7 +22,9 @@
       "storage": "Impossible de lire ou d’enregistrer l’historique des tests.",
       "unsafePath": "Chemin du résultat non sécurisé.",
       "historyMissing": "Test introuvable dans l’historique.",
-      "invalidId": "Identifiant de l’enregistrement invalide."
+      "invalidId": "Identifiant de l’enregistrement invalide.",
+      "providerUnavailable": "Le fournisseur ou la clé API enregistrée est indisponible.",
+      "providerChanged": "L’adresse ou le protocole a changé. Lancez un nouveau test."
     },
     "title": "Test du pélican",
     "description": "Générez du HTML en parallèle avec la même consigne. Comparez les résultats vous-même, sans notation automatique.",
@@ -83,9 +85,52 @@
     "confirmClearAll": "Nettoyer tous les tests Pelican ?",
     "clearAllHelp": "Tout l’historique des tests et les fichiers générés seront définitivement supprimés. Cette action est irréversible.",
     "search": "Rechercher un compte",
-    "viewError": "Voir l’erreur"
+    "viewError": "Voir l’erreur",
+    "providers": "Fournisseurs",
+    "providerDescription": "Comparez les fournisseurs en générant une animation de pélican.",
+    "providerHelp": "Choisissez un fournisseur, une clé enregistrée et un modèle. Les requêtes passent par une passerelle temporaire isolée ; les identifiants sont relus à chaque nouvel essai.",
+    "providerRequired": "Sélectionnez un fournisseur, une clé API et un modèle valides.",
+    "providerModelMismatch": "Modèle différent : demandé {{requested}}, reçu {{responded}}.",
+    "providerSearch": "Rechercher un fournisseur ou une clé",
+    "providerEmpty": "Aucun fournisseur correspondant",
+    "providerClear": "Effacer la sélection"
   },
   "common": {
+    "dragSortHint": "Faites glisser la poignée à gauche pour réordonner. L’ordre est enregistré au relâchement.",
+    "dragSortFilteredHint": "Effacez la recherche pour réordonner.",
+    "recycleBin": {
+      "loadTimeout": "La lecture de la corbeille a expiré. Actualisez pour réessayer.",
+      "refreshFailed": "Compte restauré, mais l’actualisation de la liste a échoué. Rechargez la liste des comptes.",
+      "moveStarted": "Déplacement de {{count}} comptes vers la corbeille lancé",
+      "title": "Corbeille",
+      "description": "Les comptes supprimés restent en local et peuvent être restaurés ou exportés. La restauration ne change pas de compte, ne lance aucun client et ne rétablit pas les liens avec les tâches ou le service API.",
+      "empty": "La corbeille est vide",
+      "restore": "Restaurer",
+      "deletePermanently": "Supprimer à jamais",
+      "emptyBin": "Vider la corbeille",
+      "deletedAt": "Supprimé le {{time}}",
+      "confirmDelete": "Supprimer définitivement « {{name}} » ? Ses données dans la corbeille seront effacées sans possibilité de restauration.",
+      "confirmEmpty": "Supprimer définitivement ces {{count}} comptes ? Leurs données dans la corbeille seront effacées sans possibilité de restauration.",
+      "move": "À la corbeille",
+      "confirmMove": "Déplacer {{count}} comptes dans la corbeille ? Vous pourrez y restaurer, exporter ou supprimer définitivement ces comptes.",
+      "moved": "Déplacé dans la corbeille",
+      "moveFailed": "Échec du déplacement : {{error}}",
+      "operationFailed": "Échec de l’opération : {{error}}",
+      "export": "Exporter",
+      "exportAll": "Tout exporter",
+      "exportAndDelete": "Exporter et supprimer",
+      "exportAndEmpty": "Exporter et vider",
+      "count": "{{count}} comptes",
+      "exportHint": "Exporte un fichier JSON réimportable contenant les identifiants des comptes. Conservez-le en lieu sûr. Annuler l’enregistrement ou un échec d’exportation ne supprime aucun compte.",
+      "exported": "Comptes exportés.",
+      "confirmTitle": "Supprimer définitivement les comptes ?"
+    },
+    "requestProxy": {
+      "value": "Proxy : {{name}}",
+      "direct": "Connexion directe",
+      "unknown": "Non enregistré",
+      "entryHint": "Seule l’entrée du proxy a été enregistrée ; le nœud final est inconnu."
+    },
     "retry": "Réessayer",
     "quotaRefreshScheduler": {
       "busy": "La file d’actualisation est pleine. Réessayez dans un instant.",
@@ -124,7 +169,7 @@
     "windowsOperation": {
       "title": "Opération Windows inachevée",
       "accessDeniedDescription": "Windows a refusé cette opération. La cible peut s’exécuter avec des droits supérieurs ou se trouver dans un emplacement protégé.",
-      "storeLaunchBlockedDescription": "Windows n’a pas pu exécuter le client Codex configuré : le dossier du Store a peut-être été remplacé par une mise à jour ou n’autorise plus l’exécution. Le lancement direct a été bloqué pour ne pas ouvrir le mauvais compte. Utilisez « Redétecter le chemin et réessayer » ; si l’échec persiste, passez cette instance en mode CLI.",
+      "storeLaunchBlockedDescription": "Le démarrage de l’instance isolée du Store n’a pas pu être confirmé. Cockpit n’a pas ouvert le compte par défaut. Détectez à nouveau le chemin du client et réessayez. Si le problème persiste, copiez les diagnostics ou passez cette instance en mode CLI.",
       "repairPath": "Redétecter le chemin et réessayer",
       "fileInUseDescription": "Le fichier cible est utilisé par un autre programme. Fermez-le puis réessayez.",
       "programNotFoundDescription": "Windows n’a pas trouvé le programme requis. Vérifiez l’installation ou le chemin configuré.",
@@ -314,7 +359,8 @@
         "unlimited": "Quota illimité",
         "leftPercent": "{{value}} % restants",
         "cachedRefreshFailed": "Échec de l’actualisation ; affichage des dernières données réussies",
-        "lastSuccessfulQuery": "Dernière réussite : {{time}}"
+        "lastSuccessfulQuery": "Dernière réussite : {{time}}",
+        "cachedNeedsReauth": "⚠️ Vérification Web requise pour continuer (données en cache ci-dessous)"
       },
       "subtitle": "Gérez vos comptes GitHub Copilot",
       "time": {
@@ -369,7 +415,9 @@
     "quota": {
       "weeklyWindow": "Semaine"
     },
-    "optional": " (facultatif)"
+    "optional": " (facultatif)",
+    "hide": "Masquer",
+    "show": "Afficher"
   },
   "nav": {
     "overview": "Antigravity IDE​",
@@ -741,7 +789,7 @@
     },
     "delete": {
       "title": "Supprimer l'instance",
-      "message": "Supprimer l'instance {{name}} ? Cela supprimera la configuration et le dossier de l'instance."
+      "message": "Supprimer l’instance {{name}} ? Son enregistrement sera supprimé et les dossiers gérés seront placés dans la corbeille. Les dossiers personnalisés et protégés seront conservés."
     },
     "import": {
       "btnTitle": "Importer un répertoire existant",
@@ -764,6 +812,24 @@
     }
   },
   "settings": {
+    "instanceCleanup": {
+      "title": "Nettoyage des instances",
+      "description": "Analysez manuellement les dossiers des instances gérées et supprimez les données auxquelles aucune configuration d’instance ni aucun processus actif ne fait référence. Rien n’est supprimé automatiquement.",
+      "scan": "Analyser",
+      "scanning": "Analyse…",
+      "remove": "Supprimer définitivement",
+      "removing": "Suppression…",
+      "empty": "Aucun dossier résiduel à nettoyer",
+      "summary": "{{count}} dossiers trouvés, occupant {{size}}",
+      "confirm": "Les dossiers suivants, ainsi que leurs sessions, espaces de travail et caches, seront définitivement supprimés. Cette action est irréversible.",
+      "cancel": "Annuler",
+      "confirmRemove": "Confirmer",
+      "done": "{{count}} dossiers supprimés",
+      "failed": "Échec de l’opération",
+      "path": "Dossier",
+      "size": "Espace utilisé",
+      "platform": "Plateforme"
+    },
     "title": "Paramètres de l'application",
     "subtitle": "Personnalisez votre expérience Cockpit Tools.",
     "tabs": {
@@ -1426,7 +1492,9 @@
       "normal": "Normale",
       "forbidden": "403​",
       "forbidden_tooltip": "API a retourné 403 Forbidden, le compte n'a pas accès à Gemini Code Assist",
-      "forbidden_msg": "Compte interdit, actualisation automatique ignorée"
+      "forbidden_msg": "Compte interdit, actualisation automatique ignorée",
+      "needsReauth": "Vérification Web requise",
+      "needsReauthTooltip": "Google exige une vérification de sécurité Web pour continuer"
     },
     "tier": {
       "pro": "PRO​",
@@ -1561,7 +1629,12 @@
       "delete": "Supprimer",
       "deleteSelected": "Supprimer la sélection",
       "export": "Exporter",
-      "refreshAll": "Tout actualiser"
+      "refreshAll": "Tout actualiser",
+      "reauth": "Réautoriser",
+      "reauthTooltip": "Google requiert une revérification, cliquez pour réautoriser",
+      "openValidationUrl": "Vérification Web",
+      "copyValidationUrl": "Copier le lien de vérification",
+      "copyValidationUrlTooltip": "Copier l'adresse de vérification Web"
     },
     "tabs": {
       "oauth": "Autorisation OAuth",
@@ -1800,7 +1873,8 @@
     "example": "Exemple",
     "actionRunning": "{{action}}...​",
     "actionSuccess": "{{action}} réussi",
-    "actionFailed": "{{action}} a échoué : {{error}}"
+    "actionFailed": "{{action}} a échoué : {{error}}",
+    "refreshFailed": "Échec de l’actualisation"
   },
   "wakeup": {
     "title": "Tâches de réveil",
@@ -2063,6 +2137,11 @@
     "other_group": "Autres modèles"
   },
   "codex": {
+    "launchErrors": {
+      "bindingFailed": "Impossible de confirmer le compte associé. Démarrage arrêté ; réessayez de changer de compte.",
+      "processScanFailed": "Impossible de vérifier les anciens processus en arrière-plan. Démarrage arrêté ; réessayez.",
+      "proxyEntryFailed": "Impossible de démarrer le proxy configuré. Aucun autre itinéraire utilisé ; réessayez."
+    },
     "oauthProxy": {
       "toggle": "Autoriser via proxy",
       "hint": "La fenêtre intégrée, l’échange du jeton et le premier contrôle de quota utilisent ce proxy. Désactivez cette option si la connexion nécessite une fenêtre surgissante.",
@@ -2548,7 +2627,7 @@
       "hideEntryEffectRestore": "Vous pourrez le réactiver dans les réglages Codex ou les réglages rapides",
       "riskNotice": {
         "title": "Avis de risque",
-        "message": "Les fonctions actuelles liées au service Codex API reposent essentiellement sur un usage via proxy inverse. À ce jour, le service officiel ne restreint pas explicitement ce comportement, mais les politiques, les règles ou la disponibilité peuvent changer par la suite. En continuant à utiliser cette fonction, vous reconnaissez cette situation et acceptez d'assumer vous-même les risques associés.",
+        "message": "L’utilisation de comptes officiels ordinaires via un proxy inverse ou un relais peut faire l’objet de restrictions strictes du service officiel. Elle peut aussi être détectée comme un relais et affecter la qualité des réponses (« intelligence réduite »). À utiliser avec prudence, surtout si vous avez de nombreux comptes.",
         "remember": "J'ai compris, ne plus afficher",
         "acknowledge": "J'ai compris",
         "continueStart": "Continuer",
@@ -3078,7 +3157,8 @@
         "medium": "Moyen",
         "high": "Élevé",
         "xhigh": "Très élevé",
-        "max": "Maximal"
+        "max": "Maximal",
+        "ultra": "Extrême"
       },
       "scheduleQuotaResetHint": "Lorsque le réveil après réinitialisation du quota est activé, l'actualisation automatique est réglée toutes les 2 minutes.",
       "scheduleQuotaResetSummary": "Exécuter après réinitialisation du quota",
@@ -3640,7 +3720,8 @@
         "baseUrlExists": "Cette Base URL existe déjà.",
         "providerNotFound": "Fournisseur introuvable.",
         "apiKeyRequiredOnCreate": "Au moins une clé API est requise lors de la création d'un fournisseur.",
-        "apiKeyRequiredWhenEmpty": "Ce fournisseur n'a pas encore de clé API. Ajoutez-en d'abord une."
+        "apiKeyRequiredWhenEmpty": "Ce fournisseur n'a pas encore de clé API. Ajoutez-en d'abord une.",
+        "apiKeyUrlInvalid": "Utilisez une URL de gestion HTTP(S) sans identifiants intégrés ; saisissez la clé API dans le champ de clé."
       },
       "saveSuccess": "Fournisseur de modèles enregistré.",
       "deleteBlocked": "Ce fournisseur est lié à {{count}} compte(s) et ne peut pas être supprimé.",
@@ -3793,7 +3874,7 @@
         "modelAuto": "Auto (catalogue / détection)",
         "modelCustom": "Modèle perso…",
         "modelLabel": "Modèle de test",
-        "modelCustomPlaceholder": "ID modèle, ex. gpt-4.1-mini",
+        "modelCustomPlaceholder": "ID modèle, ex. gpt-6.1-sol",
         "modelHint": "Optionnel : modèle commun. Vide = auto via le catalogue."
       },
       "enableAndStart": "Lancer",
@@ -3808,9 +3889,9 @@
       },
       "vision": {
         "providerDefault": "Ce fournisseur prend en charge les images par défaut",
-        "providerDefaultHint": "Si désactivé, seuls les modèles listés ci-dessous acceptent les images ; les autres sont rejetés par la passerelle locale.",
+        "providerDefaultHint": "Les modèles sans réglage explicite utilisent cette valeur ; GPT-5.5 et les versions suivantes acceptent les images par défaut. Désactivez chaque modèle dans la liste. Si la passerelle ne trouve aucun modèle visuel, elle omet les images et poursuit avec le texte.",
         "modelsHint": "Un modèle par ligne. Utile quand seuls certains modèles du fournisseur acceptent les images collées.",
-        "routingModelHint": "Quand le modèle actuel ne lit pas les images, la requête utilise ce modèle ; vide utilise automatiquement l'unique modèle vision.",
+        "routingModelHint": "Si le modèle actuel ne lit pas les images, la passerelle utilise ce modèle. Laissez vide pour utiliser le seul modèle visuel disponible ; sinon, les images sont omises et le texte est traité.",
         "allModels": "Images​",
         "partialModels": "Images partielles",
         "textOnly": "Texte seul"
@@ -3899,7 +3980,8 @@
       "importConfigFailed": "Échec de l'import depuis le presse-papiers : {{error}}",
       "importConfigPlaceholder": "Utilisez « Copier la configuration » sur la carte, puis collez le contenu ici",
       "importConfigAction": "Importer la configuration",
-      "importConfigFromClipboard": "Lire le presse-papiers"
+      "importConfigFromClipboard": "Lire le presse-papiers",
+      "settingsRestartHint": "Paramètres du fournisseur mis à jour. Redémarrez les instances Codex ou le service API utilisant ce fournisseur pour les appliquer."
     },
     "quickSwitch": {
       "action": "Changer rapidement de fournisseur",
@@ -4260,7 +4342,7 @@
         "reasoningEffortValue": "Rais. {{effort}}",
         "serviceTier": "Niveau de service",
         "serviceTierValue": "Niveau {{tier}}",
-        "upstreamModel": "Modèle réel"
+        "upstreamModel": "Modèle envoyé"
       },
       "timeouts": {
         "entryLabel": "Avancé",
@@ -4535,8 +4617,6 @@
       "serverCount": "{{count}} serveurs",
       "autoSyncBadge": "Automatique"
     },
-    "exportAuthFailed": "Exporter échecs",
-    "exportAuthFailedTitle": "Exporter tous les comptes en échec d’auth",
     "accounts": {
       "showRelayQuota": "Afficher quota relais",
       "hideRelayQuota": "Masquer quota relais"
@@ -4569,6 +4649,18 @@
       "restartFailed": "Échec du redémarrage de la passerelle : {{error}}"
     },
     "proxy": {
+      "display": {
+        "title": "Affichage du proxy",
+        "compact": "Condensé",
+        "summary": "Résumé",
+        "detailed": "Détaillé",
+        "hint": "S’applique à toutes les fiches de comptes Codex ; le choix est enregistré et appliqué immédiatement.",
+        "configuredNode": "Nœud configuré",
+        "lastRequest": "Dernière requête",
+        "preview": "Aperçu du style",
+        "saveFailed": "Impossible d’enregistrer le mode d’affichage. Réessayez.",
+        "refresh": "Actualiser les infos"
+      },
       "workspace": {
         "navLabel": "Sections proxy",
         "overview": "Aperçu",
@@ -4661,7 +4753,7 @@
       },
       "rules": {
         "title": "Règles de sortie",
-        "intro": "Un proxy de compte indépendant prime sur le proxy unifié ; si aucun ne s’applique, les requêtes gardent la sortie par défaut précédente du client.",
+        "intro": "Un proxy de compte indépendant prime sur le proxy unifié ; si aucun ne s’applique, les requêtes gardent la sortie par défaut précédente du client. Les comptes explicitement réglés sur « Sans proxy » sont exclus.",
         "order": "Ordre d’application",
         "tableTitle": "Sorties des comptes",
         "columnAccount": "Compte",
@@ -4707,8 +4799,8 @@
       "batchClearAll": "Tout désélectionner",
       "unified": {
         "title": "Sortie proxy unifiée",
-        "hint": "Les comptes éligibles sans proxy propre partagent cette sortie ; les nouveaux comptes suivent automatiquement.",
-        "offState": "Désactivé : le proxy du compte prévaut, sinon la sortie par défaut s’applique.",
+        "hint": "Les comptes éligibles sans proxy propre partagent cette sortie ; les nouveaux comptes suivent automatiquement. Les comptes explicitement réglés sur « Sans proxy » sont exclus.",
+        "offState": "Désactivé : le proxy du compte prévaut, sinon la sortie par défaut s’applique. Les comptes explicitement réglés sur « Sans proxy » sont exclus.",
         "enable": "Activer pour tous",
         "disable": "Désactiver",
         "change": "Changer de sortie",
@@ -4726,12 +4818,12 @@
         "changeMessage": "Les clients actifs utilisant le relais local passent à la nouvelle sortie lors des nouvelles connexions.",
         "changeConfirm": "Changer",
         "disableTitle": "Désactiver la sortie proxy unifiée",
-        "disableMessage": "Les proxys propres restent actifs ; sans liaison, la sortie par défaut s’applique.",
+        "disableMessage": "Les proxys propres restent actifs ; sans liaison, la sortie par défaut s’applique. Les comptes explicitement réglés sur « Sans proxy » sont exclus.",
         "disableConfirm": "Désactiver",
         "restartHint": "Les clients lancés via le relais local basculent aux nouvelles connexions. Les autres clients actifs doivent redémarrer une fois.",
         "staleWarning": "La source de cette sortie est indisponible. Choisissez-en une autre.",
         "removedWarning": "La sortie proxy unifiée a été désactivée car sa source a été supprimée.",
-        "accountsNotice": "Le proxy du compte prévaut ; les comptes sans liaison suivent le proxy unifié.",
+        "accountsNotice": "Le proxy du compte prévaut ; les comptes sans liaison suivent le proxy unifié. Les comptes explicitement réglés sur « Sans proxy » sont exclus.",
         "unbindBlocked": "Après suppression de la liaison, ce compte suit le proxy unifié.",
         "following": "Unifiée",
         "errorFailed": "Échec de l’action. Réessayez.",
@@ -4794,6 +4886,11 @@
         "viewAll": "Tout voir"
       },
       "previewTitle": "Aperçu du proxy",
+      "modeDisabled": "Sans proxy",
+      "disableAction": "Retirer le proxy",
+      "setIndependent": "Proxy individuel",
+      "disabledHint": "Ignorer les proxys individuels et partagés ; tenter une connexion directe.",
+      "disabledWarning": "L’accès direct peut échouer. Les nouvelles connexions des applications utilisant le relais local prennent en compte ce choix ; les autres clients en cours nécessitent un redémarrage. Les connexions existantes peuvent conserver leur ancien itinéraire.",
       "exitIp": "IP de sortie",
       "sessionHistory": "Activité",
       "sessionHistoryHint": "État vérifié toutes les 5 secondes. État initial et changements de cet aperçu uniquement, 20 entrées maximum, effacées à la fermeture. Ce n’est pas un historique complet.",
@@ -4824,9 +4921,17 @@
       "desktopRequest_forwarded": "Dernier relais local établi",
       "desktopRequest_failed": "Échec du dernier relais local",
       "desktopEntryReadyHint": "L’entrée est à l’écoute ; le moteur démarre à la réception d’une demande de connexion.",
+      "sharedRuntime": "Proxy du compte",
       "runtimeMain": "Requêtes du compte",
       "runtimeDesktop": "Relais bureau",
       "runtimeHint": "L’état décrit uniquement l’entrée locale et le moteur. Un relais établi ne confirme ni l’accès à Internet ni l’identité du client demandeur.",
+      "restoreEntry": "Rétablir le relais",
+      "restoringEntry": "Rétablissement…",
+      "restoreEntryFailed": "Impossible de rétablir le relais proxy du bureau. Réessayez.",
+      "restoreEntryPortBusy": "Le port proxy initial est occupé. Libérez-le puis réessayez ; l’application de bureau ne peut pas changer de port automatiquement.",
+      "restoreEntryNotRunning": "Aucune application de bureau en cours utilisant une entrée proxy enregistrée de cette instance Cockpit n’a été trouvée.",
+      "restoreEntryBusy": "Le rétablissement du proxy est déjà en cours. Réessayez dans un instant.",
+      "restoreEntryTimeout": "Le rétablissement du proxy a expiré. Réessayez.",
       "restartHint": "Les clients lancés via le relais local basculent aux nouvelles connexions. Les autres clients actifs doivent redémarrer une fois. Le relais bureau écoute uniquement en boucle locale, sans isoler les autres utilisateurs locaux. Le proxy système reste inchangé.",
       "exportHint": "Les exports de comptes excluent les identifiants du proxy ; reconfigurez-les après l’import.",
       "backToAccounts": "Retour aux comptes",
@@ -5140,7 +5245,7 @@
         "assign": "Attribuer un proxy",
         "specific": "Comptes choisis",
         "shared": "Proxy partagé",
-        "sharedHint": "Les comptes Codex OAuth sans proxy propre utiliseront celui-ci, y compris les comptes compatibles ajoutés ensuite. Les réglages individuels existants restent actifs.",
+        "sharedHint": "Les comptes Codex OAuth sans proxy propre utiliseront celui-ci, y compris les comptes compatibles ajoutés ensuite. Les réglages individuels existants restent actifs. Les comptes explicitement réglés sur « Sans proxy » sont exclus.",
         "apply": "Attribuer"
       },
       "managerResources": {
@@ -5173,7 +5278,7 @@
       "managerUnified": {
         "off": "Désactivé",
         "choose": "Définir le proxy",
-        "hint": "Les comptes sans proxy propre utilisent celui-ci."
+        "hint": "Les comptes sans proxy propre utilisent celui-ci. Les comptes explicitement réglés sur « Sans proxy » sont exclus."
       },
       "setup": {
         "title": "Configurer les proxys",
@@ -5187,13 +5292,20 @@
         "collapse": "Masquer les détails"
       },
       "runtime_entry_failed": "Échec de l’entrée",
+      "measureCurrentLatency": "Mesurer",
+      "measuringCurrentLatency": "Mesure en cours",
+      "currentLatencyNotRunning": "Aucun nœud actif à tester. Lancez un client utilisant ce proxy ou testez le nœud configuré dans la gestion des proxys.",
+      "currentLatencyHint": "Mesure la latence du nœud actif vers l’URL de test sans changer de nœud ni modifier les règles du proxy.",
       "latencyCheckedAt": "Vérifié à",
       "latencyPending": "Non testé",
       "latencyTimeout": "Délai dépassé",
       "quickSwitch": "Changer de nœud",
       "quickSwitchHint": "Modifie uniquement ce compte. Les nouvelles connexions utilisent la sortie enregistrée ; l’enregistrement ne vérifie pas la connexion.",
       "currentNode": "Nœud actuel",
-      "noCurrentNode": "Le nœud actuel n’est pas encore disponible"
+      "noCurrentNode": "Le nœud actuel n’est pas encore disponible",
+      "runtimeBusy": "Le proxy local est occupé. Mise à jour temporairement indisponible.",
+      "runtimeCapacity": "Trop de proxys sont actifs. Arrêtez ceux inutilisés et réessayez.",
+      "runtimeReadFailed": "État du proxy local temporairement indisponible. Réessayez."
     },
     "more": {
       "title": "Plus",
@@ -5213,6 +5325,17 @@
       "moveUp": "Monter",
       "moveDown": "Descendre",
       "done": "Terminé"
+    },
+    "cliDaemon": {
+      "title": "Actualiser le compte CLI",
+      "description": "Les identifiants ont été enregistrés, mais le service Codex CLI de ce profil est toujours actif et peut conserver le compte précédent.",
+      "restartHint": "Terminez les tâches CLI en cours, puis exécutez cette commande dans le terminal. Le redémarrage interrompt les sessions connectées à ce service.",
+      "copyFailed": "Échec de la copie. Sélectionnez la commande ci-dessus et copiez-la manuellement."
+    },
+    "proxyQuality": {
+      "errors": {
+        "bindingChanged": "La liaison du compte a changé. Son réglage actuel a été conservé."
+      }
     }
   },
   "githubCopilot": {

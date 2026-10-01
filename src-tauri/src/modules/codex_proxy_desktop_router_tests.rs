@@ -5,6 +5,16 @@ use crate::modules::{codex_account, codex_unified_proxy};
 #[path = "codex_proxy_desktop_router_startup_tests.rs"]
 mod startup;
 
+#[cfg(unix)]
+#[path = "codex_proxy_runtime_unified_tests.rs"]
+mod unified_runtime;
+
+#[path = "codex_proxy_desktop_router_mode_tests.rs"]
+mod mode_tests;
+
+#[path = "codex_proxy_desktop_transport_tests.rs"]
+mod transport_tests;
+
 struct TempDir(PathBuf);
 
 impl TempDir {
@@ -285,6 +295,43 @@ async fn occupied_entry_reports_start_failure_and_successful_retry() {
     let retry = entry_status(id).unwrap();
     assert_eq!(retry.state, "listening");
     assert!(retry.last_error.is_none());
+}
+
+#[tokio::test]
+async fn desktop_launch_never_falls_back_when_configured_entry_cannot_listen() {
+    for mode in ["account", "unified", "disabled"] {
+        let id = format!("launch-entry-failure-{mode}");
+        let fixture = LaunchFixture::new(&id);
+        let mut account = eligible_account(&id);
+        match mode {
+            "account" => account.egress_proxy_url = Some("http://127.0.0.1:9".into()),
+            "unified" => { codex_unified_proxy::enable(
+                codex_unified_proxy::Reference::default(), "cockpit-proxy://entry-startup-fixture".into(),
+            ).unwrap(); },
+            _ => account.egress_proxy_disabled = true,
+        }
+        fixture.save(&account);
+        let mut blockers = Vec::new();
+        for port in candidate_ports(&id, None) {
+            if let Ok(listener) = TcpListener::bind((Ipv4Addr::LOCALHOST, port)).await {
+                blockers.push(listener);
+            }
+        }
+        assert_eq!(ensure(&id).await.unwrap_err(), "PROXY_ENTRY_PORT_UNAVAILABLE", "{mode}");
+        if mode != "unified" {
+            // Native and disabled routes need no engine. Shared catalog routes
+            // have a separate engine prerequisite, covered by preflight_tests.
+            assert_eq!(
+                crate::modules::codex_instance::preflight_egress_proxy_for_bind_account(Some(&id)).await.unwrap_err(),
+                "PROXY_ENTRY_PORT_UNAVAILABLE", "preflight stops before replacing the running client",
+            );
+        }
+        let saved = codex_account::load_account(&id).unwrap();
+        assert_eq!(saved.egress_proxy_disabled, account.egress_proxy_disabled);
+        assert_eq!(saved.egress_proxy_url, account.egress_proxy_url);
+        drop(blockers);
+        assert!(ensure(&id).await.unwrap().is_some(), "retry recovers {mode}");
+    }
 }
 
 #[tokio::test]

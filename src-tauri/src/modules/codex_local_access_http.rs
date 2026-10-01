@@ -2253,7 +2253,8 @@ async fn send_upstream_request_with_authorization_url(
     let method =
         Method::from_bytes(method.as_bytes()).map_err(|e| format!("不支持的请求方法: {}", e))?;
     crate::modules::codex_proxy_runtime::ensure_account_proxy_state(account).await?;
-    let client = if crate::modules::codex_account_proxy::has_configured_url(account)? {
+    let client = if (crate::modules::codex_account_proxy::eligible(account) && account.egress_proxy_disabled)
+        || crate::modules::codex_account_proxy::has_configured_url(account)? {
         crate::modules::codex_proxy_runtime::client_builder(account,
             Client::builder().connect_timeout(connect_timeout)).await?
             .build().map_err(|_| "PROXY_CLIENT_FAILED")?

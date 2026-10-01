@@ -18,6 +18,12 @@ const DefaultServiceTier = "default"
 // historical direct-SDK default.
 const AutoServiceTier = "auto"
 
+// ProxyRoute is the safe route snapshot for a single upstream connection.
+type ProxyRoute struct {
+	Kind string `json:"kind"`
+	Name string `json:"name,omitempty"`
+}
+
 // Record contains the usage statistics captured for a single provider request.
 type Record struct {
 	Provider string
@@ -55,6 +61,7 @@ type Record struct {
 	Detail      Detail
 	// ResponseHeaders stores a snapshot of upstream response headers for usage sinks.
 	ResponseHeaders http.Header
+	ProxyRoute      *ProxyRoute `json:"proxyRoute,omitempty"`
 }
 
 // Failure holds HTTP failure metadata for an upstream request attempt.

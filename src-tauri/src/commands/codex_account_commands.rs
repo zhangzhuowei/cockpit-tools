@@ -120,7 +120,7 @@ fn now_unix_seconds() -> i64 {
 fn get_codex_batch_delete_jobs_dir() -> PathBuf {
     let data_dir = account::get_data_dir()
         .or_else(|_| account::resolve_data_dir())
-        .unwrap_or_else(|_| PathBuf::from(".antigravity_cockpit"));
+        .unwrap_or_else(|_| crate::modules::data_paths::fallback_data_dir());
     data_dir.join(CODEX_BATCH_DELETE_JOBS_DIR)
 }
 
@@ -734,6 +734,32 @@ pub fn get_codex_config_toml_path() -> Result<String, String> {
     Ok(path.to_string_lossy().to_string())
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexStoragePaths {
+    provider_store_path: String,
+    config_path: String,
+    auth_path: String,
+}
+
+#[tauri::command]
+pub async fn get_codex_storage_paths() -> Result<CodexStoragePaths, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let data_dir = account::get_data_dir()?;
+        let codex_home = codex_account::get_codex_home();
+        Ok(CodexStoragePaths {
+            provider_store_path: data_dir
+                .join("codex_model_providers.json")
+                .to_string_lossy()
+                .to_string(),
+            config_path: codex_home.join("config.toml").to_string_lossy().to_string(),
+            auth_path: codex_home.join("auth.json").to_string_lossy().to_string(),
+        })
+    })
+    .await
+    .map_err(|error| format!("读取 Codex 存储路径后台任务失败: {}", error))?
+}
+
 #[tauri::command]
 pub fn open_codex_config_toml(app: AppHandle) -> Result<(), String> {
     let path = codex_account::get_codex_home().join("config.toml");
@@ -1293,21 +1319,19 @@ pub async fn switch_codex_account(
         } else {
             account.id.clone()
         };
-    if let Err(e) = crate::modules::codex_instance::update_default_settings(
-        Some(Some(default_bind_account_id.clone())),
-        None,
-        None,
-        Some(false),
-        None,
-        None,
+    if let Err(error) = crate::modules::codex_instance::bind_default_account_for_switch(
+        &default_bind_account_id,
     ) {
-        logger::log_warn(&format!("更新 Codex 默认实例绑定账号失败: {}", e));
-    } else {
-        logger::log_info(&format!(
-            "已同步更新 Codex 默认实例绑定账号: {}",
-            default_bind_account_id
-        ));
+        let _ = app.emit("codex:switch-progress", serde_json::json!({
+            "accountId": account_id, "type": "error", "error": error,
+            "canRetry": true,
+        }));
+        progress_guard.completed = true;
+        return Err(error);
     }
+    logger::log_info(&format!(
+        "已同步更新 Codex 默认实例绑定账号: {}", default_bind_account_id
+    ));
     if let Err(e) = crate::modules::codex_instance::update_default_app_speed(account_speed) {
         logger::log_warn(&format!("更新 Codex 默认实例速度失败: {}", e));
     }
@@ -1371,6 +1395,7 @@ pub async fn switch_codex_account(
                 true,
                 Some("switch-and-start"),
                 None,
+                Some(&default_bind_account_id),
             )
             .await
             {
@@ -1537,7 +1562,9 @@ async fn run_codex_post_refresh_checks(app: &AppHandle) {
 /// 删除 Codex 账号
 #[tauri::command]
 pub async fn delete_codex_account(account_id: String) -> Result<(), String> {
-    codex_account::remove_account(&account_id)?;
+    let delete_id = account_id.clone();
+    tauri::async_runtime::spawn_blocking(move || codex_account::remove_account(&delete_id))
+        .await.map_err(|error| error.to_string())??;
     if let Err(error) = codex_wakeup::remove_deleted_accounts_from_tasks(&[account_id.clone()]) {
         logger::log_warn(&format!(
             "[Codex] 清理唤醒任务账号引用失败: account_id={}, error={}",
@@ -1553,16 +1580,37 @@ pub async fn delete_codex_account(account_id: String) -> Result<(), String> {
 /// 批量删除 Codex 账号
 #[tauri::command]
 pub async fn delete_codex_accounts(account_ids: Vec<String>) -> Result<(), String> {
-    codex_account::remove_accounts(&account_ids)?;
-    if let Err(error) = codex_wakeup::remove_deleted_accounts_from_tasks(&account_ids) {
-        logger::log_warn(&format!(
-            "[Codex] 批量清理唤醒任务账号引用失败: count={}, error={}",
-            account_ids.len(),
-            error
-        ));
+    let mut deleted_ids = Vec::new();
+    let mut result = Ok(());
+    // Keep encryption and disk I/O off the runtime, releasing the account
+    // mutation lock between records so large batches cannot monopolize it.
+    for account_id in account_ids {
+        let delete_id = account_id.clone();
+        let deleted = tauri::async_runtime::spawn_blocking(move || {
+            codex_account::remove_account(&delete_id)
+        })
+        .await
+        .map_err(|error| error.to_string())
+        .and_then(|result| result);
+        if let Err(error) = deleted {
+            result = Err(error);
+            break;
+        }
+        deleted_ids.push(account_id);
+        tokio::task::yield_now().await;
     }
-    spawn_accounts_cleanup_from_api_service("multi_delete".to_string(), account_ids);
-    Ok(())
+    if !deleted_ids.is_empty() {
+        if let Err(error) = codex_wakeup::remove_deleted_accounts_from_tasks(&deleted_ids) {
+            logger::log_warn(&format!(
+                "[Codex] 批量清理唤醒任务账号引用失败: count={}, error={}",
+                deleted_ids.len(),
+                error
+            ));
+        }
+        // Also clean up successful records when a later record failed.
+        spawn_accounts_cleanup_from_api_service("multi_delete".to_string(), deleted_ids);
+    }
+    result
 }
 
 #[tauri::command]
@@ -2212,8 +2260,13 @@ pub fn update_codex_account_name(account_id: String, name: String) -> Result<Cod
 pub async fn update_codex_account_egress_proxy(
     account_id: String,
     egress_proxy_url: Option<String>,
+    disabled: Option<bool>,
 ) -> Result<CodexAccount, String> {
-    let saved = crate::modules::codex_proxy_runtime::save_binding(account_id, egress_proxy_url).await?;
+    let saved = if disabled.unwrap_or(false) {
+        crate::modules::codex_proxy_runtime::save_binding_with_mode(account_id, egress_proxy_url, true).await?
+    } else {
+        crate::modules::codex_proxy_runtime::save_binding(account_id, egress_proxy_url).await?
+    };
     tauri::async_runtime::spawn_blocking(move || {
     let account = saved;
     if codex_local_access::sync_sidecar_auth_file_for_account(&account).is_err() {
@@ -2244,8 +2297,18 @@ pub fn cancel_codex_account_egress_proxy(account_id: String, request_id: String)
 }
 
 #[tauri::command]
+pub async fn measure_codex_account_proxy_latency(account_id: String) -> Result<crate::modules::codex_proxy_runtime::RuntimeStatus, String> {
+    crate::modules::codex_proxy_runtime::measure_current_latency(&account_id).await
+}
+
+#[tauri::command]
 pub async fn get_codex_account_proxy_status(account_id: String) -> Result<crate::modules::codex_proxy_runtime::RuntimeStatus, String> {
     crate::modules::codex_proxy_runtime::status(&account_id).await
+}
+
+#[tauri::command]
+pub async fn restore_codex_account_proxy_entry(account_id: String) -> Result<(), String> {
+    crate::modules::codex_proxy_desktop_router::restore_account_entry(&account_id).await
 }
 
 /// 通过 Grok 平台账号添加 Codex 供应商账号。

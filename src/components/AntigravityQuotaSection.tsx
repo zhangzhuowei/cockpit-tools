@@ -5,10 +5,11 @@ import { formatResetTimeDisplay, getQuotaClass } from '../utils/account';
 interface Props {
   items: AgQuotaDisplayItem[];
   isList?: boolean;
+  isNeedsReauth?: boolean;
   t: TFunction;
 }
 
-export function AntigravityQuotaSection({ items, isList = false, t }: Props) {
+export function AntigravityQuotaSection({ items, isList = false, isNeedsReauth = false, t }: Props) {
   if (items.length === 0) {
     return (
       <div className="quota-empty" style={{ gridColumn: '1 / -1', textAlign: 'center' }}>
@@ -63,20 +64,29 @@ export function AntigravityQuotaSection({ items, isList = false, t }: Props) {
 
   const bucketKeys = new Set(['claude:5h', 'claude:weekly', 'gemini:5h', 'gemini:weekly']);
   const hasBuckets = items.some((item) => bucketKeys.has(item.key));
+  const hasAny5h = items.some((item) => item.key.endsWith(':5h'));
   return (
     <>
       {items.some((item) => item.stale) && (
-        <div className="quota-empty" style={{ gridColumn: '1 / -1' }}>
-          {t('common.shared.quota.cachedRefreshFailed')}
+        <div
+          className={`quota-empty ${isNeedsReauth ? 'quota-reauth-warning' : ''}`}
+          style={{
+            gridColumn: '1 / -1',
+            ...(isNeedsReauth ? { color: 'var(--color-warning, #f59e0b)', fontWeight: 500 } : {}),
+          }}
+        >
+          {isNeedsReauth
+            ? t('common.shared.quota.cachedNeedsReauth', '⚠️ 账号需完成网页验证以继续使用（以下为上次成功数据）')
+            : t('common.shared.quota.cachedRefreshFailed')}
         </div>
       )}
       {hasBuckets && ['claude', 'gemini'].map((family) => (
         <div key={family} className="quota-column">
           <div className="quota-column-title">{family === 'claude' ? 'Claude' : 'Gemini'}</div>
-          {renderBar(`${family}:5h`, '5h', items.find((item) => item.key === `${family}:5h`))}
+          {hasAny5h && renderBar(`${family}:5h`, '5h', items.find((item) => item.key === `${family}:5h`))}
           {renderBar(
             `${family}:weekly`,
-            t('common.quota.weeklyWindow'),
+            'Weekly',
             items.find((item) => item.key === `${family}:weekly`),
           )}
         </div>

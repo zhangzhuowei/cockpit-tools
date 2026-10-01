@@ -33,7 +33,8 @@ export interface CodexProxyExitEditor {
   test(): void;
   cancelTest(): void;
   save(): void;                // 写入账号绑定
-  unbind(): void;              // 解除绑定
+  unbind(disabled?: boolean): void; // false: follow shared settings; true: bypass proxies
+  proxyDisabled: boolean;
   clearError(): void;
   /** 追加字段（不属于冻结契约）：账号列表、运行记录与活动面板需要区分草稿结果与已保存结果。 */
   savedBinding: CodexAccount['egress_proxy'];
@@ -68,7 +69,7 @@ export function useCodexProxyExitEditor(accountId: string): CodexProxyExitEditor
     () => accounts.find((entry) => entry.id === accountId && canUseCodexAccountProxy(entry)),
     [accounts, accountId],
   );
-  const [overrides, setOverrides] = useState<Record<string, CodexAccount['egress_proxy']>>({});
+  const [overrides, setOverrides] = useState<Record<string, { binding: CodexAccount['egress_proxy']; disabled: boolean }>>({});
   const [draft, setDraft] = useState<{ accountId: string; choice: CodexProxyExitChoice } | null>(null);
   const [results, setResults] = useState<Record<string, { value: CodexProxyProbeResult; scope: ProbeScope }>>({});
   const [busy, setBusy] = useState<'save' | 'test' | 'unbind' | ''>('');
@@ -80,8 +81,9 @@ export function useCodexProxyExitEditor(accountId: string): CodexProxyExitEditor
 
   // A write returns the authoritative snapshot; it wins over the list until the store catches up.
   const savedBinding = Object.prototype.hasOwnProperty.call(overrides, accountId)
-    ? overrides[accountId] ?? null
+    ? overrides[accountId].binding ?? null
     : account?.egress_proxy ?? null;
+  const proxyDisabled = overrides[accountId]?.disabled ?? account?.egress_proxy_disabled ?? false;
   const restored = useMemo(() => restoreExitChoice(catalog, savedBinding), [catalog, savedBinding]);
   const currentDraft = draft?.accountId === accountId ? draft.choice : null;
   const choice = currentDraft ?? restored;
@@ -165,7 +167,7 @@ export function useCodexProxyExitEditor(accountId: string): CodexProxyExitEditor
       const updated = await bindProxyCatalog(id, choice.sourceId, choice.itemId, selections ?? {}, choice.groupId);
       useCodexAccountStore.getState().applyAccountSnapshot(updated);
       if (generation.current !== current) return;
-      setOverrides((old) => ({ ...old, [id]: updated.egress_proxy ?? null }));
+      setOverrides((old) => ({ ...old, [id]: { binding: updated.egress_proxy ?? null, disabled: updated.egress_proxy_disabled ?? false } }));
       setDraft(null);
       setResults((old) => dropKey(old, id));
       setNotice(t('codex.proxy.saved'));
@@ -179,19 +181,19 @@ export function useCodexProxyExitEditor(accountId: string): CodexProxyExitEditor
     }
   }, [account, choice.groupId, choice.itemId, choice.sourceId, saved, selections, selectionReady, t]);
 
-  const unbind = useCallback(async () => {
-    if (operation.current || !account || !bound) return;
+  const unbind = useCallback(async (disabled = false) => {
+    if (operation.current || !account || (!bound && proxyDisabled === disabled)) return;
     operation.current = true;
     setBusy('unbind'); setError(''); setNotice('');
     const id = account.id;
     const current = generation.current;
     try {
-      const updated = await updateAccountEgressProxy(id, null);
+      const updated = await updateAccountEgressProxy(id, null, disabled);
       if (generation.current !== current) return;
-      setOverrides((old) => ({ ...old, [id]: updated.egress_proxy ?? null }));
+      setOverrides((old) => ({ ...old, [id]: { binding: updated.egress_proxy ?? null, disabled: updated.egress_proxy_disabled ?? false } }));
       setDraft(null);
       setResults((old) => dropKey(old, id));
-      setNotice(t('codex.proxy.unboundHint'));
+      setNotice(t('codex.proxy.saved'));
     } catch (caught) {
       if (generation.current === current) setError(t(proxyErrorKey(caught)));
     } finally {
@@ -200,7 +202,7 @@ export function useCodexProxyExitEditor(accountId: string): CodexProxyExitEditor
         setBusy('');
       }
     }
-  }, [account, bound, t, updateAccountEgressProxy]);
+  }, [account, bound, proxyDisabled, t, updateAccountEgressProxy]);
 
   const clearError = useCallback(() => setError(''), []);
 
@@ -223,7 +225,8 @@ export function useCodexProxyExitEditor(accountId: string): CodexProxyExitEditor
     test: () => { void test(); },
     cancelTest,
     save: () => { void save(); },
-    unbind: () => { void unbind(); },
+    unbind: (disabled = false) => { void unbind(disabled); },
+    proxyDisabled,
     clearError,
     savedBinding,
     resultScope: probe?.scope ?? '',

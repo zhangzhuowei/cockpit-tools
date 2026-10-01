@@ -288,6 +288,26 @@ func applyCodexHeaders(r *http.Request, auth *cliproxyauth.Auth, token string, s
 	applyCodexHeadersFromSources(r, auth, token, stream, cfg, ginHeaders)
 }
 
+// applyCodexRoutingHint mirrors the native Codex client hint used by the
+// ChatGPT backend. It is derived after request translation so the tier cannot
+// become stale. API-key passthrough requests intentionally do not receive it.
+func applyCodexRoutingHint(headers http.Header, auth *cliproxyauth.Auth, model string, upstreamBody []byte) {
+	if headers == nil || codexAuthUsesAPIKey(auth) {
+		return
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return
+	}
+	hint := "model=" + model
+	if tier := gjson.GetBytes(upstreamBody, "service_tier"); tier.Type == gjson.String {
+		if value := strings.TrimSpace(tier.String()); value != "" {
+			hint += ";tier=" + value
+		}
+	}
+	headers.Set("X-Codex-Routing-Hint", hint)
+}
+
 // applyModelHeaderOverrides forces models.json config.override_header onto upstream headers.
 func applyModelHeaderOverrides(headers http.Header, modelName string) {
 	if headers == nil {

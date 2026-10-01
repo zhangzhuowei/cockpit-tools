@@ -10,7 +10,7 @@
       "accountsRequired": "En az bir hesap seçin.",
       "invalidAccount": "Geçersiz hesap kimliği.",
       "invalidRequest": "Geçersiz test parametreleri.",
-      "invalidConcurrency": "Paralel iş sayısı 1 ile 10 arasında olmalıdır.",
+      "invalidConcurrency": "Paralel işler · 1–200",
       "invalidRetention": "Saklama süresi 1 ile 3650 gün arasında olmalıdır.",
       "alreadyRunning": "Önce etkin testi kapatın.",
       "artifactMissing": "Üretilen sonuç bulunamadı.",
@@ -22,7 +22,9 @@
       "storage": "Test geçmişi okunamıyor veya kaydedilemiyor.",
       "unsafePath": "Güvenli olmayan sonuç yolu.",
       "historyMissing": "Test kaydı bulunamadı.",
-      "invalidId": "Geçersiz kayıt kimliği."
+      "invalidId": "Geçersiz kayıt kimliği.",
+      "providerUnavailable": "Sağlayıcı veya kayıtlı API anahtarı kullanılamıyor.",
+      "providerChanged": "Adres veya protokol değişti. Yeni bir test başlatın."
     },
     "title": "Pelikan testi",
     "description": "Aynı istemle paralel HTML üretin. Sonuçları kendiniz karşılaştırın; otomatik puanlama yapılmaz.",
@@ -83,9 +85,52 @@
     "confirmClearAll": "Tüm Pelican testleri temizlensin mi?",
     "clearAllHelp": "Tüm test geçmişi ve oluşturulan dosyalar kalıcı olarak silinecek. Bu işlem geri alınamaz.",
     "search": "Hesap ara",
-    "viewError": "Hatayı görüntüle"
+    "viewError": "Hatayı görüntüle",
+    "providers": "Sağlayıcılar",
+    "providerDescription": "Pelikan animasyonu oluşturarak sağlayıcıları karşılaştırın.",
+    "providerHelp": "Sağlayıcı, kayıtlı anahtar ve model seçin. İstekler ayrı bir geçici ağ geçidi kullanır; yeniden denemede kimlik bilgileri tekrar okunur.",
+    "providerRequired": "Geçerli sağlayıcı, API anahtarı ve model seçin.",
+    "providerModelMismatch": "Model farklı: istenen {{requested}}, dönen {{responded}}.",
+    "providerSearch": "Sağlayıcı veya anahtar adı ara",
+    "providerEmpty": "Eşleşen sağlayıcı yok",
+    "providerClear": "Seçimi temizle"
   },
   "common": {
+    "dragSortHint": "Sıralamayı değiştirmek için soldaki tutamacı sürükleyin. Bıraktığınızda otomatik kaydedilir.",
+    "dragSortFilteredHint": "Sıralamayı değiştirmek için aramayı temizleyin.",
+    "recycleBin": {
+      "loadTimeout": "Çöp kutusu okuma zaman aşımına uğradı. Yenileyip tekrar deneyin.",
+      "refreshFailed": "Hesap geri yüklendi ancak liste yenilenemedi. Hesap listesini yeniden yükleyin.",
+      "moveStarted": "{{count}} hesap çöp kutusuna taşınmaya başladı",
+      "title": "Çöp kutusu",
+      "description": "Silinen hesaplar yerel olarak saklanır ve geri yüklenebilir veya dışa aktarılabilir. Geri yükleme hesap değiştirmez, istemci başlatmaz ve görev veya API hizmeti bağlantılarını geri getirmez.",
+      "empty": "Çöp kutusu boş",
+      "restore": "Geri yükle",
+      "deletePermanently": "Kalıcı sil",
+      "emptyBin": "Kutuyu boşalt",
+      "deletedAt": "Silinme: {{time}}",
+      "confirmDelete": "“{{name}}” kalıcı olarak silinsin mi? Çöp kutusundaki hesap verileri silinir ve geri alınamaz.",
+      "confirmEmpty": "Bu {{count}} hesap kalıcı olarak silinsin mi? Çöp kutusundaki verileri silinir ve geri alınamaz.",
+      "move": "Çöpe taşı",
+      "confirmMove": "{{count}} hesap çöp kutusuna taşınsın mı? Buradan geri yükleyebilir, dışa aktarabilir veya kalıcı olarak silebilirsiniz.",
+      "moved": "Çöp kutusuna taşındı",
+      "moveFailed": "Çöp kutusuna taşınamadı: {{error}}",
+      "operationFailed": "İşlem başarısız: {{error}}",
+      "export": "Dışa aktar",
+      "exportAll": "Tümünü aktar",
+      "exportAndDelete": "Dışa aktar ve sil",
+      "exportAndEmpty": "Aktar ve boşalt",
+      "count": "{{count}} hesap",
+      "exportHint": "Yeniden içe aktarılabilen bir JSON dosyası oluşturur. Hesap kimlik bilgileri içerir; güvenli saklayın. Kaydetme iptal edilirse veya dışa aktarma başarısız olursa hesaplar silinmez.",
+      "exported": "Hesaplar dışa aktarıldı.",
+      "confirmTitle": "Hesaplar kalıcı olarak kaldırılsın mı?"
+    },
+    "requestProxy": {
+      "value": "Vekil: {{name}}",
+      "direct": "Doğrudan",
+      "unknown": "Kaydedilmedi",
+      "entryHint": "Yalnızca vekil girişi kaydedildi; son düğüm bilinmiyor."
+    },
     "retry": "Yeniden dene",
     "quotaRefreshScheduler": {
       "busy": "Yenileme kuyruğu dolu. Biraz sonra tekrar deneyin.",
@@ -124,7 +169,7 @@
     "windowsOperation": {
       "title": "Windows işlemi tamamlanmadı",
       "accessDeniedDescription": "Windows bu işlemi reddetti. Hedef daha yüksek yetkiyle çalışıyor veya korumalı bir konumda olabilir.",
-      "storeLaunchBlockedDescription": "Windows yapılandırılmış Codex istemcisini çalıştıramadı: Store klasörü bir güncellemeyle değiştirilmiş veya artık çalıştırmaya izin vermiyor olabilir. Yanlış hesabın açılmaması için doğrudan başlatma engellendi. “Yolu yeniden algıla ve yeniden dene” seçeneğini kullanın; yine başarısız olursa bu örneği CLI moduna geçirin.",
+      "storeLaunchBlockedDescription": "Mağazadan yüklenen yalıtılmış örneğin başlatıldığı doğrulanamadı. Cockpit varsayılan hesabı yedek olarak açmadı. İstemci yolunu yeniden algılayıp tekrar deneyin. Hata sürerse tanılama bilgilerini kopyalayın veya bu örneği CLI moduna geçirin.",
       "repairPath": "Yolu yeniden algıla ve yeniden dene",
       "fileInUseDescription": "Hedef dosya başka bir program tarafından kullanılıyor. Programı kapatıp yeniden deneyin.",
       "programNotFoundDescription": "Windows gerekli programı bulamadı. Kurulumu veya ayarlanan yolu kontrol edin.",
@@ -309,7 +354,8 @@
         "unlimited": "Sınırsız kota",
         "leftPercent": "%{{value}} kaldı",
         "cachedRefreshFailed": "Yenileme başarısız; son başarılı veriler gösteriliyor",
-        "lastSuccessfulQuery": "Son başarılı: {{time}}"
+        "lastSuccessfulQuery": "Son başarılı: {{time}}",
+        "cachedNeedsReauth": "⚠️ Devam etmek için web doğrulaması gerekiyor (aşağıdaki veriler önbellekten)"
       },
       "subtitle": "GitHub Copilot hesaplarınızı yönetin",
       "time": {
@@ -369,7 +415,9 @@
     "quota": {
       "weeklyWindow": "Hafta"
     },
-    "optional": " (isteğe bağlı)"
+    "optional": " (isteğe bağlı)",
+    "hide": "Gizle",
+    "show": "Göster"
   },
   "nav": {
     "overview": "Antigravity IDE​",
@@ -741,7 +789,7 @@
     },
     "delete": {
       "title": "Oturumu sil",
-      "message": "{{name}} oturumu silinsin mi? Bu işlem yapılandırmayı kaldıracak ve oturum klasörünü silecektir."
+      "message": "{{name}} örneği silinsin mi? Kaydı kaldırılacak ve yönetilen örnek klasörleri çöp kutusuna taşınacak. Özel ve korunan klasörler saklanacak."
     },
     "import": {
       "btnTitle": "Mevcut dizini içe aktar",
@@ -764,6 +812,24 @@
     }
   },
   "settings": {
+    "instanceCleanup": {
+      "title": "Örnek temizliği",
+      "description": "Yönetilen örnek klasörlerini elle tarayın ve örnek yapılandırmaları veya çalışan işlemler tarafından başvurulmayan verileri silin. Hiçbir veri otomatik silinmez.",
+      "scan": "Tara",
+      "scanning": "Taranıyor…",
+      "remove": "Kalıcı sil",
+      "removing": "Siliniyor…",
+      "empty": "Temizlenecek artık klasör bulunamadı",
+      "summary": "{{size}} yer kaplayan {{count}} klasör bulundu",
+      "confirm": "Aşağıdaki klasörler, içlerindeki oturumlar, çalışma alanları ve önbelleklerle birlikte kalıcı olarak silinecek. Bu işlem geri alınamaz.",
+      "cancel": "İptal",
+      "confirmRemove": "Silmeyi onayla",
+      "done": "{{count}} klasör silindi",
+      "failed": "İşlem başarısız",
+      "path": "Klasör",
+      "size": "Kullanılan alan",
+      "platform": "Platform türü"
+    },
     "title": "Uygulama Ayarları",
     "subtitle": "Cockpit Tools deneyiminizi özelleştirin.",
     "tabs": {
@@ -1426,7 +1492,9 @@
       "normal": "Normal​",
       "forbidden": "403​",
       "forbidden_tooltip": "API 403 Forbidden döndürdü, hesabın Gemini Code Assist'e erişimi yok",
-      "forbidden_msg": "Hesap yasaklı, otomatik yenileme atlandı"
+      "forbidden_msg": "Hesap yasaklı, otomatik yenileme atlandı",
+      "needsReauth": "Web Doğrulaması Gerekiyor",
+      "needsReauthTooltip": "Google devam etmek için web güvenlik doğrulaması istiyor"
     },
     "tier": {
       "pro": "PRO​",
@@ -1561,7 +1629,12 @@
       "delete": "Sil",
       "deleteSelected": "Seçilenleri Sil",
       "export": "Dışa Aktar",
-      "refreshAll": "Tümünü Yenile"
+      "refreshAll": "Tümünü Yenile",
+      "reauth": "Yeniden yetkilendir",
+      "reauthTooltip": "Google yeniden doğrulama istiyor, yetkilendirmek için tıklayın",
+      "openValidationUrl": "Web Doğrulaması",
+      "copyValidationUrl": "Doğrulama bağlantısını kopyala",
+      "copyValidationUrlTooltip": "Web doğrulama adresini kopyala"
     },
     "tabs": {
       "oauth": "OAuth Yetkilendirme",
@@ -1800,7 +1873,8 @@
     "example": "Örnek",
     "actionRunning": "{{action}}...​",
     "actionSuccess": "{{action}} başarılı",
-    "actionFailed": "{{action}} başarısız: {{error}}"
+    "actionFailed": "{{action}} başarısız: {{error}}",
+    "refreshFailed": "Yenileme başarısız"
   },
   "wakeup": {
     "title": "Uyandırma Görevleri",
@@ -2063,6 +2137,11 @@
     "other_group": "Diğer modeller"
   },
   "codex": {
+    "launchErrors": {
+      "bindingFailed": "Hesap bağlantısı doğrulanamadı. Başlatma durduruldu; hesap değiştirmeyi yeniden deneyin.",
+      "processScanFailed": "Önceki arka plan işlemleri denetlenemedi. Başlatma durduruldu; yeniden deneyin.",
+      "proxyEntryFailed": "Yapılandırılan vekil sunucu başlatılamadı. Başka bir rota kullanılmadı; yeniden deneyin."
+    },
     "oauthProxy": {
       "toggle": "Proxy ile yetkilendir",
       "hint": "Yerleşik pencere, token değişimi ve ilk kota kontrolü bu proxy üzerinden yapılır. Oturum açmak için açılır pencere gerekiyorsa bu seçeneği kapatın.",
@@ -2548,7 +2627,7 @@
       "hideEntryEffectRestore": "Codex Ayarları veya Hızlı Ayarlar'dan yeniden açabilirsiniz",
       "riskNotice": {
         "title": "Risk Uyarısı",
-        "message": "Mevcut Codex API hizmetiyle ilgili özellikler, özünde ters proxy kullanımına dayanır. Şu anda resmi taraf bu davranışı açıkça kısıtlamıyor, ancak ileride politika, kurallar veya kullanılabilirlik değişebilir. Bu özelliği kullanmaya devam ederek durumu anladığınızı ve ilgili riskleri kendiniz üstlendiğinizi kabul etmiş olursunuz.",
+        "message": "Normal resmî hesapların ters proxy veya aktarma için kullanılması, resmî hizmetin katı kısıtlamalarına tabi olabilir. Bu kullanım ayrıca aktarma olarak algılanabilir ve yanıt kalitesini etkileyebilir (“zekâ düşüşü”). Özellikle çok sayıda hesabınız varsa dikkatli kullanın.",
         "remember": "Anladım, bir daha gösterme",
         "acknowledge": "Anladım",
         "continueStart": "Devam",
@@ -3078,7 +3157,8 @@
         "medium": "Orta",
         "high": "Yüksek",
         "xhigh": "Çok yüksek",
-        "max": "Maks."
+        "max": "Maks.",
+        "ultra": "En üst"
       },
       "scheduleQuotaResetHint": "Kota sıfırlaması sonrası uyandırma açıldığında otomatik yenileme her 2 dakikaya ayarlanır.",
       "scheduleQuotaResetSummary": "Kota sıfırlamasından sonra çalıştır",
@@ -3640,7 +3720,8 @@
         "baseUrlExists": "Bu temel URL zaten mevcut.",
         "providerNotFound": "Sağlayıcı bulunamadı.",
         "apiKeyRequiredOnCreate": "Sağlayıcı oluştururken en az bir API anahtarı gereklidir.",
-        "apiKeyRequiredWhenEmpty": "Bu sağlayıcının henüz API anahtarı yok. Lütfen önce bir tane ekleyin."
+        "apiKeyRequiredWhenEmpty": "Bu sağlayıcının henüz API anahtarı yok. Lütfen önce bir tane ekleyin.",
+        "apiKeyUrlInvalid": "Gömülü kimlik bilgisi içermeyen HTTP(S) yönetim adresi kullanın; API anahtarını anahtar alanına girin."
       },
       "saveSuccess": "Model sağlayıcı kaydedildi.",
       "deleteBlocked": "Bu sağlayıcı {{count}} hesapla bağlantılı olduğu için silinemez.",
@@ -3793,7 +3874,7 @@
         "modelAuto": "Otomatik (katalog / keşif)",
         "modelCustom": "Özel model…",
         "modelLabel": "Test modeli",
-        "modelCustomPlaceholder": "Model kimliği, örn. gpt-4.1-mini",
+        "modelCustomPlaceholder": "Model kimliği, örn. gpt-6.1-sol",
         "modelHint": "İsteğe bağlı ortak model. Boş = katalogdan otomatik."
       },
       "enableAndStart": "Başlat",
@@ -3808,9 +3889,9 @@
       },
       "vision": {
         "providerDefault": "Bu sağlayıcı varsayılan olarak görsel girişini destekler",
-        "providerDefaultHint": "Kapalıyken yalnızca aşağıdaki modeller görsel alır; diğerleri yerel ağ geçidi tarafından reddedilir.",
+        "providerDefaultHint": "Özel ayarı olmayan modeller bu varsayılanı kullanır; GPT-5.5 ve sonrası varsayılan olarak görselleri destekler. Modelleri listeden ayrı ayrı kapatabilirsiniz. Ağ geçidi görsel destekleyen bir model bulamazsa görselleri atlar ve metni işlemeye devam eder.",
         "modelsHint": "Her satıra bir model yazın. Sağlayıcıdaki yalnızca bazı modeller yapıştırılan görselleri destekliyorsa kullanın.",
-        "routingModelHint": "Geçerli model görsel okuyamıyorsa istek bu modeli kullanır; boşsa tek görsel model otomatik kullanılır.",
+        "routingModelHint": "Geçerli model görselleri okuyamıyorsa ağ geçidi bu modeli kullanır. Boş bırakırsanız mevcut tek görsel model kullanılır; aksi halde görseller atlanır ve metin işlenmeye devam eder.",
         "allModels": "Görsel",
         "partialModels": "Bazı görseller",
         "textOnly": "Yalnızca metin"
@@ -3899,7 +3980,8 @@
       "importConfigFailed": "Panodan içe aktarma başarısız: {{error}}",
       "importConfigPlaceholder": "Karttaki \"Yapılandırmayı kopyala\"yı kullanıp içeriği buraya yapıştırın",
       "importConfigAction": "Yapılandırmayı içe aktar",
-      "importConfigFromClipboard": "Panoyu oku"
+      "importConfigFromClipboard": "Panoyu oku",
+      "settingsRestartHint": "Sağlayıcı ayarları güncellendi. Uygulamak için bu sağlayıcıyı kullanan çalışan Codex örneklerini veya API hizmetini yeniden başlatın."
     },
     "quickSwitch": {
       "action": "Sağlayıcıyı hızlı değiştir",
@@ -4260,7 +4342,7 @@
         "reasoningEffortValue": "Akıl {{effort}}",
         "serviceTier": "Hizmet katmanı",
         "serviceTierValue": "Katman {{tier}}",
-        "upstreamModel": "Gerçek model"
+        "upstreamModel": "Gönderilen model"
       },
       "timeouts": {
         "entryLabel": "Gelişmiş",
@@ -4535,8 +4617,6 @@
       "serverCount": "{{count}} sunucu",
       "autoSyncBadge": "Otomatik"
     },
-    "exportAuthFailed": "Hataları dışa aktar",
-    "exportAuthFailedTitle": "Tüm auth hatalı hesapları dışa aktar",
     "accounts": {
       "showRelayQuota": "Röle kotasını göster",
       "hideRelayQuota": "Röle kotasını gizle"
@@ -4569,6 +4649,18 @@
       "restartFailed": "Ağ geçidi yeniden başlatılamadı: {{error}}"
     },
     "proxy": {
+      "display": {
+        "title": "Vekil görünümü",
+        "compact": "Kısa",
+        "summary": "Özet",
+        "detailed": "Ayrıntılı",
+        "hint": "Tüm Codex hesap kartlarına uygulanır; seçim hemen kaydedilir ve uygulanır.",
+        "configuredNode": "Ayarlanan düğüm",
+        "lastRequest": "Son istek",
+        "preview": "Stil önizlemesi",
+        "saveFailed": "Görünüm tercihi kaydedilemedi. Tekrar deneyin.",
+        "refresh": "Bilgileri yenile"
+      },
       "workspace": {
         "navLabel": "Proxy bölümleri",
         "overview": "Genel bakış",
@@ -4661,7 +4753,7 @@
       },
       "rules": {
         "title": "Çıkış kuralları",
-        "intro": "Hesaba özel vekil, birleşik vekilden önce gelir; ikisi de geçerli değilse istekler istemcinin önceki varsayılan çıkışını korur.",
+        "intro": "Hesaba özel vekil, birleşik vekilden önce gelir; ikisi de geçerli değilse istekler istemcinin önceki varsayılan çıkışını korur. Açıkça «Proxy yok» seçilen hesaplar hariç tutulur.",
         "order": "Geçerlilik sırası",
         "tableTitle": "Hesap çıkışları",
         "columnAccount": "Hesap",
@@ -4707,8 +4799,8 @@
       "batchClearAll": "Seçimi temizle",
       "unified": {
         "title": "Birleşik vekil çıkışı",
-        "hint": "Kendi vekil sunucusu olmayan uygun hesaplar bu çıkışı paylaşır; yeni hesaplar otomatik izler.",
-        "offState": "Kapalı: hesap vekil sunucusu geçerlidir; yoksa varsayılan çıkış kullanılır.",
+        "hint": "Kendi vekil sunucusu olmayan uygun hesaplar bu çıkışı paylaşır; yeni hesaplar otomatik izler. Açıkça «Proxy yok» seçilen hesaplar hariç tutulur.",
+        "offState": "Kapalı: hesap vekil sunucusu geçerlidir; yoksa varsayılan çıkış kullanılır. Açıkça «Proxy yok» seçilen hesaplar hariç tutulur.",
         "enable": "Birleşik vekili aç",
         "disable": "Kapat",
         "change": "Çıkışı değiştir",
@@ -4726,12 +4818,12 @@
         "changeMessage": "Yerel aktarıcıyı kullanan açık istemciler yeni bağlantılarda yeni çıkışa geçer.",
         "changeConfirm": "Değiştir",
         "disableTitle": "Birleşik vekil çıkışını kapat",
-        "disableMessage": "Hesap vekil sunucuları etkin kalır; bağlantısı olmayanlar varsayılan çıkışı kullanır.",
+        "disableMessage": "Hesap vekil sunucuları etkin kalır; bağlantısı olmayanlar varsayılan çıkışı kullanır. Açıkça «Proxy yok» seçilen hesaplar hariç tutulur.",
         "disableConfirm": "Kapat",
         "restartHint": "Yerel aktarıcıyla açılan istemciler yeni bağlantılarda geçer. Diğer açık istemciler bir kez yeniden başlatılmalıdır.",
         "staleWarning": "Bu çıkışın kaynağı kullanılamıyor. Başka bir kaynak seçin.",
         "removedWarning": "Birleşik vekil çıkışı, kaynağı silindiği için kapatıldı.",
-        "accountsNotice": "Hesap vekil sunucusu önceliklidir; bağlantısı olmayan hesaplar birleşik vekili izler.",
+        "accountsNotice": "Hesap vekil sunucusu önceliklidir; bağlantısı olmayan hesaplar birleşik vekili izler. Açıkça «Proxy yok» seçilen hesaplar hariç tutulur.",
         "unbindBlocked": "Bağlantı kaldırılınca bu hesap birleşik vekili izler.",
         "following": "Birleşik",
         "errorFailed": "İşlem başarısız. Tekrar deneyin.",
@@ -4794,6 +4886,11 @@
         "viewAll": "Tümünü gör"
       },
       "previewTitle": "Proxy önizleme",
+      "modeDisabled": "Proxy yok",
+      "disableAction": "Proxy kaldır",
+      "setIndependent": "Özel proxy ayarla",
+      "disabledHint": "Hesaba özel ve ortak proxy’leri atla; yeni bağlantılarda doğrudan erişimi dene.",
+      "disabledWarning": "Doğrudan erişim başarısız olabilir. Yerel aktarıcı kullanan masaüstlerinde yeni bağlantılara uygulanır; diğer açık istemciler yeniden başlatılmalıdır. Mevcut bağlantılar önceki yolu kullanmaya devam edebilir.",
       "exitIp": "Çıkış IP’si",
       "sessionHistory": "Çalışma kaydı",
       "sessionHistoryHint": "Durum her 5 saniyede kontrol edilir. Yalnızca bu önizlemenin ilk durumu ve değişiklikleri, en fazla 20 kayıt tutulur. Kapatılınca silinir; tam geçmiş kaydı değildir.",
@@ -4824,9 +4921,17 @@
       "desktopRequest_forwarded": "Son yerel aktarım kuruldu",
       "desktopRequest_failed": "Son yerel aktarım başarısız",
       "desktopEntryReadyHint": "Giriş dinlemede; bağlantı isteği geldiğinde motor başlar.",
+      "sharedRuntime": "Hesap vekili",
       "runtimeMain": "Hesap istekleri",
       "runtimeDesktop": "Masaüstü köprüsü",
       "runtimeHint": "Durum yalnızca yerel girişi ve motoru gösterir. Aktarımın kurulması İnternet erişimini doğrulamaz veya isteği gönderen istemciyi belirlemez.",
+      "restoreEntry": "Aktarımı geri aç",
+      "restoringEntry": "Geri açılıyor…",
+      "restoreEntryFailed": "Masaüstü vekil aktarımı geri açılamadı. Yeniden deneyin.",
+      "restoreEntryPortBusy": "Önceki vekil bağlantı noktası kullanımda. Noktayı boşaltıp yeniden deneyin; masaüstü otomatik olarak başka bir bağlantı noktasına geçemez.",
+      "restoreEntryNotRunning": "Bu Cockpit örneğine ait kayıtlı vekil girişini kullanan çalışan bir masaüstü bulunamadı.",
+      "restoreEntryBusy": "Vekil geri yükleniyor. Biraz sonra yeniden deneyin.",
+      "restoreEntryTimeout": "Vekil geri yükleme zaman aşımına uğradı. Yeniden deneyin.",
       "restartHint": "Yerel aktarıcıyla açılan istemciler yeni bağlantılarda geçer. Diğer açık istemciler bir kez yeniden başlatılmalıdır. Masaüstü köprüsü yalnızca geri döngüde dinler, ancak diğer yerel kullanıcıları yalıtmaz. Sistem vekili değişmez.",
       "exportHint": "Hesap dışa aktarımları vekil kimlik bilgilerini içermez; içe aktardıktan sonra yeniden yapılandırın.",
       "backToAccounts": "Hesaplara dön",
@@ -5140,7 +5245,7 @@
         "assign": "Vekil sunucu ata",
         "specific": "Seçili hesaplar",
         "shared": "Ortak vekil",
-        "sharedHint": "Kendi vekil sunucusu olmayan Codex OAuth hesapları, daha sonra eklenen uygun hesaplar da dahil, bu sunucuyu kullanır. Mevcut bireysel ayarlar geçerliliğini korur.",
+        "sharedHint": "Kendi vekil sunucusu olmayan Codex OAuth hesapları, daha sonra eklenen uygun hesaplar da dahil, bu sunucuyu kullanır. Mevcut bireysel ayarlar geçerliliğini korur. Açıkça «Proxy yok» seçilen hesaplar hariç tutulur.",
         "apply": "Ata"
       },
       "managerResources": {
@@ -5173,7 +5278,7 @@
       "managerUnified": {
         "off": "Kapalı",
         "choose": "Vekil ayarla",
-        "hint": "Kendi vekili olmayan hesaplar bu vekili kullanır."
+        "hint": "Kendi vekili olmayan hesaplar bu vekili kullanır. Açıkça «Proxy yok» seçilen hesaplar hariç tutulur."
       },
       "setup": {
         "title": "Vekil sunucuları kurun",
@@ -5187,13 +5292,20 @@
         "collapse": "Ayrıntıları gizle"
       },
       "runtime_entry_failed": "Giriş başarısız",
+      "measureCurrentLatency": "Gecikmeyi ölç",
+      "measuringCurrentLatency": "Ölçülüyor",
+      "currentLatencyNotRunning": "Ölçülebilecek çalışan bir düğüm yok. Bu vekili kullanan bir istemci başlatın veya yapılandırılmış düğümü Vekil Yönetimi bölümünde test edin.",
+      "currentLatencyHint": "Düğümü veya vekil ilkelerini değiştirmeden çalışan düğümün test URL’sine gecikmesini ölçer.",
       "latencyCheckedAt": "Kontrol zamanı",
       "latencyPending": "Test edilmedi",
       "latencyTimeout": "Süre doldu",
       "quickSwitch": "Düğüm değiştir",
       "quickSwitchHint": "Yalnızca bu hesabı değiştirir. Yeni bağlantılar kaydedilen çıkışı kullanır; kaydetme işlemi bağlantıyı doğrulamaz.",
       "currentNode": "Geçerli düğüm",
-      "noCurrentNode": "Geçerli düğüm henüz kullanılamıyor"
+      "noCurrentNode": "Geçerli düğüm henüz kullanılamıyor",
+      "runtimeBusy": "Yerel vekil meşgul. Güncelleme geçici olarak kullanılamıyor.",
+      "runtimeCapacity": "Çok fazla vekil çalışıyor. Kullanmadıklarınızı durdurup yeniden deneyin.",
+      "runtimeReadFailed": "Yerel vekil durumu geçici olarak okunamıyor. Yeniden deneyin."
     },
     "more": {
       "title": "Daha fazla",
@@ -5213,6 +5325,17 @@
       "moveUp": "Yukarı taşı",
       "moveDown": "Aşağı taşı",
       "done": "Bitti"
+    },
+    "cliDaemon": {
+      "title": "CLI hesabını yenile",
+      "description": "Kimlik bilgileri kaydedildi ancak bu profilin Codex CLI arka plan hizmeti hâlâ çalışıyor ve önceki hesabı kullanmayı sürdürebilir.",
+      "restartHint": "Etkin CLI görevlerini bitirin, ardından terminalde bu komutu çalıştırın. Yeniden başlatma, bu hizmete bağlı oturumları keser.",
+      "copyFailed": "Kopyalanamadı. Yukarıdaki komutu seçip elle kopyalayın."
+    },
+    "proxyQuality": {
+      "errors": {
+        "bindingChanged": "Hesap bağlantısı değişti. Güncel ayar korundu."
+      }
     }
   },
   "githubCopilot": {

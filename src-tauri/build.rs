@@ -9,6 +9,26 @@ fn link_macos_swift_runtime_rpaths() {
     println!("cargo:rustc-link-arg=-Wl,-rpath,/usr/lib/swift");
 }
 
+#[cfg(target_os = "macos")]
+fn link_swift_package_products(package_name: &str) {
+    // Use the same DEBUG value as swift-rs when choosing SwiftPM configuration.
+    let configuration = if std::env::var("DEBUG").ok().as_deref() == Some("true") {
+        "Debug"
+    } else {
+        "Release"
+    };
+    let products_dir = PathBuf::from(
+        std::env::var("OUT_DIR").expect("OUT_DIR is required for Swift package linking"),
+    )
+    .join("swift-rs")
+    .join(package_name)
+    .join("out/Products")
+    .join(configuration);
+    // Xcode 27 / Swift 6.4 writes here. Keep swift-rs's original search path
+    // as well, since older SwiftPM versions still use the target triple path.
+    println!("cargo:rustc-link-search=native={}", products_dir.display());
+}
+
 fn go_target_from_rust_target(target: &str) -> Option<(&'static str, &'static str)> {
     let goos = if target.contains("windows") {
         "windows"
@@ -185,6 +205,7 @@ fn main() {
         SwiftLinker::new("12.0")
             .with_package("MacosNativeMenuSwift", "native/macos-native-menu")
             .link();
+        link_swift_package_products("MacosNativeMenuSwift");
         link_macos_swift_runtime_rpaths();
     }
 

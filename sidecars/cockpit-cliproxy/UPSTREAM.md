@@ -43,6 +43,22 @@ of the bundled v7.2.155 dependency tree.
   Responses Lite integration, and Agent Identity as local extensions.
   Agent Identity has no equivalent in the reference tree and is not removed
   without an explicit decision about existing accounts.
+
+## Targeted compatibility sync (2026-09)
+
+The current local CLIProxyAPI and sub2api sources were reviewed for failure
+boundary and proxy behavior. The synchronized fixes are intentionally limited
+to compatibility seams: cancellation-aware HTTP/SOCKS proxy dialing, HTTPS
+proxy CONNECT support for Codex WebSockets, route-aware WebSocket reuse and
+ping writes, service-tier normalization, structured Responses stream errors,
+and image-stream failure/truncation propagation. This is not a dependency
+version bump; the v7.2.155 baseline and Cockpit-specific account scoping remain
+unchanged.
+
+The current Codex executor also derives the native OAuth routing hint after
+translation, so a normalized `service_tier` cannot disagree with the header.
+The larger upstream request-capability refactor is intentionally not copied
+until the corresponding translator and thinking APIs are synchronized together.
 - Synchronized the v7.2.157 Responses transport fixes: official nested SSE error
   payloads with preserved sequence numbers, split-CRLF framing, WebSocket prewarm
   follow-up merging, and named `function_call_output` passthrough.
@@ -71,6 +87,26 @@ of the bundled v7.2.155 dependency tree.
   outside this synchronization scope. Cockpit does not route Grok models over
   Responses WebSocket (the catalog clears `prefer_websockets` for them), so the
   HTTP chat path is authoritative.
+
+## Portable agent messages and terminal events
+
+Keep the agent-message normalization from Cockpit PR #2609: private routing
+metadata belongs in an appended input_text block, not at the top level of a
+standard Responses message. Both the provider gateway and xAI executor tests
+cover preservation of the original message and its routing information.
+Non-streaming Codex execution also recognizes response.done through its
+completed, failed or incomplete status (PR #2332), without treating an unknown
+terminal status as success.
+
+## Request route observation
+
+Cockpit records the connection actually used by each request. The Codex uTLS
+HTTP/2 transport must participate in that observation explicitly: its direct
+`http2.ClientConn.RoundTrip` path does not emit the standard transport's
+`httptrace.GotConn` callback. Keep this hook and the fallback transport's route
+metadata when synchronizing upstream transport changes. Route lookup stays
+asynchronous and never substitutes the account's current selection for an
+unrecorded historical connection.
 
 ## Update procedure
 

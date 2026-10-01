@@ -40,7 +40,8 @@ func providerGatewayItemIDPrefix(itemType string) string {
 // without ids at all), and the client persists whatever it receives. Once such a
 // conversation is replayed against an official account, the strict official
 // validator rejects the whole request with invalid_id_prefix. Rewriting the ids
-// here keeps the persisted history valid for every provider.
+// here repairs unsigned item identities. Existing reasoning IDs are opaque:
+// encrypted_content may bind to them, even if it only arrives in a later event.
 type providerGatewayItemIDRewriter struct {
 	mapped map[string]string
 	used   map[string]bool
@@ -96,6 +97,15 @@ func (r *providerGatewayItemIDRewriter) RewritePayload(payload []byte) []byte {
 	if len(trimmed) == 0 || trimmed[0] != '{' {
 		return payload
 	}
+	// Reserve reasoning IDs before repairing siblings or references. A global
+	// mapping for a reused raw ID must not mutate encrypted reasoning identity.
+	parsed := gjson.ParseBytes(payload)
+	r.preserveReasoningItemID(parsed.Get("item"))
+	for _, container := range []string{"output", "response.output"} {
+		for _, item := range parsed.Get(container).Array() {
+			r.preserveReasoningItemID(item)
+		}
+	}
 	updated := payload
 	responseID := strings.TrimSpace(gjson.GetBytes(updated, "response.id").String())
 	if responseID == "" {
@@ -136,6 +146,9 @@ func (r *providerGatewayItemIDRewriter) rewriteItemAtPath(payload []byte, path, 
 	if !item.IsObject() {
 		return payload
 	}
+	if r.preserveReasoningItemID(item) {
+		return payload
+	}
 	prefix := providerGatewayItemIDPrefix(item.Get("type").String())
 	if prefix == "" {
 		return payload
@@ -157,6 +170,26 @@ func (r *providerGatewayItemIDRewriter) rewriteItemAtPath(payload []byte, path, 
 		return payload
 	}
 	return updated
+}
+
+// Preserve IDs from the first reasoning event, even when encrypted_content
+// only arrives in output_item.done. Waiting for the encrypted payload would
+// leave the client with an already-rewritten ID from output_item.added.
+func (r *providerGatewayItemIDRewriter) preserveReasoningItemID(item gjson.Result) bool {
+	if strings.TrimSpace(item.Get("type").String()) != "reasoning" {
+		return false
+	}
+	id := item.Get("id")
+	if id.Type == gjson.String && id.String() != "" {
+		originalID := id.String()
+		r.remember(originalID, originalID)
+		r.used[originalID] = true
+		return true
+	}
+	// Never invent a target ID for an opaque encrypted payload. ID synthesis
+	// remains available for unsigned, generated reasoning items.
+	encrypted := item.Get("encrypted_content")
+	return encrypted.Exists() && encrypted.Type != gjson.Null
 }
 
 func (r *providerGatewayItemIDRewriter) normalizeID(prefix, rawID, callID, fallback string) string {

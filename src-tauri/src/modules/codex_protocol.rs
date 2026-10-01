@@ -306,9 +306,9 @@ pub(crate) fn managed_codex_model_ids() -> Vec<String> {
         .map(str::to_string)
         .collect::<Vec<_>>();
 
-    // 官方推荐集把 GPT-6 家族排在最前，顺序固定为 Astra → Sol → Luna；
+    // 官方推荐集把 GPT-6 家族排在最前，顺序固定为 6.1 Sol → Astra → Sol → Luna；
     // 只移动已存在的条目，不插入目录里没有的模型。
-    for (offset, model_id) in ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"]
+    for (offset, model_id) in ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"]
         .iter()
         .enumerate()
     {
@@ -716,6 +716,7 @@ fn display_name_for_model(model_id: &str) -> String {
         "gpt-5.4-mini" => "GPT-5.4 Mini".to_string(),
         "gpt-5.3-codex" => "GPT-5.3 Codex".to_string(),
         "gpt-5.3-codex-spark" => "GPT-5.3 Codex Spark".to_string(),
+        "gpt-6.1-sol" => "GPT-6.1 Sol".to_string(),
         "gpt-6-astra" => "GPT-6 Astra".to_string(),
         "gpt-6-sol" => "GPT-6 Sol".to_string(),
         "gpt-6-luna" => "GPT-6 Luna".to_string(),
@@ -813,8 +814,19 @@ fn normalize_responses_input(obj: &mut Map<String, Value>) -> bool {
 /// the item type when replaying a conversation, so this must happen before
 /// both direct official requests and gateway requests.
 fn normalize_responses_item_ids(items: &mut [Value]) -> bool {
+    // Reasoning IDs can be bound to encrypted_content by the upstream. Keep
+    // them opaque, including when the encrypted payload is absent. Reserve
+    // them before repairing other items so neither collision handling nor the
+    // replacement pass can change a reasoning ID or a reference to it.
+    let reasoning_ids: HashSet<String> = items
+        .iter()
+        .filter(|item| item.get("type").and_then(Value::as_str) == Some("reasoning"))
+        .filter_map(|item| item.get("id").and_then(Value::as_str))
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
+        .collect();
     let mut replacements = HashMap::new();
-    let mut used = HashSet::new();
+    let mut used = reasoning_ids.clone();
     for item in items.iter() {
         let Some(obj) = item.as_object() else {
             continue;
@@ -822,7 +834,9 @@ fn normalize_responses_item_ids(items: &mut [Value]) -> bool {
         let Some(id) = obj.get("id").and_then(Value::as_str) else {
             continue;
         };
-        if id.is_empty() {
+        // If another item shares a reasoning ID, a global replacement would
+        // also corrupt that reasoning item. Leave ambiguous IDs untouched.
+        if id.is_empty() || reasoning_ids.contains(id) {
             continue;
         }
         let Some(item_type) = obj.get("type").and_then(Value::as_str) else {
@@ -833,7 +847,6 @@ fn normalize_responses_item_ids(items: &mut [Value]) -> bool {
             "custom_tool_call" => "ctc",
             "custom_tool_call_output" => "ctco",
             "message" => "msg",
-            "reasoning" => "rs",
             _ => continue,
         };
         let mut candidate = if id.starts_with(&format!("{prefix}_")) {
@@ -1642,6 +1655,80 @@ mod tests {
     }
 
     #[test]
+    fn preserves_reasoning_identity_when_replaying_responses() {
+        for id in [
+            format!("rs_{}", "x".repeat(80)),
+            "opaque-upstream-id".into(),
+        ] {
+            for encrypted in [true, false] {
+                let mut reasoning = json!({
+                    "type": "reasoning",
+                    "id": id,
+                    "summary": []
+                });
+                if encrypted {
+                    reasoning["encrypted_content"] = json!("opaque-encrypted-payload");
+                }
+                for input in [
+                    reasoning.clone(),
+                    json!([reasoning.clone(), reasoning.clone()]),
+                ] {
+                    let mut body = json!({"model": "gpt-5.4", "input": input});
+                    normalize_responses_body_for_codex(&mut body);
+                    for item in body["input"].as_array().unwrap() {
+                        assert_eq!(item, &reasoning);
+                    }
+                    let normalized = body.clone();
+                    normalize_responses_body_for_codex(&mut body);
+                    assert_eq!(body, normalized);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn protects_reasoning_ids_from_tool_replacements() {
+        // A tool ID repair must not rewrite a reasoning ID or a reference to it,
+        // even when an upstream has reused the same raw ID for both item types.
+        for reasoning_first in [true, false] {
+            let reasoning = json!({
+                "type": "reasoning",
+                "id": "fc_legacy",
+                "encrypted_content": "opaque-encrypted-payload",
+                "summary": []
+            });
+            let tool = json!({"type": "custom_tool_call", "id": "fc_legacy"});
+            let mut items = if reasoning_first {
+                vec![reasoning.clone(), tool]
+            } else {
+                vec![tool, reasoning.clone()]
+            };
+            items
+                .push(json!({"type": "item_reference", "id": "fc_legacy", "item_id": "fc_legacy"}));
+            items.push(json!({"type": "custom_tool_call", "id": "fc_other"}));
+
+            assert!(normalize_responses_item_ids(&mut items));
+            assert_eq!(items[if reasoning_first { 0 } else { 1 }], reasoning);
+            assert_eq!(items[2]["id"], "fc_legacy");
+            assert_eq!(items[2]["item_id"], "fc_legacy");
+            assert_eq!(items[3]["id"], "ctc_fc_other");
+        }
+    }
+
+    #[test]
+    fn reserves_reasoning_ids_before_repairing_tool_ids() {
+        let mut items = vec![
+            json!({"type": "custom_tool_call", "id": "fc_legacy"}),
+            json!({"type": "reasoning", "id": "ctc_fc_legacy", "encrypted_content": "opaque"}),
+            json!({"type": "custom_tool_call_output", "item_id": "fc_legacy"}),
+        ];
+        assert!(normalize_responses_item_ids(&mut items));
+        assert_eq!(items[1]["id"], "ctc_fc_legacy");
+        assert_ne!(items[0]["id"], items[1]["id"]);
+        assert_eq!(items[2]["item_id"], items[0]["id"]);
+    }
+
+    #[test]
     fn shortens_long_and_colliding_response_item_ids() {
         let long_id = format!("fc_{}", "x".repeat(80));
         let mut body = json!({
@@ -1885,32 +1972,14 @@ mod tests {
     }
 
     #[test]
-    fn codex_spark_compatibility_model_is_visible_with_a_safe_catalog_fallback() {
-        let response = build_codex_client_models_response(&[
-            "gpt-5.3-codex".to_string(),
-            "gpt-5.3-codex-spark".to_string(),
-        ]);
-        let models = response
-            .get("models")
-            .and_then(Value::as_array)
-            .expect("models should be an array");
-        let spark = models
-            .iter()
-            .find(|model| model.get("slug").and_then(Value::as_str) == Some("gpt-5.3-codex-spark"))
-            .expect("Spark should be visible to Codex clients");
-
-        assert_eq!(
-            spark.get("display_name").and_then(Value::as_str),
-            Some("GPT-5.3-Codex-Spark")
-        );
-        assert_eq!(
-            spark.get("visibility").and_then(Value::as_str),
-            Some("list")
-        );
-        assert_eq!(
-            spark.get("supported_in_api").and_then(Value::as_bool),
-            Some(true)
-        );
+    fn codex_builtin_catalog_does_not_include_retired_templates() {
+        let catalog = codex_client_model_catalog();
+        let models = catalog["models"].as_array().unwrap();
+        assert!(models.iter().any(|model| model["slug"] == "gpt-6.1-sol"));
+        for model in models {
+            let slug = model["slug"].as_str().unwrap();
+            assert!(!crate::modules::codex_wakeup::is_codex_model_before_5_5(slug), "retired template {slug}");
+        }
     }
 
     #[test]
@@ -1918,6 +1987,7 @@ mod tests {
         assert_eq!(
             managed_codex_model_ids(),
             vec![
+                "gpt-6.1-sol",
                 "gpt-6-astra",
                 "gpt-6-sol",
                 "gpt-6-luna",
@@ -2048,6 +2118,24 @@ mod tests {
     }
 
     #[test]
+    fn gpt_6_1_sol_preserves_catalog_capabilities() {
+        let catalog = build_codex_client_models_response(&["gpt-6.1-sol".into()]);
+        let model = &catalog["models"][0];
+        assert_eq!(model["slug"], "gpt-6.1-sol");
+        assert_eq!(model["display_name"], "GPT-6.1 Sol");
+        assert_eq!(model["context_window"], 272000);
+        assert_eq!(model["max_context_window"], 872000);
+        assert_eq!(model["auto_compact_token_limit"], 244800);
+        assert_eq!(model["default_reasoning_level"], "low");
+        assert_eq!(model["input_modalities"], json!(["text", "image"]));
+        assert!(model["supported_reasoning_levels"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|level| level["effort"] == "ultra"));
+    }
+
+    #[test]
     fn gpt_6_sol_and_luna_preserve_official_catalog_limits_and_reasoning_levels() {
         for (slug, official_name, fallback_name, priority, supports_ultra) in [
             ("gpt-6-sol", "GPT-6 Sol", "GPT-6 Sol", 2, true),
@@ -2167,8 +2255,8 @@ mod tests {
             "gpt-5.6-terra",
             "gpt-5.6-luna",
             "gpt-5.5",
-            "gpt-5.4",
-            "gpt-5.4-mini",
+            "gpt-6.1-sol",
+            "gpt-6-astra",
         ]
         .map(str::to_string);
         let response = build_codex_client_models_response(&model_ids);
@@ -2182,7 +2270,7 @@ mod tests {
 
         assert_eq!(
             priorities,
-            vec![Some(4), Some(7), Some(8), Some(12), Some(16), Some(23)]
+            vec![Some(4), Some(7), Some(8), Some(12), Some(0), Some(1)]
         );
     }
 

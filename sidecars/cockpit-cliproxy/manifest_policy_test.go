@@ -284,7 +284,7 @@ func TestSplitResponsesConcatenatedJSONDocumentsRejectsMalformedPayload(t *testi
 }
 
 func TestCodexClientModelsResponseShape(t *testing.T) {
-	response := buildCodexClientModelsResponse([]string{"gpt-5.4", "gpt-image-2", codexAutoReviewModel}, &apiKeySpec{}, nil, nil)
+	response := buildCodexClientModelsResponse([]string{"gpt-6.1-sol", "gpt-image-2", codexAutoReviewModel}, &apiKeySpec{}, nil, nil)
 	models, ok := response["models"].([]map[string]any)
 	if !ok {
 		t.Fatalf("models response should contain a models array: %#v", response["models"])
@@ -292,7 +292,7 @@ func TestCodexClientModelsResponseShape(t *testing.T) {
 	if len(models) != 3 {
 		t.Fatalf("expected 3 models, got %d", len(models))
 	}
-	textModel := findCodexClientModelForTest(models, "gpt-5.4")
+	textModel := findCodexClientModelForTest(models, "gpt-6.1-sol")
 	imageModel := findCodexClientModelForTest(models, "gpt-image-2")
 	reviewModel := findCodexClientModelForTest(models, codexAutoReviewModel)
 	if textModel == nil || imageModel == nil || reviewModel == nil {
@@ -304,7 +304,7 @@ func TestCodexClientModelsResponseShape(t *testing.T) {
 	if textModel["visibility"] != "list" {
 		t.Fatalf("text model should be listed in Codex client catalog: %#v", textModel)
 	}
-	if textModel["shell_type"] != "shell_command" || textModel["supported_in_api"] != true {
+	if textModel["shell_type"] != "unified_exec" || textModel["supported_in_api"] != true {
 		t.Fatalf("text model should keep required Codex catalog fields: %#v", textModel)
 	}
 	if _, ok := textModel["input_modalities"].([]any); !ok {
@@ -314,9 +314,9 @@ func TestCodexClientModelsResponseShape(t *testing.T) {
 	if tiers, ok := textModel["service_tiers"].([]any); !ok || len(tiers) == 0 {
 		t.Fatalf("text model should keep official service_tiers: %#v", textModel["service_tiers"])
 	}
-	if cw := intFromAny(textModel["max_context_window"]); cw != 1000000 {
-		// gpt-5.4 template uses max_context_window=1000000; ensure we did not wipe it.
-		t.Fatalf("text model max_context_window should keep template value 1000000, got %#v", textModel["max_context_window"])
+	if cw := intFromAny(textModel["max_context_window"]); cw != 872000 {
+		// gpt-6.1-sol template uses max_context_window=872000; ensure we did not wipe it.
+		t.Fatalf("text model max_context_window should keep template value 872000, got %#v", textModel["max_context_window"])
 	}
 	if cw := intFromAny(textModel["context_window"]); cw != 272000 {
 		t.Fatalf("text model context_window should keep template value 272000, got %#v", textModel["context_window"])
@@ -1180,23 +1180,20 @@ func stringFromAny(value any) string {
 	return ""
 }
 
-func TestCodexSparkUsesCompleteCodexClientCatalogTemplate(t *testing.T) {
-	response := buildCodexClientModelsResponse([]string{codexSparkCatalogTemplateModel, codexSparkModel}, &apiKeySpec{}, nil, nil)
+func TestRetiredCodexModelsAreNotNativeShells(t *testing.T) {
+	for _, model := range []string{"gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.3-codex-spark", "gpt-5.2", "gpt-4o", "gpt-4.1"} {
+		if isCodexShellModelID(model) {
+			t.Fatalf("retired model %s is still a built-in shell", model)
+		}
+	}
+	response := buildCodexClientModelsResponse([]string{"gpt-6.1-sol", "gpt-6-luna"}, &apiKeySpec{}, nil, nil)
 	models, ok := response["models"].([]map[string]any)
-	if !ok {
-		t.Fatalf("models response should contain a models array: %#v", response["models"])
+	if !ok || len(models) != 2 {
+		t.Fatalf("unexpected built-in catalog: %#v", response)
 	}
-	template := findCodexClientModelForTest(models, codexSparkCatalogTemplateModel)
-	spark := findCodexClientModelForTest(models, codexSparkModel)
-	if template == nil || spark == nil {
-		t.Fatalf("expected template and Spark models, got %#v", models)
-	}
-	if spark["display_name"] != "GPT-5.3 Codex Spark" || spark["visibility"] != "list" || spark["supported_in_api"] != true {
-		t.Fatalf("Spark should be listed as an API model: %#v", spark)
-	}
-	for _, field := range []string{"available_in_plans", "base_instructions", "minimal_client_version", "model_messages", "prefer_websockets"} {
-		if spark[field] == nil || !reflect.DeepEqual(spark[field], template[field]) {
-			t.Fatalf("Spark should inherit %s from the Codex client template: %#v", field, spark[field])
+	for _, model := range models {
+		if model["slug"] == "gpt-5.3-codex-spark" {
+			t.Fatal("retired Spark must not be injected")
 		}
 	}
 }
@@ -2718,18 +2715,18 @@ func TestSidecarRuntimeRegistersManifestCodexAccessTokenAuths(t *testing.T) {
 
 func TestManifestRegistryModelsPreservesStaticThinkingSupport(t *testing.T) {
 	models := manifestRegistryModels(&manifest{
-		ModelIDs: []string{"gpt-5.2"},
+		ModelIDs: []string{"gpt-6.1-sol"},
 	})
 
-	info := findModelInfoForTest(models, "gpt-5.2")
+	info := findModelInfoForTest(models, "gpt-6.1-sol")
 	if info == nil {
-		t.Fatalf("expected gpt-5.2 in manifest registry models: %#v", models)
+		t.Fatalf("expected gpt-6.1-sol in manifest registry models: %#v", models)
 	}
 	if info.Thinking == nil {
-		t.Fatalf("expected gpt-5.2 to preserve static thinking support: %#v", info)
+		t.Fatalf("expected gpt-6.1-sol to preserve static thinking support: %#v", info)
 	}
 	if !stringSliceContains(info.Thinking.Levels, "high") {
-		t.Fatalf("expected gpt-5.2 thinking levels to include high: %#v", info.Thinking.Levels)
+		t.Fatalf("expected gpt-6.1-sol thinking levels to include high: %#v", info.Thinking.Levels)
 	}
 	if info.UserDefined {
 		t.Fatalf("static model should not be marked user-defined: %#v", info)
@@ -2772,13 +2769,13 @@ func TestManifestRegistryModelsPreservesGpt6ThinkingSupport(t *testing.T) {
 func TestManifestRegistryModelsCopiesSourceThinkingToAliases(t *testing.T) {
 	models := manifestRegistryModels(&manifest{
 		ModelAliases: []modelAliasSpec{{
-			SourceModel: "gpt-5.2",
-			Alias:       "gpt-5.2-codex",
+			SourceModel: "gpt-6.1-sol",
+			Alias:       "custom-sol-alias",
 			Fork:        true,
 		}},
 	})
 
-	alias := findModelInfoForTest(models, "gpt-5.2-codex")
+	alias := findModelInfoForTest(models, "custom-sol-alias")
 	if alias == nil {
 		t.Fatalf("expected alias in manifest registry models: %#v", models)
 	}
@@ -3116,7 +3113,7 @@ func TestRequestUsageTrackerFinalizesWithSelectedAccount(t *testing.T) {
 	}
 }
 
-func TestRequestUsageTrackerSelectedAccountOverridesUsageAccount(t *testing.T) {
+func TestRequestUsageTrackerUsageAccountOverridesLaterSelection(t *testing.T) {
 	tracker := newRequestUsageTracker()
 	tracker.recordSelectedAccount("req-usage", &accountSpec{
 		ID:    "account-selected",
@@ -3140,8 +3137,8 @@ func TestRequestUsageTrackerSelectedAccountOverridesUsageAccount(t *testing.T) {
 	if !ok {
 		t.Fatal("expected finalized usage payload")
 	}
-	if payload.AccountID != "account-selected" || payload.AccountEmail != "selected@example.com" || payload.AuthID != "auth-selected" {
-		t.Fatalf("selected account metadata should win, got %#v", payload)
+	if payload.AccountID != "account-usage" || payload.AccountEmail != "usage@example.com" || payload.AuthID != "auth-usage" {
+		t.Fatalf("usage account metadata must stay with its tokens, got %#v", payload)
 	}
 }
 
@@ -3612,5 +3609,26 @@ func TestCockpitSelectorSkipsExhaustedQuotaForRegularModels(t *testing.T) {
 	selected, err = selector.Pick(context.Background(), "codex", codexReserveModel, cliproxyexecutor.Options{}, []*coreauth.Auth{auth})
 	if err != nil || selected != auth {
 		t.Fatalf("reserve model should keep its independent quota path: selected=%v err=%v", selected, err)
+	}
+}
+
+func TestGPT61SolNativeCatalogAndOllamaCapabilities(t *testing.T) {
+	if !isCodexShellModelID("gpt-6.1-sol") {
+		t.Fatal("GPT-6.1 Sol must retain native identity")
+	}
+	if got := ollamaContextLength("gpt-6.1-sol"); got != 272000 {
+		t.Fatalf("context: %d", got)
+	}
+	if got := ollamaModelFamily("gpt-6.1-sol"); got != "gpt-6.1-sol" {
+		t.Fatalf("family: %s", got)
+	}
+	if got := ollamaDefaultReasoningEffort("gpt-6.1-sol"); got != "low" {
+		t.Fatalf("default effort: %s", got)
+	}
+	if !reflect.DeepEqual(ollamaReasoningEfforts("gpt-6.1-sol"), []string{"low", "medium", "high", "xhigh", "max", "ultra"}) {
+		t.Fatal("missing official reasoning levels")
+	}
+	if officialAutomaticModelDisplayName("gpt-6.1-sol") != "GPT-6.1 Sol" || displayNameForModel("gpt-6.1-sol") != "GPT-6.1 Sol" {
+		t.Fatal("incorrect display name")
 	}
 }

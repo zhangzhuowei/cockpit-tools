@@ -22,6 +22,7 @@ type codexClientModelsPayload struct {
 // locallyPinnedCodexClientModelSlugs lists the shipped Codex client models that
 // must stay in the catalog even when a remote registry lags behind.
 var locallyPinnedCodexClientModelSlugs = []string{
+	codexBuiltinGPT61SolModelID,
 	codexBuiltinGPT6AstraModelID,
 	codexBuiltinGPT6SolModelID,
 	codexBuiltinGPT6LunaModelID,
@@ -43,6 +44,33 @@ func mergeLocallyPinnedCodexClientModels(data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("decode remote Codex client models: %w", err)
 	}
 
+	active := make([]map[string]any, 0, len(models))
+	for _, model := range models {
+		if !isRetiredCodexModelID(fmt.Sprint(model["slug"])) {
+			active = append(active, model)
+		}
+	}
+	retiredRemoved := len(active) != len(models)
+	models = active
+	if raw, exists := document["model_overrides"]; exists {
+		var overrides []map[string]any
+		if json.Unmarshal(raw, &overrides) == nil {
+			activeOverrides := make([]map[string]any, 0, len(overrides))
+			for _, model := range overrides {
+				if !isRetiredCodexModelID(fmt.Sprint(model["slug"])) {
+					activeOverrides = append(activeOverrides, model)
+				}
+			}
+			if len(activeOverrides) != len(overrides) {
+				retiredRemoved = true
+				encoded, err := json.Marshal(activeOverrides)
+				if err != nil {
+					return nil, fmt.Errorf("encode filtered model overrides: %w", err)
+				}
+				document["model_overrides"] = encoded
+			}
+		}
+	}
 	presentSlugs := make(map[string]struct{}, len(models))
 	for _, model := range models {
 		presentSlugs[strings.ToLower(strings.TrimSpace(fmt.Sprint(model["slug"])))] = struct{}{}
@@ -53,7 +81,7 @@ func mergeLocallyPinnedCodexClientModels(data []byte) ([]byte, error) {
 			missingSlugs = append(missingSlugs, slug)
 		}
 	}
-	if len(missingSlugs) == 0 {
+	if len(missingSlugs) == 0 && !retiredRemoved {
 		return append([]byte(nil), data...), nil
 	}
 

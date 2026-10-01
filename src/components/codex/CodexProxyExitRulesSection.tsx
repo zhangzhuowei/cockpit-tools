@@ -77,7 +77,7 @@ export function CodexProxyExitRulesSection() {
             </tr></thead>
             <tbody>{eligible.map((entry) => {
               const binding = saved(entry);
-              const mode = resolveExitMode(binding, state, following.has(entry.id));
+              const mode = resolveExitMode(binding, state, following.has(entry.id), entry.egress_proxy_disabled);
               const cell = cells(binding);
               const follows = following.has(entry.id);
               return <tr key={entry.id} onClick={() => openAccount(entry.id)}>

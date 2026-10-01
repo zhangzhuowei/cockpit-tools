@@ -95,6 +95,46 @@ pub struct EngineController {
     pub(crate) tunnel_id: uuid::Uuid,
 }
 
+/// Private sidecar manifest metadata. Never expose controller credentials via
+/// runtime status, request logs or frontend commands.
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RequestRouteObserver {
+    pub proxy_url: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub mapping_url: String,
+    pub controller_url: String,
+    pub controller_secret: String,
+    pub node_names: BTreeMap<String, String>,
+    pub proxy_name: String,
+}
+
+fn request_route_observer(
+    proxy_url: &str,
+    controller: &EngineController,
+    selection: Option<&SelectionReader>,
+) -> RequestRouteObserver {
+    let node_names = selection
+        .map(|reader| {
+            reader.names.iter()
+                .filter(|(tag, _)| !reader.groups.contains_key(*tag))
+                .map(|(tag, name)| (tag.clone(), name.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let proxy_url = url::Url::parse(proxy_url).ok().and_then(|url| {
+        Some(format!("{}://{}:{}", url.scheme(), url.host_str()?, url.port_or_known_default()?))
+    }).unwrap_or_default();
+    RequestRouteObserver {
+        mapping_url: String::new(),
+        proxy_url,
+        controller_url: controller.endpoint.clone(),
+        controller_secret: controller.secret.clone(),
+        node_names,
+        proxy_name: String::new(),
+    }
+}
+
 /// Clone before releasing the runtime lock; all HTTP work happens without that lock.
 #[derive(Clone)]
 pub struct SelectionReader {
@@ -102,6 +142,7 @@ pub struct SelectionReader {
     secret: String,
     names: BTreeMap<String, String>,
     groups: BTreeMap<String, Vec<String>>,
+    measured: Arc<Mutex<HashMap<(String, String), ProxySelection>>>,
 }
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -121,7 +162,39 @@ fn selection_history(name: String, value: &Value) -> ProxySelection {
     ProxySelection { name, delay_ms, checked_at }
 }
 
+const CURRENT_DELAY_URL: &str = "https://www.gstatic.com/generate_204";
+
 impl SelectionReader {
+    pub(crate) async fn latency_target(&self) -> Result<Option<(String, String)>, String> {
+        self.selected_tag().await?.map(|(tag, url)| {
+            Ok((tag, validate_delay_url(url.as_deref().unwrap_or(CURRENT_DELAY_URL))?))
+        }).transpose()
+    }
+
+    pub(crate) async fn measure_current_delay(&self, controller: &EngineController)
+        -> Result<((String, String), Result<u64, String>), String> {
+        let target = self.latency_target().await?.ok_or("PROXY_LATENCY_NOT_RUNNING")?;
+        let result = controller.measure_leaf_delay(&target.0, &target.1).await;
+        if self.latency_target().await?.as_ref() != Some(&target) {
+            return Err("PROXY_BINDING_CHANGED".into());
+        }
+        Ok((target, result))
+    }
+
+    pub(crate) fn record_latency(&self, target: (String, String), delay_ms: Option<u64>) {
+        let Some(name) = self.names.get(&target.0).cloned() else { return; };
+        if let Ok(mut measured) = self.measured.lock() {
+            measured.insert(target, ProxySelection {
+                name, delay_ms, checked_at: Some(chrono::Utc::now().timestamp_millis()),
+            });
+        }
+    }
+
+    fn latest_latency(&self, target: &(String, String), history: ProxySelection) -> ProxySelection {
+        self.measured.lock().ok().and_then(|measured| measured.get(target)
+            .filter(|sample| sample.checked_at >= history.checked_at).cloned()).unwrap_or(history)
+    }
+
     pub async fn selected_node(&self) -> Result<Option<String>, String> {
         Ok(self.selected_tag().await?.and_then(|(tag, _)| self.names.get(&tag).cloned()))
     }
@@ -147,7 +220,8 @@ impl SelectionReader {
                 serde_json::from_slice::<Value>(&bytes).map_err(|_| ())
             }.await.unwrap_or(Value::Null);
             let history = test_url.as_deref().and_then(|url| history["extra"].get(url)).unwrap_or(&history);
-            Ok(Some(selection_history(name, history)))
+            let target = (tag, validate_delay_url(test_url.as_deref().unwrap_or(CURRENT_DELAY_URL))?);
+            Ok(Some(self.latest_latency(&target, selection_history(name, history))))
         }).await.map_err(|_| "PROXY_STATUS_FAILED".to_string())?
     }
 
@@ -225,6 +299,11 @@ impl NodeTunnel {
             .lock()
             .is_ok_and(|mut child| matches!(child.try_wait(), Ok(None)))
     }
+    /// Reclamation must preserve a child whose state cannot be read immediately.
+    pub(crate) fn try_is_running(&self) -> Option<bool> {
+        self.child.try_lock().ok()?.try_wait().ok().map(|status| status.is_none())
+    }
+
     pub fn proxy_url(&self) -> &str {
         &self.proxy_url
     }
@@ -232,8 +311,14 @@ impl NodeTunnel {
     pub fn selection_reader(&self) -> Option<SelectionReader> {
         self.selection.clone()
     }
+    pub(crate) fn diagnostic_id(&self) -> uuid::Uuid { self.id }
+
     pub fn controller(&self) -> EngineController {
         self.controller.clone()
+    }
+
+    pub(crate) fn request_route_observer(&self) -> RequestRouteObserver {
+        request_route_observer(&self.proxy_url, &self.controller, self.selection.as_ref())
     }
     pub async fn selected_node(&self) -> Result<Option<String>, String> {
         match &self.selection {
@@ -243,6 +328,7 @@ impl NodeTunnel {
     }
 
     pub async fn stop(self) -> Result<(), String> {
+        super::logger::log_info(&format!("[ProxyEngine] stop_requested: tunnel_id={}, reason=explicit_stop", self.id));
         self.child
             .lock()
             .map_err(|_| "PROXY_ENGINE_STOP_FAILED")?
@@ -270,6 +356,7 @@ impl NodeTunnel {
 
 impl Drop for NodeTunnel {
     fn drop(&mut self) {
+        super::logger::log_info(&format!("[ProxyEngine] stop_requested: tunnel_id={}, reason=lease_drop", self.id));
         for reader in self.error_readers.drain(..) {
             reader.abort();
         }
@@ -290,12 +377,13 @@ pub fn shutdown_all() {
         .lock()
         .map(|children| {
             children
-                .values()
-                .filter_map(Weak::upgrade)
+                .iter()
+                .filter_map(|(id, child)| child.upgrade().map(|child| (*id, child)))
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    for child in children {
+    for (id, child) in children {
+        super::logger::log_info(&format!("[ProxyEngine] stop_requested: tunnel_id={id}, reason=host_shutdown"));
         if let Ok(mut child) = child.lock() {
             let _ = child.start_kill();
         }
@@ -519,8 +607,12 @@ pub async fn start(input: &str) -> Result<NodeTunnel, String> {
         return start_resource(input, false, false).await;
     }
     let outbound = crate::modules::codex_proxy_node_parser::parse_node_link(input)?;
+    let name = url::Url::parse(input).ok().and_then(|url| url.fragment()
+        .and_then(|name| urlencoding::decode(name).ok()).map(|name| name.into_owned()))
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| format!("{}:{}", outbound["server"].as_str().unwrap_or_default(), outbound["server_port"]));
     let binary = engine_path_async().await?;
-    start_with_binary(&binary, outbound).await
+    start_with_binary_named(&binary, outbound, false, Some(BTreeMap::from([("account-node".into(), name)]))).await
 }
 
 /// A latency check gets its own authenticated controller and process. Unified
@@ -719,6 +811,7 @@ async fn start_inner(
             secret: secret.clone(),
             names,
             groups,
+            measured: Default::default(),
         })
     } else {
         None
@@ -738,23 +831,33 @@ async fn start_inner(
     let mut stdin = child.stdin.take().ok_or("PROXY_ENGINE_START_FAILED")?;
     let error = Arc::new(AtomicU8::new(0));
     let mut error_readers = Vec::new();
-    if let Some(stdout) = child.stdout.take() {
+    let id = uuid::Uuid::new_v4();
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    super::logger::log_info(&format!("[ProxyEngine] process_started: tunnel_id={id}, pid={:?}, local_port={port}", child.id()));
+    let child = Arc::new(Mutex::new(child));
+    if let Some(stdout) = stdout {
         error_readers.push(super::codex_proxy_engine_errors::read(
             stdout,
             error.clone(),
+            id,
+            "stdout",
+            Some(Arc::downgrade(&child)),
         ));
     }
-    if let Some(stderr) = child.stderr.take() {
+    if let Some(stderr) = stderr {
         error_readers.push(super::codex_proxy_engine_errors::read(
             stderr,
             error.clone(),
+            id,
+            "stderr",
+            Some(Arc::downgrade(&child)),
         ));
     }
-    let id = uuid::Uuid::new_v4();
     let tunnel = NodeTunnel {
         error,
         error_readers,
-        child: Arc::new(Mutex::new(child)),
+        child,
         id,
         _engine_lease: engine_lease,
         _runtime_dir: runtime_dir,
@@ -828,6 +931,83 @@ async fn start_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn request_route_observer_contains_only_leaf_names_and_private_controller_metadata() {
+        let controller = EngineController {
+            endpoint: "http://127.0.0.1:56789".into(),
+            secret: "private-controller-secret".into(),
+            tunnel_id: uuid::Uuid::nil(),
+        };
+        let selection = SelectionReader {
+            endpoint: controller.endpoint.clone(),
+            secret: controller.secret.clone(),
+            measured: Default::default(),
+            names: BTreeMap::from([
+                ("account-node".into(), "Subscription".into()),
+                ("balance".into(), "Load balancing".into()),
+                ("auto".into(), "Automatic".into()),
+                ("leaf-a".into(), "Tokyo".into()),
+                ("leaf-b".into(), "Singapore".into()),
+            ]),
+            groups: BTreeMap::from([
+                ("account-node".into(), vec!["balance".into()]),
+                ("balance".into(), vec!["auto".into(), "leaf-b".into()]),
+                ("auto".into(), vec!["leaf-a".into()]),
+            ]),
+        };
+        let observer = request_route_observer(
+            "socks5h://private-user:private-password@127.0.0.1:45678/?private-query#private-fragment",
+            &controller,
+            Some(&selection),
+        );
+        assert_eq!(observer.proxy_url, "socks5h://127.0.0.1:45678");
+        assert_eq!(observer.node_names, BTreeMap::from([
+            ("leaf-a".into(), "Tokyo".into()),
+            ("leaf-b".into(), "Singapore".into()),
+        ]));
+        let manifest = serde_json::to_value(&observer).unwrap();
+        assert_eq!(manifest["controllerUrl"], controller.endpoint);
+        assert_eq!(manifest["controllerSecret"], controller.secret);
+        for private_part in ["private-user", "private-password", "private-query", "private-fragment"] {
+            assert!(!manifest.to_string().contains(private_part));
+        }
+
+        // Public log/selection DTOs carry the leaf name, never this private manifest.
+        let route = crate::models::codex_local_access::CodexLocalAccessProxyRoute {
+            kind: "node".into(),
+            name: observer.node_names["leaf-a"].clone(),
+        };
+        assert_eq!(serde_json::to_value(route).unwrap(), json!({"kind":"node","name":"Tokyo"}));
+        let public_selection = ProxySelection {
+            name: observer.node_names["leaf-b"].clone(),
+            delay_ms: None,
+            checked_at: None,
+        };
+        let public_json = serde_json::to_string(&public_selection).unwrap();
+        assert!(!public_json.contains(&controller.secret));
+        assert!(!public_json.contains(&controller.endpoint));
+    }
+
+    #[test]
+    fn request_route_observer_without_selection_does_not_invent_a_leaf() {
+        let controller = EngineController {
+            endpoint: "http://127.0.0.1:56789".into(),
+            secret: "private-controller-secret".into(),
+            tunnel_id: uuid::Uuid::nil(),
+        };
+        for (raw, expected) in [
+            ("http://user:password@[::1]:8080/path?token=secret#fragment", "http://[::1]:8080"),
+            ("http://user:password@localhost", "http://localhost:80"),
+            ("invalid secret input", ""),
+        ] {
+            let observer = request_route_observer(raw, &controller, None);
+            assert_eq!(observer.proxy_url, expected);
+            assert!(observer.node_names.is_empty());
+            assert!(observer.proxy_name.is_empty());
+        }
+    }
+
     #[test]
     fn selected_latency_keeps_the_latest_leaf_check_and_never_invents_zero() {
         let history = json!({"alive":true,"history":[
@@ -863,7 +1043,7 @@ mod tests {
                 socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).as_bytes()).await.unwrap();
             }
         });
-        let reader = SelectionReader { endpoint, secret:"test-secret".into(),
+        let reader = SelectionReader { endpoint, secret:"test-secret".into(), measured: Default::default(),
             names:BTreeMap::from([("leaf".into(),"US".into())]),
             groups:BTreeMap::from([("account-node".into(),vec!["leaf".into()])]) };
         let info = reader.selected_info().await.unwrap().unwrap();
@@ -930,6 +1110,7 @@ mod tests {
         let reader = SelectionReader {
             endpoint,
             secret: "local-secret".into(),
+            measured: Default::default(),
             names: BTreeMap::from([("leaf".into(), "Tokyo".into())]),
             groups: BTreeMap::from([
                 ("account-node".into(), vec!["auto".into()]),
@@ -1606,3 +1787,7 @@ mod tests {
             .any(|path| path == Path::new("/usr/lib/cockpit_tools/proxy-engine/mihomo")));
     }
 }
+
+#[cfg(test)]
+#[path = "codex_proxy_engine_current_latency_tests.rs"]
+mod current_latency_tests;

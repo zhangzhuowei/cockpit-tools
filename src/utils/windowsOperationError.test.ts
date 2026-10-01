@@ -108,3 +108,15 @@ test("keeps the Store launch code distinct from a plain access denied error", ()
   assert.equal(parsed?.code, "access_denied");
   assert.deepEqual(parsed?.diagnostics, []);
 });
+
+test("reports Store identity confirmation failures without suggesting elevation", () => {
+  const parsed = parseWindowsOperationError(
+    "CODEX_MANAGED_STORE_LAUNCH_UNSAFE:direct_error=not attempted for registered Store packages; powershell_error=GetPackageFamilyName pid=32820: win32=15700; launch_path=C:\\WindowsApps\\Codex\\app\\ChatGPT.exe; launch_stage=confirmation; codex_home=C:\\isolated",
+    { platform: "Win32", operation: "launch_app" },
+  );
+  assert.equal(parsed?.code, "codex_store_launch_blocked");
+  assert.equal(parsed?.retryable, true);
+  assert.equal(parsed?.canElevate, false);
+  assert.equal(parsed?.manualActionAvailable, false);
+  assert.ok(parsed?.diagnostics.some((item) => item.label === "launch_stage" && item.value === "confirmation"));
+});

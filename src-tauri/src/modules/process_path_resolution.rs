@@ -760,86 +760,6 @@ fn is_codex_macos_main_process_command_line(lower_cmdline: &str) -> bool {
         || lower_cmdline.contains("codex.app/contents/macos/codex")
 }
 
-#[cfg(any(test, target_os = "macos", target_os = "linux"))]
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct CodexProcessTreeEntry {
-    pid: u32,
-    parent_pid: u32,
-    command_line: String,
-}
-
-#[cfg(any(test, target_os = "macos", target_os = "linux"))]
-fn is_codex_direct_app_server_command_line(
-    command_line: &str,
-    expected_resource_executable: &str,
-) -> bool {
-    let command_line = command_line.trim();
-    let expected = expected_resource_executable.trim();
-    if command_line.is_empty() || expected.is_empty() {
-        return false;
-    }
-
-    let remainder = if let Some(remainder) = command_line.strip_prefix(expected) {
-        remainder
-    } else {
-        let quoted = format!("\"{}\"", expected);
-        let Some(remainder) = command_line.strip_prefix(&quoted) else {
-            return false;
-        };
-        remainder
-    };
-    let args = remainder.trim_start();
-    let Some(after_app_server) = args.strip_prefix("app-server") else {
-        return false;
-    };
-    if !after_app_server.is_empty() && !after_app_server.starts_with(char::is_whitespace) {
-        return false;
-    }
-    !after_app_server.trim_start().starts_with("daemon")
-}
-
-#[cfg(any(test, target_os = "macos", target_os = "linux"))]
-fn select_codex_direct_app_server_descendants(
-    entries: &[CodexProcessTreeEntry],
-    root_pids: &[u32],
-    expected_resource_executable: &str,
-) -> Vec<u32> {
-    let roots: HashSet<u32> = root_pids.iter().copied().filter(|pid| *pid != 0).collect();
-    if roots.is_empty() {
-        return Vec::new();
-    }
-    let parents: HashMap<u32, u32> = entries
-        .iter()
-        .map(|entry| (entry.pid, entry.parent_pid))
-        .collect();
-    let mut selected = Vec::new();
-
-    for entry in entries {
-        if !is_codex_direct_app_server_command_line(
-            &entry.command_line,
-            expected_resource_executable,
-        ) {
-            continue;
-        }
-        let mut current = entry.parent_pid;
-        let mut visited = HashSet::new();
-        while current != 0 && visited.insert(current) {
-            if roots.contains(&current) {
-                selected.push(entry.pid);
-                break;
-            }
-            let Some(parent) = parents.get(&current) else {
-                break;
-            };
-            current = *parent;
-        }
-    }
-
-    selected.sort();
-    selected.dedup();
-    selected
-}
-
 #[cfg(target_os = "macos")]
 fn resolve_codex_macos_exec_path(path_str: &str) -> Option<std::path::PathBuf> {
     resolve_macos_exec_path(path_str, "ChatGPT")
@@ -1135,7 +1055,7 @@ pub fn detect_antigravity_exec_path() -> Option<std::path::PathBuf> {
             candidates.push(base.join("antigravity-ide.exe"));
         }
         for candidate in candidates {
-            if candidate.exists() {
+            if can_probe_passive_windows_path(&candidate.to_string_lossy()) && candidate.exists() {
                 return Some(candidate);
             }
         }
@@ -1198,7 +1118,7 @@ pub fn detect_antigravity_legacy_exec_path() -> Option<std::path::PathBuf> {
             candidates.push(base.join("Electron.exe"));
         }
         for candidate in candidates {
-            if candidate.exists() {
+            if can_probe_passive_windows_path(&candidate.to_string_lossy()) && candidate.exists() {
                 return Some(candidate);
             }
         }
@@ -1274,7 +1194,7 @@ fn detect_vscode_exec_path() -> Option<std::path::PathBuf> {
             );
         }
         for candidate in candidates {
-            if candidate.exists() {
+            if can_probe_passive_windows_path(&candidate.to_string_lossy()) && candidate.exists() {
                 return Some(candidate);
             }
         }
@@ -1352,7 +1272,7 @@ fn detect_codebuddy_exec_path() -> Option<std::path::PathBuf> {
             );
         }
         for candidate in candidates {
-            if candidate.exists() {
+            if can_probe_passive_windows_path(&candidate.to_string_lossy()) && candidate.exists() {
                 return Some(candidate);
             }
         }
@@ -1423,7 +1343,7 @@ fn detect_codebuddy_cn_exec_path() -> Option<std::path::PathBuf> {
             );
         }
         for candidate in candidates {
-            if candidate.exists() {
+            if can_probe_passive_windows_path(&candidate.to_string_lossy()) && candidate.exists() {
                 return Some(candidate);
             }
         }
@@ -1482,7 +1402,7 @@ fn detect_qoder_exec_path() -> Option<std::path::PathBuf> {
             );
         }
         for candidate in candidates {
-            if candidate.exists() {
+            if can_probe_passive_windows_path(&candidate.to_string_lossy()) && candidate.exists() {
                 return Some(candidate);
             }
         }
@@ -1529,7 +1449,9 @@ fn detect_zcode_exec_path() -> Option<std::path::PathBuf> {
                 candidates.push(std::path::PathBuf::from(root).join("ZCode/ZCode.exe"));
             }
         }
-        if let Some(path) = candidates.into_iter().find(|path| path.is_file()) {
+        if let Some(path) = candidates.into_iter().find(|path| {
+            can_probe_passive_windows_path(&path.to_string_lossy()) && path.is_file()
+        }) {
             return Some(path);
         }
         if let Some(path) = detect_windows_exec_path_by_signatures(
@@ -1603,7 +1525,7 @@ fn detect_zed_exec_path() -> Option<std::path::PathBuf> {
             );
         }
         for candidate in candidates {
-            if candidate.exists() {
+            if can_probe_passive_windows_path(&candidate.to_string_lossy()) && candidate.exists() {
                 return Some(candidate);
             }
         }
@@ -1710,7 +1632,10 @@ fn detect_trae_exec_path_for_platform(
             }
         }
         for candidate in candidates {
-            if candidate.exists() && windows_trae_candidate_matches_platform(&candidate, platform) {
+            if can_probe_passive_windows_path(&candidate.to_string_lossy())
+                && candidate.exists()
+                && windows_trae_candidate_matches_platform(&candidate, platform)
+            {
                 return Some(candidate);
             }
         }
@@ -1784,7 +1709,7 @@ fn detect_workbuddy_exec_path() -> Option<std::path::PathBuf> {
             );
         }
         for candidate in candidates {
-            if candidate.exists() {
+            if can_probe_passive_windows_path(&candidate.to_string_lossy()) && candidate.exists() {
                 return Some(candidate);
             }
         }
@@ -2392,19 +2317,6 @@ fn detect_codex_store_app_user_model_id() -> Option<String> {
 }
 
 #[cfg(target_os = "windows")]
-fn powershell_argument_list_clause(values: &[String]) -> String {
-    let arguments = values
-        .iter()
-        .filter(|value| !value.trim().is_empty())
-        .map(|value| format!("'{}'", escape_powershell_single_quoted(value)))
-        .collect::<Vec<_>>();
-    if arguments.is_empty() {
-        return String::new();
-    }
-    format!(" -ArgumentList @({})", arguments.join(", "))
-}
-
-#[cfg(target_os = "windows")]
 fn launch_codex_via_store_app_user_model_id(
     app_user_model_id: &str,
     codex_home: Option<&str>,
@@ -2417,319 +2329,25 @@ fn launch_codex_via_store_app_user_model_id(
         return Err("Codex AppUserModelId 为空".to_string());
     }
 
-    let escaped = escape_powershell_single_quoted(app_user_model_id);
-    let mut env_pairs: Vec<(&str, String)> = managed_proxy_env_pairs();
-    if let Some(codex_home) = codex_home.map(str::trim).filter(|value| !value.is_empty()) {
-        env_pairs.push(("CODEX_HOME", codex_home.to_string()));
-    }
-    if let Some(app_user_data_dir) = app_user_data_dir
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        env_pairs.push((
-            "CODEX_ELECTRON_USER_DATA_PATH",
-            app_user_data_dir.to_string(),
-        ));
-    }
-    for (key, value) in extra_env {
-        env_pairs.push((key.as_str(), value.clone()));
-    }
-    let env_lines = env_pairs
-        .into_iter()
-        .map(|(key, value)| format!("$env:{}='{}'", key, escape_powershell_single_quoted(&value)))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let argument_list = powershell_argument_list_clause(extra_args);
-    let script = format!(
-        r#"{env_lines}
-$appId='{escaped}';
-$target='shell:AppsFolder\' + $appId
-Start-Process -FilePath $target{argument_list} -ErrorAction Stop | Out-Null"#
-    );
-
-    let output = powershell_output(&["-Command", &script])
-        .map_err(|e| format!("系统入口启动调用失败: {}", e))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stderr_head = stderr.trim().chars().take(400).collect::<String>();
-        return Err(format!(
-            "系统入口启动失败: status={}, stderr={}",
-            output.status,
-            if stderr_head.is_empty() {
-                "<empty>".to_string()
-            } else {
-                stderr_head
-            }
-        ));
-    }
-    Ok(())
-}
-
-#[cfg(target_os = "windows")]
-fn launch_codex_via_powershell_exec_path(
-    launch_path: &std::path::Path,
-    codex_home: &str,
-    app_user_data_dir: &std::path::Path,
-    extra_args: &[String],
-    extra_env: &[(String, String)],
-) -> Result<(), String> {
-    let launch_path = launch_path.to_string_lossy();
-    let launch_path = launch_path.trim();
-    if launch_path.is_empty() {
-        return Err("Codex 启动路径为空".to_string());
-    }
-
-    let mut env_pairs: Vec<(String, String)> = managed_proxy_env_pairs()
+    let probe = build_codex_default_registered_launch_probe(app_user_model_id)?;
+    let package = parse_codex_registered_launch(&codex_launch_powershell_output(&probe)?)?
+        .ok_or_else(|| "No registered Codex GUI application".to_string())?;
+    let mut env_pairs = managed_proxy_env_pairs()
         .into_iter()
         .map(|(key, value)| (key.to_string(), value))
-        .collect();
-    env_pairs.push(("CODEX_HOME".to_string(), codex_home.to_string()));
-    env_pairs.push((
-        "CODEX_ELECTRON_USER_DATA_PATH".to_string(),
-        app_user_data_dir.to_string_lossy().to_string(),
-    ));
-    // 临时登录的主进程注入（NODE_OPTIONS）等附加环境变量必须一起传下去，
-    // 否则 WindowsApps 直启被拒时改走 PowerShell 启动会静默丢掉注入。
-    for (key, value) in extra_env {
-        env_pairs.push((key.clone(), value.clone()));
-    }
-    let env_lines = env_pairs
-        .into_iter()
-        .map(|(key, value)| format!("$env:{}='{}'", key, escape_powershell_single_quoted(&value)))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let argument_list = powershell_argument_list_clause(extra_args);
-    let script = format!(
-        r#"{env_lines}
-$exe='{exe}';
-Start-Process -FilePath $exe{argument_list} -ErrorAction Stop | Out-Null"#,
-        exe = escape_powershell_single_quoted(launch_path),
+        .collect::<Vec<_>>();
+    env_pairs.extend_from_slice(extra_env);
+    let script = build_codex_package_launch_script(
+        &package,
+        codex_home.map(str::trim).filter(|value| !value.is_empty()),
+        app_user_data_dir
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(Path::new),
+        extra_args,
+        &env_pairs,
     );
-
-    let output = powershell_output(&["-Command", &script])
-        .map_err(|e| format!("PowerShell 启动 Codex 失败: {}", e))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stderr_head = stderr.trim().chars().take(400).collect::<String>();
-        return Err(format!(
-            "PowerShell 启动 Codex 失败: status={}, stderr={}",
-            output.status,
-            if stderr_head.is_empty() {
-                "<empty>".to_string()
-            } else {
-                stderr_head
-            }
-        ));
-    }
-    Ok(())
-}
-
-/// 按 `CreateProcess` 的解析规则引用单个 Windows 命令行参数。
-///
-/// Electron 的启动参数常含空格与引号（`--user-data-dir=C:\Users\some user\...`），
-/// 拼进 `ProcessStartInfo.Arguments` 时必须按同一套规则转义，否则会被拆成多个参数。
-#[cfg(any(test, target_os = "windows"))]
-fn quote_windows_command_argument(argument: &str) -> String {
-    if !argument.is_empty() && !argument.contains([' ', '\t', '\n', '\u{b}', '"']) {
-        return argument.to_string();
-    }
-    let mut quoted = String::with_capacity(argument.len() + 2);
-    quoted.push('"');
-    let mut pending_backslashes = 0usize;
-    for ch in argument.chars() {
-        match ch {
-            '\\' => pending_backslashes += 1,
-            '"' => {
-                // 引号前的反斜杠要加倍，引号自身再转义一个。
-                for _ in 0..(pending_backslashes * 2 + 1) {
-                    quoted.push('\\');
-                }
-                quoted.push('"');
-                pending_backslashes = 0;
-            }
-            _ => {
-                for _ in 0..pending_backslashes {
-                    quoted.push('\\');
-                }
-                pending_backslashes = 0;
-                quoted.push(ch);
-            }
-        }
-    }
-    // 结尾反斜杠必须加倍，否则会把收尾引号转义掉。
-    for _ in 0..(pending_backslashes * 2) {
-        quoted.push('\\');
-    }
-    quoted.push('"');
-    quoted
-}
-
-/// 从商店包启动路径反推包的 `InstallLocation`。
-///
-/// 启动路径形如 `<InstallLocation>\app\ChatGPT.exe`，因此去掉两级即安装根目录；
-/// 非商店路径返回 `None`。
-///
-/// 这里按文本解析而不是 `Path::parent()`：该函数只处理 Windows 路径，而
-/// `Path::parent()` 在非 Windows 主机（单元测试）上不会把 `\` 当分隔符。
-#[cfg(any(test, target_os = "windows"))]
-fn windowsapps_install_location_from_launch_path(launch_path: &Path) -> Option<String> {
-    if !is_windowsapps_launch_path(launch_path) {
-        return None;
-    }
-    let normalized = launch_path.to_string_lossy().replace('/', "\\");
-    let trimmed = normalized.trim_end_matches('\\');
-    let install_location = trimmed.rsplitn(3, '\\').nth(2)?;
-    let text = install_location.trim().to_string();
-    if text.is_empty() {
-        return None;
-    }
-    Some(text)
-}
-
-/// 把脚本编码成 `powershell.exe -EncodedCommand` 需要的 UTF-16LE + Base64。
-///
-/// 内层脚本里既有中文错误文案又有引号与反斜杠，直接用 `-Command` 传会被外层
-/// 解析一次、内层再解析一次，`-EncodedCommand` 可以完全绕开这层转义问题。
-#[cfg(target_os = "windows")]
-fn encode_powershell_encoded_command(script: &str) -> String {
-    use base64::{engine::general_purpose, Engine as _};
-    let mut bytes = Vec::with_capacity(script.len() * 2);
-    for unit in script.encode_utf16() {
-        bytes.extend_from_slice(&unit.to_le_bytes());
-    }
-    general_purpose::STANDARD.encode(bytes)
-}
-
-/// 用**包身份**（`Invoke-CommandInDesktopPackage`）启动商店版 Codex 受管实例。
-///
-/// Windows 会拒绝包外进程直接执行 `C:\Program Files\WindowsApps\...` 里的可执行文件
-/// （`os error 5` / `Access is denied`），PowerShell 的 `Start-Process` 同样被拒——两者
-/// 都是同一层内核检查，换启动器没有用。而 `shell:AppsFolder` 系统入口虽然能起进程，
-/// 却无法传递 `CODEX_HOME`，会把受管实例指到默认账号上（因此不能作为兜底）。
-///
-/// 这里的做法是：以该包的身份激活一个 `powershell.exe`，在其中设置好环境变量后，
-/// 用 `ProcessStartInfo`（`UseShellExecute = $false`）拉起官方客户端。子进程继承该
-/// 进程的环境，所以 `CODEX_HOME`、隔离的 user-data 目录以及临时登录注入用的
-/// `NODE_OPTIONS` 都能完整传到官方进程。
-///
-/// 注意：`Start-Process` 在这里**不可用**——它走 `ShellExecuteEx`，会丢掉自定义环境变量，
-/// 表现为客户端起来了但读的还是默认账号（实测注入脚本不执行、`CODEX_HOME` 为空）。
-#[cfg(target_os = "windows")]
-fn launch_codex_via_package_identity(
-    launch_path: &Path,
-    codex_home: &str,
-    app_user_data_dir: &Path,
-    extra_args: &[String],
-    extra_env: &[(String, String)],
-) -> Result<(), String> {
-    let Some(install_location) = windowsapps_install_location_from_launch_path(launch_path) else {
-        return Err("启动路径不在 WindowsApps 商店包目录内，无法使用包身份启动".to_string());
-    };
-
-    let mut env_pairs: Vec<(String, String)> = managed_proxy_env_pairs()
-        .into_iter()
-        .map(|(key, value)| (key.to_string(), value))
-        .collect();
-    env_pairs.push(("CODEX_HOME".to_string(), codex_home.to_string()));
-    env_pairs.push((
-        "CODEX_ELECTRON_USER_DATA_PATH".to_string(),
-        app_user_data_dir.to_string_lossy().to_string(),
-    ));
-    // 临时登录的主进程注入（NODE_OPTIONS）必须一起传下去，否则官方客户端不会
-    // 把授权地址写进采集文件，用户点了「继续登录」只会看到浏览器被打开。
-    for (key, value) in extra_env {
-        env_pairs.push((key.clone(), value.clone()));
-    }
-
-    let mut launch_args = build_codex_app_launch_args(extra_args);
-    launch_args.push(format!(
-        "--user-data-dir={}",
-        app_user_data_dir.to_string_lossy()
-    ));
-    let argument_line = launch_args
-        .iter()
-        .map(|arg| quote_windows_command_argument(arg))
-        .collect::<Vec<_>>()
-        .join(" ");
-
-    let env_lines = env_pairs
-        .into_iter()
-        .map(|(key, value)| {
-            format!(
-                "$env:{} = '{}'",
-                key,
-                escape_powershell_single_quoted(&value)
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    let inner_script = format!(
-        r#"$ErrorActionPreference = 'Stop'
-{env_lines}
-$psi = New-Object System.Diagnostics.ProcessStartInfo
-$psi.FileName = '{exe}'
-$psi.UseShellExecute = $false
-$psi.Arguments = '{arguments}'
-[void][System.Diagnostics.Process]::Start($psi)"#,
-        env_lines = env_lines,
-        exe = escape_powershell_single_quoted(&launch_path.to_string_lossy()),
-        arguments = escape_powershell_single_quoted(&argument_line),
-    );
-    let encoded_command = encode_powershell_encoded_command(&inner_script);
-
-    // 外层按启动路径解析出真正注册的包与 AppId，避免版本目录与注册信息不一致时
-    // 起错包（与 refresh_registered_codex_store_launch_path 的取向一致）。
-    let outer_script = format!(
-        r#"$ErrorActionPreference = 'Stop'
-if (-not (Get-Command Invoke-CommandInDesktopPackage -ErrorAction SilentlyContinue)) {{
-  throw '当前系统不支持 Invoke-CommandInDesktopPackage（需要 Windows 10 1809 及以上）'
-}}
-$installLocation = '{install_location}'
-$installLeaf = Split-Path -Leaf $installLocation
-$pkg = Get-AppxPackage |
-  Where-Object {{ $_.InstallLocation -and ((Split-Path -Leaf $_.InstallLocation) -ieq $installLeaf) }} |
-  Select-Object -First 1
-if (-not $pkg) {{
-  $normalizedInstall = [System.IO.Path]::GetFullPath($installLocation).TrimEnd('\')
-  $pkg = Get-AppxPackage |
-    Where-Object {{
-      $_.InstallLocation -and (
-        ([System.IO.Path]::GetFullPath($_.InstallLocation).TrimEnd('\')) -ieq $normalizedInstall
-      )
-    }} |
-    Select-Object -First 1
-}}
-if (-not $pkg) {{ throw "未找到与启动路径匹配的已注册商店包: $installLocation" }}
-$appId = 'App'
-try {{
-  $application = (Get-AppxPackageManifest -Package $pkg).Package.Applications.Application |
-    Select-Object -First 1
-  if ($application -and -not [string]::IsNullOrWhiteSpace($application.Id)) {{
-    $appId = [string]$application.Id
-  }}
-}} catch {{}}
-Invoke-CommandInDesktopPackage -PackageFamilyName $pkg.PackageFamilyName -AppId $appId -Command 'powershell.exe' -Args '-NoProfile -ExecutionPolicy Bypass -EncodedCommand {encoded}'"#,
-        install_location = escape_powershell_single_quoted(&install_location),
-        encoded = encoded_command,
-    );
-
-    let output = powershell_output(&["-Command", &outer_script])
-        .map_err(|e| format!("包身份启动调用失败: {}", e))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stderr_head = stderr.trim().chars().take(400).collect::<String>();
-        return Err(format!(
-            "包身份启动失败: status={}, stderr={}",
-            output.status,
-            if stderr_head.is_empty() {
-                "<empty>".to_string()
-            } else {
-                stderr_head
-            }
-        ));
-    }
-    Ok(())
+    codex_launch_powershell_output(&script).map(|_| ())
 }
 
 const CODEX_MANAGED_STORE_LAUNCH_UNSAFE_PREFIX: &str = "CODEX_MANAGED_STORE_LAUNCH_UNSAFE:";
@@ -2750,46 +2368,6 @@ fn codex_managed_store_launch_unsafe_error(
             format!("; {}", diagnostics.trim())
         }
     )
-}
-
-/// 商店版 Codex 更新后，配置里可能残留旧版本包目录：目录仍然存在（所以不会被
-/// 「路径不存在」的重新探测覆盖），但已经不允许当前用户执行，直启固定报 `os error 5`。
-///
-/// 返回当前注册包对应的启动路径；路径一致、不是商店目录或无法确认时返回 `None`。
-#[cfg(target_os = "windows")]
-fn refresh_registered_codex_store_launch_path(
-    current: &Path,
-) -> Option<std::path::PathBuf> {
-    if !is_windowsapps_launch_path(current) {
-        return None;
-    }
-    let registered = detect_codex_store_gui_exe()?;
-    if normalized_windows_path_text(&registered) == normalized_windows_path_text(current) {
-        return None;
-    }
-    Some(registered)
-}
-
-/// 启动失败时附带的环境信息，便于用户自助排查与反馈定位。
-#[cfg(target_os = "windows")]
-fn codex_managed_store_launch_diagnostics(launch_path: &Path, codex_home: &str) -> String {
-    let mut parts = vec![
-        format!("launch_path={}", launch_path.to_string_lossy()),
-        format!("launch_path_exists={}", launch_path.exists()),
-    ];
-    match detect_codex_store_gui_exe() {
-        Some(registered) => {
-            parts.push(format!("registered_path={}", registered.to_string_lossy()));
-            parts.push(format!(
-                "path_matches_registered={}",
-                normalized_windows_path_text(&registered)
-                    == normalized_windows_path_text(launch_path)
-            ));
-        }
-        None => parts.push("registered_path=<unknown>".to_string()),
-    }
-    parts.push(format!("codex_home={}", codex_home));
-    parts.join("; ")
 }
 
 pub(crate) fn detect_codex_exec_path() -> Option<std::path::PathBuf> {
@@ -3011,7 +2589,7 @@ fn detect_opencode_exec_path() -> Option<std::path::PathBuf> {
             );
         }
         for candidate in candidates {
-            if candidate.exists() {
+            if can_probe_passive_windows_path(&candidate.to_string_lossy()) && candidate.exists() {
                 return Some(candidate);
             }
         }

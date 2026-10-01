@@ -545,7 +545,6 @@ func (s *relayServer) writeProviderGatewayChatStream(c *gin.Context, body io.Rea
 	var state any
 	startedAt := time.Now()
 	doneSeen := false
-	completedSynthesized := false
 	completedEventSeen := false
 	convertedEventCount := 0
 	rawLineCount := 0
@@ -593,31 +592,14 @@ func (s *relayServer) writeProviderGatewayChatStream(c *gin.Context, body io.Rea
 		return
 	}
 	if !doneSeen {
-		events := responsesconverter.CompleteOpenAIChatCompletionsResponseToOpenAIResponses(relayContext(c), chatBody, &state)
-		for index := range events {
-			events[index] = helps.RestoreCodexMultiAgentV2Response(events[index], multiAgentV2Optimized)
-			events[index] = helps.NormalizeCodexCollaborationToolCalls(events[index])
-			events[index] = itemIDRewriter.RewriteSSEFrame(events[index])
+		if relayContext(c).Err() != nil {
+			return
 		}
-		for _, event := range events {
-			if len(event) == 0 {
-				continue
-			}
-			completedSynthesized = true
-			eventName := providerGatewayResponseSSEEventName(event)
-			if eventName != "" {
-				eventCounts[eventName]++
-				if eventName == "response.completed" {
-					completedEventSeen = true
-				}
-			}
-			convertedEventCount++
-			if _, err := c.Writer.Write(providerGatewaySSEFrame(event)); err != nil {
-				s.emitExecutorDiagnostic(c, "provider_gateway_stream_write_failed", model, "provider_gateway_chat_stream", startedAt, err.Error())
-				return
-			}
-			flusher.Flush()
-		}
+		err := relayStatusError{status: http.StatusBadGateway, message: "upstream stream closed before [DONE]"}
+		s.emitExecutorDiagnostic(c, "provider_gateway_stream_truncated", model, "provider_gateway_chat_stream", startedAt, err.Error())
+		writeStreamTerminalErrorForFormat(c, err, sdktranslator.FormatOpenAIResponse)
+		flusher.Flush()
+		return
 	}
 	s.emitExecutorDiagnostic(
 		c,
@@ -626,10 +608,9 @@ func (s *relayServer) writeProviderGatewayChatStream(c *gin.Context, body io.Rea
 		"provider_gateway_chat_stream",
 		startedAt,
 		fmt.Sprintf(
-			"done_seen=%t completed_event_seen=%t completed_synthesized=%t raw_line_count=%d converted_event_count=%d event_counts=%s",
+			"done_seen=%t completed_event_seen=%t raw_line_count=%d converted_event_count=%d event_counts=%s",
 			doneSeen,
 			completedEventSeen,
-			completedSynthesized,
 			rawLineCount,
 			convertedEventCount,
 			providerGatewayFormatEventCounts(eventCounts),
@@ -650,12 +631,16 @@ func (s *relayServer) writeProviderGatewayTranslatedChatStream(c *gin.Context, b
 
 	var state any
 	itemIDRewriter := newProviderGatewayItemIDRewriter()
+	doneSeen := false
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	for scanner.Scan() {
 		line := bytes.TrimSpace(scanner.Bytes())
 		if len(line) == 0 {
 			continue
+		}
+		if providerGatewayStreamLineIsDone(line) {
+			doneSeen = true
 		}
 		outputs := sdktranslator.TranslateStream(relayContext(c), sdktranslator.FormatOpenAI, targetFormat, model, originalBody, chatBody, line, &state)
 		for _, output := range outputs {
@@ -675,6 +660,15 @@ func (s *relayServer) writeProviderGatewayTranslatedChatStream(c *gin.Context, b
 		}
 	}
 	if err := scanner.Err(); err != nil {
+		writeStreamTerminalErrorForFormat(c, err, targetFormat)
+		flusher.Flush()
+		return
+	}
+	if !doneSeen {
+		if relayContext(c).Err() != nil {
+			return
+		}
+		err := relayStatusError{status: http.StatusBadGateway, message: "upstream stream closed before [DONE]"}
 		writeStreamTerminalErrorForFormat(c, err, targetFormat)
 		flusher.Flush()
 	}
@@ -698,8 +692,13 @@ func (s *relayServer) writeProviderGatewayResponsesStream(c *gin.Context, body i
 			if _, writeErr := c.Writer.Write(line); writeErr != nil {
 				return
 			}
+			// Deliver each complete SSE event while the upstream stream is still open.
+			if len(bytes.TrimRight(line, "\r\n")) == 0 {
+				c.Writer.Flush()
+			}
 		}
 		if err != nil {
+			c.Writer.Flush()
 			return
 		}
 	}

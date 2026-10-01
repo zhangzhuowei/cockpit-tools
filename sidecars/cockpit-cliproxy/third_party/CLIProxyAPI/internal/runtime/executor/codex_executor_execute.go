@@ -90,6 +90,7 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 		return resp, err
 	}
 	applyCodexHeaders(httpReq, auth, apiKey, true, e.cfg, opts.Headers)
+	applyCodexRoutingHint(httpReq.Header, auth, baseModel, upstreamBody)
 	if !useFullResponses && liteHeaderValue != "" {
 		httpReq.Header.Set(codexResponsesLiteHeaderName, liteHeaderValue)
 	}
@@ -170,6 +171,19 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 		eventType := gjson.GetBytes(eventData, "type").String()
 		if helps.HasMeaningfulCodexOutputDelta(eventData) {
 			sawOutputDelta = true
+		}
+		if eventType == "response.done" {
+			// A done event can also describe a failed or incomplete response.
+			status := gjson.GetBytes(eventData, "response.status").String()
+			switch status {
+			case "completed":
+				eventData = normalizeCodexWebsocketCompletion(eventData)
+			case "failed", "incomplete":
+				eventData, _ = sjson.SetBytes(eventData, "type", "response."+status)
+			default:
+				continue
+			}
+			eventType = gjson.GetBytes(eventData, "type").String()
 		}
 
 		if streamErr, terminalBody, ok := codexTerminalFailureErrWithCooling(eventData, e.modelLevelCooling()); ok {
@@ -279,6 +293,7 @@ func (e *CodexExecutor) executeCompact(ctx context.Context, auth *cliproxyauth.A
 		return resp, err
 	}
 	applyCodexHeaders(httpReq, auth, apiKey, false, e.cfg, opts.Headers)
+	applyCodexRoutingHint(httpReq.Header, auth, baseModel, upstreamBody)
 	applyModelHeaderOverrides(httpReq.Header, baseModel)
 	applyCodexIdentityConfuseHeaders(httpReq.Header, &identityState)
 	var authID, authLabel, authType, authValue string

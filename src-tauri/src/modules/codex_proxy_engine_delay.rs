@@ -22,12 +22,21 @@ pub(crate) fn validate_delay_url(value: &str) -> Result<String, String> {
 
 impl EngineController {
     pub(crate) async fn measure_delay(&self, test_url: &str) -> Result<u64, String> {
-        query_delay(self, test_url, DELAY_TIMEOUT).await
+        query_delay(self, "account-node", test_url, DELAY_TIMEOUT).await
+    }
+
+    pub(crate) async fn measure_leaf_delay(
+        &self,
+        tag: &str,
+        test_url: &str,
+    ) -> Result<u64, String> {
+        query_delay(self, tag, test_url, DELAY_TIMEOUT).await
     }
 }
 
 async fn query_delay(
     controller: &EngineController,
+    tag: &str,
     test_url: &str,
     timeout: Duration,
 ) -> Result<u64, String> {
@@ -45,8 +54,9 @@ async fn query_delay(
     tokio::time::timeout(deadline, async {
         let mut response = client
             .get(format!(
-                "{}/proxies/account-node/delay",
-                controller.endpoint
+                "{}/proxies/{}/delay",
+                controller.endpoint,
+                urlencoding::encode(tag)
             ))
             .bearer_auth(&controller.secret)
             .query(&[

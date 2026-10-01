@@ -38,8 +38,10 @@ import (
 const (
 	providerToolOrderCallType       = "function_call"
 	providerToolOrderCustomCallType = "custom_tool_call"
+	providerToolOrderSearchCallType = "tool_search_call"
 	providerToolOrderOutputType     = "function_call_output"
 	providerToolOrderCustomOutput   = "custom_tool_call_output"
+	providerToolOrderSearchOutput   = "tool_search_output"
 )
 
 // providerGatewayRepairsToolCallOrder 报告该上游是否要求「输出紧跟调用」。
@@ -59,7 +61,7 @@ func gatewayBaseURL(gateway *providerGatewaySpec) string {
 
 func providerToolOrderIsCallItem(itemType string) bool {
 	switch strings.ToLower(strings.TrimSpace(itemType)) {
-	case providerToolOrderCallType, providerToolOrderCustomCallType, "tool_call", "mcp_tool_call":
+	case providerToolOrderCallType, providerToolOrderCustomCallType, providerToolOrderSearchCallType, "tool_call", "mcp_tool_call":
 		return true
 	default:
 		return false
@@ -68,7 +70,7 @@ func providerToolOrderIsCallItem(itemType string) bool {
 
 func providerToolOrderIsOutputItem(itemType string) bool {
 	switch strings.ToLower(strings.TrimSpace(itemType)) {
-	case providerToolOrderOutputType, providerToolOrderCustomOutput, "tool_call_output", "mcp_tool_call_output":
+	case providerToolOrderOutputType, providerToolOrderCustomOutput, providerToolOrderSearchOutput, "tool_call_output", "mcp_tool_call_output":
 		return true
 	default:
 		return false

@@ -1,3 +1,4 @@
+import { listenSafely as listen } from "../utils/tauriEventListener";
 import { useState, useEffect, useMemo, useCallback, type ReactElement } from "react";
 import { RefreshCw, CircleAlert, Eye, EyeOff, Link2 } from "lucide-react";
 import * as codexService from "../services/codexService";
@@ -11,7 +12,7 @@ import { buildCodexAccountPresentation } from "../presentation/platformAccountPr
 import { recoverCodexBatchImportStartFromPreview } from "../utils/codexBatchImportQueue";
 import { CodexSwitchAccountError } from "../utils/codexSwitchAuthFailure";
 import { requestCodexOpenAddAccount } from "../utils/codexAddAccountRequest";
-import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import { UnlistenFn } from "@tauri-apps/api/event";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
  import {
@@ -29,6 +30,7 @@ import type { CodexAccount } from "../types/codex";
 import { CODEX_API_SERVICE_BIND_ID, type InstanceProfile } from "../types/instance";
 import { findCodexWebSessionImports, splitCodexImportPayloads } from "../utils/codexJsonImportProgress";
 import { emitAccountsChanged } from "../utils/accountSyncEvents";
+import { resolveCodexProviderCapabilityProfile } from "../utils/codexProviderGateway";
 import { resolveCodexModelProviderAccountName } from "../utils/codexModelProviderAccountName";
 import { CODEX_API_PROVIDER_CUSTOM_ID, COCKPIT_API_PROVIDER_ID, findCodexApiProviderPresetById, resolveCodexApiProviderPresetId } from "../utils/codexProviderPresets";
 import { APIKEY_FUN_PROVIDER_BASE_URL } from "../utils/apikeyFunLinks";
@@ -85,6 +87,11 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
     deepSeekUsageRetryIdsRef,
     defaultApiProviderPresetId,
     editingApiBaseUrlCredentialsValue,
+    editingApiWireApi,
+    editingApiSupportsWebsockets,
+    setEditingApiWireApi,
+    setEditingApiSupportsWebsockets,
+    setEditingApiCredentialsError,
     editingApiKeyCredentialsId,
     editingApiKeyCredentialsValue,
     editingApiKeyNameId,
@@ -1970,7 +1977,7 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
             reason: "import",
           });
         }
-  
+
         if (options.addToApiService) {
           const importedIds = result.imported
             .map((account) => account.id)
@@ -2014,7 +2021,7 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
             ).replace("{{error}}", String(error).replace(/^Error:\s*/, ""));
           }
         }
-  
+
         if (apiServiceError) {
           setBatchImportError(apiServiceError);
         }
@@ -2311,6 +2318,9 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
     const handleSelectEditingApiProviderPreset = useCallback(
       (providerId: string) => {
         setEditingApiProviderPresetId(providerId);
+        setEditingApiWireApi(resolveCodexProviderCapabilityProfile({ presetId: providerId, baseUrl: "" }).wireApi);
+        setEditingApiSupportsWebsockets(false);
+        setEditingApiCredentialsError(null);
         setEditingManagedProviderId("");
         setEditingManagedProviderApiKeyId("");
         setEditingNewManagedProviderNameInput("");
@@ -2338,6 +2348,9 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
         const provider = managedProviders.find((item) => item.id === providerId);
         if (!provider) return;
         setEditingApiBaseUrlCredentialsValue(provider.baseUrl);
+        setEditingApiWireApi(resolveCodexProviderCapabilityProfile({ baseUrl: provider.baseUrl, wireApi: provider.wireApi }).wireApi);
+        setEditingApiSupportsWebsockets(provider.supportsWebsockets === true);
+        setEditingApiCredentialsError(null);
         const effective = provider;
         setEditingApiModelCatalogInput((effective.modelCatalog ?? []).join("\n"));
         setEditingApiModelContextWindowsInput(
@@ -2389,6 +2402,7 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
     const handleEditingApiKeyCredentialsChange = useCallback(
       (value: string) => {
         setEditingApiKeyCredentialsValue(value);
+        setEditingApiCredentialsError(null);
         setEditingApiModelCatalogError(null);
         if (
           selectedEditingManagedProviderApiKey &&
@@ -2403,6 +2417,7 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
     const handleEditingApiBaseUrlCredentialsChange = useCallback(
       (value: string) => {
         setEditingApiBaseUrlCredentialsValue(value);
+        setEditingApiCredentialsError(null);
         setEditingApiModelCatalogError(null);
         if (
           selectedEditingManagedProvider &&
@@ -3448,6 +3463,9 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
     const closeApiKeyCredentialsModal = useCallback(() => {
       if (savingApiKeyCredentials) return;
       setEditingApiKeyCredentialsId(null);
+      setEditingApiWireApi("responses");
+      setEditingApiSupportsWebsockets(false);
+      setEditingApiCredentialsError(null);
       setEditingApiKeyCredentialsValue("");
       setEditingApiKeyCredentialsVisible(false);
       setEditingApiBaseUrlCredentialsValue(DEFAULT_CODEX_API_BASE_URL);
@@ -3481,6 +3499,12 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
         const canonicalContextWindows = effective?.modelContextWindows ?? account.api_model_context_windows;
 
         setEditingApiKeyCredentialsId(account.id);
+        setEditingApiWireApi(resolveCodexProviderCapabilityProfile({
+          baseUrl: canonicalBaseUrl,
+          wireApi: effective?.wireApi ?? account.api_wire_api,
+        }).wireApi);
+        setEditingApiSupportsWebsockets(effective?.supportsWebsockets ?? account.api_supports_websockets === true);
+        setEditingApiCredentialsError(null);
         setEditingApiKeyCredentialsValue(canonicalApiKey);
         setEditingApiKeyCredentialsVisible(false);
         setEditingApiBaseUrlCredentialsValue(canonicalBaseUrl);
@@ -3516,17 +3540,14 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
   
     const handleSubmitApiKeyCredentials = useCallback(async () => {
       const accountId = editingApiKeyCredentialsId;
-      if (!accountId) return;
-  
+      if (!accountId || savingApiKeyCredentials) return;
+      setEditingApiCredentialsError(null);
       const validation = validateApiKeyCredentialInputs(
         editingApiKeyCredentialsValue,
         editingApiBaseUrlCredentialsValue,
       );
       if (!validation.ok) {
-        setMessage({
-          text: validation.message,
-          tone: "error",
-        });
+        setEditingApiCredentialsError(validation.message);
         return;
       }
       if (
@@ -3566,6 +3587,8 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
         ),
         apiModelCatalog: editingApiModelCatalogDraft,
         apiModelContextWindows: parsedWindows.windows,
+        apiWireApi: editingApiWireApi,
+        apiSupportsWebsockets: editingApiWireApi === "responses" && editingApiSupportsWebsockets,
       };
 
       setSavingApiKeyCredentials(true);
@@ -3712,10 +3735,7 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
         setEditingApiSyncModelCatalogToCodex(false);
         setEditingApiModelCatalogError(null);
       } catch (e) {
-        setMessage({
-          text: `${t("common.failed", "失败")}: ${String(e)}`,
-          tone: "error",
-        });
+        setEditingApiCredentialsError(`${t("common.failed", "失败")}: ${String(e)}`);
       } finally {
         setSavingApiKeyCredentials(false);
       }
@@ -3723,6 +3743,9 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
       buildApiProviderPayload,
       editingApiBaseUrlCredentialsValue,
       editingApiKeyCredentialsId,
+      editingApiWireApi,
+      editingApiSupportsWebsockets,
+      savingApiKeyCredentials,
       editingApiKeyCredentialsValue,
       editingApiModelCatalogDraft,
       editingApiModelContextWindowsInput,

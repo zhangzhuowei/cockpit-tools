@@ -537,6 +537,47 @@ async fn blocking_with_timeout<T: Send + 'static>(
 pub async fn list() -> Result<CatalogView, String> {
     blocking(|| Ok(view(&read(&path()?)?))).await
 }
+/// Reorder only source cards. A full ID permutation prevents a stale UI from
+/// dropping newly imported sources or resurrecting concurrently removed ones.
+pub async fn reorder(source_ids: Vec<String>) -> Result<CatalogView, String> {
+    if source_ids.len() > MAX_SOURCES
+        || source_ids.iter().any(|id| {
+            id.trim().is_empty() || id.len() > 256 || id.chars().any(char::is_control)
+        })
+    {
+        return Err("CATALOG_INVALID".into());
+    }
+    let source_count = source_ids.len();
+    let positions: HashMap<_, _> = source_ids
+        .into_iter()
+        .enumerate()
+        .map(|(index, id)| (id, index))
+        .collect();
+    // Detect duplicates before touching the catalog or acquiring its write lock.
+    if positions.len() != source_count {
+        return Err("CATALOG_INVALID".into());
+    }
+    let operation = Operation::begin(uuid::Uuid::new_v4().to_string())?;
+    let state = operation.state.clone();
+    blocking(move || {
+        mutate(&path()?, |store| {
+            if store.sources.len() != positions.len()
+                || store
+                    .sources
+                    .iter()
+                    .any(|source| !positions.contains_key(&source.id))
+            {
+                return Err("CATALOG_CHANGED".into());
+            }
+            commit(&state)?;
+            // Read and reorder under the same lock, retaining the latest source
+            // metadata and all binding revisions rather than a frontend snapshot.
+            store.sources.sort_by_key(|source| positions[&source.id]);
+            Ok(view(store))
+        })
+    })
+    .await
+}
 async fn source(id: &str) -> Result<Source, String> {
     let id = id.to_owned();
     blocking(move || {

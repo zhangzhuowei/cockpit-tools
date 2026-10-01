@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
+import { loadHookModule } from '../../tests/helpers/reactHookHarness';
 import { canUseCodexAccountProxy } from './codexAccountProxy';
 import type { CodexAccount } from '../types/codex';
 
@@ -29,7 +30,7 @@ test('card and table proxy controls follow reset controls, outside footer action
   const source = readFileSync(new URL('../pages/useCodexAccountsRenderers.tsx', import.meta.url), 'utf8');
   assert.equal((source.match(/\{resetCreditControls\}\s*<CodexAccountProxyButton account=\{account\} \/>/g) || []).length, 2);
   const button = readFileSync(new URL('../components/codex/CodexAccountProxyButton.tsx', import.meta.url), 'utf8');
-  // The shortcut shows a short egress state and routes to the shared proxy page.
+  // The shortcut shows a short egress state and requests the account preview.
   assert.match(button, /codex\.proxy\.filter_unbound/);
   assert.match(button, /codex\.proxy\.management/);
   assert.match(button, /requestCodexAccountProxy\(account\.id\)/);
@@ -37,7 +38,7 @@ test('card and table proxy controls follow reset controls, outside footer action
   assert.doesNotMatch(button, /CodexProxyPreviewPicker|testCodexAccountProxy/);
 });
 
-test('account shortcut opens the read-only preview while the page keeps every edit action', () => {
+test('account shortcut opens the preview while resource management stays on the shared page', () => {
   const view = readFileSync(new URL('../pages/CodexAccountsView.tsx', import.meta.url), 'utf8');
   const listener = view.slice(view.indexOf('const openProxy ='), view.indexOf('window.addEventListener(CODEX_OPEN_PROXY_EVENT'));
   // The card/table shortcut previews one account in place instead of jumping pages.
@@ -49,13 +50,13 @@ test('account shortcut opens the read-only preview while the page keeps every ed
   // Same top-layout page registration as the header entry, with the account as context.
   assert.match(view, /activeTab === "proxy" && <CodexEgressProxyPage/);
   assert.match(view, /accountId=\{proxyAccountId\}/);
-  // The preview stays a summary: selection, checks and binding never move into it.
+  // Account-only edits reuse the shared editor (covered by preview behavior tests).
+  // The retired picker and its direct probe/cancel paths must not return.
   const preview = readFileSync(new URL('../components/codex/CodexAccountProxyPreview.tsx', import.meta.url), 'utf8');
   for (const removed of [
     'CodexProxyPreviewPicker',
     'testCodexAccountProxy',
     'cancelCodexAccountProxy',
-    'egress_proxy_url',
   ]) {
     assert.doesNotMatch(preview, new RegExp(removed));
   }
@@ -63,16 +64,48 @@ test('account shortcut opens the read-only preview while the page keeps every ed
 });
 
 test('proxy page reports the effective exit mode instead of a saved-or-bound flag', () => {
-  // The shared helper drives the table state; a configured proxy is not a health check.
-  const draft = readFileSync(new URL('./codexProxyDraft.ts', import.meta.url), 'utf8');
-  // Independent / unified / default / stale, with stale driven by the catalog, not by the flag alone.
-  assert.match(draft, /return resolvable \? 'independent' : 'stale'/);
-  assert.match(draft, /state\.loading \|\| state\.failed\) return 'independent'/);
-  const accounts = readFileSync(new URL('../components/codex/CodexProxyAccountsSection.tsx', import.meta.url), 'utf8');
-  assert.match(accounts, /resolveExitMode\(binding, \{ catalog, loading: catalogLoading, failed: Boolean\(catalogError\) \}, following\.has\(entry\.id\)\)/);
-  assert.match(accounts, /codex-proxy-accounts-mode is-\$\{mode\}/);
-  assert.match(accounts, /mode === 'stale' && <small>\{t\('codex\.proxy\.modeStale'\)\}/);
-  assert.doesNotMatch(accounts, /codex-proxy-page-state\$\{saved \? ' is-bound' : ''\}/);
+  const workspace = {
+    accounts: [
+      { ...account, id: 'bound', egress_proxy: { sourceId: 'source', itemId: 'node' } },
+      { ...account, id: 'missing', egress_proxy: { sourceId: 'source', itemId: 'gone' } },
+      { ...account, id: 'follower' },
+      { ...account, id: 'disabled', egress_proxy_disabled: true },
+    ],
+    catalog: { sources: [{ id: 'source', nodes: [{ id: 'node' }], groups: [] }] },
+    catalogLoading: false, catalogError: '',
+    unified: { mode: 'all_accounts', binding: { name: 'Shared' } },
+  };
+  const h = loadHookModule(new URL('../components/codex/CodexProxyAccountsSection.tsx', import.meta.url), {
+    'react-i18next': { useTranslation: () => ({ t: (key: string) => key }) },
+    '../../utils/codexPreferences': { getCodexPlanBadgeStyle: () => 'default' },
+    '../../utils/codexProxyPresentation': { proxySummary: () => 'Saved proxy' },
+    '../../stores/useCodexAccountStore': { useCodexAccountStore: {} },
+    '../SingleSelectDropdown': { SingleSelectDropdown: () => null },
+    './CodexProxyBatchBindDialog': { CodexProxyBatchBindDialog: () => null },
+    './CodexProxyAccountDialog': { CodexProxyAccountDialog: () => null, CodexProxyFollowDialog: () => null },
+    './useCodexProxyExitEditor': { useCodexProxyAccountName: () => (entry: CodexAccount) => entry.id },
+    './CodexProxyWorkspaceContext': { useCodexProxyWorkspace: () => workspace },
+  }, { window: { addEventListener() {}, removeEventListener() {} } });
+  function elements(value: any): any[] {
+    if (!value || typeof value !== 'object') return [];
+    if (Array.isArray(value)) return value.flatMap(elements);
+    return [value, ...elements(value.props?.children)];
+  }
+  const rows = () => elements(h.render(() => h.exports.CodexProxyAccountsSection())).filter((node) => node.type === 'tr' && node.key);
+  const modes = () => rows().map((row) => elements(row).find((node) => node.props?.className?.startsWith('codex-proxy-accounts-mode ')).props.className);
+  assert.deepEqual(modes(), ['independent', 'stale', 'unified', 'disabled'].map((mode) => `codex-proxy-accounts-mode is-${mode}`));
+  const staleRow = rows().find((row) => row.key === 'missing');
+  assert.ok(elements(staleRow).some((node) => node.type === 'small' && node.props.children === 'codex.proxy.modeStale'));
+  const disabledRow = rows().find((row) => row.key === 'disabled');
+  assert.ok(elements(disabledRow).some((node) => node.props?.children === 'codex.proxy.modeDisabled'));
+  workspace.catalogLoading = true;
+  assert.equal(modes()[1], 'codex-proxy-accounts-mode is-independent');
+  workspace.catalogLoading = false; workspace.catalogError = 'catalog unavailable';
+  assert.equal(modes()[1], 'codex-proxy-accounts-mode is-independent');
+  workspace.catalogError = ''; workspace.unified = { ...workspace.unified, mode: 'off' };
+  assert.equal(modes()[2], 'codex-proxy-accounts-mode is-default');
+  assert.equal(modes()[3], 'codex-proxy-accounts-mode is-disabled');
+  h.unmount();
   // A saved binding must never be presented as a verified exit on its own.
   for (const file of ['CodexProxyAccountsSection.tsx', 'CodexProxyOverviewSection.tsx', 'CodexProxyExitRulesSection.tsx']) {
     const source = readFileSync(new URL(`../components/codex/${file}`, import.meta.url), 'utf8');

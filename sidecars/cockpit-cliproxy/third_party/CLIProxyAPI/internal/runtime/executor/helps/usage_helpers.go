@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptrace"
 	"reflect"
 	"strings"
 	"sync"
@@ -47,6 +48,8 @@ type UsageReporter struct {
 	ttftStart           time.Time
 	ttftSet             bool
 	once                sync.Once
+	proxyRouteMu        sync.RWMutex
+	proxyRouteGetter    func() *usage.ProxyRoute
 }
 
 type usageExecutor interface {
@@ -387,6 +390,7 @@ func (r *UsageReporter) buildRecordForModel(model string, detail usage.Detail, f
 		return usage.Record{Model: model, Detail: detail, Failed: failed, Fail: fail, Generate: usage.GenerateFlag(true)}
 	}
 	return usage.Record{
+		ProxyRoute:          r.proxyRouteSnapshot(),
 		Provider:            r.provider,
 		ExecutorType:        r.executorType,
 		Model:               model,
@@ -487,6 +491,11 @@ type usageTTFTRoundTripper struct {
 func (t usageTTFTRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	cliproxyexecutor.MarkUpstreamAttempt(req.Context())
 	t.reporter.StartResponseTTFT()
+	t.reporter.SetProxyRouteGetter(nil)
+	trace := &httptrace.ClientTrace{GetConn: func(string) { t.reporter.SetProxyRouteGetter(nil) }, GotConn: func(info httptrace.GotConnInfo) {
+		t.reporter.SetProxyRouteGetter(ObserveRequestProxyRoute(effectiveHTTPProxyURL(t.base, req, info.Conn), info.Conn))
+	}}
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
 	resp, errRoundTrip := t.base.RoundTrip(req)
 	if errRoundTrip != nil {
 		return resp, errRoundTrip

@@ -18,6 +18,8 @@
 .codex-proxy-assign-accounts { display: grid; gap: 5px; }
 .codex-proxy-assign-dialog .btn.codex-proxy-assign-account { width: 100%; justify-content: flex-start; padding: 10px 12px; }
 .codex-proxy-assign-account span { min-width: 0; overflow-wrap: anywhere; }
+.codex-proxy-assign-account-name { flex: 1; }
+.codex-proxy-assign-account .tier-badge { flex-shrink: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .codex-proxy-assign-shared { padding: 14px; border-radius: 10px; background: var(--bg-secondary); color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
 .codex-proxy-assign-shared p { margin: 0 0 8px; }
 .codex-proxy-assign-result { padding: 12px 0 0; font-size: 13px; }

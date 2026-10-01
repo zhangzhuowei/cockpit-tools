@@ -10,6 +10,32 @@ export interface CodexModelProviderVisionInput {
   modelCatalog?: string[];
 }
 
+export function resolveProviderModelVisionState(
+  modelId: string,
+  states: Record<string, boolean> | undefined,
+  providerDefault = false,
+): boolean {
+  return states?.[modelId.trim().toLowerCase()] ??
+    (providerDefault || providerModelDefaultsToVisionInput(modelId));
+}
+
+/** Only stored entries and explicit user choices enter states; retain false overrides. */
+export function buildProviderModelVisionCapabilities(
+  modelText: string,
+  states: Record<string, boolean>,
+): Record<string, { supportsVision: boolean }> {
+  const capabilities: Record<string, { supportsVision: boolean }> = {};
+  for (const model of modelText.split(/[\n,]+/)) {
+    const key = model.trim().toLowerCase();
+    if (key) capabilities[key] = { supportsVision: true };
+  }
+  for (const [model, supportsVision] of Object.entries(states)) {
+    const key = model.trim().toLowerCase();
+    if (key) capabilities[key] = { supportsVision };
+  }
+  return capabilities;
+}
+
 /**
  * 模型识图默认规则（与 Rust 侧 `codex_account::model_defaults_to_vision_input` 同一口径）：
  * `gpt-5.5` 及以上（含 5.5）默认支持图片输入；其它模型不受影响。

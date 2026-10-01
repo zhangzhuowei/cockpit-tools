@@ -228,3 +228,30 @@
   .pelican-confirm > p { padding-right: 18px; padding-left: 18px; }
   .pelican-confirm-actions { padding-right: 18px; padding-left: 18px; }
 }
+/* Provider tests share the dialog, with a compact key/model selector per channel. */
+.pelican-provider-setup { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.pelican-provider-list { max-height: 300px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px; }
+.pelican-provider-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(130px, 1fr) minmax(180px, 1.5fr); gap: 10px; align-items: center; padding: 9px 12px; }
+.pelican-provider-row + .pelican-provider-row { border-top: 1px solid var(--border-color); }
+.pelican-provider-row > * { min-width: 0; }
+.pelican-setup .pelican-provider-choice { flex-direction: row; align-items: center; gap: 8px; overflow-wrap: anywhere; }
+.pelican-provider-model { display: flex; gap: 6px; min-width: 0; }
+.pelican-provider-model > * { min-width: 0; width: 50%; }
+.pelican-provider-row input:not([type="checkbox"]) { width: 100%; min-width: 0; box-sizing: border-box; }
+.pelican-provider-attribution { display: flex; flex-direction: column; gap: 3px; padding: 0 10px 8px; color: var(--text-secondary); font-size: 11px; overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .pelican-provider-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .pelican-provider-model { grid-column: 1 / -1; }
+}
+
+.pelican-provider-mode { gap: 10px; }
+.pelican-provider-mode .pelican-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.pelican-provider-mode .single-select-dropdown-trigger { min-height: 32px; padding: 0 9px; border-radius: 8px; }
+.pelican-provider-mode .single-select-dropdown-value { font-size: 12px; font-weight: 500; }
+.pelican-provider-mode .single-select-dropdown-arrow { width: 18px; height: 18px; }
+.pelican-provider-mode input:not([type="checkbox"]) { min-height: 32px; padding: 6px 9px; font-size: 12px; }
+.pelican-provider-mode textarea { min-height: 72px; font-size: 12px; }
+.pelican-provider-mode .btn { min-height: 30px; padding: 5px 10px; font-size: 12px; }
+.pelican-provider-mode .pelican-muted { font-size: 12px; }
+.pelican-provider-setup .pelican-section-heading { flex-wrap: wrap; justify-content: flex-end; }
+.pelican-provider-setup .pelican-section-heading strong { margin-right: auto; }

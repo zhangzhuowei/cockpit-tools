@@ -26,12 +26,6 @@ static LIST_ACCOUNTS_LOAD_LOCK: std::sync::LazyLock<Mutex<()>> =
 const QUOTA_ALERT_COOLDOWN_SECONDS: i64 = 300;
 const LIST_ACCOUNTS_CACHE_TTL_MS: u64 = 800;
 
-// 使用与 AntigravityCockpit 插件相同的数据目录
-const DATA_DIR: &str = ".antigravity_cockpit";
-const DEV_DATA_DIR: &str = ".antigravity_cockpit_dev";
-const DATA_DIR_ENV: &str = "COCKPIT_TOOLS_DATA_DIR";
-const PROFILE_ENV: &str = "COCKPIT_TOOLS_PROFILE";
-
 const ACCOUNTS_INDEX: &str = "accounts.json";
 const ACCOUNTS_DIR: &str = "accounts";
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -193,26 +187,11 @@ fn deserialize_account_from_storage(
 
 /// 获取数据目录路径
 pub fn is_dev_profile() -> bool {
-    std::env::var(PROFILE_ENV)
-        .map(|value| value.trim().eq_ignore_ascii_case("dev"))
-        .unwrap_or(false)
+    modules::data_paths::is_dev_profile()
 }
 
 pub fn resolve_data_dir() -> Result<PathBuf, String> {
-    if let Ok(raw) = std::env::var(DATA_DIR_ENV) {
-        let trimmed = raw.trim();
-        if !trimmed.is_empty() {
-            return Ok(PathBuf::from(trimmed));
-        }
-    }
-
-    let home = dirs::home_dir().ok_or("无法获取用户主目录")?;
-    let dir_name = if is_dev_profile() {
-        DEV_DATA_DIR
-    } else {
-        DATA_DIR
-    };
-    Ok(home.join(dir_name))
+    modules::data_paths::resolve_data_dir()
 }
 
 pub fn get_data_dir() -> Result<PathBuf, String> {
@@ -416,6 +395,40 @@ pub fn load_account(account_id: &str) -> Result<Account, String> {
             q.is_gcp_tos = None;
         }
     }
+    // 若账号已有可用模型配额，但残留了由 retrieveUserQuotaSummary 产生的假性 SUBSCRIPTION_REQUIRED 错误，自动修复
+    if let Some(ref q) = account.quota {
+        if !q.models.is_empty() {
+            let is_spurious = account
+                .quota_error
+                .as_ref()
+                .map(|e| {
+                    e.reason.as_deref() == Some("SUBSCRIPTION_REQUIRED")
+                        || e.message.contains("valid license")
+                })
+                .unwrap_or(false);
+            if is_spurious {
+                account.quota_error = None;
+                if account.disabled_reason.as_deref() == Some("subscription_required") {
+                    account.disabled_reason = None;
+                    if account.disabled {
+                        account.disabled = false;
+                        account.disabled_at = None;
+                    }
+                }
+            }
+        }
+    }
+    // 同步：若 quota_error 明确要求网页验证，确保 disabled_reason 同步为 verification_required
+    if account.disabled_reason.is_none() {
+        if let Some(ref err) = account.quota_error {
+            if err.reason.as_deref() == Some("VALIDATION_REQUIRED")
+                || err.validation_url.is_some()
+                || err.message.contains("Verify your account")
+            {
+                account.disabled_reason = Some("verification_required".to_string());
+            }
+        }
+    }
     Ok(account)
 }
 
@@ -592,7 +605,7 @@ fn is_strict_account_identity_match(existing: &Account, email: &str, token: &Tok
         }
     }
 
-    if existing.email == email {
+    if existing.email.eq_ignore_ascii_case(email) {
         if let Some(project_id) = non_empty(token.project_id.as_deref()) {
             if non_empty(existing.token.project_id.as_deref()) == Some(project_id) {
                 return true;
@@ -603,12 +616,26 @@ fn is_strict_account_identity_match(existing: &Account, email: &str, token: &Tok
     false
 }
 
+/// 生成基于邮箱的确定性账号存储 ID（与 Codex 等平台对齐）
+pub fn build_account_storage_id(email: &str) -> String {
+    let seed = email.trim().to_lowercase();
+    format!("antigravity_{:x}", md5::compute(seed.as_bytes()))
+}
+
 fn find_matching_account_id(
     index: &AccountIndex,
     email: &str,
     token: &TokenData,
 ) -> Result<Option<String>, String> {
+    let normalized_email = email.trim();
+    let generated_id = build_account_storage_id(normalized_email);
+    let mut email_matches: Vec<Account> = Vec::new();
+
     for summary in &index.accounts {
+        if summary.id == generated_id {
+            return Ok(Some(summary.id.clone()));
+        }
+
         let existing = match load_account(&summary.id) {
             Ok(account) => account,
             Err(err) => {
@@ -620,46 +647,58 @@ fn find_matching_account_id(
             }
         };
 
-        if is_strict_account_identity_match(&existing, email, token) {
+        if is_strict_account_identity_match(&existing, normalized_email, token) {
             return Ok(Some(existing.id));
+        }
+
+        if existing.email.trim().eq_ignore_ascii_case(normalized_email) {
+            email_matches.push(existing);
+        }
+    }
+
+    if email_matches.len() == 1 {
+        modules::logger::log_info(&format!(
+            "账号匹配走单邮箱覆盖路径: email={}, id={}",
+            normalized_email, email_matches[0].id
+        ));
+        return Ok(Some(email_matches.remove(0).id));
+    }
+
+    if email_matches.len() > 1 {
+        if let Some(target) = email_matches.iter().find(|acc| acc.pending_oauth) {
+            return Ok(Some(target.id.clone()));
+        }
+        let target_pid = non_empty(token.project_id.as_deref());
+        if let Some(pid) = target_pid {
+            if let Some(target) = email_matches
+                .iter()
+                .find(|acc| non_empty(acc.token.project_id.as_deref()) == Some(pid))
+            {
+                return Ok(Some(target.id.clone()));
+            }
+        }
+        let mut sorted = email_matches;
+        sorted.sort_by_key(|acc| {
+            (
+                acc.disabled,
+                std::cmp::Reverse(acc.last_used),
+            )
+        });
+        if let Some(best) = sorted.first() {
+            return Ok(Some(best.id.clone()));
         }
     }
 
     Ok(None)
 }
 
-/// 添加账号
+/// 添加账号（若已存在同邮箱老账号则执行更新覆盖）
 pub fn add_account(
     email: String,
     name: Option<String>,
     token: TokenData,
 ) -> Result<Account, String> {
-    let _lock = ACCOUNT_INDEX_LOCK
-        .lock()
-        .map_err(|e| format!("获取锁失败: {}", e))?;
-    let mut index = load_account_index()?;
-
-    if find_matching_account_id(&index, &email, &token)?.is_some() {
-        return Err(format!("账号已存在: {}", email));
-    }
-
-    let account_id = Uuid::new_v4().to_string();
-    let mut account = Account::new(account_id.clone(), email.clone(), token);
-    account.name = name.clone();
-
-    save_account(&account)?;
-
-    index.accounts.push(AccountSummary {
-        id: account_id.clone(),
-        email: email.clone(),
-        name: name.clone(),
-        created_at: account.created_at,
-        last_used: account.last_used,
-    });
-
-    save_account_index(&index)?;
-
-    Ok(account)
+    upsert_account(email, name, token)
 }
 
 pub fn is_pending_oauth_account(account: &Account) -> bool {
@@ -678,37 +717,31 @@ pub fn create_pending_oauth_account(
         .lock()
         .map_err(|e| format!("获取锁失败: {}", e))?;
     let mut index = load_account_index()?;
+    let target_id = build_account_storage_id(&email);
     let existing_id = index
         .accounts
         .iter()
-        .find(|item| item.email.eq_ignore_ascii_case(&email))
+        .find(|item| item.email.trim().eq_ignore_ascii_case(&email))
         .map(|item| item.id.clone());
+
     let mut account = if let Some(id) = existing_id {
+        // Never replace an unreadable existing account with an empty placeholder.
         let mut account = load_account(&id)?;
-        if !account.pending_oauth {
-            return Err(format!("账号已存在: {}", email));
-        }
         account.email = email.clone();
         account
     } else {
         let mut account = Account::new(
-            Uuid::new_v4().to_string(),
+            target_id,
             email.clone(),
-            TokenData::new(
-                String::new(),
-                String::new(),
-                0,
-                Some(email.clone()),
-                None,
-                None,
-            ),
+            TokenData::new(String::new(), String::new(), 0, Some(email), None, None),
         );
         account.pending_oauth = true;
         account
     };
+
     update.apply_to(&mut account);
-    account.pending_oauth = true;
     account.update_last_used();
+
     save_account(&account)?;
     if let Some(item) = index.accounts.iter_mut().find(|item| item.id == account.id) {
         item.email = account.email.clone();
@@ -724,6 +757,7 @@ pub fn create_pending_oauth_account(
         });
     }
     save_account_index(&index)?;
+
     Ok(account)
 }
 
@@ -733,58 +767,75 @@ pub fn upsert_account(
     name: Option<String>,
     token: TokenData,
 ) -> Result<Account, String> {
+    let email = email.trim().to_string();
     let _lock = ACCOUNT_INDEX_LOCK
         .lock()
         .map_err(|e| format!("获取锁失败: {}", e))?;
     let mut index = load_account_index()?;
-
     let existing_account_id = index
         .accounts
         .iter()
         .filter_map(|summary| load_account(&summary.id).ok())
-        .find(|account| account.pending_oauth && account.email.eq_ignore_ascii_case(&email))
+        .find(|account| account.pending_oauth && account.email.trim().eq_ignore_ascii_case(&email))
         .map(|account| account.id)
-        .or(find_matching_account_id(&index, &email, &token)?);
+        .or(find_matching_account_id(&index, &email, &token)?)
+        .or_else(|| {
+            index
+                .accounts
+                .iter()
+                .find(|s| s.email.trim().eq_ignore_ascii_case(&email))
+                .map(|s| s.id.clone())
+        });
 
-    if let Some(account_id) = existing_account_id {
-        match load_account(&account_id) {
-            Ok(mut account) => {
-                account.token = token;
-                account.pending_oauth = false;
-                account.name = name.clone();
-                if account.disabled {
-                    account.disabled = false;
-                    account.disabled_reason = None;
-                    account.disabled_at = None;
-                }
-                account.update_last_used();
-                save_account(&account)?;
-
-                if let Some(idx_summary) = index.accounts.iter_mut().find(|s| s.id == account_id) {
-                    idx_summary.name = name;
-                    save_account_index(&index)?;
-                }
-
-                return Ok(account);
-            }
-            Err(e) => {
-                modules::logger::log_warn(&format!("账号文件缺失，正在重建: {}", e));
-                let mut account = Account::new(account_id.clone(), email.clone(), token);
-                account.name = name.clone();
-                save_account(&account)?;
-
-                if let Some(idx_summary) = index.accounts.iter_mut().find(|s| s.id == account_id) {
-                    idx_summary.name = name;
-                    save_account_index(&index)?;
-                }
-
-                return Ok(account);
-            }
+    // Existing IDs are referenced by instances, wakeup tasks and groups. Reimport
+    // updates credentials in place; deterministic IDs apply only to new accounts.
+    let mut account = if let Some(account_id) = existing_account_id {
+        let mut account = load_account(&account_id)?;
+        let mut next_token = token;
+        if next_token.project_id.is_none() {
+            next_token.project_id = account.token.project_id.clone();
         }
+        if next_token.session_id.is_none() {
+            next_token.session_id = account.token.session_id.clone();
+        }
+        account.token = next_token;
+        account.email = email.clone();
+        if account.disabled {
+            account.disabled = false;
+            account.disabled_reason = None;
+            account.disabled_at = None;
+        } else if account.disabled_reason.as_deref() == Some("verification_required") {
+            account.disabled_reason = None;
+        }
+        account.quota_error = None;
+        account.update_last_used();
+        account
+    } else {
+        Account::new(build_account_storage_id(&email), email.clone(), token)
+    };
+    account.pending_oauth = false;
+    if name.is_some() {
+        account.name = name;
     }
-
-    drop(_lock);
-    add_account(email, name, token)
+    save_account(&account)?;
+    if let Some(summary) = index.accounts.iter_mut().find(|item| item.id == account.id) {
+        summary.email = account.email.clone();
+        summary.name = account.name.clone();
+        summary.last_used = account.last_used;
+    } else {
+        index.accounts.push(AccountSummary {
+            id: account.id.clone(),
+            email: account.email.clone(),
+            name: account.name.clone(),
+            created_at: account.created_at,
+            last_used: account.last_used,
+        });
+    }
+    if index.current_account_id.is_none() {
+        index.current_account_id = Some(account.id.clone());
+    }
+    save_account_index(&index)?;
+    Ok(account)
 }
 
 /// 删除账号
@@ -2074,6 +2125,12 @@ pub async fn fetch_quota_with_fresh_token(
             account.quota_error = Some(QuotaErrorInfo {
                 code: None,
                 message: format!("OAuth error: {}", e),
+                reason: if e.contains("invalid_grant") {
+                    Some("invalid_grant".to_string())
+                } else {
+                    None
+                },
+                validation_url: None,
                 timestamp: chrono::Utc::now().timestamp(),
             });
             let _ = save_account(account);
@@ -2123,18 +2180,68 @@ pub async fn fetch_quota_with_fresh_token(
             } else {
                 account.token.project_id = None;
             }
-            account.quota_error = payload.error.map(|err| QuotaErrorInfo {
-                code: err.code,
-                message: err.message,
-                timestamp: chrono::Utc::now().timestamp(),
-            });
+            let is_stale = payload.quota.quota_summary_stale;
+            if let Some(ref err) = payload.error {
+                account.quota_error = Some(QuotaErrorInfo {
+                    code: err.code,
+                    message: err.message.clone(),
+                    reason: err.reason.clone(),
+                    validation_url: err.validation_url.as_deref().map(|u| {
+                        crate::modules::quota::format_google_validation_url(u, &account.email)
+                    }),
+                    timestamp: chrono::Utc::now().timestamp(),
+                });
+
+                if err.reason.as_deref() == Some("VALIDATION_REQUIRED")
+                    || err.message.contains("Verify your account")
+                {
+                    modules::logger::log_warn(&format!(
+                        "账号需要重新授权/验证 (VALIDATION_REQUIRED): {}",
+                        account.email
+                    ));
+                    account.disabled_reason = Some("verification_required".to_string());
+                } else if err.reason.as_deref() == Some("SUBSCRIPTION_REQUIRED") {
+                    modules::logger::log_warn(&format!(
+                        "账号需要有效订阅 (SUBSCRIPTION_REQUIRED): {}",
+                        account.email
+                    ));
+                    account.disabled_reason = Some("subscription_required".to_string());
+                }
+            } else if !is_stale {
+                account.quota_error = None;
+                // 配额获取成功且无部分错误，且非历史缓存兜底，如果之前是 verification_required / subscription_required，自动解除
+                if account.disabled_reason.as_deref() == Some("verification_required")
+                    || account.disabled_reason.as_deref() == Some("subscription_required")
+                {
+                    modules::logger::log_info(&format!(
+                        "账号配额获取成功，自动解除状态: email={}, reason={:?}",
+                        account.email, account.disabled_reason
+                    ));
+                    account.disabled_reason = None;
+                    if account.disabled {
+                        account.disabled = false;
+                        account.disabled_at = None;
+                    }
+                }
+            }
+
             let _ = save_account(account);
             Ok(payload.quota)
         }
         Err(err) => {
+            let err_msg = err.to_string();
+            let mut reason: Option<String> = None;
+            if err_msg.contains("Verify your account") {
+                reason = Some("VALIDATION_REQUIRED".to_string());
+                account.disabled_reason = Some("verification_required".to_string());
+            } else if err_msg.contains("invalid_grant") {
+                reason = Some("invalid_grant".to_string());
+            }
             account.quota_error = Some(QuotaErrorInfo {
                 code: None,
-                message: err.to_string(),
+                message: err_msg,
+                reason,
+                validation_url: None,
                 timestamp: chrono::Utc::now().timestamp(),
             });
             let _ = save_account(account);
@@ -2708,4 +2815,64 @@ mod note_tests {
         std::env::remove_var("COCKPIT_TOOLS_TEST_DATA_DIR");
         let _ = fs::remove_dir_all(&data_dir);
     }
+
+    #[test]
+    fn reimport_same_email_updates_existing_account_and_does_not_duplicate() {
+        let _lock = crate::modules::test_support::env_lock()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let data_dir = std::env::temp_dir().join(format!(
+            "antigravity-reimport-test-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        let _ = fs::remove_dir_all(&data_dir);
+        fs::create_dir_all(&data_dir).expect("create test data dir");
+        std::env::set_var("COCKPIT_TOOLS_TEST_DATA_DIR", &data_dir);
+
+        let token1 = TokenData::new(
+            "access-token-1".to_string(),
+            "refresh-token-1".to_string(),
+            3600,
+            Some("user@example.com".to_string()),
+            Some("proj-1".to_string()),
+            Some("session-1".to_string()),
+        );
+        let first = upsert_account("user@example.com".to_string(), Some("Original Name".to_string()), token1)
+            .expect("first add");
+        assert_eq!(load_account_index().unwrap().accounts.len(), 1);
+
+        // 重新导入同一邮箱：新 refresh_token，无 project_id，无 session_id，邮箱大小写不同
+        let token2 = TokenData::new(
+            "access-token-2".to_string(),
+            "refresh-token-2".to_string(),
+            3600,
+            Some("User@Example.com".to_string()),
+            None,
+            None,
+        );
+        let second = upsert_account("User@Example.com".to_string(), None, token2)
+            .expect("second upsert");
+
+        // 验证：ID 必须保持一致，卡片数量不能增加
+        assert_eq!(second.id, first.id);
+        let index = load_account_index().unwrap();
+        assert_eq!(index.accounts.len(), 1);
+
+        // 验证：token 已被更新，老授权被覆盖
+        let loaded = load_account(&first.id).expect("load updated account");
+        assert_eq!(loaded.token.refresh_token, "refresh-token-2");
+        assert_eq!(loaded.token.access_token, "access-token-2");
+        // 验证：老账号原有的 project_id 和 session_id 被继承保留，原有名称保留
+        assert_eq!(loaded.token.project_id.as_deref(), Some("proj-1"));
+        assert_eq!(loaded.token.session_id.as_deref(), Some("session-1"));
+        assert_eq!(loaded.name.as_deref(), Some("Original Name"));
+
+        std::env::remove_var("COCKPIT_TOOLS_TEST_DATA_DIR");
+        let _ = fs::remove_dir_all(&data_dir);
+    }
 }
+
+#[cfg(test)]
+#[path = "account_id_regression_tests.rs"]
+mod account_id_regression_tests;

@@ -30,7 +30,7 @@ export const PROXY_STRATEGY_LIMITS = {
 /** Presets the backend falls back to; a blank field keeps them. */
 export const PROXY_STRATEGY_DEFAULTS = {
   url: 'https://www.gstatic.com/generate_204',
-  interval: 180,
+  interval: 30,
   timeout: 5,
   tolerance: 50,
   lazy: true,

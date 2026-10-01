@@ -90,6 +90,7 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 	upstreamBody, identityState := applyCodexIdentityConfuseBody(e.cfg, auth, originalPayloadSource, body)
 	reporter.SetTranslatedReasoningEffort(clientBody, to.String())
 	wsHeaders = applyCodexWebsocketHeaders(ctx, wsHeaders, auth, apiKey, e.cfg, opts.Headers)
+	applyCodexRoutingHint(wsHeaders, auth, baseModel, upstreamBody)
 	applyModelHeaderOverrides(wsHeaders, baseModel)
 	removeCodexResponsesLiteHeaderForFullResponse(wsHeaders, useFullResponses)
 	removeCodexResponsesLiteHeaderForAPIKey(wsHeaders, auth)
@@ -138,7 +139,7 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 	var errDial error
 	dialCtx := ctx
 	if cliproxyexecutor.RequiredUpstreamWebsocket(ctx) {
-		conn, closer = existingWebsocketSessionConn(sess, authID, wsURL)
+		conn, closer = existingWebsocketSessionConn(sess, authID, wsURL, codexWebsocketProxyURL(e.cfg, auth))
 		if conn == nil {
 			return resp, cliproxyexecutor.NewUpstreamWebsocketReplayRequiredError()
 		}
@@ -168,6 +169,9 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 		}
 		helps.RecordAPIWebsocketError(ctx, e.cfg, "dial", errDial)
 		return resp, errDial
+	}
+	if closer != nil {
+		reporter.SetProxyRouteGetter(closer.proxyRouteGetter)
 	}
 	if errBind := sess.bindExecutionLifecycle(opts, conn, closer, req.Model); errBind != nil {
 		unlockSession()
@@ -220,11 +224,15 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 			// Retry once with a fresh websocket connection. This is mainly to handle
 			// upstream closing the socket between sequential requests within the same
 			// execution session.
+			reporter.SetProxyRouteGetter(nil)
 			connRetry, closerRetry, respHSRetry, errDialRetry := e.ensureUpstreamConn(ctx, auth, sess, authID, wsURL, wsHeaders)
 			if errDialRetry == nil && connRetry != nil {
 				previousConn, previousReadCh := conn, readCh
 				conn = connRetry
 				closer = closerRetry
+				if closer != nil {
+					reporter.SetProxyRouteGetter(closer.proxyRouteGetter)
+				}
 				if errBind := sess.bindExecutionLifecycle(opts, conn, closer, req.Model); errBind != nil {
 					clearRetryActiveState(sess, previousConn, previousReadCh)
 					unlockSession()

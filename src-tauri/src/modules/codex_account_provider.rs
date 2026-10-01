@@ -74,6 +74,8 @@ const CODEX_EXPERIMENTAL_MODEL_USER_CUSTOMIZED_FILE: &str =
     ".cockpit-experimental-model-catalog-user-customized";
 const CODEX_EXPERIMENTAL_MODEL_PREVIOUS_CATALOG_FILE: &str =
     ".cockpit-experimental-model-catalog-previous.json";
+pub(crate) const GPT_6_1_SOL_MODEL_ID: &str = "gpt-6.1-sol";
+const GPT_6_1_SOL_MODEL_CATALOG_MIGRATION_ID: &str = "add-gpt-6-1-sol-model";
 pub(crate) const GPT_6_ASTRA_MODEL_ID: &str = "gpt-6-astra";
 pub(crate) const GPT_6_SOL_MODEL_ID: &str = "gpt-6-sol";
 pub(crate) const GPT_6_LUNA_MODEL_ID: &str = "gpt-6-luna";
@@ -105,17 +107,14 @@ const PRE_GPT_6_SOL_LUNA_SHIPPED_VISIBLE_CODEX_MODEL_IDS: &[&str] = &[
 const EXPERIMENTAL_MODEL_CATALOG_CONFIG_VERSION: u32 = 4;
 const CODEX_REASONING_EFFORTS: &[&str] = &["low", "medium", "high", "xhigh", "max", "ultra"];
 const SHIPPED_VISIBLE_CODEX_MODEL_IDS: &[&str] = &[
+    GPT_6_1_SOL_MODEL_ID,
     GPT_6_ASTRA_MODEL_ID,
     GPT_6_SOL_MODEL_ID,
     GPT_6_LUNA_MODEL_ID,
     "gpt-5.6-sol",
     "gpt-5.6-terra",
     "gpt-5.6-luna",
-    "gpt-5.3-codex",
     "gpt-5.5",
-    "gpt-5.4",
-    "gpt-5.4-mini",
-    "gpt-5.3-codex-spark",
     "gpt-reserve",
 ];
 /// Official DeepSeek Codex setup writes `models.json` and points `model_catalog_json` at it.
@@ -822,8 +821,9 @@ fn normalize_deepseek_account(account: &mut CodexAccount) -> bool {
         let mappings_before = account.api_model_mappings.len();
         account.api_model_mappings.retain(|mapping| {
             let client = mapping.client_model.trim();
-            !crate::modules::codex_local_access::is_codex_provider_shell_model_id(client)
-                || is_allowed_deepseek_client_model(client)
+            !crate::modules::codex_wakeup::is_codex_model_before_5_5(client)
+                && (!crate::modules::codex_local_access::is_codex_provider_shell_model_id(client)
+                    || is_allowed_deepseek_client_model(client))
         });
         if account.api_model_mappings.len() != mappings_before {
             changed = true;
@@ -1416,10 +1416,8 @@ pub(crate) fn apply_deepseek_reasoning_effort(doc: &mut Document) {
 }
 
 /// DeepSeek 切换期临时改动的备份文件名。沿用旧文件名，避免升级后丢失既有备份记录；
-/// 现在除压缩兜底外还记录顶层冲突键的原值。
+/// 旧记录包含压缩键，新记录只保存仍有效的顶层配置原值。
 const DEEPSEEK_COMPACTION_BACKUP_FILE: &str = "cockpit-deepseek-compaction.json";
-pub(crate) const DEEPSEEK_COMPACTION_FALLBACK_KEYS: &[&str] =
-    &["remote_compaction_v2", "token_budget"];
 /// 备份记录里存放顶层配置键原值的分区名。
 const DEEPSEEK_TOP_LEVEL_BACKUP_SECTION: &str = "top_level_keys";
 /// 官方在 DeepSeek 下禁用 Codex 内置联网搜索（官方脚本写 `web_search = "disabled"`）。
@@ -1548,34 +1546,18 @@ fn restore_deepseek_top_level_backup(
 }
 
 /// 切到 DeepSeek 时写入官方要求的配置，并先记录原值以便切走时精确还原：
-/// - 压缩兜底：DeepSeek 没有服务端压缩端点，远端压缩会一直失败；本地压缩保留摘要流程。
 /// - 禁用内置联网搜索。
 /// - 移除与官方 models.json 声明冲突的顶层键。
 pub(crate) fn apply_deepseek_config_overrides(doc: &mut Document, base_dir: &Path) {
     let backup_path = deepseek_compaction_backup_path(base_dir);
     if !backup_path.exists() {
         let mut original = serde_json::Map::new();
-        for name in DEEPSEEK_COMPACTION_FALLBACK_KEYS {
-            let current = doc
-                .get("features")
-                .and_then(|item| item.as_table())
-                .and_then(|table| table.get(*name))
-                .and_then(|item| item.as_bool());
-            original.insert(
-                (*name).to_string(),
-                match current {
-                    Some(existing) => serde_json::json!({ "present": true, "value": existing }),
-                    None => serde_json::json!({ "present": false }),
-                },
-            );
-        }
         original.insert(
             DEEPSEEK_TOP_LEVEL_BACKUP_SECTION.to_string(),
             record_deepseek_top_level_backup(doc),
         );
         write_deepseek_compaction_backup(base_dir, &original);
     }
-    apply_local_compaction_fallback(doc);
     // 同样只接管标量：Codex 的 `web_search` 是字符串开关，用户若写成表结构就不动它。
     let web_search_is_scalar = match doc.get(DEEPSEEK_WEB_SEARCH_KEY) {
         Some(item) => item.as_value().is_some(),
@@ -1603,46 +1585,49 @@ pub(crate) fn restore_deepseek_config_overrides(doc: &mut Document, base_dir: &P
     if record.is_empty() {
         return true;
     }
-    for name in DEEPSEEK_COMPACTION_FALLBACK_KEYS {
-        let Some(original) = record.get(*name).and_then(|value| value.as_object()) else {
-            continue;
-        };
-        let present = original
-            .get("present")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false);
-        let stored = original
-            .get("value")
-            .and_then(serde_json::Value::as_bool);
-        let Some(table) = doc["features"].as_table_mut() else {
-            continue;
-        };
-        match (present, stored) {
-            (true, Some(existing)) => {
-                table[*name] = toml_edit::value(existing);
-            }
-            (false, _) => {
-                let _ = table.remove(name);
-            }
-            _ => {}
-        }
-    }
+    restore_legacy_deepseek_compaction_override(doc, &record);
     restore_deepseek_top_level_backup(doc, &record);
     true
 }
 
-/// 供应商网关（实例网关）接管 profile 后，把 DeepSeek 压缩兜底补写回来。
-///
-/// 实例网关接管写入的是网关运行账号（provider 名 `OpenAI`），接管流程按「非 DeepSeek 账号」
-/// 清掉了切号时写入的兜底；但该 profile 的上游仍是 DeepSeek：远程压缩（`compaction_trigger`
-/// 与 `responses/compact`）会把整段历史交给上游校验，而本地网关出口已经把第三方推理正文
-/// 改写成官方形状，上游会以
-/// `The reasoning_text in the thinking mode must be passed back to the API` 拒绝压缩。
-/// 这里在接管完成后按 profile 目录补回兜底（关闭 `remote_compaction_v2`、移除 `token_budget`），
-/// 让压缩留在本地摘要流程；切走时仍按同一份备份还原用户设置。
+/// 仅备份与当前值能证实旧覆盖时清理，保留用户后来显式修改或删除的配置。
+fn restore_legacy_deepseek_compaction_override(
+    doc: &mut Document,
+    record: &serde_json::Map<String, serde_json::Value>,
+) {
+    let Some(original) = record.get("remote_compaction_v2") else {
+        return;
+    };
+    let originally_not_false = match original.get("present").and_then(serde_json::Value::as_bool) {
+        Some(false) => true,
+        Some(true) => original.get("value").and_then(serde_json::Value::as_bool) == Some(true),
+        None => false,
+    };
+    if !originally_not_false || !remove_legacy_remote_compaction_override(doc) {
+        return;
+    }
+    let Some(features) = doc.get_mut("features").and_then(|item| item.as_table_mut()) else {
+        return;
+    };
+    // 旧流程会移除 token_budget。当前显式值可能是用户后来设置的，不能覆盖或删除。
+    if features.contains_key("token_budget") {
+        return;
+    }
+    let Some(original) = record.get("token_budget") else {
+        return;
+    };
+    if original.get("present").and_then(serde_json::Value::as_bool) == Some(true) {
+        if let Some(value) = original.get("value").and_then(serde_json::Value::as_bool) {
+            features["token_budget"] = toml_edit::value(value);
+        }
+    }
+}
+
+/// 实例网关接管 profile 后补回 DeepSeek 的联网搜索与顶层参数兼容配置。
+/// 不再写入已移除的压缩开关，也不保证改变客户端的压缩路径。
 pub(crate) fn reapply_deepseek_config_overrides_for_dir(base_dir: &Path) -> Result<bool, String> {
     let config_path = get_config_toml_path(base_dir);
-    // 没有 config.toml 说明接管流程还没写入 profile 配置，此时单独写兜底键会生成
+    // 没有 config.toml 说明接管流程还没写入 profile 配置，此时单独写参数会生成
     // 缺少 provider 的残缺配置，因此直接跳过。
     if !config_path.exists() {
         return Ok(false);
@@ -1666,53 +1651,20 @@ pub(crate) fn reapply_deepseek_config_overrides_for_dir(base_dir: &Path) -> Resu
     Ok(true)
 }
 
-/// 只写压缩兜底（`remote_compaction_v2 = false`，并移除 `token_budget`），不写其它 DeepSeek 专属覆盖。
-///
-/// 供「账号池里同时有官方账号与 DeepSeek 账号」的转发 profile 使用：这类 profile 不能整体套用
-/// `web_search = "disabled"`、移除 `service_tier` 等 DeepSeek 专属改写，否则会一并影响池里的官方账号。
-pub(crate) fn apply_local_compaction_fallback(doc: &mut Document) {
-    if doc.get("features").and_then(|item| item.as_table()).is_none() {
-        doc["features"] = toml_edit::table();
-    }
-    if let Some(table) = doc["features"].as_table_mut() {
-        table["remote_compaction_v2"] = toml_edit::value(false);
-        // `token_budget = true` 会把压缩改成「窗口用尽即换新窗口」：客户端直接进入新窗口，
-        // 不生成摘要，任务只留在旧窗口里（表现为压缩完成后丢掉任务）。本地压缩必须保留摘要流程，
-        // 因此这里显式移除该键——包括早前版本由 Cockpit 写下的 `true`。
-        // 用户自己的原值由切号备份（cockpit-deepseek-compaction.json）与接管备份负责还原。
-        let _ = table.remove("token_budget");
-    }
-}
-
-/// 按 profile 目录写回压缩兜底（仅压缩键），已写过时不重复改写。
-///
-/// 用于 Codex API 服务的转发 profile：DeepSeek 没有服务端压缩——`/responses/compact` 返回 404，
-/// `compaction_trigger` 只会返回普通 message，而 Codex 的远程压缩 v2 要求响应里恰好有一个
-/// compaction 输出项，因此请求一旦被路由到 DeepSeek 账号就必然失败；在此之前本地网关出口
-/// 还会因为兼容官方账号而把推理正文改写成 `summary`，DeepSeek 于思考模式下先以
-/// `The reasoning_text in the thinking mode must be passed back to the API` 拒绝整段请求。
-pub(crate) fn ensure_local_compaction_fallback_for_dir(base_dir: &Path) -> Result<bool, String> {
-    let config_path = get_config_toml_path(base_dir);
-    if !config_path.exists() {
-        return Ok(false);
-    }
-    let existing = fs::read_to_string(&config_path).unwrap_or_default();
-    let mut doc = if existing.trim().is_empty() {
-        Document::new()
-    } else {
-        crate::modules::codex_config_format::read_codex_config_doc_from_str(&existing)
-            .map_err(|e| format!("解析 config.toml 失败: {}", e))?
+/// 清除旧版本在受管 profile 写入的失效值；保留用户其它 features。
+pub(crate) fn remove_legacy_remote_compaction_override(doc: &mut Document) -> bool {
+    let Some(features) = doc.get_mut("features").and_then(|item| item.as_table_mut()) else {
+        return false;
     };
-    let mut before_doc = doc.clone();
-    let before = crate::modules::codex_config_format::codex_config_doc_to_string(&mut before_doc);
-    apply_local_compaction_fallback(&mut doc);
-    let content = crate::modules::codex_config_format::codex_config_doc_to_string(&mut doc);
-    if content == before {
-        return Ok(false);
+    if features
+        .get("remote_compaction_v2")
+        .and_then(|item| item.as_bool())
+        != Some(false)
+    {
+        return false;
     }
-    crate::modules::codex_config_format::write_codex_config_toml_atomic(&config_path, &content)
-        .map_err(|e| format!("写入 config.toml 失败: {}", e))?;
-    Ok(true)
+    features.remove("remote_compaction_v2");
+    true
 }
 
 fn cleanup_deepseek_official_model_catalog_for_dir(base_dir: &Path) -> Result<bool, String> {
@@ -1743,7 +1695,7 @@ fn cleanup_deepseek_official_model_catalog_for_dir(base_dir: &Path) -> Result<bo
         .get(CODEX_CONFIG_MODEL_CATALOG_JSON_KEY)
         .and_then(|item| item.as_str())
         .is_some_and(|value| is_deepseek_official_catalog_ref(value, base_dir));
-    // 切走 DeepSeek 时把压缩兜底与顶层冲突键还原成用户原值（没记录过就不动）。
+    // 切走 DeepSeek 时还原有效配置原值，并清理旧受管压缩开关。
     let restored_overrides = restore_deepseek_config_overrides(&mut doc, base_dir);
     if points_at_official || restored_overrides {
         if points_at_official {

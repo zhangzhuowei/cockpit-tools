@@ -16,6 +16,7 @@
 }
 
 .codex-api-service-content {
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -2484,6 +2485,15 @@ html[data-reduced-motion="true"] .codex-api-service-key-advanced-toggle[aria-exp
   color: var(--danger);
 }
 
+.codex-api-service-log-row > div:last-child .codex-request-proxy-label {
+  display: inline-block;
+  min-width: 0;
+  max-width: min(24ch, 100%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .codex-api-service-empty {
   display: flex;
   align-items: center;
@@ -2946,4 +2956,12 @@ html[data-reduced-motion="true"] .codex-api-service-key-advanced-toggle[aria-exp
   .codex-api-service-summary-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* The sidebar consumes width even when the native window is wider than 860px. */
+@container (max-width: 760px) {
+  .codex-api-service-hero { grid-template-columns: minmax(0, 1fr); align-items: start; }
+  .codex-api-service-hero-actions, .codex-api-service-head-actions { justify-content: flex-start; }
+  .codex-api-service-panel-head { flex-wrap: wrap; }
+  .codex-api-service-panel-head h2 { flex-basis: 100%; }
 }

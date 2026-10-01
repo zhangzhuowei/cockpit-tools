@@ -1174,19 +1174,6 @@ export function useCodexAccountsOverviewController(context: Pick<ReturnType<type
         filteredAccounts.filter(isAbnormalAccount).map((account) => account.id),
       [filteredAccounts, isAbnormalAccount],
     );
-    // Full overview set of auth-failed accounts for export (#992), not limited to current page filter.
-    const authFailedExportAccountIds = useMemo(
-      () =>
-        overviewAccounts.filter(isAbnormalAccount).map((account) => account.id),
-      [isAbnormalAccount, overviewAccounts],
-    );
-    const handleExportAuthFailedAccounts = useCallback(() => {
-      if (authFailedExportAccountIds.length === 0) return;
-      void handleExportByIds(
-        authFailedExportAccountIds,
-        `codex_auth_failed_${authFailedExportAccountIds.length}`,
-      );
-    }, [authFailedExportAccountIds, handleExportByIds]);
     const hasDetectableFullQuotaWakeupAccounts = useMemo(
       () =>
         filteredAccounts.some(
@@ -1423,7 +1410,7 @@ export function useCodexAccountsOverviewController(context: Pick<ReturnType<type
         setDeleteConfirm(null);
         // 用成功提示覆盖页顶旧错误，避免删除后红色报错仍挂着（#1160）
         setMessage({
-          text: t("codex.batchDelete.started", {
+          text: t("common.recycleBin.moveStarted", {
             count: deleteConfirm.ids.length,
           }),
           tone: "success",
@@ -1432,7 +1419,7 @@ export function useCodexAccountsOverviewController(context: Pick<ReturnType<type
         batchDeleteRemoveIdsRef.current = new Set();
         setBatchDeleteModalError(
           t("messages.actionFailed", {
-            action: t("common.delete"),
+            action: t("common.recycleBin.move"),
             error: String(error),
           }),
         );
@@ -1750,7 +1737,6 @@ export function useCodexAccountsOverviewController(context: Pick<ReturnType<type
     };
   return {
     applyWindowStatsToQuotaItems,
-    authFailedExportAccountIds,
     buildAccountLaunchPreviewActions,
     buildAccountLaunchPreviewSummary,
     buildLocalAccessLaunchPreviewActions,
@@ -1768,7 +1754,6 @@ export function useCodexAccountsOverviewController(context: Pick<ReturnType<type
     handleCodexBatchDelete,
     handleCustomSortDragMove,
     handleCustomSortDragStart,
-    handleExportAuthFailedAccounts,
     handlePauseBatchDelete,
     handleRefreshGroup,
     handleResumeBatchDelete,

@@ -52,11 +52,11 @@
                     upstream_model: "deepseek-v4-flash".to_string(),
                 },
                 super::ProviderGatewayModelSlot {
-                    client_model: "gpt-5.4".to_string(),
+                    client_model: "gpt-5.6-sol".to_string(),
                     upstream_model: "deepseek-v4-pro".to_string(),
                 },
                 super::ProviderGatewayModelSlot {
-                    client_model: "gpt-5.4-mini".to_string(),
+                    client_model: "gpt-5.6-terra".to_string(),
                     upstream_model: "deepseek-v4-flash-vision-exp".to_string(),
                 },
             ]
@@ -400,8 +400,8 @@
     #[test]
     fn catalog_context_windows_keep_official_and_override_third_party() {
         let official = super::ProviderGatewayModelSlot {
-            client_model: "gpt-5.4".to_string(),
-            upstream_model: "gpt-5.4".to_string(),
+            client_model: "gpt-6.1-sol".to_string(),
+            upstream_model: "gpt-6.1-sol".to_string(),
         };
         let remapped = super::ProviderGatewayModelSlot {
             client_model: "gpt-5.6-sol".to_string(),
@@ -413,7 +413,7 @@
         };
         let catalog = serde_json::json!({
             "models": [
-                { "slug": "gpt-5.4", "context_window": 272000, "max_context_window": 272000 },
+                { "slug": "gpt-6.1-sol", "context_window": 272000, "max_context_window": 272000 },
                 { "slug": "gpt-5.6-sol", "context_window": 372000, "max_context_window": 372000 },
                 { "slug": "gpt-5.5", "context_window": 1048576, "max_context_window": 1048576 }
             ]
@@ -437,7 +437,7 @@
                 .find(|model| model["slug"] == slug)
                 .and_then(|model| model["context_window"].as_i64())
         };
-        assert_eq!(window("gpt-5.4"), Some(272000));
+        assert_eq!(window("gpt-6.1-sol"), Some(272000));
         assert_eq!(window("gpt-5.6-sol"), Some(900_000));
         assert_eq!(window("gpt-5.5"), Some(1048576));
         // 统一口径：显式写窗口时必须同时写 90% 的压缩阈值。
@@ -719,7 +719,7 @@
         cleanup_provider_gateway_profile_model_overrides, codex_price,
         collect_local_access_profile_takeover_dirs_from_store, compare_routing_candidates,
         count_request_logs_for_model_ids, default_codex_model_ids, effective_api_key_account_ids,
-        empty_stats_snapshot, ensure_local_compaction_for_account_pool, extract_usage_capture,
+        empty_stats_snapshot, extract_usage_capture,
         filter_bound_oauth_quota_reserve_account,
         filter_websocket_client_message, insert_local_access_usage_event,
         load_stats_windows_and_recent_events_from_conn,
@@ -749,7 +749,7 @@
         provider_gateway_image_generation_mode_for_account, provider_gateway_model_slots,
         provider_gateway_models_for_account, provider_model_slots_need_upstream_rewrite,
         read_http_request, read_request_log_reprice_batch, recompute_time_windows,
-        reapply_deepseek_profile_compaction_fallback, recover_invalid_stats_file,
+        reapply_deepseek_profile_config_overrides, recover_invalid_stats_file,
         remove_account_refs_from_collection,
         remove_codex_local_access_config, reprice_request_logs_for_collection,
         request_image_generation_mode, request_logs_has_column, request_ordered_account_ids,
@@ -1719,7 +1719,7 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
                 .collect::<Vec<_>>(),
             vec![
                 ("gpt-5.5", "deepseek-v4-flash"),
-                ("gpt-5.4", "deepseek-v4-pro"),
+                ("gpt-5.6-sol", "deepseek-v4-pro"),
             ]
         );
 
@@ -1730,8 +1730,8 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
         assert!(!account_requires_provider_gateway(&account));
     }
 
-    #[test]
-    fn account_pool_with_deepseek_switches_profile_to_local_compaction() {
+    #[tokio::test]
+    async fn account_pool_compaction_cleanup_does_not_enable_removed_feature() {
         let deepseek_gateway = CodexLocalAccessProviderGateway {
             base_url: "https://api.deepseek.com/v1".to_string(),
             api_key: "sk-deepseek".to_string(),
@@ -1765,10 +1765,8 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
         let mut collection = new_empty_local_access_collection().expect("collection");
         collection.enabled = true;
         collection.api_keys = vec![key.clone()];
-        assert!(super::collection_pool_contains_official_deepseek_account(&collection));
 
-        // 账号池没有能承接官方 GPT 模型的账号（这里是第三方 Chat 协议供应商）时，
-        // 压缩同样回到本地流程：这类上游没有可用的服务端压缩，远端压缩还会带着旧模型 ID 发出。
+        // 非 GPT 账号池与 DeepSeek 账号池都不再写已移除的压缩开关。
         key.provider_gateway = Some(CodexLocalAccessProviderGateway {
             base_url: "https://token-plan-cn.xiaomimimo.com/v1".to_string(),
             ..deepseek_gateway.clone()
@@ -1776,7 +1774,6 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
         let mut other_collection = new_empty_local_access_collection().expect("collection");
         other_collection.enabled = true;
         other_collection.api_keys = vec![key.clone()];
-        assert!(!super::collection_pool_contains_official_deepseek_account(&other_collection));
 
         let profile_dir = make_temp_dir("codex-pool-local-compaction");
         let config_path = profile_config_path(&profile_dir);
@@ -1787,32 +1784,32 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
         )
         .expect("write profile config");
 
-        ensure_local_compaction_for_account_pool(&profile_dir, &other_collection)
-            .expect("apply local compaction for non-gpt pool");
+        super::write_local_access_profile_takeover(&profile_dir, &other_collection, None, true)
+            .await.expect("take over non-gpt pool profile");
         let non_gpt_applied = fs::read_to_string(&config_path).expect("read profile config");
         assert!(
-            non_gpt_applied.contains("remote_compaction_v2 = false"),
-            "非 GPT 账号池必须回到本地压缩: {non_gpt_applied}"
+            !non_gpt_applied.contains("remote_compaction_v2"),
+            "非 GPT 账号池不得新增失效开关: {non_gpt_applied}"
         );
         assert!(
             non_gpt_applied.contains("service_tier = \"priority\""),
-            "压缩兜底只动压缩键，其它配置保持不变: {non_gpt_applied}"
+            "旧开关清理保留其它配置: {non_gpt_applied}"
         );
 
-        ensure_local_compaction_for_account_pool(&profile_dir, &collection)
-            .expect("apply deepseek pool fallback");
+        super::write_local_access_profile_takeover(&profile_dir, &collection, None, true)
+            .await.expect("take over deepseek pool profile");
         let applied = fs::read_to_string(&config_path).expect("read profile config");
-        assert!(applied.contains("remote_compaction_v2 = false"));
+        assert!(!applied.contains("remote_compaction_v2"));
         assert!(!applied.contains("token_budget"));
         assert!(applied.contains("js_repl = false"));
-        // 混合账号池只动压缩键，官方账号的 service_tier 必须保留。
+        // 官方账号的 service_tier 必须保留。
         assert!(applied.contains("service_tier = \"priority\""));
 
         fs::remove_dir_all(&profile_dir).expect("cleanup temp dir");
     }
 
     #[test]
-    fn deepseek_provider_gateway_profile_keeps_local_compaction_fallback() {
+    fn deepseek_provider_gateway_profile_keeps_valid_overrides() {
         let profile_dir = make_temp_dir("codex-deepseek-gateway-compaction");
         let config_path = profile_config_path(&profile_dir);
         crate::modules::codex_config_format::write_codex_config_toml_atomic(
@@ -1834,10 +1831,10 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
         deepseek.api_wire_api = Some("responses".to_string());
         deepseek.api_sync_model_catalog_to_codex = true;
 
-        reapply_deepseek_profile_compaction_fallback(&profile_dir, &deepseek)
+        reapply_deepseek_profile_config_overrides(&profile_dir, &deepseek)
             .expect("reapply deepseek fallback");
         let applied = fs::read_to_string(&config_path).expect("read profile config");
-        assert!(applied.contains("remote_compaction_v2 = false"));
+        assert!(!applied.contains("remote_compaction_v2"));
         assert!(!applied.contains("token_budget"));
         assert!(applied.contains("js_repl = false"));
 
@@ -1860,7 +1857,7 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
             Some("Moonshot".to_string()),
             vec!["kimi-k2".to_string()],
         );
-        reapply_deepseek_profile_compaction_fallback(&other_dir, &other)
+        reapply_deepseek_profile_config_overrides(&other_dir, &other)
             .expect("skip non-deepseek fallback");
         assert_eq!(
             fs::read_to_string(&other_config_path).expect("read other profile config"),
@@ -1918,7 +1915,7 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
         );
         assert_eq!(
             models[1].get("slug").and_then(Value::as_str),
-            Some("gpt-5.4")
+            Some("gpt-5.6-sol")
         );
         assert_eq!(
             models[1].get("display_name").and_then(Value::as_str),
@@ -2064,11 +2061,11 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
                 ("gpt-5.6-sol", "deepseek-v4-pro"),
                 ("gpt-5.6-terra", "deepseek-v4-flash"),
                 ("gpt-5.6-luna", "deepseek-v4-lite"),
-                ("gpt-5.4", "deepseek-v4-extra"),
-                ("gpt-5.4-mini", "custom-overflow-a"),
-                ("gpt-5.3-codex", "custom-overflow-b"),
-                ("gpt-5.3-codex-spark", "custom-overflow-c"),
-                ("gpt-5.2", "custom-overflow-d"),
+                ("deepseek-v4-extra", "deepseek-v4-extra"),
+                ("custom-overflow-a", "custom-overflow-a"),
+                ("custom-overflow-b", "custom-overflow-b"),
+                ("custom-overflow-c", "custom-overflow-c"),
+                ("custom-overflow-d", "custom-overflow-d"),
                 // Shell pool exhausted: keep upstream IDs so all models remain listed.
                 ("custom-overflow-e", "custom-overflow-e"),
                 ("custom-overflow-f", "custom-overflow-f"),
@@ -2100,6 +2097,7 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
     #[test]
     fn provider_gateway_model_slots_keep_identity_for_gpt_6_family() {
         let slots = provider_gateway_model_slots(&[
+            "gpt-6.1-sol".to_string(),
             "gpt-6-astra".to_string(),
             "gpt-6-sol".to_string(),
             "gpt-6-luna".to_string(),
@@ -2107,6 +2105,10 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
         assert_eq!(
             slots,
             vec![
+                super::ProviderGatewayModelSlot {
+                    client_model: "gpt-6.1-sol".to_string(),
+                    upstream_model: "gpt-6.1-sol".to_string(),
+                },
                 super::ProviderGatewayModelSlot {
                     client_model: "gpt-6-astra".to_string(),
                     upstream_model: "gpt-6-astra".to_string(),
@@ -2208,7 +2210,7 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
             .expect("models should be an array");
         for (model_id, display_name) in [
             ("gpt-5.5", "deepseek-v4-flash"),
-            ("gpt-5.4", "deepseek-v4-pro"),
+            ("gpt-5.6-sol", "deepseek-v4-pro"),
         ] {
             assert!(models.iter().any(|model| {
                 model.get("slug").and_then(Value::as_str) == Some(model_id)

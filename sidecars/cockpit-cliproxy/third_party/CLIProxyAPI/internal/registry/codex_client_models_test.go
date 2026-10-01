@@ -105,12 +105,16 @@ func TestMergeLocallyPinnedCodexClientModelsKeepsPinnedModelsWhenRemoteLags(t *t
 		}
 		// The shipped catalog is the only source here, so every pinned model
 		// must carry the embedded metadata rather than the remote stub.
-		if got := modelBySlug[pinnedSlug]["context_window"]; got != float64(256000) {
-			t.Fatalf("%s context_window = %#v, want 256000", pinnedSlug, got)
+		window, compact := float64(256000), float64(230400)
+		if pinnedSlug == codexBuiltinGPT61SolModelID {
+			window, compact = 272000, 244800
 		}
-		// 目录里声明窗口就必须带 90% 压缩阈值，不能留空。
-		if got := modelBySlug[pinnedSlug]["auto_compact_token_limit"]; got != float64(230400) {
-			t.Fatalf("%s auto_compact_token_limit = %#v, want 230400", pinnedSlug, got)
+		if got := modelBySlug[pinnedSlug]["context_window"]; got != window {
+			t.Fatalf("%s context_window = %#v, want %v", pinnedSlug, got, window)
+		}
+		// Every declared window must include its 90% compaction limit.
+		if got := modelBySlug[pinnedSlug]["auto_compact_token_limit"]; got != compact {
+			t.Fatalf("%s auto_compact_token_limit = %#v, want %v", pinnedSlug, got, compact)
 		}
 	}
 	if len(payload.Models) != 1+len(locallyPinnedCodexClientModelSlugs) {
@@ -162,6 +166,9 @@ func TestMergeLocallyPinnedCodexClientModelsPrefersRemotePinnedMetadata(t *testi
 		if got := model["context_window"]; got != float64(372000) {
 			t.Fatalf("remote %s context_window = %#v, want 372000", tc.slug, got)
 		}
+	}
+	if countBySlug[codexBuiltinGPT61SolModelID] != 1 || modelBySlug[codexBuiltinGPT61SolModelID]["context_window"] != float64(272000) {
+		t.Fatal("missing GPT-6.1 Sol must be backfilled exactly once from the embedded catalog")
 	}
 	if countBySlug[codexBuiltinGPT6LunaModelID] != 1 {
 		t.Fatalf("merged catalog %s entry count = %d, want 1", codexBuiltinGPT6LunaModelID, countBySlug[codexBuiltinGPT6LunaModelID])
@@ -346,4 +353,39 @@ func testCodexClientCatalog(t *testing.T, models ...map[string]any) []byte {
 		t.Fatalf("marshal test Codex client catalog: %v", err)
 	}
 	return data
+}
+
+func TestRemoteClientCatalogCannotRestoreRetiredModels(t *testing.T) {
+	var document map[string]any
+	if err := json.Unmarshal(embeddedCodexClientModelsJSON, &document); err != nil {
+		t.Fatal(err)
+	}
+	models := document["models"].([]any)
+	document["models"] = append(models, testCodexClientModel("gpt-5.4", 20))
+	document["model_overrides"] = []any{testCodexClientModel("gpt-4.1", 21), testCodexClientModel("custom-model", 22)}
+	raw, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged, err := mergeLocallyPinnedCodexClientModels(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateCodexClientModelsJSON(merged); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(merged, &document); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"models", "model_overrides"} {
+		for _, value := range document[key].([]any) {
+			slug := value.(map[string]any)["slug"].(string)
+			if isRetiredCodexModelID(slug) {
+				t.Fatalf("retired %s survived in %s", slug, key)
+			}
+		}
+	}
+	if len(document["model_overrides"].([]any)) != 1 {
+		t.Fatal("custom override was dropped")
+	}
 }

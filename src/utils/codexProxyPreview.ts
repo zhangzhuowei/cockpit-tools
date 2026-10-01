@@ -23,7 +23,7 @@ export function singleFlightRead<T>(read: (key: string) => Promise<T>, timeoutMs
 
 export interface ProxyRuntimeSnapshot { timestamp: number; status: CodexProxyRuntimeStatus }
 export interface ProxyRuntimeRow {
-  kind: 'account' | 'sidecar' | 'combined' | 'desktop';
+  kind: 'account' | 'sidecar' | 'combined' | 'desktop' | 'shared';
   state: CodexProxyRuntimeState | 'ready' | 'failed' | 'entry_failed' | undefined;
   port: number | null | undefined;
   node: string | null | undefined;
@@ -34,13 +34,13 @@ export interface ProxyRuntimeRow {
 }
 
 export function proxyRuntimeLabelKey(kind: ProxyRuntimeRow['kind']) {
-  return kind === 'combined' ? 'codex.proxy.combinedRuntime' : kind === 'account' ? 'codex.proxy.runtimeMain'
+  return kind === 'shared' ? 'codex.proxy.sharedRuntime' : kind === 'combined' ? 'codex.proxy.combinedRuntime' : kind === 'account' ? 'codex.proxy.runtimeMain'
     : kind === 'desktop' ? 'codex.proxy.runtimeDesktop' : 'codex.proxy.apiRuntime';
 }
 
 export function proxyPreviewBinding(saved: CodexAccount['egress_proxy'], status: CodexProxyRuntimeStatus | null) {
   if (status?.proxySource) {
-    return { source: status.proxySource, summary: status.proxySource === 'none' ? null
+    return { source: status.proxySource, summary: ['none', 'disabled'].includes(status.proxySource) ? null
       : status.effectiveProxy === undefined && status.proxySource === 'account' ? saved : status.effectiveProxy };
   }
   // Older hosts only returned runtime fields. A missing independent binding cannot
@@ -55,22 +55,34 @@ export function proxyRuntimeRows(status: CodexProxyRuntimeStatus | null): ProxyR
     && status.account === status.sidecar
     && (status.accountPort ?? null) === (status.sidecarPort ?? null)
     && (status.accountNode ?? null) === (status.sidecarNode ?? null);
-  return (shared ? ['combined', 'desktop'] as const : ['account', 'sidecar', 'desktop'] as const).map((kind) => {
-    const source = kind === 'combined' ? 'account' : kind;
+  // New hosts identify the shared entry even before it has a port. For older
+  // hosts, infer sharing only from equal non-null ports, never idle state alone.
+  const unified = status?.sharedEntry === true || (shared && status.accountPort != null
+    && status.account === status.desktop
+    && status.accountPort === status.desktopPort
+    && (status.accountNode ?? null) === (status.desktopNode ?? null)
+    && (!status.desktopEntry || status.desktopEntry.port === status.accountPort));
+  return (unified ? ['shared'] as const : shared ? ['combined', 'desktop'] as const : ['account', 'sidecar', 'desktop'] as const).map((kind) => {
+    const source = kind === 'combined' || kind === 'shared' ? 'account' : kind;
     const row: ProxyRuntimeRow = { kind, state: status?.[source], port: status?.[`${source}Port`], node: status?.[`${source}Node`] };
-    const selection = status?.[`${source}Selection`];
-    if (selection && selection.name === row.node) row.selection = selection;
-    const entry = kind === 'desktop' ? status?.desktopEntry : null;
+    const sources = kind === 'shared' ? ['account', 'desktop', 'sidecar'] as const
+      : kind === 'combined' ? ['account', 'sidecar'] as const : [source];
+    const selection = sources.flatMap((channel) => {
+      const measured = status?.[`${channel}Selection`];
+      return measured && measured.name === row.node ? [measured] : [];
+    }).sort((a, b) => (b.checkedAt ?? 0) - (a.checkedAt ?? 0))[0];
+    if (selection) row.selection = selection;
+    const entry = kind === 'desktop' || kind === 'shared' ? status?.desktopEntry : null;
     if (entry) {
       row.entry = entry;
-      row.kernelState = status?.desktop;
-      row.kernelPort = status?.desktopPort;
+      row.kernelState = status?.[source];
+      row.kernelPort = status?.[`${source}Port`];
       row.port = entry.port;
       if (entry.state !== 'listening') row.state = entry.state === 'failed' ? 'entry_failed' : 'stopped';
       // An entry listener does not repair a missing, stopped or starting kernel.
-      else if (!['missing', 'stopped', 'starting', 'unbound'].includes(status!.desktop)) {
+      else if (!['missing', 'stopped', 'starting', 'unbound'].includes(status![source]!)) {
         if (entry.lastRequestState === 'failed') row.state = 'failed';
-        else if (status!.desktop === 'idle' || status!.desktop === 'direct') row.state = entry.lastRequestState === 'connecting' ? 'starting' : 'ready';
+        else if (status![source] === 'idle' || status![source] === 'direct') row.state = entry.lastRequestState === 'connecting' ? 'starting' : 'ready';
       }
     }
     return row;

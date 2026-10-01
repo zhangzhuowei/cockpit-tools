@@ -1,3 +1,4 @@
+import { getCodexAccountQuotaError } from "./codexProxyRuntimeError";
 import type { TFunction } from "i18next";
 import type { CodexAccount } from "../types/codex";
 import {
@@ -302,7 +303,7 @@ export function isCodexOverviewAccountAbnormal(
   if (isCodexClientReauthNoticeOnly(account)) return false;
   if (account.requires_reauth === true) return true;
 
-  const rawMessage = account.quota_error?.message?.trim() ?? "";
+  const rawMessage = getCodexAccountQuotaError(account.quota_error)?.message?.trim() ?? "";
   if (!rawMessage) return false;
   const lowerRawMessage = rawMessage.toLowerCase();
   const statusCode =

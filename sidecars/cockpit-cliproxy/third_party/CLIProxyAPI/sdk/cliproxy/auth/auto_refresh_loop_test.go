@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -183,5 +184,38 @@ func TestNextRefreshCheckAt_RefreshEvaluatorFallback(t *testing.T) {
 	want := now.Add(interval)
 	if !got.Equal(want) {
 		t.Fatalf("nextRefreshCheckAt() = %s, want %s", got, want)
+	}
+}
+
+// StopAutoRefresh must join the loop and its workers. Otherwise a worker still
+// running refreshAuth can create a credential temp file after the caller
+// believes it stopped, which surfaced as a flaky "directory not empty" cleanup
+// and could leave a half-written auth file on disk.
+func TestStopAutoRefreshJoinsWorkers(t *testing.T) {
+	manager := &Manager{}
+	loop := newAuthAutoRefreshLoop(manager, time.Hour, 2)
+	// Manager without store/executors: refreshAuth returns early, so the worker
+	// loop is driven purely by the jobs channel and the cancelled context.
+	ctx, cancel := context.WithCancel(context.Background())
+	manager.refreshCancel = cancel
+	manager.refreshLoop = loop
+	manager.refreshRuns = map[*authAutoRefreshLoop]context.CancelFunc{loop: cancel}
+	go loop.run(ctx)
+
+	// Give the workers a real job, then stop and assert the join completed
+	// synchronously (wait returns rather than blocking forever).
+	select {
+	case loop.jobs <- "auth-1":
+	default:
+		t.Fatal("worker did not start")
+	}
+	manager.StopAutoRefresh()
+
+	done := make(chan struct{})
+	go func() { _ = loop.wait(context.Background()); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("StopAutoRefresh left the refresh workers running")
 	}
 }

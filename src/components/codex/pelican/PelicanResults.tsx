@@ -94,7 +94,7 @@ function PelicanItem({ batch, item, mask }: { batch: CodexPelicanBatch; item: Co
   };
   const retry = () => void run(async () => {
     const next = await retryPelican(batch.id, item.id);
-    useCodexPelicanStore.getState().receive(next);
+    useCodexPelicanStore.getState().resumeBatch(next);
     setArtifact(null); setLoadError(null);
   });
   const closeDetails = () => {
@@ -173,6 +173,7 @@ export function PelicanResults({ batch, mask }: { batch: CodexPelicanBatch; mask
       <div className="pelican-canvas-table" aria-label={t('pelican.results')}>
         {batch.items.map((item) => <article className="pelican-account-tile" key={item.id}>
           <h3><span className="pelican-account-email">{mask(item.accountEmail || item.accountId)}</span>{accounts.find((entry) => entry.id === item.accountId) && <span className="pelican-account-plan"><PelicanPlanBadge account={accounts.find((entry) => entry.id === item.accountId)!} /></span>}</h3>
+          {item.provider && <div className="pelican-provider-attribution"><span>{t('codex.modelProviders.selectSavedApiKey')}: {mask(item.provider.apiKeyName || item.provider.apiKeyId)}</span><span>{item.provider.model}</span></div>}
           <PelicanItem batch={batch} item={item} mask={mask} />
         </article>)}
       </div>

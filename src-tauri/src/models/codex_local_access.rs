@@ -714,6 +714,16 @@ pub struct CodexLocalAccessAccountWindowStats {
     pub estimated_cost_usd: f64,
 }
 
+/// Immutable outbound route captured for a request; no credentials or raw URLs.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexLocalAccessProxyRoute {
+    /// node, proxy, direct, or unknown.
+    pub kind: String,
+    #[serde(default)]
+    pub name: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexLocalAccessUsageEvent {
@@ -732,6 +742,9 @@ pub struct CodexLocalAccessUsageEvent {
     /// 来自客户端静态 header `x-cockpit-instance-id`（多开 profile 目录名）。
     #[serde(default)]
     pub client_instance_id: String,
+    /// Absent for historical requests without a recorded outbound route.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy_route: Option<CodexLocalAccessProxyRoute>,
     #[serde(default)]
     pub model_id: String,
     /// 客户端请求的模型（保留路由命名空间前缀，如 `cpa/gpt-5.5`）。

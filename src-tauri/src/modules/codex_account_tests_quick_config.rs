@@ -372,6 +372,26 @@
     }
 
     #[test]
+    fn retired_catalog_choice_falls_back_only_when_it_is_absent() {
+        for (selected, expected) in [("gpt-5.4", "gpt-5.6-sol"), ("gpt-6.1-sol", "gpt-6.1-sol")] {
+            let dir = make_temp_dir("retired-model-selection");
+            fs::write(dir.join("config.toml"), format!("model = \"{selected}\"\n")).unwrap();
+            fs::write(
+                dir.join(super::CODEX_EXPERIMENTAL_MODEL_POLICY_FILE),
+                "enabled\n",
+            )
+            .unwrap();
+            super::enforce_experimental_model_policy_for_dir(&dir).unwrap();
+            let config = fs::read_to_string(dir.join("config.toml"))
+                .unwrap()
+                .parse::<toml_edit::Document>()
+                .unwrap();
+            assert_eq!(config["model"].as_str(), Some(expected));
+            fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[test]
     fn quick_config_initializes_full_visible_model_catalog() {
         let base_dir = make_temp_dir("codex-experimental-enable-test");
         fs::write(base_dir.join("config.toml"), "model = \"gpt-5.6-sol\"\n").expect("write config");
@@ -412,9 +432,10 @@
         let models = generated["models"].as_array().expect("models array");
         assert_eq!(
             models[0].get("slug").and_then(serde_json::Value::as_str),
-            Some("gpt-6-astra")
+            Some("gpt-6.1-sol")
         );
         for expected in [
+            "gpt-6.1-sol",
             "gpt-6-astra",
             "gpt-6-sol",
             "gpt-6-luna",
@@ -483,7 +504,7 @@
         .expect("enable experimental catalog");
 
         let mut previous_defaults = super::default_experimental_model_definitions(&base_dir);
-        previous_defaults.retain(|model| model.model_id != "gpt-6-astra");
+        previous_defaults.retain(|model| model.model_id != "gpt-6-astra" && model.model_id != "gpt-6.1-sol");
         let previous_config = serde_json::json!({
             "version": super::EXPERIMENTAL_MODEL_CATALOG_CONFIG_VERSION,
             "models": previous_defaults,
@@ -514,7 +535,7 @@
             .as_array()
             .expect("models")
             .first()
-            .is_some_and(|model| model["slug"] == "gpt-6-astra"));
+            .is_some_and(|model| model["slug"] == "gpt-6.1-sol"));
         assert!(generated["models"]
             .as_array()
             .expect("models")
@@ -538,6 +559,25 @@
     }
 
     #[test]
+    fn gpt_6_1_sol_catalog_migration_preserves_customization() {
+        let dir = make_temp_dir("codex-gpt61-migration");
+        let mut previous = super::default_experimental_model_definitions(&dir);
+        previous.retain(|model| model.model_id != "gpt-6.1-sol");
+        let upgraded =
+            super::maybe_add_gpt_6_1_sol_to_previous_shipped_model_definitions(&dir, previous.clone());
+        assert_eq!(upgraded[0].model_id, "gpt-6.1-sol");
+        let again =
+            super::maybe_add_gpt_6_1_sol_to_previous_shipped_model_definitions(&dir, upgraded.clone());
+        assert_eq!(again.len(), upgraded.len());
+        previous.retain(|model| model.model_id != "gpt-6-luna");
+        let curated =
+            super::maybe_add_gpt_6_1_sol_to_previous_shipped_model_definitions(&dir, previous.clone());
+        assert_eq!(curated.len(), previous.len());
+        assert!(!curated.iter().any(|model| model.model_id == "gpt-6.1-sol"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn account_switch_adds_gpt_6_sol_luna_only_to_unmodified_shipped_catalog() {
         let base_dir = make_temp_dir("codex-gpt-6-sol-luna-visible-model-migration-test");
         fs::write(base_dir.join("config.toml"), "model = \"gpt-5.6-sol\"\n")
@@ -551,7 +591,7 @@
         // 上一版随包发布的自动清单：只有 astra，没有 gpt-6-sol / gpt-6-luna。
         let mut previous_defaults = super::default_experimental_model_definitions(&base_dir);
         previous_defaults.retain(|model| {
-            model.model_id != "gpt-6-sol" && model.model_id != "gpt-6-luna"
+            model.model_id != "gpt-6-sol" && model.model_id != "gpt-6-luna" && model.model_id != "gpt-6.1-sol"
         });
         let previous_config = serde_json::json!({
             "version": super::EXPERIMENTAL_MODEL_CATALOG_CONFIG_VERSION,
@@ -587,8 +627,8 @@
             .filter_map(|model| model["slug"].as_str())
             .collect::<Vec<_>>();
         assert_eq!(
-            slugs.iter().take(3).copied().collect::<Vec<_>>(),
-            vec!["gpt-6-astra", "gpt-6-sol", "gpt-6-luna"]
+            slugs.iter().take(4).copied().collect::<Vec<_>>(),
+            vec!["gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"]
         );
         let luna_index = slugs.iter().position(|slug| *slug == "gpt-6-luna");
         let legacy_sol_index = slugs.iter().position(|slug| *slug == "gpt-5.6-sol");
@@ -598,7 +638,7 @@
 
         // 用户手工删掉这两个模型的精修清单不再被自动补回。
         let mut curated = super::default_experimental_model_definitions(&base_dir);
-        curated.retain(|model| model.model_id != "gpt-6-sol" && model.model_id != "gpt-6-luna");
+        curated.retain(|model| model.model_id != "gpt-6-sol" && model.model_id != "gpt-6-luna" && model.model_id != "gpt-6.1-sol");
         super::save_model_catalog_for_base_dir_preserving_context(
             &base_dir,
             true,
@@ -799,7 +839,7 @@
                 .experimental_model_catalog_reset_models
                 .first()
                 .map(|model| model.model_id.as_str()),
-            Some("gpt-6-astra")
+            Some("gpt-6.1-sol")
         );
         assert!(!result
             .experimental_model_catalog_reset_models

@@ -205,6 +205,12 @@
   color: #b45309;
 }
 
+.group-account-badge.is-current-target {
+  background: rgba(59, 130, 246, 0.16);
+  color: var(--primary, #3b82f6);
+  font-weight: 700;
+}
+
 .group-account-tier-badge {
   flex-shrink: 0;
 }
@@ -244,6 +250,11 @@
 
 [data-theme="dark"] .group-account-badge.is-ungrouped {
   color: #fbbf24;
+}
+
+[data-theme="dark"] .group-account-badge.is-current-target {
+  background: rgba(59, 130, 246, 0.25);
+  color: #60a5fa;
 }
 
 [data-theme="dark"] .group-account-status {

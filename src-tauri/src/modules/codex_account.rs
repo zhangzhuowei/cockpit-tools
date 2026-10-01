@@ -11,6 +11,7 @@ include!("codex_account_storage_locks.rs");
 include!("codex_account_token_refresh.rs");
 include!("codex_account_index.rs");
 include!("codex_account_lifecycle.rs");
+include!("codex_account_recycle_bin.rs");
 include!("codex_account_authority_sync.rs");
 include!("codex_account_projection.rs");
 include!("codex_account_runtime_switch.rs");
@@ -19,6 +20,7 @@ include!("codex_account_import.rs");
 #[cfg(test)]
 mod tests {
     include!("codex_account_tests_identity_import_refresh.rs");
+    include!("codex_account_tests_cli_daemon.rs");
     include!("codex_account_tests_local_import.rs");
     include!("codex_account_tests_identity_isolation.rs");
     include!("codex_account_tests_portable_import_metadata.rs");
@@ -26,6 +28,7 @@ mod tests {
     include!("codex_account_tests_model_catalog.rs");
     include!("codex_account_tests_quick_config.rs");
     include!("codex_account_tests_model_vision.rs");
+    include!("codex_account_tests_recycle_bin.rs");
 }
 
 include!("codex_account_mutations_quota.rs");

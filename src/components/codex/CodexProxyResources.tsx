@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { Activity, ArrowRight, ChevronDown, Download, Layers, Link2, MoreHorizontal, Plus, RefreshCw, Search, ShieldCheck, Star, Trash2, TriangleAlert, Pencil, X } from 'lucide-react';
+import { Activity, ArrowDown, ArrowUp, ArrowRight, ChevronDown, Download, GripVertical, Layers, Link2, MoreHorizontal, Plus, RefreshCw, Search, ShieldCheck, Star, Trash2, TriangleAlert, Pencil, X } from 'lucide-react';
 import { useEscCloseTopmost } from '../../hooks/useEscClose';
 import { CodexProxyPicker } from './CodexProxyPicker';
 import { useProxyLatency } from './useProxyLatency';
+import { useProxyResourceOrder } from './useProxyResourceOrder';
 import { useCodexProxyAccountName } from './useCodexProxyExitEditor';
 import { useModalFocusTrap } from '../../hooks/useModalFocusTrap';
 import { useModalScrollLock } from '../../hooks/useModalScrollLock';
@@ -20,7 +21,7 @@ import { strategyCandidates, strategyKindKey, strategyKindOf } from '../../servi
 import { formatProxyBytes, formatProxyDateTime } from '../../utils/codexProxyFormat';
 import type { CodexProxyProbeResult } from '../../services/codexAccountProxyService';
 import { cancelProxyCatalog, catalogErrorKey, clearProxyCatalogDefault, getProxyCatalog, importProxyCatalog, probeProxyCatalog,
-  setProxyCatalogDefault, setProxyNodeInsecure, refreshProxyCatalog, removeProxyCatalog, setProxyCatalogAutoUpdate, renameProxySource, getProxyCatalogDependencies,
+  setProxyCatalogDefault, setProxyNodeInsecure, refreshProxyCatalog, removeProxyCatalog, reorderProxyCatalog, setProxyCatalogAutoUpdate, renameProxySource, getProxyCatalogDependencies,
   type ProxyCatalog, type ProxyCatalogSource, type ProxyCatalogDependencies, type ProxyCatalogSelections } from '../../services/codexProxyCatalogService';
 import '../../styles/pages/codex-proxy-resources.css';
 
@@ -75,11 +76,27 @@ export function CodexProxyResources({ onAssign, onBindingsChanged }: {
   const deletingRevision = catalog.sources.find((entry) => entry.id === deleting?.id)?.revision;
   const latency = useProxyLatency(source);
   const locked = !!busy || !!defaultPending || catalogPending;
+  const orderDisabled = locked || loading || adding || renaming || !!strategyEditing || !!strategyDeleting || !!deleting || !!query.trim();
+  const ordering = useProxyResourceOrder(catalog.sources, orderDisabled, (ids) => {
+    setMenuId('');
+    void run('reorder', async () => {
+      const previous = catalog;
+      const entries = new Map(previous.sources.map((entry) => [entry.id, entry]));
+      apply({ ...previous, sources: ids.map((id) => entries.get(id)!) });
+      try {
+        const next = await reorderProxyCatalog(ids);
+        if (mounted.current) apply(next);
+      } catch (cause) {
+        if (mounted.current) apply(previous);
+        throw cause;
+      }
+    });
+  });
   const hasCandidates = useMemo(() => strategyCandidates(catalog.sources).length > 0, [catalog.sources]);
   const visibleSources = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
-    return catalog.sources.filter((entry) => !needle || [entry.name, ...entry.nodes.map((node) => node.name)].some((value) => value.toLocaleLowerCase().includes(needle)));
-  }, [catalog.sources, query]);
+    return ordering.orderedSources.filter((entry) => !needle || [entry.name, ...entry.nodes.map((node) => node.name)].some((value) => value.toLocaleLowerCase().includes(needle)));
+  }, [ordering.orderedSources, query]);
   const selected = source?.nodes.find((entry) => entry.id === itemId) ?? source?.groups.find((entry) => entry.id === itemId);
   const selections = useMemo(() => source ? defaultProxySelections(source, itemId, selectedChoices) : null, [source, itemId, selectedChoices]);
   const selectionReady = !!selected?.supported && selections !== null;
@@ -182,7 +199,7 @@ export function CodexProxyResources({ onAssign, onBindingsChanged }: {
         // 部分失败可能已解绑账号，重新取一次影响预览再让用户重试。
         if (!removalProgress.current.catalog) setDeleteImpactRetry((value) => value + 1);
       }
-      if (action === 'refresh') {
+      if (action === 'refresh' || action === 'reorder') {
         try { const next = await getProxyCatalog(); if (mounted.current) apply(next); } catch { /* Preserve the last successful list and the original error. */ }
       }
     } finally {
@@ -229,16 +246,13 @@ export function CodexProxyResources({ onAssign, onBindingsChanged }: {
 
   const assign = (entry: ProxyCatalogSource) => {
     // An incomplete explicit choice must never fall back to an older source default.
-    if (entry.id === sourceId && itemId && !selectionReady) { setExpanded(true); return; }
-    const remembered = entry.id === sourceId && selectionReady ? { itemId, groupId, selections: selections ?? {} } : sourceDefaultDraft(entry);
+    const remembered = entry.id === sourceId && itemId ? { itemId, groupId, selections: selectedChoices } : sourceDefaultDraft(entry);
     const single = entry.kind === 'strategy' ? entry.groups[0] : entry.nodes.length === 1 && !entry.groups.length ? entry.nodes[0] : undefined;
     const choices = single ? defaultProxySelections(entry, single.id) : null;
     const draft = remembered ?? (single && choices ? { itemId: single.id, groupId: entry.kind === 'strategy' ? single.id : '', selections: choices } : null);
-    if (!draft) { if (sourceId !== entry.id) changeSource(entry.id); else setExpanded(true); return; }
-    void run('prepare-assign', async () => {
-      await preflightCodexProxyEngine();
-      if (mounted.current) onAssign(entry.id, draft.itemId, draft.selections, draft.groupId, catalog);
-    });
+    // Opening the dialog is local; engine checks belong to testing or applying a choice.
+    setMenuId('');
+    onAssign(entry.id, draft?.itemId ?? '', draft?.selections ?? {}, draft?.groupId ?? '', catalog);
   };
   const editSource = (entry: ProxyCatalogSource) => {
     changeSource(entry.id); setRenaming(true); setRenameValue(entry.name);
@@ -277,14 +291,20 @@ export function CodexProxyResources({ onAssign, onBindingsChanged }: {
     {latency.running && (!expanded || !visibleSources.some((entry) => entry.id === sourceId)) && <div className="codex-resource-progress"><button type="button" className="btn btn-secondary compact" onClick={latency.cancel}>{t('codex.proxy.cancelCheck')}</button></div>}
     {loading && !catalogKnown ? <p className="codex-proxy-page-note" role="status">{t('common.loading')}</p> : catalog.sources.length === 0 ? null : <>
       <div className="codex-resource-list-caption"><span>{t('codex.proxy.managerResources.count', { count: catalog.sources.length })}</span><span>{t('codex.proxy.managerResources.listHint')}</span></div>
-      <div className="codex-resource-list">{visibleSources.map((entry) => {
+      {catalog.sources.length > 1 && <p className="codex-resource-sort-hint">{t(query.trim() ? 'common.dragSortFilteredHint' : 'common.dragSortHint')}</p>}
+      <div className={'codex-resource-list' + (ordering.draggingId ? ' is-sorting' : '')} onMouseLeave={ordering.finish}>{visibleSources.map((entry, index) => {
         const open = expanded && sourceId === entry.id;
         const strategy = entry.kind === 'strategy';
         const firstNode = entry.nodes.length === 1 ? entry.nodes[0] : null;
         const measured = firstNode && entry.id === sourceId ? latency.results[firstNode.id] : null;
         const typeLabel = strategy ? t(strategyKindKey(strategyKindOf(entry) ?? '')) : t(entry.kind === 'subscription' ? 'codex.proxy.catalog.input_subscription' : 'codex.proxy.managerResources.manual');
-        return <article key={entry.id} className={'codex-resource-entry' + (open ? ' is-expanded' : '')}>
+        return <article key={entry.id} className={'codex-resource-entry' + (open ? ' is-expanded' : '') + (ordering.draggingId === entry.id ? ' is-dragging' : '')}
+          onMouseEnter={(event) => ordering.hover(entry.id, event.buttons)}>
           <div className="codex-resource-entry-row">
+            <button type="button" className="btn btn-secondary compact icon-only codex-resource-drag" disabled={orderDisabled || catalog.sources.length < 2}
+              aria-label={`${t('platformLayout.dragHandleLabel')} · ${entry.name}`} title={t('platformLayout.dragHandleLabel')} aria-keyshortcuts="ArrowUp ArrowDown"
+              onMouseDown={(event) => { if (event.button === 0) { event.preventDefault(); setMenuId(''); ordering.begin(entry.id, event.button); } }}
+              onKeyDown={(event) => { if (event.key === 'ArrowUp' || event.key === 'ArrowDown') { event.preventDefault(); ordering.moveBy(entry.id, event.key === 'ArrowUp' ? -1 : 1); } }}><GripVertical size={16} /></button>
             <button type="button" className="codex-resource-entry-main" aria-expanded={open} aria-controls={`proxy-resource-${entry.id}`} disabled={!!busy}
               onClick={() => { if (sourceId === entry.id) { if (open) latency.cancel(); setExpanded(!open); } else changeSource(entry.id); }}>
               <span className={'codex-resource-entry-icon ' + entry.kind}>{strategy ? <Layers size={19} /> : entry.kind === 'subscription' ? <Download size={19} /> : <Link2 size={19} />}</span>
@@ -304,6 +324,8 @@ export function CodexProxyResources({ onAssign, onBindingsChanged }: {
                 <button type="button" className="btn btn-secondary compact codex-resource-more-trigger" disabled={locked} aria-expanded={menuId === entry.id} aria-label={t('codex.proxy.managerResources.more')}
                   onClick={() => setMenuId(menuId === entry.id ? '' : entry.id)}><MoreHorizontal size={18} /></button>
                 {menuId === entry.id && <div className="codex-resource-more-menu" role="group" aria-label={t('codex.proxy.managerResources.more')}>
+                  <button type="button" className="btn btn-secondary" disabled={orderDisabled || index === 0} onClick={() => ordering.moveBy(entry.id, -1)}><ArrowUp size={14} />{t('codex.more.moveUp')}</button>
+                  <button type="button" className="btn btn-secondary" disabled={orderDisabled || index === visibleSources.length - 1} onClick={() => ordering.moveBy(entry.id, 1)}><ArrowDown size={14} />{t('codex.more.moveDown')}</button>
                   {strategy ? <button type="button" className="btn btn-secondary" onClick={() => openStrategy(entry.id)}><Pencil size={14} />{t('codex.proxy.catalog.strategyEdit')}</button>
                     : <button type="button" className="btn btn-secondary" onClick={() => editSource(entry)}><Pencil size={14} />{t('codex.proxy.catalog.rename')}</button>}
                   {entry.kind === 'subscription' && <button type="button" className="btn btn-secondary" onClick={() => { setMenuId(''); void run('refresh', async (id) => { const next = await refreshProxyCatalog(id, entry.id); if (mounted.current) { apply(next); setResult(null); } }, true); }}><RefreshCw size={14} />{t('common.refresh')}</button>}

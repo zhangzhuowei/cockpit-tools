@@ -683,16 +683,19 @@ pub fn update_account_name(account_id: &str, name: String) -> Result<CodexAccoun
 
 /// 更新账号级出口代理。
 ///
-/// 只接受 HTTP(S)/SOCKS5 代理地址；空值表示回退到现有全局/API 服务代理逻辑。
+/// 空值且 disabled=false 恢复跟随；disabled=true 清除独立绑定并明确跳过代理。
 pub fn update_account_egress_proxy(
     account_id: &str,
     egress_proxy_url: Option<String>,
+    disabled: bool,
 ) -> Result<CodexAccount, String> {
     let mut account =
         load_account(account_id).ok_or_else(|| format!("账号不存在: {}", account_id))?;
     if !crate::modules::codex_account_proxy::eligible(&account) {
         return Err("PROXY_ACCOUNT_UNSUPPORTED".into());
     }
+    if disabled && egress_proxy_url.is_some() { return Err("PROXY_INVALID_URL".into()); }
+    account.egress_proxy_disabled = disabled;
     let normalized = normalize_optional_value(egress_proxy_url);
     account.egress_proxy_url = normalized.as_deref()
         .map(crate::modules::codex_proxy_runtime::normalize_binding).transpose()?;

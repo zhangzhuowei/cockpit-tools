@@ -39,3 +39,5 @@ include!("codex_account_commands.rs");
 include!("codex_model_provider_commands.rs");
 include!("codex_local_access_commands.rs");
 include!("codex_temp_login_commands.rs");
+
+include!("codex_recycle_bin_commands.rs");

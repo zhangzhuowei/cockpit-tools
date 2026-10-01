@@ -46,6 +46,16 @@ export async function getCodexConfigTomlPath(): Promise<string> {
   return await invoke('get_codex_config_toml_path');
 }
 
+export interface CodexStoragePaths {
+  providerStorePath: string;
+  configPath: string;
+  authPath: string;
+}
+
+export async function getCodexStoragePaths(): Promise<CodexStoragePaths> {
+  return await invoke('get_codex_storage_paths');
+}
+
 /** 打开当前 Codex config.toml */
 export async function openCodexConfigToml(): Promise<void> {
   return await invoke('open_codex_config_toml');
@@ -692,10 +702,12 @@ export async function updateCodexAccountTags(
 export async function updateCodexAccountEgressProxy(
   accountId: string,
   egressProxyUrl: string | null,
+  disabled = false,
 ): Promise<CodexAccount> {
   const request = invoke<CodexAccount>('update_codex_account_egress_proxy', {
     accountId,
     egressProxyUrl,
+    disabled,
   });
   return egressProxyUrl ? withProxyEnginePrerequisite(request) : request;
 }

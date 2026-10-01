@@ -290,11 +290,13 @@ Grok CLI 默认实例通常直接沿用官方 `~/.grok` 目录，启动时不设
 
 - **这是本地桌面工具**：不需要单独注册平台账号，也不依赖项目自建云端来存你的账号列表。
 - **数据主要保存在本机**：
-  - `~/.antigravity_cockpit`：Antigravity IDE 账号、配置、WebSocket 状态等
+  - `~/.cockpit_tools`：各平台账号、公共配置、日志、备份与实例配置；开发环境使用 `~/.cockpit_tools_dev`，`COCKPIT_TOOLS_DATA_DIR` 可指定自定义目录
+  - 已有安装会在后台自动为 `~/.antigravity_cockpit` / `~/.antigravity_cockpit_dev` 建立新名称的兼容入口（Unix 符号链接 / Windows 目录联接），无需手动迁移。旧物理目录和已有实例路径保留，两入口读写同一数据；当前会话保持原路径，后续启动使用新入口。无法建立链接时继续使用旧目录；新旧均为独立目录时保留旧目录，不自动合并或覆盖
+  - 受管实例默认位于公共目录的 `instances/<平台>`；Windows 部分平台的实例位于 `%APPDATA%\.cockpit_tools\instances\<平台>`，其旧目录同样自动兼容；自定义目录保持原样
   - `~/.codex`：Codex 官方当前登录 `auth.json`
   - `~/.grok`：Grok CLI 官方默认实例与当前登录 `auth.json`
   - `~/.zcode/v2`：ZCode 官方当前登录加密凭据与配额缓存
-  - 系统本地应用数据目录下 `com.antigravity.cockpit-tools`：Codex / GitHub Copilot / Windsurf / Kiro / Cursor / Grok CLI / CodeBuddy / CodeBuddy CN / Qoder / Trae 套件 / Zed / ZCode 多账号数据等；Grok CLI 的账号详情、受管 profile 与实例配置也保存在此
+  - 系统应用数据目录下 `com.jlcodes.cockpit-tools`：宿主应用的 WebView 状态等；历史 `com.antigravity.cockpit-tools` 目录仅用于旧数据兼容导入
 - **Grok CLI 凭据不加密**：access token/refresh token 以明文 JSON 保存在本机，主要依赖操作系统账号隔离与本地文件权限保护；Unix 系统上凭据目录设为 `0700`、凭据文件设为 `0600`。脱敏导出不包含 token，不能作为登录备份
 - **WebSocket 默认仅本机访问**：监听 `127.0.0.1`，默认端口 `19528`，可在设置中关闭或改端口。
 - **什么时候会联网**：OAuth 登录、Token 刷新、配额查询、版本更新检查等官方接口请求。
@@ -358,7 +360,9 @@ Grok CLI 默认实例通常直接沿用官方 `~/.grok` 目录，启动时不设
 前往 [GitHub Releases](https://github.com/jlcodes99/cockpit-tools/releases) 下载对应系统的安装包：
 
 *   **macOS**: `.dmg` (Apple Silicon & Intel)
-*   **Windows**: `.msi` (推荐) 或 `.exe`
+*   **Windows**: `.msi`（推荐）、`.exe`，或 `x64-portable.zip`（解压即用，无需安装）
+
+Windows 便携包解压后直接运行其中的 `Cockpit Tools.exe`（或同名主程序）。系统需要 Windows 10/11 的 Microsoft Edge WebView2 Runtime；账号和配置仍按当前 Windows 用户目录保存，不会随 ZIP 文件夹自动迁移。
 *   **Linux**: `.deb` (Debian/Ubuntu)、`.rpm` 或 `.AppImage` (通用)
 
 ### 选项 B: Homebrew 安装 (macOS)
@@ -461,6 +465,8 @@ QQ 交流群、微信群或新建的 Telegram 畅聊群都可以加入。
 
 ## 致谢
 
+- 部分账号导入校验、网关凭据读取及稳定性改进参考了 [super-ai-tools](https://github.com/lihah111222333-cloud/super-ai-tools) 的本地保留源码快照；来源与许可见 [来源声明](docs/third-party/super-ai-tools.md)。
+
 - Codex 代理工作台的页面层级、订阅卡片、当前节点展示、分组/节点下拉、延迟徽章与排序、原生测速接口调用、快速切换交互和订阅来源命名参考 [Clash Verge Rev](https://github.com/clash-verge-rev/clash-verge-rev) 的界面及实现思路；仅为设计与实现参考，不是运行时依赖或官方合作。
 - Codex 代理首次绑定的简短操作路径与当前节点展示参考 [Hiddify](https://github.com/hiddify/hiddify-app)；仅参考交互方向，未集成其代码或服务。
 - Codex 代理节点筛选、排序、延迟测试及窄窗口布局参考 [FlClash](https://github.com/chen08209/FlClash)；仅参考交互方向，未集成其代码或服务。
@@ -475,7 +481,7 @@ QQ 交流群、微信群或新建的 Telegram 畅聊群都可以加入。
 - Grok CLI 任务用量查询与兼容解析方向参考：[junhoyeo/tokscale](https://github.com/junhoyeo/tokscale)（MIT）
 - Grok CLI 第三方 BYOK 与 custom model 配置格式对照上游实现及文档：[xai-org/grok-build](https://github.com/xai-org/grok-build)
 - Codex API 服务协议兼容方向参考：[codex-proxy](https://github.com/icebear0828/codex-proxy)
-- Codex Agent Identity 导入、动态签名、task 失效恢复、账号备份格式兼容，以及官方账号窗口用量（req / token / A$）展示口径参考：[sub2api](https://github.com/Wei-Shaw/sub2api)。API 服务的客户端兼容、指纹、容量错误与请求级重试处理以 CLIProxyAPI 为准，不再保留“仅官方客户端／允许第三方客户端”等 Sub2API 式独立策略；API Key 鉴权与账号范围控制保持不变，Agent Identity 兼容暂保留为本地扩展。
+- Codex Agent Identity 导入、动态签名、task 失效恢复、账号备份格式兼容、官方账号窗口用量（req / token / A$）展示口径，以及代理取消与响应失败边界的实现参考：[sub2api](https://github.com/Wei-Shaw/sub2api)。API 服务的客户端兼容、指纹、容量错误与请求级重试处理以 CLIProxyAPI 为准，不再保留“仅官方客户端／允许第三方客户端”等 Sub2API 式独立策略；API Key 鉴权与账号范围控制保持不变，Agent Identity 兼容暂保留为本地扩展。
 - Codex Agent Identity runtime 注册协议、Ed25519 密钥格式、Responses 客户端 freeform 工具调用（`custom_tool_call`）事件语义，以及鹈鹕测智的响应生命周期与生成产物处理思路参考官方实现：[openai/codex](https://github.com/openai/codex)（Apache-2.0）；鹈鹕测智使用直接对话请求，不等同于官方客户端的完整编码 Agent 流程。
 - Codex、Claude CLI 与 Claude Desktop Gateway 第三方供应商预设、模型映射，以及从会话 JSONL 汇总真实用量的方向参考：[CC Switch](https://github.com/farion1231/cc-switch)
 - Codex 模型目录、前端模型显示、loopback CDP 诊断、官方 live auth 保留策略，以及历史会话 Provider、SQLite 本地目录和工作区状态修复方向参考：[CodexPlusPlus](https://github.com/BigPizzaV3/CodexPlusPlus)

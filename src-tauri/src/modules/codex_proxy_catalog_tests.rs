@@ -33,6 +33,216 @@ fn fixture() -> Source {
     }
 }
 
+#[tokio::test]
+async fn catalog_reorder_persists_order_without_changing_sources_or_bindings() {
+    let _env = crate::modules::test_support::env_lock()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let temp = Temp::new();
+    let _dir = DataDir::set(&temp.0);
+    let mut subscription = subscription_fixture();
+    subscription.catalog = selectable_catalog();
+    subscription.default = Some(SourceDefault {
+        item_id: subscription.catalog.nodes[0].id.clone(),
+        group_id: None,
+        selections: BTreeMap::new(),
+    });
+    subscription.last_attempt_at = Some(9);
+    subscription.usage = Some(SourceUsage {
+        upload: 10,
+        download: 20,
+        total: 100,
+        expire_at: Some(999),
+        at: 7,
+    });
+    let mut manual = fixture();
+    manual.id = "manual-id".into();
+    manual.kind = "manual".into();
+    manual.url = None;
+    mutate(&path().unwrap(), |store| {
+        store.sources = vec![subscription.clone(), manual];
+        Ok(())
+    })
+    .unwrap();
+    let strategy_view = save_strategy(
+        None,
+        "Auto".into(),
+        "fallback".into(),
+        vec![item(&subscription, "Beta"), item(&subscription, "Alpha")],
+        StrategyOptions::default(),
+    )
+    .await
+    .unwrap();
+    let strategy_id = strategy_view.sources.last().unwrap().id.clone();
+    let before = stored();
+    let metadata: HashMap<_, _> = before
+        .sources
+        .iter()
+        .map(|source| (source.id.clone(), serde_json::to_value(source).unwrap()))
+        .collect();
+    let before_binding = snapshot(
+        subscription.id.clone(),
+        subscription.catalog.nodes[0].id.clone(),
+        BTreeMap::new(),
+    )
+    .await
+    .unwrap();
+    let ids = vec![strategy_id, "manual-id".into(), subscription.id.clone()];
+    let changed = crate::commands::codex_proxy_catalog::codex_proxy_catalog_reorder(ids.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        changed
+            .sources
+            .iter()
+            .map(|s| s.id.clone())
+            .collect::<Vec<_>>(),
+        ids
+    );
+    assert_eq!(
+        list()
+            .await
+            .unwrap()
+            .sources
+            .iter()
+            .map(|s| s.id.clone())
+            .collect::<Vec<_>>(),
+        ids
+    );
+    let after = stored();
+    assert_eq!(after.version, before.version);
+    for source in &after.sources {
+        assert_eq!(serde_json::to_value(source).unwrap(), metadata[&source.id]);
+    }
+    let after_binding = snapshot(
+        subscription.id,
+        subscription.catalog.nodes[0].id.clone(),
+        BTreeMap::new(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(before_binding, after_binding);
+    let encrypted = fs::read_to_string(path().unwrap()).unwrap();
+    assert!(encrypted.contains("AES-256-GCM"));
+    assert!(!encrypted.contains("private-alpha"));
+}
+
+#[tokio::test]
+async fn catalog_reorder_rejects_invalid_and_stale_ids_without_writing() {
+    let _env = crate::modules::test_support::env_lock()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let temp = Temp::new();
+    let _dir = DataDir::set(&temp.0);
+    mutate(&path().unwrap(), |store| {
+        store.sources = vec![fixture(), subscription_fixture()];
+        Ok(())
+    })
+    .unwrap();
+    let original = fs::read(path().unwrap()).unwrap();
+    for ids in [
+        vec!["source-id".into(), "source-id".into()],
+        vec!["".into(), "subscription-id".into()],
+        vec![" \t".into()],
+        vec!["invalid\n".into()],
+        vec!["a".repeat(257)],
+        vec!["source-id".into(); MAX_SOURCES + 1],
+    ] {
+        assert_eq!(reorder(ids).await.err().unwrap(), "CATALOG_INVALID");
+        assert_eq!(fs::read(path().unwrap()).unwrap(), original);
+    }
+    for ids in [
+        vec![],
+        vec!["source-id".into()],
+        vec!["source-id".into(), "missing-id".into()],
+        vec![
+            "source-id".into(),
+            "subscription-id".into(),
+            "removed-id".into(),
+        ],
+    ] {
+        assert_eq!(reorder(ids).await.err().unwrap(), "CATALOG_CHANGED");
+        assert_eq!(fs::read(path().unwrap()).unwrap(), original);
+    }
+}
+
+#[tokio::test]
+async fn catalog_reorder_reads_latest_metadata_and_rejects_concurrent_membership_changes() {
+    let _env = crate::modules::test_support::env_lock()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let temp = Temp::new();
+    let _dir = DataDir::set(&temp.0);
+    mutate(&path().unwrap(), |store| {
+        store.sources = vec![fixture(), subscription_fixture()];
+        Ok(())
+    })
+    .unwrap();
+    let ids = vec!["subscription-id".into(), "source-id".into()];
+    // Another operation updates metadata after the UI has read the IDs.
+    rename("source-id".into(), "Renamed".into()).await.unwrap();
+    let revision = stored().sources[0].revision.clone();
+    reorder(ids.clone()).await.unwrap();
+    assert_eq!(stored().sources[1].name, "Renamed");
+    assert_eq!(stored().sources[1].revision, revision);
+    // Adding or deleting after the same UI snapshot must never drop/resurrect sources.
+    mutate(&path().unwrap(), |store| {
+        let mut added = fixture();
+        added.id = "new-id".into();
+        store.sources.push(added);
+        Ok(())
+    })
+    .unwrap();
+    let with_added = fs::read(path().unwrap()).unwrap();
+    assert_eq!(reorder(ids.clone()).await.err().unwrap(), "CATALOG_CHANGED");
+    assert_eq!(fs::read(path().unwrap()).unwrap(), with_added);
+    mutate(&path().unwrap(), |store| {
+        store
+            .sources
+            .retain(|source| source.id == "subscription-id");
+        Ok(())
+    })
+    .unwrap();
+    let with_removed = fs::read(path().unwrap()).unwrap();
+    assert_eq!(reorder(ids).await.err().unwrap(), "CATALOG_CHANGED");
+    assert_eq!(fs::read(path().unwrap()).unwrap(), with_removed);
+    mutate(&path().unwrap(), |store| {
+        store.sources.clear();
+        Ok(())
+    })
+    .unwrap();
+    assert!(reorder(vec![]).await.unwrap().sources.is_empty());
+}
+
+#[tokio::test]
+async fn catalog_reorder_reports_busy_without_waiting_on_writer_or_overwriting() {
+    let _env = crate::modules::test_support::env_lock()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let temp = Temp::new();
+    let _dir = DataDir::set(&temp.0);
+    mutate(&path().unwrap(), |store| {
+        store.sources = vec![fixture(), subscription_fixture()];
+        Ok(())
+    })
+    .unwrap();
+    let original = fs::read(path().unwrap()).unwrap();
+    let lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(temp.0.join("codex-proxy-sources.lock"))
+        .unwrap();
+    lock.lock_exclusive().unwrap();
+    let result = tokio::time::timeout(
+        Duration::from_secs(1),
+        reorder(vec!["subscription-id".into(), "source-id".into()]),
+    )
+    .await
+    .expect("write lock contention must fail promptly");
+    assert_eq!(result.err().unwrap(), "CATALOG_BUSY");
+    assert_eq!(fs::read(path().unwrap()).unwrap(), original);
+}
+
 #[test]
 fn node_view_exposes_only_endpoint_fields_for_search() {
     for input in [

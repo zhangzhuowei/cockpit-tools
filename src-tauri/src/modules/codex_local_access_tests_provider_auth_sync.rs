@@ -22,7 +22,10 @@ async fn provider_auth_sync_prepares_cold_proxy_state_after_unbind() {
     account.tokens.access_token = "newest-access-token".into();
     account.egress_proxy_url = None;
     codex_account::save_account(&account).expect("save unbound account");
-    let collection = test_local_access_collection(vec![account.id.clone()]);
+    let mut collection = test_local_access_collection(vec![account.id.clone()]);
+    // Following defaults after unbinding can legitimately pick up the host system proxy.
+    // Pin the fallback so this regression checks the replaced route on any test machine.
+    collection.upstream_proxy_url = Some("http://127.0.0.1:12345".into());
     let sidecar_dir = guard.data_dir.join("active-instance");
     let auths_dir = super::sidecar_auths_dir(&sidecar_dir);
     fs::create_dir_all(&auths_dir).unwrap();
@@ -66,9 +69,9 @@ async fn provider_auth_sync_prepares_cold_proxy_state_after_unbind() {
     );
     let auth: Value = serde_json::from_str(&fs::read_to_string(&auth_path).unwrap()).unwrap();
     assert_eq!(auth["access_token"], "newest-access-token");
-    assert!(
-        auth.get("proxy_url").is_none(),
-        "unbinding removes the retired proxy port"
+    assert_eq!(
+        auth["proxy_url"], "http://127.0.0.1:12345",
+        "restoring shared/default routing replaces the retired account proxy port"
     );
     assert_eq!(
         fs::read_to_string(&other_path).unwrap(),

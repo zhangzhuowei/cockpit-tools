@@ -15,7 +15,7 @@ pub const KIND: &str = "strategy";
 pub const MAX_MEMBERS: usize = 64;
 /// 自动分组的兜底健康检查地址，与编码缺失参数时使用的值一致。
 const DEFAULT_TEST_URL: &str = "https://www.gstatic.com/generate_204";
-const DEFAULT_INTERVAL: u64 = 180;
+const DEFAULT_INTERVAL: u64 = 30;
 const DEFAULT_TOLERANCE: u16 = 50;
 const INTERVAL_RANGE: (u64, u64) = (30, 3600);
 /// 超时按秒保存，写入内核配置时再换算成毫秒；上限 30 秒足够覆盖慢节点健康检查。
@@ -444,7 +444,7 @@ mod tests {
         .unwrap();
         let group = encoded_group(&catalog, &std::collections::BTreeMap::new())["group"].clone();
         assert_eq!(group["url"], DEFAULT_TEST_URL);
-        assert_eq!(group["interval"], DEFAULT_INTERVAL);
+        assert_eq!(group["interval"], 30);
         assert_eq!(group["tolerance"], DEFAULT_TOLERANCE);
         assert!(group.get("timeout").is_none());
         assert!(group.get("lazy").is_none());
@@ -484,7 +484,7 @@ mod tests {
         .unwrap();
         let view = roundtrip_options(&defaults);
         assert_eq!(view["url"], DEFAULT_TEST_URL);
-        assert_eq!(view["interval"], DEFAULT_INTERVAL);
+        assert_eq!(view["interval"], 30);
         assert_eq!(view["tolerance"], DEFAULT_TOLERANCE);
         assert!(view.get("timeout").is_none(), "未设置的 timeout 回读为空");
         assert!(view.get("lazy").is_none(), "未设置的 lazy 回读为空");

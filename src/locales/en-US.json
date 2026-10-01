@@ -10,7 +10,7 @@
       "accountsRequired": "Select at least one account.",
       "invalidAccount": "Invalid account identifier.",
       "invalidRequest": "Invalid test parameters.",
-      "invalidConcurrency": "Parallel jobs must be between 1 and 10.",
+      "invalidConcurrency": "Concurrency · 1–200",
       "invalidRetention": "Retention must be between 1 and 3650 days.",
       "alreadyRunning": "Close the active test first.",
       "artifactMissing": "Generated result not found.",
@@ -22,14 +22,16 @@
       "storage": "Cannot read or save test history.",
       "unsafePath": "Unsafe result path.",
       "historyMissing": "Test record not found.",
-      "invalidId": "Invalid record identifier."
+      "invalidId": "Invalid record identifier.",
+      "providerUnavailable": "The provider or saved API key is unavailable.",
+      "providerChanged": "The provider endpoint or protocol has changed. Start a new test."
     },
     "title": "Pelican test",
     "description": "Generate HTML in parallel with the same prompt. Compare results yourself; no automatic scoring.",
     "model": "AI model",
     "effort": "Reasoning",
-    "concurrency": "Parallel jobs",
-    "prompt": "Test prompt",
+    "concurrency": "Concurrency",
+    "prompt": "Pelican prompt",
     "accounts": "Test accounts",
     "accountHelp": "Tests send prompts and consume each account’s quota. API key and web-session-only accounts are excluded.",
     "emptyAccounts": "No eligible accounts",
@@ -83,9 +85,52 @@
     "confirmClearAll": "Clear all Pelican tests?",
     "clearAllHelp": "All test history and generated files will be permanently deleted. This cannot be undone.",
     "search": "Search accounts",
-    "viewError": "View error"
+    "viewError": "View error",
+    "providers": "Providers",
+    "providerDescription": "Compare providers by generating a pelican animation.",
+    "providerHelp": "Choose a provider, saved key and model. Requests use an isolated temporary gateway; retries reload the saved credentials.",
+    "providerRequired": "Select a valid provider, API key and model.",
+    "providerModelMismatch": "Model mismatch: requested {{requested}}, received {{responded}}.",
+    "providerSearch": "Search providers or key names",
+    "providerEmpty": "No matching providers",
+    "providerClear": "Clear selection"
   },
   "common": {
+    "dragSortHint": "Drag the left handle to reorder. Changes save automatically on release.",
+    "dragSortFilteredHint": "Clear the search to reorder.",
+    "recycleBin": {
+      "loadTimeout": "Reading the recycle bin timed out. Refresh to retry.",
+      "refreshFailed": "Account restored, but the account list could not be refreshed. Reload the account list.",
+      "moveStarted": "Started moving {{count}} accounts to the recycle bin",
+      "title": "Recycle bin",
+      "description": "Deleted accounts stay locally and can be restored or exported. Restoring does not switch accounts, launch clients, or restore task or API Service bindings.",
+      "empty": "The recycle bin is empty",
+      "restore": "Restore",
+      "deletePermanently": "Delete forever",
+      "emptyBin": "Empty bin",
+      "deletedAt": "Deleted {{time}}",
+      "confirmDelete": "Permanently delete “{{name}}”? Its account data in the recycle bin will be removed and cannot be recovered.",
+      "confirmEmpty": "Permanently delete these {{count}} accounts? Their data in the recycle bin will be removed and cannot be recovered.",
+      "move": "Move to bin",
+      "confirmMove": "Move {{count}} accounts to the recycle bin? You can restore, export or permanently delete them there.",
+      "moved": "Moved to recycle bin",
+      "moveFailed": "Could not move to recycle bin: {{error}}",
+      "operationFailed": "Operation failed: {{error}}",
+      "export": "Export",
+      "exportAll": "Export all",
+      "exportAndDelete": "Export & delete",
+      "exportAndEmpty": "Export & empty",
+      "count": "{{count}} accounts",
+      "exportHint": "Exports a JSON file that can be imported again. It contains account credentials; keep it safe. Canceling the save or a failed export will not delete accounts.",
+      "exported": "Accounts exported.",
+      "confirmTitle": "Permanently remove accounts?"
+    },
+    "requestProxy": {
+      "value": "Proxy: {{name}}",
+      "direct": "Direct",
+      "unknown": "Not recorded",
+      "entryHint": "Only the proxy entry was recorded; the final node is unknown."
+    },
     "retry": "Retry",
     "quotaRefreshScheduler": {
       "busy": "The refresh queue is full. Try again shortly.",
@@ -124,7 +169,7 @@
     "windowsOperation": {
       "title": "Windows operation incomplete",
       "accessDeniedDescription": "Windows denied this operation. The target may be running with higher privileges or stored in a protected location.",
-      "storeLaunchBlockedDescription": "Windows rejected every way of launching the Store version of the Codex client (direct launch, PowerShell launch, and package-identity launch), so launching was blocked to avoid opening the wrong account. In most cases the Store version of Codex needs repair or reinstallation (check for updates and reinstall it from the Microsoft Store). You can also use \"Re-detect path and retry\"; if it still fails, switch this instance to CLI launch mode.",
+      "storeLaunchBlockedDescription": "The isolated Store instance could not be confirmed. Cockpit did not fall back to the default account. Re-detect the client path and retry. If it still fails, copy the diagnostics or switch this instance to CLI mode.",
       "repairPath": "Re-detect path and retry",
       "fileInUseDescription": "The target file is in use by another program. Close the program and try again.",
       "programNotFoundDescription": "Windows could not find the program required for this operation. Check the installation or configured path.",
@@ -321,6 +366,7 @@
         "unlimited": "Unlimited",
         "leftPercent": "{{value}}% left",
         "cachedRefreshFailed": "Refresh failed; showing the last successful data",
+        "cachedNeedsReauth": "⚠️ Web verification required to continue (cached data below)",
         "lastSuccessfulQuery": "Last successful: {{time}}"
       },
       "subtitle": "Monitor quota status for all accounts in real time.",
@@ -369,7 +415,9 @@
     "quota": {
       "weeklyWindow": "Weekly"
     },
-    "optional": " (optional)"
+    "optional": " (optional)",
+    "hide": "Hide",
+    "show": "Show"
   },
   "floatingCard": {
     "selectPlatform": "Switch platform",
@@ -980,10 +1028,28 @@
     },
     "delete": {
       "title": "Delete Instance",
-      "message": "Delete instance {{name}}? This will remove the config and delete the instance folder."
+      "message": "Delete instance {{name}}? Its registration will be removed and managed instance folders moved to the trash. Custom and protected folders will be kept."
     }
   },
   "settings": {
+    "instanceCleanup": {
+      "title": "Instance cleanup",
+      "description": "Manually scan managed instance folders and remove data that is not referenced by instance configurations or running processes. Nothing is deleted automatically.",
+      "scan": "Scan",
+      "scanning": "Scanning…",
+      "remove": "Delete permanently",
+      "removing": "Deleting…",
+      "empty": "No leftover folders to clean up",
+      "summary": "Found {{count}} folders using {{size}}",
+      "confirm": "The following folders and their sessions, workspaces, and caches will be permanently deleted. This cannot be undone.",
+      "cancel": "Cancel",
+      "confirmRemove": "Confirm deletion",
+      "done": "Deleted {{count}} folders",
+      "failed": "Operation failed",
+      "path": "Folder",
+      "size": "Space used",
+      "platform": "Platform"
+    },
     "title": "Settings",
     "subtitle": "Customize your Cockpit Tools experience.",
     "general": {
@@ -1646,7 +1712,9 @@
       "normal": "Normal",
       "forbidden": "403",
       "forbidden_tooltip": "API returned 403 Forbidden, account has no access to Gemini Code Assist",
-      "forbidden_msg": "Account forbidden, skipped auto refresh"
+      "forbidden_msg": "Account forbidden, skipped auto refresh",
+      "needsReauth": "Web Verification Required",
+      "needsReauthTooltip": "Google requires web verification to continue"
     },
     "tier": {
       "pro": "PRO",
@@ -1781,7 +1849,12 @@
       "delete": "Delete",
       "deleteSelected": "Delete Selected",
       "export": "Export",
-      "refreshAll": "Refresh All"
+      "refreshAll": "Refresh All",
+      "reauth": "Re-authorize",
+      "reauthTooltip": "Google requires re-verification, click to re-authorize",
+      "openValidationUrl": "Web Verify",
+      "copyValidationUrl": "Copy Verification Link",
+      "copyValidationUrlTooltip": "Copy verification link"
     },
     "switchHistory": {
       "title": "Switch History",
@@ -2020,7 +2093,8 @@
     "example": "Example",
     "actionRunning": "{{action}}...",
     "actionSuccess": "{{action}} succeeded",
-    "actionFailed": "{{action}} failed: {{error}}"
+    "actionFailed": "{{action}} failed: {{error}}",
+    "refreshFailed": "Refresh failed"
   },
   "wakeup": {
     "title": "Wakeups",
@@ -2283,6 +2357,11 @@
     "other_group": "Other Models"
   },
   "codex": {
+    "launchErrors": {
+      "bindingFailed": "Account binding could not be confirmed. Launch stopped; retry switching accounts.",
+      "processScanFailed": "Could not inspect the old background processes. Launch stopped; retry.",
+      "proxyEntryFailed": "The configured proxy entry could not start. No alternative route was used; retry."
+    },
     "oauthProxy": {
       "toggle": "Authorize via proxy",
       "hint": "The built-in sign-in window, token exchange and first quota check use this proxy. Turn this off if sign-in requires a pop-up.",
@@ -2887,7 +2966,7 @@
       "hideEntryEffectRestore": "You can turn it back on in Codex Settings or Quick Settings",
       "riskNotice": {
         "title": "Risk Notice",
-        "message": "The current Codex API service related features are, in essence, a proxy forwarding setup. At the moment, the official service does not explicitly restrict this behavior, but future policy, rules, or availability may change without notice. If you continue to use this feature, you acknowledge the situation and accept the related risks yourself.",
+        "message": "Using regular official accounts for reverse proxying or relaying may be subject to strict restrictions by the official service. This use may also be identified as relaying and affect response quality (“reduced intelligence”). Use with caution, especially if you have many accounts.",
         "remember": "I understand and do not show this again",
         "acknowledge": "I Understand",
         "continueStart": "Continue",
@@ -3330,7 +3409,8 @@
         "baseUrlExists": "This Base URL already exists.",
         "providerNotFound": "Provider not found.",
         "apiKeyRequiredOnCreate": "At least one API Key is required when creating a provider.",
-        "apiKeyRequiredWhenEmpty": "This provider has no API key yet. Please add one first."
+        "apiKeyRequiredWhenEmpty": "This provider has no API key yet. Please add one first.",
+        "apiKeyUrlInvalid": "Use an HTTP(S) management-page URL without embedded credentials; enter API keys in the key field."
       },
       "saveSuccess": "Model provider saved.",
       "deleteBlocked": "This provider is linked to {{count}} account(s) and cannot be deleted.",
@@ -3483,7 +3563,7 @@
         "modelAuto": "Auto (catalog / discover)",
         "modelCustom": "Custom model…",
         "modelLabel": "Test model",
-        "modelCustomPlaceholder": "Model ID, e.g. gpt-4.1-mini",
+        "modelCustomPlaceholder": "Model ID, e.g. gpt-6.1-sol",
         "modelHint": "Optional shared model. Leave empty to auto-pick from each provider’s catalog."
       },
       "enableAndStart": "Start",
@@ -3498,9 +3578,9 @@
       },
       "vision": {
         "providerDefault": "This provider supports image input by default",
-        "providerDefaultHint": "When off, only the models listed below can receive image input; other models are rejected by the local gateway.",
+        "providerDefaultHint": "Models without an explicit setting use this default; GPT-5.5 and later support images by default. Disable individual models in the list. If the gateway finds no vision model, it omits images and continues with text.",
         "modelsHint": "One model per line. Use this when only some models in the provider support pasted images.",
-        "routingModelHint": "When the current model cannot read images, image requests use this model; blank uses the only vision model automatically.",
+        "routingModelHint": "When the current model cannot read images, the gateway uses this model. Leave blank to use the only vision model, if available; otherwise images are omitted and text processing continues.",
         "allModels": "Images",
         "partialModels": "Some Images",
         "textOnly": "Text Only"
@@ -3589,7 +3669,8 @@
       "importConfigFailed": "Failed to import from clipboard: {{error}}",
       "importConfigPlaceholder": "Use Copy config on a provider card, then paste the content here",
       "importConfigAction": "Import config",
-      "importConfigFromClipboard": "Read clipboard"
+      "importConfigFromClipboard": "Read clipboard",
+      "settingsRestartHint": "Provider settings updated. Restart any running Codex instance or API Service using this provider to apply them."
     },
     "quickSwitch": {
       "action": "Quick Switch Provider",
@@ -3739,7 +3820,7 @@
       "dateTime": "{{date}} {{time}}"
     },
     "subscription": {
-      "label": "Subscription validity",
+      "label": "Valid for",
       "column": "Subscription info",
       "unknown": "No subscription info",
       "missingDetail": "No subscription info",
@@ -3979,7 +4060,8 @@
         "medium": "Medium",
         "high": "High",
         "xhigh": "XHigh",
-        "max": "Max"
+        "max": "Max",
+        "ultra": "Ultra"
       }
     },
     "sessionManager": {
@@ -4571,7 +4653,7 @@
         "reasoningEffortValue": "Think {{effort}}",
         "serviceTier": "Service tier",
         "serviceTierValue": "Tier {{tier}}",
-        "upstreamModel": "Upstream model"
+        "upstreamModel": "Sent model"
       }
     },
     "apiKey": {
@@ -4755,15 +4837,13 @@
       "serverCount": "{{count}}",
       "autoSyncBadge": "Auto"
     },
-    "exportAuthFailed": "Export failed",
-    "exportAuthFailedTitle": "Export all auth-failed accounts",
     "accounts": {
       "showRelayQuota": "Show relay quota",
       "hideRelayQuota": "Hide relay quota"
     },
     "instanceGateways": {
-      "entry": "Instance gateways",
-      "entryCount": "Instance gateways {{count}}",
+      "entry": "Gateways",
+      "entryCount": "Gateways {{count}}",
       "issueCount": "{{count}} abnormal",
       "title": "Instance gateways",
       "subtitle": "Local gateways started with Codex instances",
@@ -4789,6 +4869,18 @@
       "restartFailed": "Failed to start the gateway: {{error}}"
     },
     "proxy": {
+      "display": {
+        "title": "Proxy display",
+        "compact": "Compact",
+        "summary": "Summary",
+        "detailed": "Detailed",
+        "hint": "Applies to all Codex account cards; saved and applied immediately.",
+        "configuredNode": "Configured node",
+        "lastRequest": "Last request",
+        "preview": "Style preview",
+        "saveFailed": "Could not save the display preference. Try again.",
+        "refresh": "Refresh details"
+      },
       "workspace": {
         "navLabel": "Proxy sections",
         "overview": "Overview",
@@ -4881,7 +4973,7 @@
       },
       "rules": {
         "title": "Exit rules",
-        "intro": "An independent account proxy takes priority over the unified proxy; when neither applies, requests keep the client's previous default exit.",
+        "intro": "An independent account proxy takes priority over the unified proxy; when neither applies, requests keep the client's previous default exit. Accounts explicitly set to No proxy are excluded.",
         "order": "Resolution order",
         "tableTitle": "Account exits",
         "columnAccount": "Account",
@@ -4926,8 +5018,8 @@
       },
       "unified": {
         "title": "Unified proxy egress",
-        "hint": "Eligible accounts without their own proxy share this egress; new accounts follow automatically.",
-        "offState": "Off: account bindings apply; otherwise the default egress applies.",
+        "hint": "Eligible accounts without their own proxy share this egress; new accounts follow automatically. Accounts explicitly set to No proxy are excluded.",
+        "offState": "Off: account bindings apply; otherwise the default egress applies. Accounts explicitly set to No proxy are excluded.",
         "enable": "Enable unified proxy",
         "disable": "Turn off",
         "change": "Change egress",
@@ -4945,12 +5037,12 @@
         "changeMessage": "Running clients using the local relay use the new egress for new connections.",
         "changeConfirm": "Change",
         "disableTitle": "Turn off unified proxy",
-        "disableMessage": "Own account proxies remain active; accounts without one use the default egress.",
+        "disableMessage": "Own account proxies remain active; accounts without one use the default egress. Accounts explicitly set to No proxy are excluded.",
         "disableConfirm": "Turn off",
         "restartHint": "Clients launched through the local relay switch on new connections. Other running clients need one restart.",
         "staleWarning": "The source of this egress is unavailable. Select another one.",
         "removedWarning": "Unified proxy was turned off because its source was deleted.",
-        "accountsNotice": "Own account proxies take priority; unbound accounts follow the unified proxy.",
+        "accountsNotice": "Own account proxies take priority; unbound accounts follow the unified proxy. Accounts explicitly set to No proxy are excluded.",
         "unbindBlocked": "After unbinding, this account follows the unified proxy.",
         "following": "Unified",
         "errorFailed": "Action failed. Try again.",
@@ -5014,6 +5106,11 @@
         "viewAll": "View all"
       },
       "previewTitle": "Proxy preview",
+      "modeDisabled": "No proxy",
+      "disableAction": "Remove proxy",
+      "setIndependent": "Set own proxy",
+      "disabledHint": "Skip individual and shared proxies; try direct connections.",
+      "disabledWarning": "Direct access may fail. New connections from desktops using the local relay take effect immediately; other running clients need a restart. Existing connections may keep the previous route.",
       "exitIp": "Exit IP",
       "sessionHistory": "Runtime activity",
       "sessionHistoryHint": "Checks status every 5 seconds. Keeps the initial state and up to 20 recent snapshots from this preview only; cleared on close, not a full historical log.",
@@ -5044,9 +5141,17 @@
       "desktopRequest_forwarded": "Last local relay established",
       "desktopRequest_failed": "Last local relay failed",
       "desktopEntryReadyHint": "The entry is listening; the engine starts when a connection request arrives.",
+      "sharedRuntime": "Account proxy",
       "runtimeMain": "Account requests",
       "runtimeDesktop": "Desktop bridge",
       "runtimeHint": "Status describes the local entry and engine only. An established relay does not verify Internet access or identify the requesting client.",
+      "restoreEntry": "Restore relay",
+      "restoringEntry": "Restoring…",
+      "restoreEntryFailed": "Could not restore the desktop proxy relay. Please retry.",
+      "restoreEntryPortBusy": "The original proxy port is in use. Free the port and retry; the desktop cannot use a different port automatically.",
+      "restoreEntryNotRunning": "No running desktop using a recorded proxy relay owned by this Cockpit was found.",
+      "restoreEntryBusy": "Proxy recovery is already in progress. Please try again shortly.",
+      "restoreEntryTimeout": "Proxy recovery timed out. Please retry.",
       "restartHint": "Clients launched through the local relay switch on new connections. Other running clients need one restart. The desktop bridge listens on loopback only but does not isolate other local users. System proxy settings stay unchanged.",
       "exportHint": "Account exports exclude proxy credentials; configure them again after import.",
       "backToAccounts": "Back to accounts",
@@ -5360,7 +5465,7 @@
         "assign": "Assign proxy",
         "specific": "Selected accounts",
         "shared": "Shared proxy",
-        "sharedHint": "Codex OAuth accounts without their own proxy use this one, including eligible accounts added later. Existing individual settings stay in effect.",
+        "sharedHint": "Codex OAuth accounts without their own proxy use this one, including eligible accounts added later. Existing individual settings stay in effect. Accounts explicitly set to No proxy are excluded.",
         "apply": "Assign"
       },
       "managerResources": {
@@ -5393,7 +5498,7 @@
       "managerUnified": {
         "off": "Off",
         "choose": "Set proxy",
-        "hint": "Accounts without an individual proxy use this one."
+        "hint": "Accounts without an individual proxy use this one. Accounts explicitly set to No proxy are excluded."
       },
       "setup": {
         "title": "Set up your proxies",
@@ -5407,13 +5512,20 @@
         "collapse": "Hide details"
       },
       "runtime_entry_failed": "Entry failed",
+      "measureCurrentLatency": "Check latency",
+      "measuringCurrentLatency": "Checking",
+      "currentLatencyNotRunning": "No running node is available to check. Start a client using this proxy, or test the configured node in Proxy Management.",
+      "currentLatencyHint": "Checks the running node’s latency to the test URL without changing nodes or proxy policies.",
       "latencyCheckedAt": "Checked at",
       "latencyPending": "Not tested",
       "latencyTimeout": "Timed out",
       "quickSwitch": "Switch node",
       "quickSwitchHint": "Changes only this account. New connections use the saved exit; saving does not verify connectivity.",
       "currentNode": "Current node",
-      "noCurrentNode": "Current node not available yet"
+      "noCurrentNode": "Current node not available yet",
+      "runtimeBusy": "Local proxy is busy. Updates are temporarily unavailable.",
+      "runtimeCapacity": "Too many proxies are running. Stop unused proxies and retry.",
+      "runtimeReadFailed": "Local proxy status is temporarily unavailable. Please retry."
     },
     "more": {
       "title": "More",
@@ -5433,6 +5545,17 @@
       "moveUp": "Move up",
       "moveDown": "Move down",
       "done": "Done"
+    },
+    "cliDaemon": {
+      "title": "Refresh CLI account",
+      "description": "Credentials were saved, but the Codex CLI daemon for this profile is still running and may retain the previous account.",
+      "restartHint": "Finish active CLI tasks, then run this command in your terminal. Restarting interrupts sessions connected to this daemon.",
+      "copyFailed": "Copy failed. Select the command above and copy it manually."
+    },
+    "proxyQuality": {
+      "errors": {
+        "bindingChanged": "The account binding changed. Its current setting was preserved."
+      }
     }
   },
   "codebuddy": {

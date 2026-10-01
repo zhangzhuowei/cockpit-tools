@@ -132,3 +132,17 @@ test('batch unbinding targets bound accounts and keeps per-account failures loca
     { accountId: 'unknown', name: 'unknown', errorKey: 'codex.proxy.saveFailed' },
   ]);
 });
+
+
+test('disabled accounts remain distinct from shared followers and can restore following', () => {
+  const disabled = account('disabled', { egress_proxy_disabled: true });
+  const follower = account('follower');
+  const accounts = [disabled, follower];
+  const saved = (entry: CodexAccount) => entry.egress_proxy;
+  const unified = { mode: 'all_accounts', binding: { name: 'Shared' } } as CodexUnifiedProxyView;
+  assert.deepEqual(unifiedFollowingIds(accounts, saved, unified), ['follower']);
+  assert.equal(resolveExitMode(null, readyState, true, true), 'disabled');
+  assert.deepEqual(filterProxyAccounts(accounts, { saved, filter: 'disabled' }), [disabled]);
+  assert.deepEqual(filterProxyAccounts(accounts, { saved, filter: 'unbound' }), [follower]);
+  assert.deepEqual(batchUnbindTargets(accounts, saved).map((entry) => entry.account.id), ['disabled']);
+});

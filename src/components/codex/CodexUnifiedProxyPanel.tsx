@@ -115,7 +115,7 @@ export function CodexUnifiedProxyDialog({ kind, sourceId, itemId, groupId, selec
         {loading && <p className="codex-proxy-page-note" role="status">{t('common.loading')}</p>}
         {/* Counts only ever describe a real preview; a failed read shows the error plus a retry. */}
         {!loading && (kind === 'disable' || preview) && <p className="codex-proxy-unified-dialog-message">{t(copy.message, {
-          count: Math.max(0, (preview?.eligibleAccountIds.length ?? 0) - (preview?.independentAccountIds.length ?? 0)),
+          count: Math.max(0, (preview?.eligibleAccountIds.length ?? 0) - (preview?.independentAccountIds.length ?? 0) - (preview?.disabledAccountIds?.length ?? 0)),
           independent: preview?.independentAccountIds.length ?? 0,
         })}</p>}
         {!loading && !preview && kind !== 'disable' && <button type="button" className="btn btn-secondary" disabled={busy} onClick={retry}>{t('common.retry')}</button>}
@@ -228,7 +228,7 @@ export function CodexUnifiedProxyPanel({ totalAccounts, catalog, view, onViewCha
   const emptyCatalog = availableSources.length === 0;
   const eligible = view.eligibleAccountIds.length;
   const independent = view.independentAccountIds.length;
-  const following = Math.max(0, eligible - independent);
+  const following = Math.max(0, eligible - independent - (view.disabledAccountIds?.length ?? 0));
   const unsupported = Math.max(0, totalAccounts - eligible);
   const currentLabel = view.binding
     ? [view.binding.sourceName, view.binding.name, view.binding.selectedName ?? ''].filter(Boolean).join(' · ')
@@ -246,6 +246,7 @@ export function CodexUnifiedProxyPanel({ totalAccounts, catalog, view, onViewCha
         <strong title={currentLabel}>{active ? currentLabel : t('codex.proxy.managerUnified.off')}</strong></div>
         <p>{t('codex.proxy.managerUnified.hint')}
           {active && <span>{t('codex.proxy.unified.eligible', { count: following })}</span>}
+          {Boolean(view.disabledAccountIds?.length) && <span>{t('codex.proxy.modeDisabled')} · {view.disabledAccountIds?.length}</span>}
           {independent > 0 && <span>{t('codex.proxy.unified.overridden', { count: independent })}</span>}
           {unsupported > 0 && <span>{t('codex.proxy.unified.unsupported', { count: unsupported })}</span>}</p>
       </div>

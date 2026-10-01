@@ -1,9 +1,36 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildProviderModelVisionCapabilities,
   expandLegacyProviderVisionCapabilities,
   providerModelDefaultsToVisionInput,
+  resolveProviderModelVisionState,
 } from "./codexModelProviderVision.ts";
+
+test("vision switches honor mixed-case explicit values and provider defaults", () => {
+  assert.equal(resolveProviderModelVisionState(" MiniMax-M3 ", { "minimax-m3": true }), true);
+  assert.equal(resolveProviderModelVisionState("Qwen-VL", { "qwen-vl": false }, true), false);
+  assert.equal(resolveProviderModelVisionState("Qwen-VL", {}, true), true);
+  assert.equal(resolveProviderModelVisionState("GPT-5.5", {}, false), true);
+  assert.equal(resolveProviderModelVisionState("GPT-5.5", { "gpt-5.5": false }), false);
+});
+
+test("saving and reopening retains explicit disabled overrides for inherited vision", () => {
+  const saved = buildProviderModelVisionCapabilities("Qwen-VL\nMiniMax-M3", {
+    "qwen-vl": false,
+    "minimax-m3": true,
+    "Other-Model": false,
+  });
+  assert.deepEqual(saved, {
+    "qwen-vl": { supportsVision: false },
+    "minimax-m3": { supportsVision: true },
+    "other-model": { supportsVision: false },
+  });
+  const states = Object.fromEntries(Object.entries(saved).map(([model, value]) => [model, value.supportsVision]));
+  assert.equal(resolveProviderModelVisionState("Qwen-VL", states, true), false);
+  assert.equal(resolveProviderModelVisionState("MiniMax-M3", states, false), true);
+  assert.deepEqual(buildProviderModelVisionCapabilities("", {}), {});
+});
 
 test("expands legacy provider-level vision into per-model capabilities", () => {
   const provider = {

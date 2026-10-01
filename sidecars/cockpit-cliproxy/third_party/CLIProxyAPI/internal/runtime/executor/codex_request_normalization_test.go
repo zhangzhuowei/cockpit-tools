@@ -296,11 +296,17 @@ func TestCodexWebsocketPreservesReplayNamespacesForAllAuthKinds(t *testing.T) {
 }
 
 func namespaceReplayContractPayload() []byte {
-	return []byte(`{"model":"gpt-5.6-terra","input":[{"type":"function_call","call_id":"c1","name":"lookup","namespace":"functions","arguments":"{}"},{"type":"function_call_output","call_id":"c1","output":"ok"},{"type":"message","role":"user","namespace":"client-extension","content":"hello"}]}`)
+	return []byte(`{"model":"gpt-5.6-terra","instructions":"  Keep native instructions exactly.\n","input":[{"type":"function_call","call_id":"c1","name":"lookup","namespace":"functions","arguments":"{}"},{"type":"function_call_output","call_id":"c1","output":"ok"},{"type":"message","role":"user","namespace":"client-extension","content":"hello"}]}`)
 }
 
 func assertNamespaceReplayContract(t *testing.T, body []byte) {
 	t.Helper()
+	if got := gjson.GetBytes(body, "instructions").String(); got != "  Keep native instructions exactly.\n" {
+		t.Fatalf("native instructions changed before upstream: %s", body)
+	}
+	if gjson.GetBytes(body, "input.0.call_id").String() != "c1" {
+		t.Fatalf("existing call ID changed before upstream: %s", body)
+	}
 	if gjson.GetBytes(body, "input.0.namespace").String() != "functions" ||
 		gjson.GetBytes(body, "input.2.namespace").String() != "client-extension" ||
 		gjson.GetBytes(body, "input.1.call_id").String() != "c1" {

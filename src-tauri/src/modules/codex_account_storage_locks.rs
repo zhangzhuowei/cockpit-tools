@@ -86,24 +86,20 @@ fn migrate_codex_data_if_needed(new_data_dir: &PathBuf) {
     }
 }
 
-/// 获取我们的多账号存储路径（统一使用 ~/.antigravity_cockpit/）
+/// 获取我们的多账号存储路径（使用公共数据目录入口 ~/.cockpit_tools/，兼容旧目录）
 fn get_accounts_storage_path() -> PathBuf {
     let data_dir = account::get_data_dir().unwrap_or_else(|_| {
-        dirs::home_dir()
-            .expect("无法获取用户目录")
-            .join(".antigravity_cockpit")
+        crate::modules::data_paths::fallback_data_dir()
     });
     fs::create_dir_all(&data_dir).ok();
     migrate_codex_data_if_needed(&data_dir);
     data_dir.join("codex_accounts.json")
 }
 
-/// 获取账号详情存储目录（统一使用 ~/.antigravity_cockpit/codex_accounts/）
+/// 获取账号详情存储目录（使用公共数据目录入口 ~/.cockpit_tools/，兼容旧目录；账号文件位于 codex_accounts/）
 fn get_accounts_dir() -> PathBuf {
     let data_dir = account::get_data_dir().unwrap_or_else(|_| {
-        dirs::home_dir()
-            .expect("无法获取用户目录")
-            .join(".antigravity_cockpit")
+        crate::modules::data_paths::fallback_data_dir()
     });
     let accounts_dir = data_dir.join("codex_accounts");
     fs::create_dir_all(&accounts_dir).ok();
@@ -112,9 +108,7 @@ fn get_accounts_dir() -> PathBuf {
 
 fn account_tombstone_path(account_id: &str) -> PathBuf {
     let data_dir = account::get_data_dir().unwrap_or_else(|_| {
-        dirs::home_dir()
-            .expect("无法获取用户目录")
-            .join(".antigravity_cockpit")
+        crate::modules::data_paths::fallback_data_dir()
     });
     data_dir
         .join(CODEX_ACCOUNT_TOMBSTONES_DIR)
@@ -332,9 +326,7 @@ fn codex_token_refresh_file_lock_path(account_id: &str) -> PathBuf {
     // 仍映射到同一把锁；旧账号缺少该字段时再回退邮箱或本地 ID。
     let lock_name = codex_account_lock_name(account_id);
     let data_root = account::resolve_data_dir().unwrap_or_else(|_| {
-        dirs::home_dir()
-            .expect("无法获取用户目录")
-            .join(".antigravity_cockpit")
+        crate::modules::data_paths::fallback_data_dir()
     });
     data_root
         .join(".cockpit-token-locks")
