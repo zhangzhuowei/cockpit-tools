@@ -466,32 +466,22 @@ pub async fn codex_local_access_activate(
     ));
 
     let default_settings_started = Instant::now();
-    if launch_target.is_default {
-        if let Err(e) = crate::modules::codex_instance::update_default_settings(
-            Some(Some(
-                crate::modules::codex_instance::CODEX_API_SERVICE_BIND_ACCOUNT_ID.to_string(),
-            )),
-            None,
-            None,
-            Some(false),
-            None,
-            None,
-        ) {
-            logger::log_warn(&format!("更新 Codex 默认实例为 API 服务模式失败: {}", e));
-        } else {
-            logger::log_info("已同步更新 Codex 默认实例为 API 服务模式");
-        }
+    let expected_prepared_binding = if launch_target.is_default {
+        let binding = crate::modules::codex_instance::bind_default_api_service_for_launch()?;
+        logger::log_info("已同步更新 Codex 默认实例为 API 服务模式");
         if let Err(e) =
             crate::modules::codex_instance::update_default_app_speed(api_service_speed.clone())
         {
             logger::log_warn(&format!("更新 Codex 默认实例 API 服务速度失败: {}", e));
         }
+        Some(binding)
     } else {
         logger::log_info(&format!(
             "已保留非默认实例绑定，不修改 Codex 默认实例: instance_id={}",
             target_instance_id
         ));
-    }
+        None
+    };
     logger::log_info(&format!(
         "[Codex API Service Switch][Backend] default settings update finished: elapsed_ms={}, total_ms={}",
         default_settings_started.elapsed().as_millis(),
@@ -534,7 +524,7 @@ pub async fn codex_local_access_activate(
                 true,
                 Some("instance-launch"),
                 None,
-                launch_target.bind_account_id.as_deref(),
+                expected_prepared_binding,
             )
             .await
         } else {

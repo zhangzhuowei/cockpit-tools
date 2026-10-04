@@ -186,8 +186,9 @@ export function CodexProxyAssignDialog({ choice: initialChoice, onClose }: { cho
             }}>{t(allVisible ? 'codex.proxy.batchClearAll' : 'common.selectAll')}</button>
           </div>
           <div className="codex-proxy-assign-accounts">{visible.map((account) => {
-            const plan = account.plan_type?.trim();
-            const planClass = plan ? withCodexPlanBadgeStyle(getCodexPlanBadgePresentation(account).className, planBadgeStyle) : '';
+            const badge = getCodexPlanBadgePresentation(account, { preserveRawNonProLabel: true });
+            const plan = account.plan_type?.trim() ? badge.label : undefined;
+            const planClass = plan ? withCodexPlanBadgeStyle(badge.className, planBadgeStyle) : '';
             return <button key={account.id} type="button" className={`btn codex-proxy-assign-account${selectedIds.includes(account.id) ? ' is-active' : ''}`} disabled={busy} aria-pressed={selectedIds.includes(account.id)} onClick={() => toggle(account.id)}>
               {selectedIds.includes(account.id) ? <CheckSquare size={17} /> : <Square size={17} />}
               <span className="codex-proxy-assign-account-name">{name(account)}</span>

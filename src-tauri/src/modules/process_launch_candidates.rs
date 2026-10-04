@@ -40,9 +40,6 @@ const DETACHED_PROCESS: u32 = 0x0000_0008;
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 #[cfg(target_os = "windows")]
 const WINDOWS_PROCESS_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
-#[cfg(target_os = "windows")]
-static CODEX_STORE_APP_USER_MODEL_ID_CACHE: std::sync::OnceLock<String> =
-    std::sync::OnceLock::new();
 
 #[derive(Debug, Clone, Serialize)]
 pub struct AppLaunchCandidate {
@@ -483,84 +480,31 @@ fn powershell_output_with_timeout(
     args: &[&str],
     timeout: Duration,
 ) -> std::io::Result<std::process::Output> {
-    use std::io::{Error, ErrorKind, Read};
-
     let mut last_error = None;
-    let (mut child, preview) = 'spawn: {
-        for executable in windows_powershell_executable_candidates_for_host() {
-            let spawn_guard =
-                crate::modules::app_lifecycle::acquire_process_spawn_guard("PowerShell")?;
-            let mut command = build_powershell_command(&executable, args);
-            command
-                .stdin(Stdio::null())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
-            let preview = format_command_preview(&command);
-            log_command_trace_exec(&preview);
-            match command.spawn() {
-                Ok(child) => {
-                    drop(spawn_guard);
-                    break 'spawn (child, preview);
-                }
-                Err(error) => {
-                    drop(spawn_guard);
-                    crate::modules::logger::log_warn(&format!(
-                        "[PowerShell] 启动候选失败，尝试下一个: exe={} error={}",
-                        executable.display(),
-                        error
-                    ));
-                    last_error = Some(error);
-                }
+    for executable in windows_powershell_executable_candidates_for_host() {
+        let mut command = build_powershell_command(&executable, args);
+        let preview = format_command_preview(&command);
+        log_command_trace_exec(&preview);
+        let start = Instant::now();
+        // Drain both pipes while the process runs. Waiting for exit first blocks
+        // CIM probes once their output fills a pipe, producing false timeouts.
+        // The shared helper also bounds drains held open by descendants and
+        // acquires the lifecycle spawn guard itself.
+        let result = crate::modules::process_timeout::output_with_timeout(&mut command, timeout);
+        log_command_trace_result(&preview, &result, start.elapsed());
+        match result {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                last_error = Some(error);
             }
+            result => return result,
         }
-        let error = last_error.unwrap_or_else(|| {
-            std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "未找到可用的 PowerShell（powershell.exe / pwsh.exe）",
-            )
-        });
-        if command_trace_enabled() {
-            crate::modules::logger::log_warn(&format!(
-                "[CmdTrace] SPAWN_ERROR elapsed=0ms err={}",
-                error
-            ));
-        }
-        return Err(error);
-    };
-    let start = Instant::now();
-
-    loop {
-        if let Some(status) = child.try_wait()? {
-            let mut stdout = Vec::new();
-            let mut stderr = Vec::new();
-            if let Some(mut out) = child.stdout.take() {
-                let _ = out.read_to_end(&mut stdout);
-            }
-            if let Some(mut err) = child.stderr.take() {
-                let _ = err.read_to_end(&mut stderr);
-            }
-            let result = Ok(std::process::Output {
-                status,
-                stdout,
-                stderr,
-            });
-            log_command_trace_result(&preview, &result, start.elapsed());
-            return result;
-        }
-
-        if start.elapsed() >= timeout {
-            let _ = child.kill();
-            let _ = child.wait();
-            let result = Err(Error::new(
-                ErrorKind::TimedOut,
-                format!("PowerShell 进程探测超时（{}ms）", timeout.as_millis()),
-            ));
-            log_command_trace_result(&preview, &result, start.elapsed());
-            return result;
-        }
-
-        thread::sleep(Duration::from_millis(100));
     }
+    Err(last_error.unwrap_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "未找到可用的 PowerShell（powershell.exe / pwsh.exe）",
+        )
+    }))
 }
 
 #[cfg(target_os = "windows")]

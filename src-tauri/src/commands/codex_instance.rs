@@ -34,6 +34,7 @@ use super::codex_instance_routing::{
     launch_mode_uses_desktop_runtime, model_routing_update_error,
     validate_instance_model_routing,
 };
+use super::codex_instance_start_runtime::{stop_runtime_for_start, StartRuntimeState};
 
 pub(crate) const DEFAULT_INSTANCE_ID: &str = "__default__";
 const CODEX_INSTANCE_LAUNCH_PROGRESS_EVENT: &str = "codex:instance-launch-progress";
@@ -2543,6 +2544,7 @@ async fn codex_start_instance_internal(
     emit_launch_progress: bool,
     launch_operation: Option<&str>,
     expected_prepared_binding: Option<&str>,
+    runtime_state: StartRuntimeState,
 ) -> Result<CodexInstanceProfileView, String> {
     let _start_guard = CodexInstanceStartGuard::acquire(&instance_id)?;
     clear_codex_instance_start_cancel(&instance_id);
@@ -2760,7 +2762,8 @@ async fn codex_start_instance_internal(
             expected_prepared_binding, default_bind_account_id.as_deref(),
         )?;
         if default_settings.launch_mode != InstanceLaunchMode::Cli {
-            modules::process::ensure_codex_launch_path_configured()?;
+            tauri::async_runtime::spawn_blocking(modules::process::ensure_codex_launch_path_configured)
+                .await.map_err(|error| error.to_string())??;
         }
         modules::logger::log_info(&format!(
             "[Codex Start] default prepare phase finished: bind_account_id={:?}, launch_mode={:?}, elapsed_ms={}, total_ms={}",
@@ -2772,19 +2775,8 @@ async fn codex_start_instance_internal(
         let close_started = Instant::now();
         modules::codex_app_injection::stop_for_profile(&default_dir);
         let close_mode = if launch_mode_uses_desktop_runtime(&default_settings.launch_mode) {
-            let fast_closed = if skip_default_bind_account_injection {
-                modules::process::close_codex_default_fast_by_pid(default_settings.last_pid, 20)?
-            } else {
-                false
-            };
-            if !fast_closed {
-                modules::process::close_codex_default(20)?;
-            }
-            if fast_closed {
-                "fast-pid"
-            } else {
-                "full-probe"
-            }
+            stop_runtime_for_start(runtime_state, || modules::process::close_codex_default(20))
+                .await?
         } else {
             modules::logger::log_info("[Codex Start] CLI 模式无需关闭桌面运行态，继续准备实例配置");
             "cli-no-desktop"
@@ -3122,13 +3114,11 @@ async fn codex_start_instance_internal(
 
     let close_started = Instant::now();
     modules::codex_app_injection::stop_for_profile(instance_dir);
-    if modules::process::resolve_codex_pid(instance.last_pid, Some(&instance.user_data_dir)).is_some() {
-        let target_home = instance.user_data_dir.clone();
-        tauri::async_runtime::spawn_blocking(move || {
-            modules::process::close_codex_instances(&[target_home], 20)
-        }).await.map_err(|error| error.to_string())??;
-        let _ = modules::codex_instance::update_instance_pid(&instance.id, None)?;
-    }
+    let target_home = instance.user_data_dir.clone();
+    stop_runtime_for_start(runtime_state, move || {
+        modules::process::close_codex_instances(&[target_home], 20)
+    }).await?;
+    let _ = modules::codex_instance::update_instance_pid(&instance.id, None)?;
     modules::codex_local_access::stop_provider_gateways_for_profile(instance_dir).await;
     restore_mixed_model_gateway_when_disabled(instance_dir, instance.model_routing.as_ref())
         .await?;
@@ -3332,7 +3322,8 @@ async fn codex_start_instance_internal(
         ));
     }
 
-    modules::process::ensure_codex_launch_path_configured()?;
+    tauri::async_runtime::spawn_blocking(modules::process::ensure_codex_launch_path_configured)
+        .await.map_err(|error| error.to_string())??;
     let extra_args = modules::process::parse_extra_args(&instance.extra_args);
     let cdp_enabled =
         modules::codex_app_injection::should_enable_cdp(instance.bind_account_id.as_deref());
@@ -3424,6 +3415,7 @@ async fn codex_start_instance_internal(
 /// 本方法调用 `codex_start_instance_internal` 复用多开实例的启动事务；调用方必须在整个
 /// “凭据写入 + 默认实例启动”期间持有默认 profile 写入租约。`launch_operation` 仅用于标识
 /// 启动来源并关联前端进度状态，不改变 Token Authority 和 profile 落盘规则。
+/// 调用前必须成功停止目标运行态；启动事务复用该结果，不再重复关闭。
 pub(crate) async fn codex_start_default_with_prepared_profile(
     app: AppHandle,
     emit_launch_progress: bool,
@@ -3442,6 +3434,7 @@ pub(crate) async fn codex_start_default_with_prepared_profile(
         emit_launch_progress,
         launch_operation,
         expected_prepared_binding,
+        StartRuntimeState::Stopped,
     )
     .await;
     let result = match result {
@@ -3494,6 +3487,7 @@ pub(crate) async fn codex_start_default_with_prepared_profile(
 
 /// 启动已经由 API Service 激活流程准备好 profile 的非默认实例。
 /// 调用方必须在整个“凭据写入 + 实例启动”期间持有目标 profile 写入租约。
+/// 调用前必须成功停止目标运行态。
 pub(crate) async fn codex_start_instance_with_prepared_profile(
     app: AppHandle,
     instance_id: String,
@@ -3511,6 +3505,7 @@ pub(crate) async fn codex_start_instance_with_prepared_profile(
         emit_launch_progress,
         launch_operation,
         launch_target.bind_account_id.as_deref(),
+        StartRuntimeState::Stopped,
     )
     .await;
     let result = match result {
@@ -3582,6 +3577,7 @@ pub async fn codex_start_instance(
         true,
         None,
         None,
+        StartRuntimeState::NeedsStop,
     )
     .await;
     if let Err(error) = &result {

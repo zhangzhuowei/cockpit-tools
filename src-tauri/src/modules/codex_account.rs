@@ -13,12 +13,15 @@ include!("codex_account_index.rs");
 include!("codex_account_lifecycle.rs");
 include!("codex_account_recycle_bin.rs");
 include!("codex_account_authority_sync.rs");
+include!("codex_account_windows_auth_store.rs");
 include!("codex_account_projection.rs");
 include!("codex_account_runtime_switch.rs");
 include!("codex_account_import.rs");
 
 #[cfg(test)]
 mod tests {
+    include!("codex_account_tests_auth_store.rs");
+    include!("codex_account_tests_batch_import_pressure.rs");
     include!("codex_account_tests_identity_import_refresh.rs");
     include!("codex_account_tests_cli_daemon.rs");
     include!("codex_account_tests_local_import.rs");

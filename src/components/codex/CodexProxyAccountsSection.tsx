@@ -91,8 +91,9 @@ export function CodexProxyAccountsSection() {
           const binding = savedValue(entry);
           const mode = resolveExitMode(binding, { catalog, loading: catalogLoading, failed: Boolean(catalogError) }, following.has(entry.id), entry.egress_proxy_disabled);
           const proxy = entry.egress_proxy_disabled ? t('codex.proxy.modeDisabled') : binding ? proxySummary(binding) : following.has(entry.id) ? unifiedLabel : t('codex.proxy.modeDefault');
-          const plan = entry.plan_type?.trim();
-          const planClass = plan ? withCodexPlanBadgeStyle(getCodexPlanBadgePresentation(entry).className, planBadgeStyle) : '';
+          const badge = getCodexPlanBadgePresentation(entry, { preserveRawNonProLabel: true });
+          const plan = entry.plan_type?.trim() ? badge.label : undefined;
+          const planClass = plan ? withCodexPlanBadgeStyle(badge.className, planBadgeStyle) : '';
           return <tr key={entry.id} ref={entry.id === entryAccountId ? entryRow : undefined} className={selection.includes(entry.id) ? 'is-selected' : entry.id === selectedId ? 'is-current' : undefined}>
             <td className="codex-proxy-accounts-check-cell"><button type="button" role="checkbox" aria-checked={selection.includes(entry.id)}
               className="btn btn-secondary compact codex-proxy-accounts-check" onClick={() => toggle(entry.id)} aria-label={resolveName(entry)}>

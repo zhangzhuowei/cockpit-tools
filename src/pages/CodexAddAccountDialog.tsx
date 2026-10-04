@@ -44,14 +44,12 @@ export function CodexAddAccountDialog(props: CodexAccountsViewProps) {
     handleCopyDeviceCode,
     handleCopyOauthUrl,
     handleCopyReauthEmail,
-    handleCopyCodexTempLoginAuthUrl,
     handleFetchApiModelCatalog,
     handleCloseLocalImportInstancePicker,
     handleImportFromFiles,
     handleImportFromLocal,
     handleCancelCodexTempLogin,
     handleOpenCodexSecuritySettings,
-    handleOpenCodexTempLoginAuthUrl,
     handleOpenDeviceAuthUrl,
     handleOpenOauthIncognitoWindow,
     handleOpenOauthUrl,
@@ -129,16 +127,12 @@ export function CodexAddAccountDialog(props: CodexAccountsViewProps) {
     sponsorApiProviderTemplates,
     syncImportedToApiService,
     t,
-    tempLoginAuthUrl,
-    tempLoginAuthUrlCopied,
-    tempLoginAuthUrlUnavailable,
-    tempLoginInterceptAuthUrl,
+    tempLoginRecoverable,
     tempLoginCancelling,
     tempLoginNotice,
     tempLoginPhase,
     tempLoginPhaseMessage,
     tempLoginRunning,
-    setTempLoginInterceptAuthUrl,
     tokenImportProgress,
     tokenInput,
   } = props;
@@ -305,34 +299,9 @@ export function CodexAddAccountDialog(props: CodexAccountsViewProps) {
                         <p className="section-desc">
                           {t(
                             "codex.tempLogin.desc",
-                            "登录全程在官方桌面客户端内完成：授权地址由官方客户端生成，授权回调与 token 换取也都由官方客户端处理。Cockpit 不参与授权回调，只在官方把登录凭据落盘后读取并导入。",
+                            "由官方客户端打开浏览器完成登录并处理授权回调。Cockpit 在临时客户端关闭后读取最终凭据并导入。",
                           )}
                         </p>
-                        <label className="codex-import-api-service-toggle">
-                          <span className="codex-import-api-service-toggle-copy">
-                            <strong>
-                              {t(
-                                "codex.tempLogin.intercept.toggle",
-                                "拦截浏览器跳转，直接显示授权地址",
-                              )}
-                            </strong>
-                            <small>
-                              {t(
-                                "codex.tempLogin.intercept.hint",
-                                "开启后，在官方客户端点「继续登录」不再打开浏览器，只把官方生成的授权地址显示在这里供复制；复制到任意浏览器登录后，授权回调与 token 换取仍由官方桌面客户端完成，Cockpit 不参与授权。关闭后完全走官方原生流程。",
-                              )}
-                            </small>
-                          </span>
-                          <input
-                            type="checkbox"
-                            checked={tempLoginInterceptAuthUrl}
-                            disabled={tempLoginRunning || importing}
-                            onChange={(event) =>
-                              setTempLoginInterceptAuthUrl(event.target.checked)
-                            }
-                          />
-                          <span className="codex-import-api-service-switch" />
-                        </label>
                         <ol className="codex-temp-login-steps">
                           {CODEX_TEMP_LOGIN_STEPS.map((step, index) => {
                             const currentIndex = tempLoginPhase
@@ -365,63 +334,7 @@ export function CodexAddAccountDialog(props: CodexAccountsViewProps) {
                           <p className="section-desc codex-temp-login-hint">
                             {t(
                               "codex.tempLogin.waitingHint",
-                              "请在官方客户端完成登录，读取到登录信息后会自动关闭客户端（最长等待 10 分钟）。",
-                            )}
-                          </p>
-                        )}
-                        {tempLoginAuthUrl && (
-                          <div className="codex-temp-login-auth-url">
-                            <span className="codex-temp-login-auth-url-label">
-                              {t(
-                                "codex.tempLogin.authUrl.label",
-                                "授权地址（官方生成）",
-                              )}
-                            </span>
-                            <div className="codex-temp-login-auth-url-value">
-                              {tempLoginAuthUrl}
-                            </div>
-                            <div className="codex-temp-login-auth-url-actions">
-                              <button
-                                className="btn btn-secondary"
-                                onClick={() =>
-                                  void handleCopyCodexTempLoginAuthUrl()
-                                }
-                              >
-                                {tempLoginAuthUrlCopied ? (
-                                  <Check size={16} />
-                                ) : (
-                                  <Copy size={16} />
-                                )}
-                                {tempLoginAuthUrlCopied
-                                  ? t("common.copied", "已复制")
-                                  : t("common.copy", "复制")}
-                              </button>
-                              <button
-                                className="btn btn-secondary"
-                                onClick={() =>
-                                  void handleOpenCodexTempLoginAuthUrl()
-                                }
-                              >
-                                <ExternalLink size={16} />
-                                {t(
-                                  "codex.tempLogin.authUrl.open",
-                                  "用默认浏览器打开",
-                                )}
-                              </button>
-                            </div>
-                            <p className="section-desc codex-temp-login-hint">
-                              {t(
-                                "codex.tempLogin.authUrl.hint",
-                                "地址由官方客户端生成，只能在本机浏览器打开；请在官方窗口保持打开的情况下完成登录。",
-                              )}
-                            </p>
-                          </div>
-                        )}
-                        {tempLoginAuthUrlUnavailable && !tempLoginAuthUrl && (
-                          <p className="section-desc codex-temp-login-hint">
-                            {t(
-                              "codex.tempLogin.authUrl.unavailable",
-                              "本次未能截获官方授权地址，官方客户端会照常打开浏览器，可直接在那里完成登录。",
+                              "请在官方客户端打开的浏览器中完成登录；检测到完整凭据后会自动关闭临时客户端并导入（最长等待 10 分钟）。",
                             )}
                           </p>
                         )}
@@ -440,8 +353,14 @@ export function CodexAddAccountDialog(props: CodexAccountsViewProps) {
                           ) : (
                             <Monitor size={16} />
                           )}
-                          {t("codex.tempLogin.start", "打开官方客户端并登录")}
+                          {tempLoginRecoverable ? t("codex.tempLogin.retryImport") : t("codex.tempLogin.start", "打开官方客户端并登录")}
                         </button>
+                        {tempLoginRecoverable && !tempLoginRunning && (
+                          <button className="btn btn-secondary btn-full" onClick={() => void handleStartCodexTempLogin(true)} disabled={importing}>
+                            <Monitor size={16} />
+                            {t("codex.tempLogin.start", "打开官方客户端并登录")}
+                          </button>
+                        )}
                         {tempLoginRunning && (
                           <button
                             className="btn btn-secondary btn-full"
@@ -459,7 +378,7 @@ export function CodexAddAccountDialog(props: CodexAccountsViewProps) {
                         <p className="section-desc codex-temp-login-note">
                           {t(
                             "codex.tempLogin.note",
-                            "临时配置创建在应用数据目录下的独立空目录中，账号读取完成后会连同官方客户端运行目录与钥匙串条目一起删除，默认实例和多开实例都不受影响。",
+                            "导入成功后清理临时配置与认证条目；导入失败保留凭据供重试。默认实例和多开实例不受影响。",
                           )}
                         </p>
                       </div>

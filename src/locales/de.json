@@ -2829,27 +2829,19 @@
       "import": "Lokales Konto abrufen"
     },
     "tempLogin": {
+      "recovery": "Anmeldedaten bleiben unter {{path}} erhalten. Wiederholen Sie den Import oder melden Sie sich erneut an, wenn Daten fehlen.",
+      "closedWithoutLogin": "Der offizielle Client wurde geschlossen, bevor vollständige Anmeldedaten erkannt wurden.",
+      "retryImport": "Import wiederholen",
       "tab": "Offizielle Anmeldung",
-      "desc": "Die Anmeldung läuft vollständig im offiziellen Desktop-Client ab: Die Autorisierungs-URL wird vom offiziellen Client erzeugt, und auch der Autorisierungs-Callback und der Token-Austausch werden vom offiziellen Client verarbeitet. Cockpit ist am Autorisierungs-Callback nicht beteiligt und liest die Anmeldedaten erst nach dem Speichern durch den offiziellen Client, um sie zu importieren.",
-      "note": "Das temporäre Profil ist ein leerer Ordner im App-Datenverzeichnis. Nach dem Auslesen des Kontos wird es zusammen mit dem Laufzeitverzeichnis des Clients und dem Schlüsselbund-Eintrag gelöscht; Standardinstanz und Multi-Instanzen bleiben unberührt.",
+      "desc": "Der offizielle Client öffnet den Browser zur Anmeldung und verarbeitet die Autorisierungsantwort. Cockpit liest und importiert die endgültigen Anmeldedaten nach dem Schließen des temporären Clients.",
+      "note": "Nach erfolgreichem Import werden temporäre Einstellungen, Laufzeitdaten und zugehörige Anmeldeeinträge entfernt. Bei einem Importfehler bleiben die Anmeldedaten für einen erneuten Versuch erhalten. Andere Instanzen bleiben unverändert.",
       "start": "Offiziellen Client öffnen und anmelden",
       "cancel": "Anmeldung abbrechen",
       "cancelling": "Offizielle Anmeldung wird abgebrochen…",
-      "waitingHint": "Schließen Sie die Anmeldung im offiziellen Client ab. Er wird automatisch beendet, sobald die Anmeldedaten erkannt wurden (maximal 10 Minuten).",
+      "waitingHint": "Melden Sie sich im geöffneten Browser an. Sobald vollständige Anmeldedaten vorliegen, wird der temporäre Client geschlossen und das Konto importiert (maximal 10 Minuten).",
       "cancelled": "Offizielle Anmeldung abgebrochen und temporäres Profil entfernt.",
       "failed": "Offizielle Anmeldung fehlgeschlagen: {{error}}",
       "success": "Konto übernommen: {{email}}",
-      "intercept": {
-        "toggle": "Browser-Sprung abfangen und die Autorisierungs-URL hier anzeigen",
-        "hint": "Ist dies aktiv, öffnet ein Klick auf „Weiter“ im offiziellen Client keinen Browser mehr, sondern zeigt die vom offiziellen Client erzeugte Autorisierungs-URL hier zum Kopieren an. Nach der Anmeldung in einem beliebigen Browser werden Autorisierungs-Callback und Token-Austausch weiterhin vom offiziellen Desktop-Client ausgeführt; Cockpit ist an der Autorisierung nicht beteiligt. Ist es aus, läuft der offizielle Ablauf unverändert."
-      },
-      "authUrl": {
-        "label": "Autorisierungs-URL (vom offiziellen Client erzeugt)",
-        "open": "Im Standardbrowser öffnen",
-        "openFailed": "Autorisierungs-URL konnte nicht geöffnet werden: {{error}}",
-        "hint": "Die URL stammt vom offiziellen Client und lässt sich nur in einem Browser auf diesem Rechner öffnen. Lass das offizielle Fenster bis zum Ende der Anmeldung geöffnet.",
-        "unavailable": "Diesmal konnte die Autorisierungs-URL nicht abgefangen werden. Der offizielle Client öffnet wie gewohnt den Browser; melde dich dort an."
-      },
       "phase": {
         "prepare": "Temporäres Profil vorbereiten",
         "launch": "Offiziellen Client starten",

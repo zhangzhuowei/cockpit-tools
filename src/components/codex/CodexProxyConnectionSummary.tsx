@@ -24,8 +24,9 @@ export function CodexProxyConnectionSummary({ account, status, failed, onSwitch,
   const saved = binding.summary;
   // Cards and preview use the same leaf/measurement selection, including merged channels.
   const { nodes } = codexProxyCardPresentation(account, status);
-  const rawPlan = account.plan_type?.trim();
-  const planClass = rawPlan ? withCodexPlanBadgeStyle(getCodexPlanBadgePresentation(account).className) : '';
+  const badge = getCodexPlanBadgePresentation(account, { preserveRawNonProLabel: true });
+  const rawPlan = account.plan_type?.trim() ? badge.label : undefined;
+  const planClass = rawPlan ? withCodexPlanBadgeStyle(badge.className) : '';
   const sourceKey = account.egress_proxy_disabled ? 'codex.proxy.modeDisabled' : binding.source === 'account' ? 'codex.proxy.modeIndependent' : binding.source === 'unified'
     ? 'codex.proxy.modeUnified' : binding.source === 'unknown'
       ? failed ? 'codex.proxy.runtimeUnavailable' : 'codex.proxy.runtimeLoading' : 'codex.proxy.filter_unbound';

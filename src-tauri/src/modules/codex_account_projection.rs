@@ -79,8 +79,7 @@ fn should_drop_existing_auth_metadata_key(key: &str) -> bool {
 fn read_existing_auth_file_object(
     base_dir: &Path,
 ) -> Option<serde_json::Map<String, serde_json::Value>> {
-    let content = fs::read_to_string(base_dir.join("auth.json")).ok()?;
-    match serde_json::from_str(&content).ok()? {
+    match read_configured_codex_auth_value(base_dir).ok()?? {
         serde_json::Value::Object(map) => Some(map),
         _ => None,
     }
@@ -201,10 +200,10 @@ fn build_codex_keychain_account(base_dir: &Path) -> String {
     format!("cli|{}", &digest_hex[..16])
 }
 
-/// 判断指定 profile 目录在 macOS 钥匙串中是否已有官方凭据条目。
+/// 判断指定 profile 是否已有官方安全存储凭据。
 ///
-/// 只查询条目是否存在（不读取密钥内容），因此不会触发钥匙串授权弹框，
-/// 可用于「官方客户端是否已经写入登录信息」的高频探测。
+/// macOS 只查询条目是否存在，不读取密钥。Windows 检查加密文件或直接凭据条目，
+/// 不解密加密文件；仅用于失败后的凭据保留判断。
 pub(crate) fn codex_keychain_entry_exists_for_dir(base_dir: &Path) -> bool {
     #[cfg(all(target_os = "macos", not(test)))]
     {
@@ -223,7 +222,11 @@ pub(crate) fn codex_keychain_entry_exists_for_dir(base_dir: &Path) -> bool {
         }
     }
 
-    #[cfg(not(all(target_os = "macos", not(test))))]
+    #[cfg(target_os = "windows")]
+    {
+        return windows_auth_store::credentials_present(base_dir);
+    }
+    #[cfg(not(any(target_os = "windows", all(target_os = "macos", not(test)))))]
     {
         let _ = base_dir;
     }
@@ -268,7 +271,11 @@ pub(crate) fn delete_codex_keychain_entry_for_dir(base_dir: &Path) -> Result<boo
         ));
     }
 
-    #[cfg(not(all(target_os = "macos", not(test))))]
+    #[cfg(target_os = "windows")]
+    {
+        return windows_auth_store::delete(base_dir);
+    }
+    #[cfg(not(any(target_os = "windows", all(target_os = "macos", not(test)))))]
     {
         let _ = base_dir;
     }
@@ -331,12 +338,20 @@ fn write_codex_keychain_value_to_dir(
     Err("测试环境不写入 macOS keychain".to_string())
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn write_codex_keychain_value_to_dir(
     _base_dir: &Path,
     _payload: &serde_json::Value,
 ) -> Result<(), String> {
     Err("当前平台尚未实现 Codex keyring 写入".to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn write_codex_keychain_value_to_dir(
+    base_dir: &Path,
+    payload: &serde_json::Value,
+) -> Result<(), String> {
+    windows_auth_store::write(base_dir, payload)
 }
 
 fn is_disk_full_io_error(error: &std::io::Error) -> bool {
@@ -694,44 +709,34 @@ fn write_auth_value_to_configured_store(
     auth_path: &Path,
     auth_value: &serde_json::Value,
 ) -> Result<&'static str, String> {
-    let mode = codex_auth_credentials_store_mode(base_dir);
-
-    #[cfg(target_os = "macos")]
-    match mode {
+    match codex_auth_credentials_store_mode(base_dir) {
         CodexAuthCredentialsStoreMode::File => {
             write_auth_json_value(auth_path, auth_value)?;
-            return Ok("file");
+            Ok("file")
         }
+        CodexAuthCredentialsStoreMode::Ephemeral => Err("CODEX_AUTH_STORE_EPHEMERAL".to_string()),
         CodexAuthCredentialsStoreMode::Keyring => {
             write_codex_keychain_value_to_dir(base_dir, auth_value)?;
             remove_auth_json_after_keyring_write(auth_path);
-            return Ok("keyring");
+            Ok("keyring")
         }
         CodexAuthCredentialsStoreMode::Auto => {
             match write_codex_keychain_value_to_dir(base_dir, auth_value) {
                 Ok(()) => {
                     remove_auth_json_after_keyring_write(auth_path);
-                    return Ok("auto:keyring");
+                    Ok("auto:keyring")
                 }
-                Err(error) => logger::log_warn(&format!(
-                    "[Codex切号] auto 模式写入 keyring 失败，回退 auth.json: {}",
-                    error
-                )),
+                Err(error) => {
+                    // A valid old secure-store entry would win over a new auth.json.
+                    // Never report a successful fallback while that old entry exists.
+                    if read_codex_keychain_auth_file_from_dir(base_dir)?.is_some() {
+                        return Err(error);
+                    }
+                    write_auth_json_value(auth_path, auth_value)?;
+                    Ok("auto:file")
+                }
             }
-            write_auth_json_value(auth_path, auth_value)?;
-            return Ok("auto:file");
         }
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        if mode != CodexAuthCredentialsStoreMode::File {
-            logger::log_warn(
-                "[Codex切号] 当前平台暂不支持直接写入 Codex keyring，保留 auth.json 兼容写入",
-            );
-        }
-        write_auth_json_value(auth_path, auth_value)?;
-        Ok("file")
     }
 }
 

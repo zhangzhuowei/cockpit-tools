@@ -4,6 +4,11 @@ mod models;
 mod modules;
 mod utils;
 
+#[cfg(target_os = "windows")]
+pub fn try_run_codex_package_launcher() -> Option<i32> {
+    modules::process::codex_package_launcher::try_run()
+}
+
 use modules::config::CloseWindowBehavior;
 use modules::logger;
 use std::sync::OnceLock;
@@ -1047,7 +1052,7 @@ pub fn run() {
             commands::codex::import_codex_from_local,
             commands::codex::start_codex_temp_login,
             commands::codex::cancel_codex_temp_login,
-            commands::codex::open_codex_temp_login_auth_url,
+            commands::codex::retry_codex_temp_login_import,
             commands::codex::cleanup_codex_temp_login_artifacts,
             commands::codex::import_codex_from_json,
             commands::codex::export_codex_accounts,

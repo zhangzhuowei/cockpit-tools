@@ -183,6 +183,13 @@ pub(crate) fn bind_default_account_for_switch(account_id: &str) -> Result<(), St
     verify_prepared_launch_binding(Some(account_id), persisted.bind_account_id.as_deref())
 }
 
+/// Persist and verify the API Service binding before returning the expected launch identity.
+/// The caller's pre-activation account snapshot is no longer valid after this switch.
+pub(crate) fn bind_default_api_service_for_launch() -> Result<&'static str, String> {
+    bind_default_account_for_switch(CODEX_API_SERVICE_BIND_ACCOUNT_ID)?;
+    Ok(CODEX_API_SERVICE_BIND_ACCOUNT_ID)
+}
+
 pub fn update_default_settings(
     bind_account_id: Option<Option<String>>,
     model_routing: Option<Option<CodexInstanceModelRouting>>,

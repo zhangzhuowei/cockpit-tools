@@ -2643,9 +2643,9 @@
 }
 
 .codex-local-access-member-mainline
-  .tier-badge.pro:not(.codex-pro-lite):not(.codex-pro-max),
+  .tier-badge.pro:not(.codex-pro-lite):not(.codex-pro-max):not(.codex-pro-500),
 .codex-local-access-account-stat-main
-  .tier-badge.pro:not(.codex-pro-lite):not(.codex-pro-max) {
+  .tier-badge.pro:not(.codex-pro-lite):not(.codex-pro-max):not(.codex-pro-500) {
   background: var(--plan-pro-bg);
   color: var(--plan-pro-color);
   border: 1px solid var(--plan-pro-border);

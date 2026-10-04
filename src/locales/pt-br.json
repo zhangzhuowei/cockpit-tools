@@ -2829,27 +2829,19 @@
       "import": "Obter conta local"
     },
     "tempLogin": {
+      "recovery": "Os dados de login foram mantidos em {{path}}. Repita a importação ou entre novamente se as credenciais estiverem incompletas.",
+      "closedWithoutLogin": "O cliente oficial fechou antes da detecção das credenciais completas.",
+      "retryImport": "Repetir importação",
       "tab": "Login oficial",
-      "desc": "O login acontece inteiramente no cliente de desktop oficial: a URL de autorização é gerada pelo cliente oficial, e o callback de autorização e a troca de token também são tratados pelo cliente oficial. O Cockpit não participa do callback de autorização: apenas lê e importa as credenciais depois que o cliente oficial as grava em disco.",
-      "note": "O perfil temporário é uma pasta vazia no diretório de dados do aplicativo. Depois de ler a conta, ele é excluído junto com o diretório de execução do cliente e a entrada do chaveiro; a instância padrão e as instâncias múltiplas não são afetadas.",
+      "desc": "O cliente oficial abre o navegador para login e processa o retorno da autorização. O Cockpit lê e importa as credenciais finais após o cliente temporário fechar.",
+      "note": "Após a importação bem-sucedida, as configurações temporárias, os dados de execução e as entradas de autenticação associadas são removidos. Se a importação final falhar, as credenciais são mantidas para uma nova tentativa. As outras instâncias não são afetadas.",
       "start": "Abrir o cliente oficial e entrar",
       "cancel": "Cancelar login",
       "cancelling": "Cancelando o login oficial…",
-      "waitingHint": "Conclua o login no cliente oficial. Ele fecha automaticamente quando as credenciais são detectadas (até 10 minutos).",
+      "waitingHint": "Entre pelo navegador aberto pelo cliente oficial. Ao detectar as credenciais completas, o cliente temporário fecha e a conta é importada (até 10 minutos).",
       "cancelled": "Login oficial cancelado e perfil temporário removido.",
       "failed": "Falha no login oficial: {{error}}",
       "success": "Conta obtida: {{email}}",
-      "intercept": {
-        "toggle": "Interceptar a abertura do navegador e mostrar a URL de autorização aqui",
-        "hint": "Quando ativado, clicar em “Continuar” no cliente oficial não abre mais o navegador: apenas mostra aqui a URL de autorização gerada pelo cliente oficial para copiar. Após entrar por qualquer navegador, o callback de autorização e a troca de token continuam sendo feitos pelo cliente de desktop oficial; o Cockpit não participa da autorização. Quando desativado, o fluxo oficial segue inalterado."
-      },
-      "authUrl": {
-        "label": "URL de autorização (gerada pelo cliente oficial)",
-        "open": "Abrir no navegador padrão",
-        "openFailed": "Não foi possível abrir a URL de autorização: {{error}}",
-        "hint": "A URL vem do cliente oficial e só funciona em um navegador deste computador. Mantenha a janela oficial aberta até concluir o login.",
-        "unavailable": "Desta vez o Cockpit não conseguiu capturar a URL de autorização. O cliente oficial abrirá o navegador como sempre; entre por lá."
-      },
       "phase": {
         "prepare": "Preparar o perfil temporário",
         "launch": "Abrir o cliente oficial",

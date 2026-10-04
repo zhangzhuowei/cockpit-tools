@@ -2829,27 +2829,19 @@
       "import": "Yerel hesabı al"
     },
     "tempLogin": {
+      "recovery": "Giriş bilgileri {{path}} konumunda saklandı. İçe aktarmayı yineleyin veya bilgiler eksikse yeniden giriş yapın.",
+      "closedWithoutLogin": "Resmî istemci, tam giriş bilgileri algılanmadan kapandı.",
+      "retryImport": "İçe aktarmayı yinele",
       "tab": "Resmî oturum",
-      "desc": "Giriş tamamen resmî masaüstü istemcide gerçekleşir: yetkilendirme adresini resmî istemci üretir, yetkilendirme geri çağrısı ve token değişimi de resmî istemci tarafından yürütülür. Cockpit yetkilendirme geri çağrısına katılmaz; yalnızca resmî istemci kimlik bilgilerini diske yazdıktan sonra okuyup içe aktarır.",
-      "note": "Geçici profil, uygulama veri dizinindeki boş bir klasördür. Hesap okunduktan sonra istemcinin çalışma dizini ve anahtarlık kaydıyla birlikte silinir; varsayılan oturum ve çoklu oturumlar etkilenmez.",
+      "desc": "Resmî istemci giriş için tarayıcıyı açar ve yetkilendirme yanıtını işler. Cockpit, geçici istemci kapandıktan sonra son kimlik bilgilerini okuyup içe aktarır.",
+      "note": "Başarılı içe aktarmadan sonra geçici ayarlar, çalışma verileri ve ilgili kimlik doğrulama kayıtları temizlenir. Son içe aktarma başarısız olursa bilgiler yeniden denemek için saklanır. Diğer örnekler etkilenmez.",
       "start": "Resmî istemciyi aç ve oturum aç",
       "cancel": "Oturumu iptal et",
       "cancelling": "Resmî oturum iptal ediliyor…",
-      "waitingHint": "Oturum açmayı resmî istemcide tamamlayın. Kimlik bilgileri algılandığında istemci otomatik kapanır (en fazla 10 dakika).",
+      "waitingHint": "Resmî istemcinin açtığı tarayıcıda giriş yapın. Tam kimlik bilgileri algılandığında geçici istemci kapanır ve hesap içe aktarılır (en fazla 10 dakika).",
       "cancelled": "Resmî oturum iptal edildi ve geçici profil silindi.",
       "failed": "Resmî oturum başarısız: {{error}}",
       "success": "Hesap alındı: {{email}}",
-      "intercept": {
-        "toggle": "Tarayıcı açılışını yakala ve yetkilendirme adresini burada göster",
-        "hint": "Etkinleştirildiğinde resmî istemcide «Devam» seçeneğine basmak artık tarayıcıyı açmaz; resmî istemcinin ürettiği yetkilendirme adresini kopyalamanız için yalnızca burada gösterir. Herhangi bir tarayıcıdan giriş yaptıktan sonra yetkilendirme geri çağrısı ve token değişimi yine resmî masaüstü istemci tarafından yürütülür; Cockpit yetkilendirmeye katılmaz. Kapatıldığında resmî akış değişmeden işler."
-      },
-      "authUrl": {
-        "label": "Yetkilendirme adresi (resmî istemci üretir)",
-        "open": "Varsayılan tarayıcıda aç",
-        "openFailed": "Yetkilendirme adresi açılamadı: {{error}}",
-        "hint": "Adres resmî istemciden gelir ve yalnızca bu bilgisayardaki bir tarayıcıda açılır. Oturum açma bitene kadar resmî pencereyi kapatmayın.",
-        "unavailable": "Cockpit bu kez yetkilendirme adresini yakalayamadı. Resmî istemci tarayıcıyı her zamanki gibi açacak; oradan giriş yapabilirsiniz."
-      },
       "phase": {
         "prepare": "Geçici profili hazırla",
         "launch": "Resmî istemciyi aç",

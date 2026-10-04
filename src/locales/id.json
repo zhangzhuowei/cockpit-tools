@@ -3010,27 +3010,19 @@
       "import": "Dapatkan Akun Lokal"
     },
     "tempLogin": {
+      "recovery": "Data login disimpan di {{path}}. Ulangi impor, atau masuk kembali jika kredensial belum lengkap.",
+      "closedWithoutLogin": "Klien resmi ditutup sebelum kredensial lengkap terdeteksi.",
+      "retryImport": "Ulangi impor",
       "tab": "Login resmi",
-      "desc": "Proses masuk sepenuhnya terjadi di klien desktop resmi: URL otorisasi dibuat oleh klien resmi, dan callback otorisasi serta penukaran token juga ditangani klien resmi. Cockpit tidak ikut serta dalam callback otorisasi; Cockpit hanya membaca dan mengimpor kredensial setelah klien resmi menyimpannya ke disk.",
-      "note": "Profil sementara adalah folder kosong di direktori data aplikasi. Setelah akun dibaca, profil dihapus bersama direktori runtime klien dan entri keychain; instans bawaan dan instans ganda tidak terpengaruh.",
+      "desc": "Klien resmi membuka browser untuk login dan menangani respons otorisasi. Cockpit membaca dan mengimpor kredensial akhir setelah klien sementara ditutup.",
+      "note": "Setelah impor berhasil, konfigurasi sementara, data aplikasi, dan entri autentikasi terkait dihapus. Jika impor akhir gagal, kredensial disimpan agar dapat dicoba lagi. Instans lain tidak terpengaruh.",
       "start": "Buka klien resmi dan masuk",
       "cancel": "Batalkan login",
       "cancelling": "Membatalkan login resmi…",
-      "waitingHint": "Selesaikan login di klien resmi. Klien ditutup otomatis setelah kredensial terdeteksi (maksimal 10 menit).",
+      "waitingHint": "Masuk melalui browser yang dibuka klien resmi. Setelah kredensial lengkap terdeteksi, klien sementara ditutup dan akun diimpor (hingga 10 menit).",
       "cancelled": "Login resmi dibatalkan dan profil sementara dihapus.",
       "failed": "Login resmi gagal: {{error}}",
       "success": "Akun diperoleh: {{email}}",
-      "intercept": {
-        "toggle": "Cegat pembukaan browser dan tampilkan URL otorisasi di sini",
-        "hint": "Saat aktif, mengeklik “Lanjutkan” di aplikasi resmi tidak lagi membuka browser, melainkan hanya menampilkan URL otorisasi yang dibuat aplikasi resmi di sini untuk disalin. Setelah masuk dari browser mana pun, callback otorisasi dan penukaran token tetap ditangani aplikasi desktop resmi; Cockpit tidak ikut serta dalam otorisasi. Saat nonaktif, alur resmi berjalan tanpa perubahan."
-      },
-      "authUrl": {
-        "label": "URL otorisasi (dibuat klien resmi)",
-        "open": "Buka di browser default",
-        "openFailed": "Gagal membuka URL otorisasi: {{error}}",
-        "hint": "URL berasal dari klien resmi dan hanya bisa dibuka di browser pada komputer ini. Biarkan jendela resmi tetap terbuka sampai proses masuk selesai.",
-        "unavailable": "Kali ini Cockpit tidak dapat menangkap URL otorisasi. Klien resmi akan membuka browser seperti biasa; Anda bisa masuk di sana."
-      },
       "phase": {
         "prepare": "Siapkan profil sementara",
         "launch": "Buka klien resmi",

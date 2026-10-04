@@ -413,10 +413,10 @@ body.floating-card-overlay-root,
 }
 
 .floating-card-plan.codex-pro-max {
-  border-color: rgba(255, 184, 76, 0.34);
-  background: linear-gradient(135deg, rgba(255, 247, 204, 0.95) 0%, rgba(246, 211, 101, 0.94) 42%, rgba(217, 155, 22, 0.94) 100%);
+  border-color: rgba(217, 171, 78, 0.3);
+  background: linear-gradient(135deg, rgba(255, 244, 212, 0.95) 0%, rgba(239, 211, 148, 0.94) 42%, rgba(212, 170, 84, 0.94) 100%);
   color: #5a3700;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 1px 4px rgba(217, 155, 22, 0.24);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.38), 0 1px 4px rgba(217, 155, 22, 0.16);
 }
 
 .floating-card-plan--enterprise,
