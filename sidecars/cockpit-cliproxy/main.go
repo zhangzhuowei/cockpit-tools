@@ -164,6 +164,7 @@ func main() {
 		tracker:      usageTracker,
 		tokenLimiter: tokenLimiter,
 	}
+	defer policy.stopRequestDiagnostics()
 	hook := &authHook{manifest: m, emitter: emitter}
 	priorityState := newAPIKeyPriorityStateStore(*manifestPath)
 	selector := &cockpitSelector{

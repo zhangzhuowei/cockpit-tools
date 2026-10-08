@@ -1,7 +1,8 @@
 import { createPortal } from "react-dom";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { RefreshCw, Download, X, Globe, KeyRound, Database, Copy, Check, RotateCw, CircleAlert, Info, Star, Eye, EyeOff, FileUp, FileText, ExternalLink, FolderPlus, Monitor, Terminal, ShieldCheck } from "lucide-react";
 import { ModalErrorMessage } from "../components/ModalErrorMessage";
+import { scrollElementIntoView } from "../utils/reducedMotion";
 import { MfaQuickCodeSelect } from "../components/MfaQuickCodeSelect";
 import { SingleSelectDropdown } from "../components/SingleSelectDropdown";
 import { useEscCloseTopmost } from "../hooks/useEscClose";
@@ -136,6 +137,14 @@ export function CodexAddAccountDialog(props: CodexAccountsViewProps) {
     tokenImportProgress,
     tokenInput,
   } = props;
+  const addStatusRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!showAddModal || addStatus !== "error" || !addMessage) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (addStatusRef.current) scrollElementIntoView(addStatusRef.current, { block: "end" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [showAddModal, addStatus, addMessage]);
   useEffect(() => {
     if (oauthProxyFieldError) {
       document.getElementById("codex-oauth-proxy-url")?.focus();
@@ -1483,7 +1492,7 @@ export function CodexAddAccountDialog(props: CodexAccountsViewProps) {
                       </div>
                     )}
                     {addStatus !== "idle" && (
-                      <div className={`add-status ${addStatus}`}>
+                      <div ref={addStatusRef} role={addStatus === "error" ? "alert" : "status"} className={`add-status ${addStatus}`}>
                         {addStatus === "success" ? (
                           <Check size={16} />
                         ) : addStatus === "loading" ? (

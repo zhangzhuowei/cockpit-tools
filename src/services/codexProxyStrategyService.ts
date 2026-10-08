@@ -181,7 +181,7 @@ export function strategyNameTaken(name: string, memberNames: string[]): boolean 
   return !!trimmed && memberNames.includes(trimmed);
 }
 
-export interface ProxyStrategyCandidate { sourceId: string; sourceName: string; itemId: string; name: string; protocol: string; server?: string | null; port?: number | null }
+export interface ProxyStrategyCandidate { sourceId: string; sourceName: string; itemId: string; name: string; protocol: string; supported: boolean; error: string | null; server?: string | null; port?: number | null }
 
 /** Source selection is independent: a source name must never make all its nodes match. */
 export function filterStrategyCandidates(candidates: ProxyStrategyCandidate[], query: string, sourceId: string) {
@@ -197,11 +197,12 @@ export function isPossibleProxyNotice(name: string): boolean {
   return /^(剩余流量|距离下次重置|套餐到期|到期时间|官网地址|.*官网地址\s*[:：]|remaining traffic|traffic remaining|expires?\s*[:：])/i.test(name.trim());
 }
 
-/** Selectable members: supported nodes of every non-strategy source, in catalog order. */
-export function strategyCandidates(sources: ProxyCatalogSource[]): ProxyStrategyCandidate[] {
+/** Editors may show unavailable nodes for inspection/explicit permission. Saved-member
+ * matching still uses only supported nodes; displaying a node never grants permission. */
+export function strategyCandidates(sources: ProxyCatalogSource[], includeUnavailable = false): ProxyStrategyCandidate[] {
   return sources.flatMap((source) => source.kind === 'strategy' ? [] : source.nodes
-    .filter((node) => node.supported)
-    .map((node) => ({ sourceId: source.id, sourceName: source.name, itemId: node.id, name: node.name, protocol: node.protocol, server: node.server, port: node.port })));
+    .filter((node) => includeUnavailable || node.supported)
+    .map((node) => ({ sourceId: source.id, sourceName: source.name, itemId: node.id, name: node.name, protocol: node.protocol, supported: node.supported, error: node.error, server: node.server, port: node.port })));
 }
 
 function strategyGroup(source: ProxyCatalogSource) {

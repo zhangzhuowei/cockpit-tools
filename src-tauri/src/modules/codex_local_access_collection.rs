@@ -89,9 +89,38 @@ fn load_collection_from_disk() -> Result<Option<CodexLocalAccessCollection>, Str
 
 fn save_collection_to_disk(collection: &CodexLocalAccessCollection) -> Result<(), String> {
     let path = local_access_file_path()?;
-    let content = serde_json::to_string_pretty(collection)
-        .map_err(|e| format!("序列化本地接入配置失败: {}", e))?;
-    write_string_atomic(&path, &content)
+    save_collection_to_path(&path, collection)
+}
+
+fn save_collection_to_path(path: &Path, collection: &CodexLocalAccessCollection) -> Result<(), String> {
+    update_string_atomic(path, |current| {
+        let mut next = collection.clone();
+        if let Some(current) = current {
+            // Background statistics and unrelated settings may hold an older snapshot.
+            // Explicit body-recording choices must survive every full collection write.
+            match serde_json::from_str::<Value>(current) {
+                Ok(current) => {
+                    next.request_payload_logging = current.get("requestPayloadLogging")
+                        .and_then(Value::as_bool)
+                        .unwrap_or_else(|| REQUEST_PAYLOAD_LOGGING_ENABLED.load(Ordering::SeqCst));
+                    if let Some(updated_at) = current.get("updatedAt").and_then(Value::as_i64) {
+                        next.updated_at = next.updated_at.max(updated_at);
+                    }
+                }
+                Err(error) => {
+                    // Keep the existing recovery path for damaged files. With no readable
+                    // choice, use the last published setting (off before initial loading).
+                    next.request_payload_logging = REQUEST_PAYLOAD_LOGGING_ENABLED.load(Ordering::SeqCst);
+                    logger::log_codex_api_warn(&format!(
+                        "本地接入配置损坏，保存可用配置并保留运行态正文记录设置: line={}, column={}",
+                        error.line(), error.column()
+                    ));
+                }
+            }
+        }
+        serde_json::to_string_pretty(&next)
+            .map_err(|error| format!("序列化本地接入配置失败: {error}"))
+    })
 }
 
 fn normalize_stats_metadata(stats: &mut CodexLocalAccessStats) {
@@ -1484,6 +1513,11 @@ fn sanitize_collection_structure(
         collection.image_generation_mode = CodexLocalAccessImageGenerationMode::Enabled;
         changed = true;
     }
+    let normalized_main_model = normalize_image_generation_main_model(collection.image_generation_main_model.clone()).unwrap_or(None);
+    if normalized_main_model != collection.image_generation_main_model {
+        collection.image_generation_main_model = normalized_main_model;
+        changed = true;
+    }
     let normalized_image_generation_model = collection.image_generation_model.trim().to_string();
     if normalized_image_generation_model.is_empty()
         || normalized_image_generation_model.chars().count() > 200
@@ -1717,6 +1751,9 @@ fn sanitize_collection_with_accounts(
         changed = true;
     }
 
+    // A missing/unreadable account is not an explicit deletion. Keep its declared
+    // key scope; routing still checks actual credentials and explicit removals clean references.
+    let known_account_ids: HashSet<&str> = accounts.iter().map(|account| account.id.as_str()).collect();
     for api_key in &mut collection.api_keys {
         let before = api_key.account_ids.clone();
         let valid_scope_account_ids = if api_key.provider_gateway.is_some() {
@@ -1724,9 +1761,10 @@ fn sanitize_collection_with_accounts(
         } else {
             &valid_account_ids
         };
-        api_key
-            .account_ids
-            .retain(|account_id| valid_scope_account_ids.contains(account_id));
+        api_key.account_ids.retain(|account_id| {
+            !known_account_ids.contains(account_id.as_str())
+                || valid_scope_account_ids.contains(account_id)
+        });
         if api_key.account_ids != before {
             changed = true;
         }
@@ -1801,6 +1839,7 @@ async fn ensure_runtime_loaded_without_start_with_profile_restore(
                 client_base_url_host: CodexLocalAccessClientBaseUrlHost::default(),
                 image_generation_mode: CodexLocalAccessImageGenerationMode::default(),
                 image_generation_model: DEFAULT_CODEX_IMAGE_GENERATION_MODEL.to_string(),
+                image_generation_main_model: None,
                 image_generation_account_policies: HashMap::new(),
                 image_generation_account_ids: Vec::new(),
                 gateway_mode: CodexLocalAccessGatewayMode::default(),
@@ -1825,6 +1864,7 @@ async fn ensure_runtime_loaded_without_start_with_profile_restore(
                 disable_cooling: false,
                 restrict_free_accounts: true,
                 debug_logs: true,
+        request_payload_logging: false,
                 immediate_sse_response: false,
                 max_concurrent_image_requests: 1,
                 max_account_concurrency: 0,
@@ -1978,7 +2018,8 @@ async fn ensure_runtime_loaded_for_app_startup() -> Result<(), String> {
             runtime.collection.clone()
         };
         if let Some(collection) = collection.as_ref() {
-            if local_access_profile_takeovers_need_sync(collection) {
+            if crate::modules::config::get_user_config().codex_auto_restore_takeover_on_launch
+                && local_access_profile_takeovers_need_sync(collection) {
                 ensure_local_access_profile_takeovers_from_runtime().await?;
             }
         }

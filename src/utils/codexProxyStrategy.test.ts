@@ -84,6 +84,23 @@ test('subscription notices are advisory only and remain selectable', () => {
   assert.equal(filterStrategyCandidates(candidates, '', '').length, 1);
 });
 
+test('member browsing retains blocked subscription nodes without making them executable', () => {
+  const blocked = Array.from({ length: 50 }, (_, index) => ({
+    ...node(`blocked-${index}`, `Region ${index}`, false),
+    protocol: index < 27 ? 'anytls' : 'hysteria2', insecure: true, error: 'PROXY_TLS_INSECURE',
+  }));
+  const subscription = source('sub', 'Subscription', 'subscription', [...blocked, node('notice', 'Website')]);
+  const sources = [subscription, source('saved', 'Saved strategy', 'strategy', [node('copy', 'Copy')])];
+  assert.equal(strategyCandidates(sources).length, 1);
+  const visible = strategyCandidates(sources, true);
+  assert.equal(visible.length, 51);
+  assert.equal(visible.filter((entry) => !entry.supported && entry.error === 'PROXY_TLS_INSECURE').length, 50);
+  assert.equal(filterStrategyCandidates(visible, 'Region 49', 'sub')[0].itemId, 'blocked-49');
+  const approved = { ...subscription, nodes: subscription.nodes.map((entry) => entry.id === 'blocked-49' ? { ...entry, supported: true, error: null } : entry) };
+  assert.deepEqual(strategyCandidates([approved]).map((entry) => entry.itemId), ['blocked-49', 'notice']);
+  assert.equal(subscription.nodes[49].supported, false, 'browsing must not mutate permission');
+});
+
 /** One saved strategy source as `codex_proxy_catalog_list` delivers it. The view is free-form JSON,
  * so a numeric field may still arrive as text even though the type declares a number. */
 const savedSource = (strategyOptions: Record<string, unknown> | null | undefined): ProxyCatalogSource =>

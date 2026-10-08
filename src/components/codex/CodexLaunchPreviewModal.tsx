@@ -1072,23 +1072,26 @@ export function CodexLaunchPreviewModal({
       label: string,
       token: string | undefined,
       refreshLeadSeconds: number,
+      affectsAuthorization = true,
     ): CodexLaunchPreviewFact => {
       const expiresAt = getCodexJwtExpiration(token?.trim() || "");
       return {
         label,
         value: formatExpiry(expiresAt),
         tone:
-          expiresAt !== null && expiresAt <= nowSeconds
-            ? "danger"
-            : expiresAt !== null && expiresAt <= nowSeconds + refreshLeadSeconds
-              ? "warning"
-              : undefined,
+          !affectsAuthorization
+            ? undefined
+            : expiresAt !== null && expiresAt <= nowSeconds
+              ? "danger"
+              : expiresAt !== null && expiresAt <= nowSeconds + refreshLeadSeconds
+                ? "warning"
+                : undefined,
       };
     };
 
     return [
       buildFact("access_token", tokenAccount.tokens?.access_token, 5 * 60),
-      buildFact("id_token", tokenAccount.tokens?.id_token, 10 * 60),
+      buildFact("id_token", tokenAccount.tokens?.id_token, 10 * 60, false),
     ];
   }, [account, i18n.language, i18n.resolvedLanguage, manualRefreshedAccount, t]);
   const displayFacts = [
@@ -1646,6 +1649,12 @@ export function CodexLaunchPreviewModal({
                     </div>
                   ))}
                 </div>
+              )}
+
+              {tokenExpiryFacts.length > 0 && (
+                <p className="codex-launch-preview-token-note">
+                  {t("codex.launchPreview.tokenExpiryDescription")}
+                </p>
               )}
 
               {summary?.usage &&
@@ -2522,6 +2531,7 @@ export function CodexLaunchPreviewModal({
                 scrollKey={errorScrollKey}
               />
               <CodexExperimentalModelEditor
+                instanceId={instanceId}
                 models={models}
                 defaultModelId={defaultModelId}
                 resetModels={loadedConfig?.experimental_model_catalog_reset_models}

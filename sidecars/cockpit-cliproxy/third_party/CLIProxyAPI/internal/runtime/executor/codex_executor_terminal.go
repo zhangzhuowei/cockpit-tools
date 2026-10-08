@@ -505,3 +505,35 @@ func isCodexOverloadBootstrapFailure(body []byte) bool {
 		return false
 	}
 }
+
+// Account-scoped quota and disabled-account errors can rotate before output,
+// while retaining the shared unbuffered error mapping and Retry-After parsing.
+func isCodexRetryableBootstrapFailure(body []byte) bool {
+	if helps.CodexBootstrapInputError(body) {
+		return false
+	}
+	if _, ok := helps.CodexBootstrapAccountFailureStatus(body); ok {
+		return true
+	}
+	if codexTerminalErrorIsContextLength(body) {
+		return false
+	}
+	return isCodexOverloadBootstrapFailure(body)
+}
+
+func newCodexBootstrapFailureErr(body []byte, modelLevelCooling bool) statusErr {
+	if status, ok := helps.CodexBootstrapAccountFailureStatus(body); ok {
+		if status == http.StatusForbidden {
+			// Some upstreams pair disabled-account codes with invalid_request_error.
+			// Normalize that contradictory type only on the pre-output path, keeping
+			// the original structured code and message for credential diagnostics.
+			body, _ = sjson.SetBytes(body, "error.type", "permission_error")
+		}
+		err := newCodexStatusErrWithCooling(status, body, modelLevelCooling)
+		err.credentialScoped = true
+		return err
+	}
+	return newCodexBootstrapOverloadErr(body)
+}
+
+const codexBootstrapMaxBufferedBytes = 64 << 10

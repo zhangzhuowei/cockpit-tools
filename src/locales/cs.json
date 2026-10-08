@@ -96,6 +96,10 @@
     "providerClear": "Zrušit výběr"
   },
   "common": {
+    "requestId": "ID požadavku",
+    "failureTime": "Čas selhání",
+    "clearRecord": "Smazat záznam",
+    "clearingRecord": "Mazání…",
     "dragSortHint": "Přetažením úchytu vlevo změňte pořadí. Po uvolnění se automaticky uloží.",
     "dragSortFilteredHint": "Pro změnu pořadí vymažte vyhledávání.",
     "recycleBin": {
@@ -309,6 +313,8 @@
         "manualCallbackPlaceholder": "Vložte celý callback URL, např.: http://localhost:1455/auth/callback?code=...&state=..."
       },
       "refreshAll": "Obnovit vše",
+      "refreshSuccess": "Obnoveno",
+      "refreshFailed": "Obnovení selhalo: {{error}}",
       "refreshQuota": "Obnovit kvótu",
       "search": "Hledat účty...",
       "sort": {
@@ -417,7 +423,10 @@
     },
     "optional": " (volitelné)",
     "hide": "Skrýt",
-    "show": "Zobrazit"
+    "show": "Zobrazit",
+    "configSaveTimeout": "Vypršel časový limit. Před opakováním obnovte a ověřte výsledek.",
+    "clearAll": "Zrušit výběr",
+    "clear": "Vymazat"
   },
   "nav": {
     "overview": "Antigravity IDE​",
@@ -1139,7 +1148,19 @@
       "menuBarAccountPrefixDesc": "Jen běžné účty: vypnuto skryje prefix e-mailu. Codex API služba / API Key stále ukazují API",
       "menuBarQuotaConfirmEnable": "Zapnout",
       "codexHideRelayQuota": "Skrýt kvótu relay",
-      "codexHideRelayQuotaDesc": "Skryje panely kvóty relay / New API v přehledu účtů Codex."
+      "codexHideRelayQuotaDesc": "Skryje panely kvóty relay / New API v přehledu účtů Codex.",
+      "floatingCardStyle": "Plovoucí vzhled",
+      "floatingCardStyleDesc": "Platí pro všechna plovoucí okna. Lze změnit i přímo v okně.",
+      "floatingCardFull": "Celá karta",
+      "floatingCardMinimal": "Jen kvóty",
+      "floatingCardOpacity": "Síla pozadí",
+      "floatingCardOpacityDesc": "100% zachová současné pozadí, 0% ho skryje. Text kvót zůstane čitelný.",
+      "floatingCardOpacityValue": "Pozadí: {{value}}%",
+      "themeColorOled": "OLED černobílé",
+      "codexAutoRestoreTakeoverOnLaunch": "Obnovit Codex při spuštění",
+      "codexAutoRestoreTakeoverOnLaunchDesc": "Při spuštění obnoví aktivní nastavení modelů a spravovaná připojení API. Ručně změněná připojení zachová.",
+      "codexPreserveExternalBridge": "Zachovat externí most",
+      "codexPreserveExternalBridgeDesc": "Při změně účtu OAuth zachová most Codex Web GPT ověřený místními záznamy integrace. Ve výchozím stavu vypnuto."
     },
     "network": {
       "apiTitle": "Antigravity Cockpit API​",
@@ -1522,6 +1543,9 @@
       "all": "Vše ({{count}})",
       "pro": "PRO ({{count}})​",
       "ultra": "ULTRA ({{count}})​"
+    },
+    "filters": {
+      "all": "Vše"
     },
     "sortLabel": "Seřadit",
     "sort": {
@@ -2137,6 +2161,12 @@
     "other_group": "Ostatní modely"
   },
   "codex": {
+    "thresholds": {
+      "shortCycle": "Krátkodobá kvóta",
+      "weekly": "Týdenní kvóta",
+      "windowHint": "Prahy odpovídají skutečné délce: týden a více používá týdenní práh. Účty pouze s týdenní kvótou kontrolují jen ji. Bez délky se zachová mapování hlavního a vedlejšího okna.",
+      "rule": "Krátkodobý zůstatek <= {{shortCycle}}% nebo týdenní zůstatek <= {{weekly}}%"
+    },
     "launchErrors": {
       "bindingFailed": "Nelze potvrdit přiřazení účtu. Spuštění zastaveno. Zkuste účet přepnout znovu.",
       "processScanFailed": "Nelze zkontrolovat předchozí procesy na pozadí. Spuštění zastaveno. Zkuste to znovu.",
@@ -2339,7 +2369,8 @@
       "repairCompleted": "Viditelnost relací byla opravena",
       "forceRefreshTitle": "Vynutit obnovení Token",
       "forceRefreshReady": "OAuth Token lze obnovit ručně",
-      "forceRefreshDescription": "Použije refresh_token k získání nových access_token a id_token. Aktuální refresh token se může otočit.",
+      "forceRefreshDescription": "Obnovit access_token pomocí refresh_token. id_token se aktualizuje pouze při vrácení v odpovědi; refresh_token se může změnit.",
+      "tokenExpiryDescription": "access_token autorizuje požadavky; id_token obsahuje údaje o identitě. Samotné vypršení id_token neznamená ztrátu přístupu k API. Dostupnost ověřuje kontrola při spuštění a odpověď služby.",
       "forceRefreshUnavailable": "Pro tento typ účtu není k dispozici",
       "forceRefreshAction": "Obnovit nyní",
       "forceRefreshRunning": "Obnovování Token…",
@@ -2528,7 +2559,14 @@
       "testServiceUnavailable": "Služba je dosažitelná, ale momentálně není dostupná: {{detail}}. Zkontrolujte, zda je služba zapnutá, kolekce účtů není prázdná a účty jsou použitelné.",
       "gatewayErrors": {
         "authUnavailable": "Momentálně není k dispozici žádný účet pro směrování. Účet může být v čekací lhůtě, bez ověření nebo omezený kvótou. Zkontrolujte jeho stav v API službě Cockpit Tools.",
-        "authNotFound": "V kolekci účtů není nastaven žádný použitelný účet. Přidejte nebo aktivujte účet v API službě Cockpit Tools."
+        "authNotFound": "V kolekci účtů není nastaven žádný použitelný účet. Přidejte nebo aktivujte účet v API službě Cockpit Tools.",
+        "accountConcurrencyExceeded": "Byl dosažen limit souběžných požadavků účtu. Zkuste to později.",
+        "providerRetryAfter": "Poskytovatel požaduje přestávku. Zkuste to znovu za {{seconds}} sekund.",
+        "audioInvalidRequest": "Neplatný zvukový požadavek: {{detail}}",
+        "audioTooLarge": "Zvukové požadavky nesmí překročit 26 MiB.",
+        "audioNotSupported": "Tento účet OAuth podporuje pouze přepis. Pro jiné zvukové operace použijte poskytovatele s API Key.",
+        "audioUnavailable": "Předávání zvuku není dostupné.",
+        "audioUpstreamFailed": "Zvukový požadavek poskytovateli selhal."
       },
       "testRateLimited": "Služba je dosažitelná, ale upstream je omezen nebo kvóta vyčerpána: {{detail}}.",
       "testHttpFailed": "Služba je dosažitelná, ale požadavek vrátil HTTP {{status}}: {{detail}}.",
@@ -2786,12 +2824,29 @@
         "dialog": {
           "title": "Problémy účtů",
           "description": "Zobrazují se problémy fondu i jednotlivých účtů. Akce účtu jsou dostupné pouze u chyb přiřazených danému účtu.",
-          "noIssues": "Účty jsou bez problémů",
+          "noIssues": "Žádné problémy k zobrazení",
           "unscopedApiKey": "Aktuální API Key",
           "poolUnavailable": "Ve fondu není dostupný účet",
           "poolUnavailableDetail": "Pro model {{model}} nebyl vybrán žádný dostupný účet",
           "poolUnattributedDetail": "Diagnostika jednotlivých účtů nebyla přijata, proto nelze chybu přiřadit konkrétnímu účtu. Zkontrolujte rozsah účtů a nastavení modelů tohoto klíče API.",
           "poolDiagnosticDetail": "Model {{model}}: kandidátů {{candidate}}, v rozsahu {{scoped}}, dostupných {{available}}, nedostupných {{unavailable}}, vyloučených modelem {{modelExcluded}}, rezervovaných kvótou {{quotaReserved}}, blokovaných zásadou obrázků {{imageBlocked}}",
+          "poolNoCandidatesDetail": "Pro tento požadavek nejsou žádné kandidátní účty. Zkontrolujte požadovaný model a načítání účtů.",
+          "poolScopeMismatchDetail": "Žádný kandidát neodpovídá rozsahu účtů tohoto klíče API nebo nebylo rozpoznáno přiřazení účtu. Zkontrolujte vybrané účty a konfiguraci modelu.",
+          "inspectBinding": "Prověřit vazbu",
+          "inspectConfig": "Konfigurace",
+          "unmappedAccount": "Nerozpoznaný účet",
+          "accountReference": "Účet {{id}}",
+          "scopeMismatchDetail": "Tento kandidátní účet je mimo rozsah účtů přiřazený k tomuto API Key.",
+          "accountMappingMissingDetail": "Přihlašovací údaje kandidáta nelze přiřadit k účtu. Zkontrolujte načítání účtů a synchronizaci fondu.",
+          "boundAccountNotLoadedDetail": "Tento přiřazený účet není načten v aktuální službě. Zkontrolujte načítání účtů a synchronizaci fondu.",
+          "boundAccountNotCandidateDetail": "Tento přiřazený účet je načten, ale není kandidátem pro tento požadavek. Zkontrolujte model, poskytovatele a typ požadavku.",
+          "scopeUnknownDetail": "Diagnostika rozsahu neurčuje konkrétní příčinu. Zkontrolujte vazby a protokoly služby.",
+          "poolBlockedDetail": "Filtr v rozsahu: {{unavailable}} nedostupných (např. zakázaných, v čekání nebo s chybou ověření), {{modelExcluded}} vyloučených modelem, {{quotaReserved}} blokovaných rezervou kvóty, {{imageBlocked}} blokovaných pravidly obrázků. Zkontrolujte důvody u účtů a nastavení.",
+          "poolUnknownDetail": "Diagnostika neurčuje konkrétní příčinu. Zkontrolujte rozsah klíče API, konfiguraci modelu a protokoly služby.",
+          "clearHint": "Smazání odstraní pouze tento diagnostický záznam. Neopraví nastavení, tokeny ani kvótu; další neúspěšný požadavek může vytvořit nový záznam.",
+          "clearSuccess": "Diagnostický záznam smazán. To neznamená, že je fond účtů opět dostupný.",
+          "clearStale": "Tento záznam nahradilo novější selhání. Zkontrolujte aktuální stav a zkuste to znovu.",
+          "clearFailed": "Záznam nelze smazat: {{error}}",
           "missing": "Účet chybí",
           "cooldown": "Čeká",
           "quota": "Omezená kvóta",
@@ -2822,7 +2877,16 @@
       "testChatInputRequired": "Zadejte testovací zprávu",
       "testChatModelRequired": "Vyberte ID modelu",
       "testChatEmptyResponse": "Prázdná odpověď",
-      "removeAction": "Odebrat z API"
+      "removeAction": "Odebrat z API",
+      "imageGenerationMainModel": {
+        "label": "Hlavní model obrázků",
+        "hint": "Prázdné pole ponechá gpt-5.5. Tento model volá nástroj obrázků; vybrané účty OAuth pro něj musí podporovat image_generation.",
+        "invalid": "Zadejte ID modelu bez mezer, nejvýše 200 znaků."
+      },
+      "requestDetail": {
+        "invalidRequestId": "Neplatné ID požadavku.",
+        "settingsChanged": "Jiná operace změnila nastavení. Zkuste to znovu."
+      }
     },
     "local": {
       "desc": "Importovat aktuální účet z ~/.codex/auth.json",
@@ -3328,6 +3392,11 @@
       "importModal": {
         "title": "Import relací",
         "hint": "Balíček relací importuje jen soubory rollout a položky session_index. Neobsahuje účty, tokeny, API klíče ani nastavení aplikace; relace se stejným ID v cílové instanci se přeskočí.",
+        "cwdPathAbsolute": "Zadejte absolutní cestu na tomto počítači",
+        "cwdPathMissing": "Adresář neexistuje nebo není přístupný",
+        "cwdMappingTitle": "Mapování cest projektů (volitelné)",
+        "cwdMappingHint": "Namapujte zdrojové pracovní složky na cesty projektů již přidaných do Codexu v tomto počítači. Ponechte prázdné pro zachování původní cesty.",
+        "cwdTargetPlaceholder": "Zadejte absolutní cestu k projektu v tomto počítači",
         "noTarget": "Není dostupná žádná instance Codex pro import",
         "noPackage": "Nejprve vyberte balíček relací",
         "pickOne": "Vyberte alespoň jednu importovatelnou relaci",
@@ -3428,7 +3497,8 @@
         "7d": "7 dní",
         "30d": "30 dní",
         "month": "Tento měsíc",
-        "all": "Vše"
+        "all": "Vše",
+        "today": "Dnes"
       },
       "instance": {
         "label": "Prostředí",
@@ -3491,7 +3561,8 @@
         "total": "Celkem",
         "requests": "Pož.",
         "cost": "Cena"
-      }
+      },
+      "costUnavailable": "Některé modely nemají dostupnou cenu, takže nelze odhadnout celkové denní náklady."
     },
     "api": {
       "baseUrl": "Základní URL",
@@ -4158,6 +4229,11 @@
       "saveFailed": "Rychlost se nepodařilo uložit: {{error}}"
     },
     "apiService": {
+      "inspection": {
+        "internalScope": "Jde o požadavek interního klienta. Zkontrolujte fond účtů služby a vazbu instance; neodpovídá veřejnému klientskému klíči.",
+        "keyUnavailable": "Klientský klíč tohoto požadavku chybí nebo byl odstraněn. Zkontrolujte aktuální klíče a fond účtů.",
+        "imageScope": "Obrazové požadavky používají fond obrazových účtů a obrazová pravidla účtů. Zkontrolujte nastavení obrázků."
+      },
       "navTitle": "Služba Codex API",
       "title": "Služba Codex API",
       "openPage": "Otevřít službu API",
@@ -5328,6 +5404,129 @@
       "errors": {
         "bindingChanged": "Vazba účtu se změnila. Aktuální nastavení bylo zachováno."
       }
+    },
+    "autoRefreshScope": {
+      "label": "Obnovované tarify",
+      "description": "Filtr plánovaných obnov kvót platformy a skupin pro standardní účty OAuth. Výchozí výběr zahrnuje všechny tarify. Ruční obnova, obnova aktuálního účtu, udržování tokenů a ostatní typy účtů se nemění.",
+      "plans": {
+        "free": "Zdarma",
+        "go": "Go",
+        "plus": "Plus",
+        "pro": "Pro",
+        "team": "Tým",
+        "business": "Firma",
+        "enterprise": "Podnik",
+        "edu_k12": "Školství",
+        "unknown": "Neznámý"
+      }
+    },
+    "requestDiagnostics": {
+      "recordPayloads": "Záznam těl požadavků",
+      "recordPayloadsHint": "Ve výchozím stavu vypnuto. Omezené kopie klientských a odchozích požadavků se ukládají místně. Vypnutí zastaví nové záznamy; uložená těla lze smazat zvlášť.",
+      "privacyHint": "Ověřovací pole jsou skryta, ale tajné údaje v rozhovoru mohou zůstat. Před kopírováním nebo sdílením je zkontrolujte.",
+      "clearPayloads": "Smazat uložená těla",
+      "clearConfirm": "Smazat pouze těla a zachovat statistiky i pokusy?",
+      "cleared": "Smazáno {{count}} záznamů těl",
+      "title": "Podrobnosti požadavku",
+      "totalLatency": "Celkový čas",
+      "firstResponse": "První odpověď",
+      "firstResponseHint": "Čas od začátku požadavku do prvního úseku odpovědi serveru, ne nutně do prvního vytvořeného tokenu.",
+      "unavailable": "Diagnostika zatím není k dispozici. Obnovte později. Starší požadavky se nedoplňují.",
+      "attempts": "Pokusy",
+      "noAttempts": "Historie pokusů nebyla zaznamenána.",
+      "detailTruncated": "Část diagnostiky byla vynechána kvůli limitu velikosti.",
+      "payloads": "Kopie požadavků",
+      "noPayloads": "Tělo nebylo zaznamenáno. Zapnutí platí pouze pro nové požadavky.",
+      "clientPayload": "Požadavek klienta",
+      "upstreamPayload": "Odchozí požadavek #{{sequence}}",
+      "headers": "Hlavičky",
+      "payloadTruncated": "Kopie je zkrácená. Zobrazuje se pouze uložená část.",
+      "details": "Podrobnosti",
+      "latencyPair": "Celkem {{total}} · První {{first}}",
+      "phases": {
+        "selection": "Výběr účtu",
+        "upstream_connect": "Připojení k serveru",
+        "upstream_response": "Odpověď serveru",
+        "stream_read": "Čtení proudu",
+        "downstream_delivery": "Doručení klientovi",
+        "client_canceled": "Zrušeno klientem",
+        "stream_incomplete": "Nedokončený proud",
+        "completed": "Dokončeno",
+        "unknown": "Nezaznamenáno"
+      },
+      "failurePhase": "Fáze chyby",
+      "applying": "Používání na aktivních branách…",
+      "applyFailed": "Nastavení bylo uloženo, ale aktivní brány je nepoužily. Zkuste to znovu. Důvod: {{error}}"
+    },
+    "experimentalModels": {
+      "defaultReasoning": "Výchozí úroveň",
+      "defaultReasoningFollow": "Převzít výchozí",
+      "defaultReasoningHint": "Ponechte prázdné pro převzetí výchozí úrovně modelu. Vybraná úroveň musí být podporovaná.",
+      "defaultReasoningInvalid": "Výchozí úroveň uvažování musí být podporována tímto modelem."
+    },
+    "modelConfig": {
+      "transfer": "Importovat / Exportovat",
+      "title": "Konfigurace modelů",
+      "description": "Exportuje uložené modely, výchozí model a ceny, aliasy a odkazy na směrování služby API. Soubor neobsahuje API Key, přihlašovací údaje účtů ani nastavení spouštění a zastavování služby.",
+      "importHint": "Import okamžitě uloží nastavení do aktuální instance a aktualizuje katalog modelů, pokud je zapnutý. Nastavení služby API je sdílené globálně. Nezapne správu modelů, nespustí bránu ani nepřevezme klienta. Výsledek importu nahradí neuložené úpravy modelů.",
+      "import": "Importovat",
+      "export": "Exportovat",
+      "file": "Vybrat JSON",
+      "jsonLabel": "Konfigurace JSON",
+      "strategy": "Konflikty",
+      "keepExisting": "Ponechat stávající",
+      "replace": "Nahradit shodné",
+      "strategyHint": "Ve výchozím stavu se stávající nastavení ponechá. Nahrazení aktualizuje pouze stejnojmenné položky uvedené v souboru a ostatní nesmaže.",
+      "preview": "Náhled",
+      "previewFirst": "Nejprve zkontrolujte náhled a opravte všechny chyby, pak potvrďte import.",
+      "previewLoading": "Vytváření náhledu…",
+      "importLoading": "Importování…",
+      "exported": "Konfigurace byla exportována.",
+      "imported": "Uloženo {{count}} nastavení.",
+      "section": "Sekce",
+      "item": "Položka",
+      "result": "Výsledek",
+      "actions": {
+        "added": "Přidat",
+        "updated": "Aktualizovat",
+        "conflict": "Konflikt",
+        "skipped": "Přeskočit",
+        "error": "Chyba"
+      },
+      "sections": {
+        "models": "Modely",
+        "defaultModel": "Výchozí model",
+        "prices": "Ceny",
+        "aliases": "Aliasy",
+        "accountRules": "Pravidla účtů",
+        "routing": "Směrování",
+        "exclusions": "Vyloučené modely",
+        "apiService": "Služba API"
+      },
+      "errors": {
+        "invalid": "Formát nebo obsah konfigurace je neplatný.",
+        "json": "JSON nelze zpracovat. Zkontrolujte obsah.",
+        "version": "Tento formát nebo verze konfigurace není podporována.",
+        "fields": "V souboru jsou chybějící, neplatná nebo nepodporovaná pole. Použijte exportovaný soubor konfigurace modelů.",
+        "tooLarge": "Konfigurační soubor překračuje limit 4 MB.",
+        "tooMany": "Příliš mnoho položek. Každá sekce podporuje nejvýše 1000 položek.",
+        "duplicate": "Soubor obsahuje duplicitní položky ve stejné sekci.",
+        "stateChanged": "Místní nastavení se po náhledu změnilo. Vytvořte náhled znovu.",
+        "accountMissing": "Odkazovaný účet neexistuje nebo není v aktuální skupině účtů služby API.",
+        "modelMissing": "Odkazovaný model není v cílové konfiguraci ani v dostupných účtech.",
+        "serviceMissing": "Konfigurace služby API ještě nebyla vytvořena. Její ceny ani trasy nelze importovat.",
+        "price": "Ceny musí být konečná nezáporná čísla a práh dlouhého kontextu musí být větší než 0.",
+        "alias": "Alias je neplatný nebo shodný se zdrojovým modelem.",
+        "rule": "Pravidlo je neplatné. Zkontrolujte rozsah modelů, prioritu a váhu.",
+        "busy": "Probíhá jiná operace s konfigurací modelů. Zkuste to za chvíli znovu.",
+        "instanceMissing": "Cílová instance již neexistuje. Vyberte ji znovu.",
+        "read": "Místní nastavení se nepodařilo načíst. Zkuste to znovu.",
+        "write": "Konfiguraci se nepodařilo uložit. Původní nastavení bylo zachováno. Zkuste to znovu.",
+        "validation": "Konfigurace obsahuje chyby. Vytvořte náhled znovu a opravte je.",
+        "recovery": "Předchozí import nebyl dokončen. Obnovení selhalo kvůli novějšímu nastavení nebo problému se souborem. Záznam obnovy i stávající data byla zachována.",
+        "apply": "Nastavení bylo uloženo, ale běžící bránu se nepodařilo znovu načíst: {{error}}"
+      },
+      "closeHint": "Po potvrzení import pokračuje v ukládání i po zavření dialogu."
     }
   },
   "githubCopilot": {
@@ -6883,6 +7082,15 @@
       "info": "Info",
       "warn": "Varování",
       "error": "Chyba"
+    },
+    "search": {
+      "placeholder": "Hledat v protokolu",
+      "regex": "Regulární výraz",
+      "errors": {
+        "invalidRegex": "Neplatný regulární výraz. Upravte jej.",
+        "timeout": "Časový limit filtru vypršel. Zjednodušte výraz nebo vypněte regulární výrazy.",
+        "unavailable": "Filtr nelze spustit. Zkuste to znovu."
+      }
     }
   },
   "mfaQuick": {
@@ -7417,6 +7625,10 @@
       "labelOverridePlaceholder": "Název v nabídce",
       "supports1mLabel": "Deklarovat 1M",
       "supports1mShort": "1M kontext"
+    },
+    "errors": {
+      "profileMissing": "Složka profilu Claude nebyla nalezena. Otevřete jednou Claude a zkuste to znovu.",
+      "cookieSnapshotTooLarge": "Databáze cookies je příliš velká pro bezpečné čtení."
     }
   },
   "openrouter": {

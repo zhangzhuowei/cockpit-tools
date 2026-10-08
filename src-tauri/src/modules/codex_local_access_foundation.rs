@@ -7,6 +7,7 @@ use crate::models::codex_local_access::{
     CodexInstanceGatewayView, CodexLocalAccessAccountCooldown, CodexLocalAccessAccountHealth,
     CodexLocalAccessAccountModelRule, CodexLocalAccessAccountPoolHealth,
     CodexLocalAccessAccountPoolMemberHealth, CodexLocalAccessAccountStats,
+    CodexLocalAccessAccountPoolScopeDiagnostic,
     CodexLocalAccessAccountWindowQuery, CodexLocalAccessAccountWindowStats, CodexLocalAccessApiKey,
     CodexLocalAccessApiKeyStats, CodexLocalAccessAppendAccountSkipped,
     CodexLocalAccessAppendAccountsResult, CodexLocalAccessChatMessage, CodexLocalAccessChatResult,
@@ -27,7 +28,7 @@ use crate::models::codex_local_access::{
 };
 use crate::models::{CodexInstanceApiRoute, CodexInstanceModelRouting};
 use crate::modules::atomic_write::{
-    write_secret_string_atomic, write_secret_string_atomic_if_changed, write_string_atomic,
+    update_string_atomic, write_secret_string_atomic, write_secret_string_atomic_if_changed, write_string_atomic,
     write_string_atomic_if_hash_matches,
 };
 use crate::modules::{
@@ -642,6 +643,10 @@ struct GatewayRuntime {
     account_health: HashMap<String, RuntimeAccountHealth>,
     account_quota_cooldowns: HashMap<String, AccountQuotaCooldown>,
     account_pool_health: HashMap<String, RuntimeAccountPoolHealth>,
+    // Bounded per-route start watermark prevents late results from restoring old failures.
+    account_pool_request_watermarks: HashMap<String, (i64, String)>,
+    /// Monotonic diagnostic timestamp, retained across individual dismissals.
+    account_pool_failure_clock: i64,
     /// 手动恢复的“先清显示、后干活”抑制窗口：account_id -> 抑制截止时间（毫秒）。
     recovery_suppressed_accounts: HashMap<String, i64>,
     prepared_accounts: HashMap<String, CachedPreparedAccount>,
@@ -849,6 +854,8 @@ struct RuntimeAccountHealth {
 
 #[derive(Debug, Clone, Default)]
 struct RuntimeAccountPoolHealth {
+    request_id: String,
+    request_started_at_ms: i64,
     api_key_id: String,
     api_key_label: String,
     provider: String,
@@ -865,6 +872,7 @@ struct RuntimeAccountPoolHealth {
     quota_reserved_auths: usize,
     image_policy_blocked_auths: usize,
     account_statuses: Vec<RuntimeAccountPoolMemberHealth>,
+    scope_diagnostics: Vec<CodexLocalAccessAccountPoolScopeDiagnostic>,
     last_failure_at: i64,
 }
 
@@ -1678,6 +1686,7 @@ fn prune_runtime_account_state(runtime: &mut GatewayRuntime) {
         runtime.account_health.clear();
         runtime.account_quota_cooldowns.clear();
         runtime.account_pool_health.clear();
+        runtime.account_pool_request_watermarks.clear();
         runtime.model_cooldowns.clear();
         runtime.response_affinity.clear();
         return;
@@ -1709,8 +1718,12 @@ fn prune_runtime_account_state(runtime: &mut GatewayRuntime) {
         .iter()
         .map(|api_key| api_key.id.as_str())
         .collect::<HashSet<_>>();
-    runtime.account_pool_health.retain(|key, _| {
-        key == UNSCOPED_ACCOUNT_POOL_HEALTH_KEY || allowed_api_key_ids.contains(key.as_str())
+    runtime.account_pool_health.retain(|_, health| {
+        health.api_key_id.is_empty() || allowed_api_key_ids.contains(health.api_key_id.as_str())
+    });
+    runtime.account_pool_request_watermarks.retain(|key, _| {
+        account_pool_route_api_key(key)
+            .is_some_and(|id| id.is_empty() || allowed_api_key_ids.contains(id.as_str()))
     });
     runtime
         .response_affinity
@@ -1722,19 +1735,30 @@ fn prune_runtime_account_state(runtime: &mut GatewayRuntime) {
     });
 }
 
+fn preserve_runtime_collection_fields(
+    collection: &mut CodexLocalAccessCollection,
+    current: &CodexLocalAccessCollection,
+) {
+    // Only the dedicated settings command changes this field after initial load.
+    collection.request_payload_logging = current.request_payload_logging;
+    for api_key in &mut collection.api_keys {
+        if let Some(current_api_key) = current.api_keys.iter().find(|item| item.id == api_key.id) {
+            api_key.token_used = api_key.token_used.max(current_api_key.token_used);
+        }
+    }
+}
+
 fn sync_runtime_collection(
     runtime: &mut GatewayRuntime,
     mut collection: CodexLocalAccessCollection,
 ) {
     if let Some(current) = runtime.collection.as_ref() {
-        for api_key in &mut collection.api_keys {
-            if let Some(current_api_key) =
-                current.api_keys.iter().find(|item| item.id == api_key.id)
-            {
-                api_key.token_used = api_key.token_used.max(current_api_key.token_used);
-            }
-        }
+        preserve_runtime_collection_fields(&mut collection, current);
     }
+    REQUEST_PAYLOAD_LOGGING_ENABLED.store(collection.request_payload_logging, Ordering::SeqCst);
+    // Start the maintenance thread without waiting for SQLite/schema/body cleanup.
+    let _ = request_diagnostics_writer();
+    ensure_request_diagnostics_poller_started();
     runtime.collection = Some(collection);
     runtime.loaded = true;
     runtime.last_error = None;

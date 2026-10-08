@@ -39,6 +39,25 @@ test("public updater verification and Homebrew run only after publication", () =
   assert.match(homebrew, /needs:[\s\S]*publish-release/);
 });
 
+test("every release upload uses the draft-safe retry helper", () => {
+  assert.doesNotMatch(workflow, /gh release upload/);
+  assert.equal((workflow.match(/node scripts\/release\/upload_release_assets\.cjs /g) || []).length, 11);
+  for (const [job, next] of [
+    ["build-windows", "build-macos-aarch64"],
+    ["build-macos-aarch64", "build-macos-x86_64"],
+    ["build-macos-x86_64", "build-macos-universal"],
+    ["build-macos-universal", "build-linux"],
+    ["build-linux", "finalize-legacy-latest"],
+    ["finalize-legacy-latest", "upload-checksums"],
+    ["upload-checksums", "publish-release"],
+  ]) {
+    const body = jobBody(job, next);
+    assert.match(body, /actions\/checkout@v4/);
+    assert.match(body, /actions\/setup-node@v4/);
+    assert.match(body, /node scripts\/release\/upload_release_assets\.cjs/);
+  }
+});
+
 // Execute the actual workflow shell steps with fake external commands. This
 // catches early exits that textual ordering checks cannot detect.
 function runPublishJob(overrides = {}) {

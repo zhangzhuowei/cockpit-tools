@@ -119,3 +119,55 @@ test('a load failure is surfaced instead of replacing existing providers with em
   h.failRead(null);
   assert.equal((await h.service.listCodexModelProviders())[0].apiKeys.length, 2);
 });
+
+test('same URL keys retain independent catalogs, context and vision settings across reload and key edits', async () => {
+  const h = harness();
+  await h.service.updateCodexModelProvider('provider', {
+    modelCatalog: ['legacy-model'], modelContextWindows: { 'legacy-model': 128000 },
+  });
+  await h.service.upsertCodexModelProviderFromCredential({
+    providerId: 'provider', apiBaseUrl: 'https://relay.example/v1', apiKey: 'sk-first',
+    modelCatalog: ['model-a'], modelContextWindows: { 'model-a': 256000 },
+    supportsVision: true, modelCapabilities: { 'model-a': { supportsVision: true } },
+    visionRoutingModel: 'model-a',
+  });
+  await h.service.upsertCodexModelProviderFromCredential({
+    providerId: 'provider', apiBaseUrl: 'https://relay.example/v1', apiKey: 'sk-second',
+    modelCatalog: ['model-b'], modelContextWindows: {}, supportsVision: false,
+    modelCapabilities: {}, visionRoutingModel: null,
+  });
+  h.service.invalidateCodexModelProviderCache();
+  const saved = (await h.service.listCodexModelProviders())[0];
+  assert.deepEqual(Array.from(saved.modelCatalog!), ['legacy-model']);
+  assert.deepEqual(Array.from(saved.apiKeys[0].modelCatalog!), ['model-a']);
+  assert.equal(saved.apiKeys[0].modelContextWindows?.['model-a'], 256000);
+  assert.equal(saved.apiKeys[0].modelCapabilities?.['model-a'].supportsVision, true);
+  assert.deepEqual(Array.from(saved.apiKeys[1].modelCatalog!), ['model-b']);
+  assert.equal(saved.apiKeys[1].supportsVision, false);
+  assert.equal(saved.apiKeys[1].visionRoutingModel, null);
+  await h.service.updateApiKeyOnCodexModelProvider('provider', 'key-1', 'sk-first-rotated');
+  assert.deepEqual(h.stored()[0].apiKeys[0].modelCatalog, ['model-a']);
+  assert.deepEqual(h.stored()[0].apiKeys[1].modelCatalog, ['model-b']);
+  saved.apiKeys[0].modelCatalog!.push('mutated');
+  saved.apiKeys[0].modelCapabilities!['model-a'].supportsVision = false;
+  const cached = (await h.service.listCodexModelProviders())[0];
+  assert.deepEqual(Array.from(cached.apiKeys[0].modelCatalog!), ['model-a']);
+  assert.equal(cached.apiKeys[0].modelCapabilities!['model-a'].supportsVision, true);
+});
+
+test('legacy keys inherit provider settings without an automatic migration; explicit empty catalog persists', async () => {
+  const h = harness();
+  await h.service.updateCodexModelProvider('provider', { modelCatalog: ['legacy-model'] });
+  h.service.invalidateCodexModelProviderCache();
+  const legacy = (await h.service.listCodexModelProviders())[0];
+  assert.equal(legacy.apiKeys[0].modelCatalog, undefined);
+  assert.equal(legacy.apiKeys[1].modelCatalog, undefined);
+  await h.service.upsertCodexModelProviderFromCredential({
+    providerId: 'provider', apiBaseUrl: 'https://relay.example/v1', apiKey: 'sk-first', modelCatalog: [],
+  });
+  h.service.invalidateCodexModelProviderCache();
+  const saved = (await h.service.listCodexModelProviders())[0];
+  assert.deepEqual(Array.from(saved.apiKeys[0].modelCatalog!), []);
+  assert.equal(saved.apiKeys[1].modelCatalog, undefined);
+  assert.deepEqual(Array.from(saved.modelCatalog!), ['legacy-model']);
+});

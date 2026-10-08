@@ -238,7 +238,7 @@ jobs:
           shopt -s nullglob
           ASSETS=(release-assets/*)
           test "${#ASSETS[@]}" -gt 0
-          gh release upload "${TAG}" "${ASSETS[@]}" --clobber
+          node scripts/release/upload_release_assets.cjs "${TAG}" "${ASSETS[@]}"
           echo "Uploaded ${#ASSETS[@]} Windows assets"
 
       - name: 📤 Build and upload Windows updater manifests
@@ -255,7 +255,7 @@ jobs:
             --published-at "$(cat release-metadata/published-at.txt)" \
             --targets "windows-x86_64-msi,windows-x86_64-nsis" \
             --output-dir "target-manifests"
-          gh release upload "v${VERSION}" target-manifests/*.json --clobber
+          node scripts/release/upload_release_assets.cjs "v${VERSION}" target-manifests/*.json
 
   build-macos-aarch64:
     name: "🏗️ Build: macOS Apple Silicon"
@@ -351,7 +351,7 @@ jobs:
           shopt -s nullglob
           ASSETS=(release-assets/*)
           test "${#ASSETS[@]}" -gt 0
-          gh release upload "${TAG}" "${ASSETS[@]}" --clobber
+          node scripts/release/upload_release_assets.cjs "${TAG}" "${ASSETS[@]}"
           echo "Uploaded ${#ASSETS[@]} macOS Apple Silicon assets"
 
       - name: 📤 Build and upload macOS Apple Silicon updater manifest
@@ -368,7 +368,7 @@ jobs:
             --published-at "$(cat release-metadata/published-at.txt)" \
             --targets "darwin-aarch64-app" \
             --output-dir "target-manifests"
-          gh release upload "v${VERSION}" target-manifests/*.json --clobber
+          node scripts/release/upload_release_assets.cjs "v${VERSION}" target-manifests/*.json
 
   build-macos-x86_64:
     name: "🏗️ Build: macOS Intel"
@@ -464,7 +464,7 @@ jobs:
           shopt -s nullglob
           ASSETS=(release-assets/*)
           test "${#ASSETS[@]}" -gt 0
-          gh release upload "${TAG}" "${ASSETS[@]}" --clobber
+          node scripts/release/upload_release_assets.cjs "${TAG}" "${ASSETS[@]}"
           echo "Uploaded ${#ASSETS[@]} macOS Intel assets"
 
       - name: 📤 Build and upload macOS Intel updater manifest
@@ -481,7 +481,7 @@ jobs:
             --published-at "$(cat release-metadata/published-at.txt)" \
             --targets "darwin-x86_64-app" \
             --output-dir "target-manifests"
-          gh release upload "v${VERSION}" target-manifests/*.json --clobber
+          node scripts/release/upload_release_assets.cjs "v${VERSION}" target-manifests/*.json
 
   build-macos-universal:
     name: "🏗️ Build: macOS Universal"
@@ -572,7 +572,7 @@ jobs:
           shopt -s nullglob
           ASSETS=(release-assets/*)
           test "${#ASSETS[@]}" -gt 0
-          gh release upload "${TAG}" "${ASSETS[@]}" --clobber
+          node scripts/release/upload_release_assets.cjs "${TAG}" "${ASSETS[@]}"
           echo "Uploaded ${#ASSETS[@]} macOS Universal assets"
 
   build-linux:
@@ -675,7 +675,7 @@ jobs:
           shopt -s nullglob
           ASSETS=(release-assets/*)
           test "${#ASSETS[@]}" -gt 0
-          gh release upload "${TAG}" "${ASSETS[@]}" --clobber
+          node scripts/release/upload_release_assets.cjs "${TAG}" "${ASSETS[@]}"
           echo "Uploaded ${#ASSETS[@]} Linux assets"
 
       - name: 📤 Build and upload Linux updater manifests
@@ -692,7 +692,7 @@ jobs:
             --published-at "$(cat release-metadata/published-at.txt)" \
             --targets "${{ matrix.targets }}" \
             --output-dir "target-manifests"
-          gh release upload "v${VERSION}" target-manifests/*.json --clobber
+          node scripts/release/upload_release_assets.cjs "v${VERSION}" target-manifests/*.json
 
   finalize-legacy-latest:
     name: 🏁 Finalize Legacy Updater Manifest
@@ -783,7 +783,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gh release upload "v${VERSION}" latest.json --clobber
+          node scripts/release/upload_release_assets.cjs "v${VERSION}" latest.json
 
   upload-checksums:
     name: 🔗 Publish SHA256SUMS
@@ -797,6 +797,14 @@ jobs:
       GH_REPO: ${{ github.repository }}
       VERSION: ${{ needs.prepare-release.outputs.version }}
     steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Node.js setup
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
       - name: 📥 Download release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -829,7 +837,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gh release upload "v${VERSION}" SHA256SUMS.txt --clobber
+          node scripts/release/upload_release_assets.cjs "v${VERSION}" SHA256SUMS.txt
 
   publish-release:
     name: 🚀 Publish Verified Release

@@ -842,6 +842,69 @@ pub async fn save_codex_model_catalog(
 }
 
 #[tauri::command]
+pub async fn get_codex_model_reasoning_efforts(
+    models: Vec<crate::models::codex::CodexExperimentalModelDefinition>,
+    instance_id: Option<String>,
+) -> Result<HashMap<String, Vec<String>>, String> {
+    if models.len() > 1000 { return Err("MODEL_CONFIG_TOO_MANY_ITEMS".to_string()); }
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = codex_account::model_config_profile_dir(instance_id.as_deref().unwrap_or("__default__"))?;
+        Ok(codex_account::model_reasoning_efforts_for_profile(&dir, &models))
+    }).await.map_err(|_| "MODEL_CONFIG_READ_FAILED".to_string())?
+}
+
+#[tauri::command]
+pub async fn preview_codex_model_config_import(instance_id: String, json_content: String,
+    conflict_strategy: Option<String>) -> Result<crate::models::codex::CodexModelConfigImportPreview, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = codex_account::model_config_profile_dir(&instance_id)?;
+        codex_account::preview_model_config_import(&dir, &json_content,
+            conflict_strategy.as_deref().unwrap_or("keep_existing"))
+    }).await.map_err(|_| "MODEL_CONFIG_READ_FAILED".to_string())?
+}
+
+#[tauri::command]
+pub async fn import_codex_model_config(app: AppHandle, instance_id: String, json_content: String,
+    conflict_strategy: Option<String>, expected_revision: String)
+    -> Result<crate::models::codex::CodexModelConfigImportPreview, String> {
+    let event_instance_id = instance_id.clone();
+    let event_revision = expected_revision.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let dir = codex_account::model_config_profile_dir(&instance_id)?;
+        let result = codex_account::import_model_config(&dir, &json_content,
+            conflict_strategy.as_deref().unwrap_or("keep_existing"), &expected_revision)?;
+        crate::modules::codex_local_access::refresh_api_service_experimental_model_ids();
+        Ok::<_, String>(result)
+    }).await.map_err(|_| "MODEL_CONFIG_WRITE_FAILED".to_string())?;
+    let (preview, before, after) = match result {
+        Ok(value) => value,
+        Err(error) => {
+            let _ = app.emit("codex:model-config-imported", serde_json::json!({
+                "instanceId": event_instance_id, "status": "error", "errorCode": "MODEL_CONFIG_WRITE_FAILED"
+            }));
+            return Err(error);
+        }
+    };
+    crate::modules::codex_local_access::publish_model_config_service_import(&app, before, after).await;
+    if preview.committed > 0 {
+        crate::modules::codex_local_access::reload_active_gateway_after_model_config_import(event_instance_id.clone(), event_revision);
+        let _ = app.emit("codex:model-config-imported", serde_json::json!({
+            "instanceId": event_instance_id, "status": "saved", "committed": preview.committed,
+            "models": preview.models, "defaultModelId": preview.default_model_id,
+        }));
+    }
+    Ok(preview)
+}
+
+#[tauri::command]
+pub async fn export_codex_model_config(instance_id: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = codex_account::model_config_profile_dir(&instance_id)?;
+        codex_account::export_model_config(&dir)
+    }).await.map_err(|_| "MODEL_CONFIG_READ_FAILED".to_string())?
+}
+
+#[tauri::command]
 pub fn get_codex_app_speed_config() -> Result<CodexAppSpeedConfig, String> {
     codex_speed::get_app_speed_config()
 }
@@ -2336,7 +2399,7 @@ pub fn add_codex_account_from_grok(
 }
 
 #[tauri::command]
-pub fn update_codex_api_key_credentials(
+pub async fn update_codex_api_key_credentials(
     account_id: String,
     api_key: String,
     api_base_url: Option<String>,
@@ -2353,7 +2416,7 @@ pub fn update_codex_api_key_credentials(
     account_name: Option<String>,
     api_model_context_windows: Option<std::collections::HashMap<String, i64>>,
 ) -> Result<CodexAccount, String> {
-    codex_account::update_api_key_credentials(
+    tauri::async_runtime::spawn_blocking(move || codex_account::update_api_key_credentials(
         &account_id,
         api_key,
         api_base_url,
@@ -2369,7 +2432,8 @@ pub fn update_codex_api_key_credentials(
         api_vision_routing_model,
         account_name,
         api_model_context_windows,
-    )
+    ))
+    .await.map_err(|error| format!("更新 API Key 任务失败: {}", error))?
 }
 
 #[tauri::command]

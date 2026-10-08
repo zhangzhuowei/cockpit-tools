@@ -96,6 +96,10 @@
     "providerClear": "清空选择"
   },
   "common": {
+    "requestId": "请求 ID",
+    "failureTime": "失败时间",
+    "clearRecord": "清除记录",
+    "clearingRecord": "清除中…",
     "dragSortHint": "拖动左侧手柄调整顺序，松开后自动保存。",
     "dragSortFilteredHint": "清除搜索后可调整顺序。",
     "recycleBin": {
@@ -321,6 +325,8 @@
         "manualCallbackPlaceholder": "粘贴完整回调地址，例如：http://localhost:1455/auth/callback?code=...&state=..."
       },
       "refreshAll": "刷新全部",
+      "refreshSuccess": "刷新成功",
+      "refreshFailed": "刷新失败：{{error}}",
       "refreshQuota": "刷新配额",
       "search": "搜索账号...",
       "sort": {
@@ -417,7 +423,10 @@
     },
     "optional": "（可选）",
     "hide": "隐藏",
-    "show": "显示"
+    "show": "显示",
+    "configSaveTimeout": "操作超时，请刷新确认结果后重试。",
+    "clearAll": "取消全选",
+    "clear": "清除"
   },
   "floatingCard": {
     "selectPlatform": "切换平台",
@@ -1353,7 +1362,19 @@
       "menuBarAccountPrefixDesc": "仅普通账号：关闭后不显示邮箱前缀。Codex API 服务 / API Key 仍会显示 API 标签",
       "menuBarQuotaConfirmEnable": "启用",
       "codexHideRelayQuota": "隐藏中转站额度",
-      "codexHideRelayQuotaDesc": "开启后，Codex 账号总览隐藏中转 / New API 类额度面板，减轻列表重叠与视觉干扰。"
+      "codexHideRelayQuotaDesc": "开启后，Codex 账号总览隐藏中转 / New API 类额度面板，减轻列表重叠与视觉干扰。",
+      "floatingCardStyle": "悬浮窗样式",
+      "floatingCardStyleDesc": "所有悬浮窗共用此设置，可在悬浮窗内切换。",
+      "floatingCardFull": "完整卡片",
+      "floatingCardMinimal": "极简额度",
+      "floatingCardOpacity": "背景强度",
+      "floatingCardOpacityDesc": "100% 保留现有背景，0% 隐藏背景。额度文字保持清晰。",
+      "floatingCardOpacityValue": "背景：{{value}}%",
+      "themeColorOled": "OLED 黑白",
+      "codexAutoRestoreTakeoverOnLaunch": "启动时恢复 Codex 配置",
+      "codexAutoRestoreTakeoverOnLaunchDesc": "启动时恢复已启用的模型配置与仍由工具管理的 API 接管，不覆盖手动修改的连接。",
+      "codexPreserveExternalBridge": "保留外部桥接",
+      "codexPreserveExternalBridgeDesc": "OAuth 切号时保留经本地记录验证的 Codex Web GPT 桥接；默认关闭。"
     },
     "tabs": {
       "general": "通用",
@@ -1742,6 +1763,9 @@
       "all": "全部 ({{count}})",
       "pro": "专业版 ({{count}})",
       "ultra": "超 ({{count}})"
+    },
+    "filters": {
+      "all": "全部"
     },
     "sortLabel": "排序",
     "sort": {
@@ -2357,6 +2381,12 @@
     "other_group": "其他模型"
   },
   "codex": {
+    "thresholds": {
+      "shortCycle": "短周期额度",
+      "weekly": "周额度",
+      "windowHint": "按实际时长匹配阈值，一周及以上使用周额度阈值；只有周额度时仅检查周额度。缺少时长时沿用主/次窗口映射。",
+      "rule": "短周期剩余 <= {{shortCycle}}% 或周剩余 <= {{weekly}}%"
+    },
     "launchErrors": {
       "bindingFailed": "无法确认账号绑定，已停止启动，请重试切号。",
       "processScanFailed": "无法检查旧后台进程，已停止启动，请重试。",
@@ -2559,7 +2589,8 @@
       "repairCompleted": "会话可见性修复完成",
       "forceRefreshTitle": "强制刷新 Token",
       "forceRefreshReady": "可手动刷新 OAuth Token",
-      "forceRefreshDescription": "使用 refresh_token 获取新的 access_token 和 id_token；当前 refresh_token 可能会被轮换。",
+      "forceRefreshDescription": "使用 refresh_token 刷新 access_token；仅在响应返回时更新 id_token，refresh_token 可能轮换。",
+      "tokenExpiryDescription": "access_token 用于请求授权，id_token 保存身份信息。id_token 到期本身不代表 API 授权失效；实际可用性以启动校验和服务响应为准。",
       "forceRefreshUnavailable": "当前账号类型不可用",
       "forceRefreshAction": "立即刷新",
       "forceRefreshRunning": "正在刷新 Token…",
@@ -2894,7 +2925,14 @@
       "testServiceUnavailable": "服务可达，但当前不可用：{{detail}}。请检查服务是否启用、账号集合是否为空或账号是否可用。",
       "gatewayErrors": {
         "authUnavailable": "账号池当前没有可调度账号；账号可能正在冷却、授权失效或额度受限，请在 Cockpit Tools 的 API 服务页查看账号状态。",
-        "authNotFound": "账号池当前没有已配置的可用账号，请在 Cockpit Tools 的 API 服务页添加或启用账号。"
+        "authNotFound": "账号池当前没有已配置的可用账号，请在 Cockpit Tools 的 API 服务页添加或启用账号。",
+        "accountConcurrencyExceeded": "账号并发已达上限，请稍后重试。",
+        "providerRetryAfter": "供应商要求暂停请求，请在 {{seconds}} 秒后重试。",
+        "audioInvalidRequest": "音频请求无效：{{detail}}",
+        "audioTooLarge": "音频请求不能超过 26 MiB。",
+        "audioNotSupported": "此 OAuth 账号仅支持语音转写，其他音频操作需使用 API Key 供应商。",
+        "audioUnavailable": "音频转发暂不可用。",
+        "audioUpstreamFailed": "音频上游请求失败。"
       },
       "testRateLimited": "服务可达，但上游限流或额度不足：{{detail}}。",
       "testHttpFailed": "服务可达，但请求返回 HTTP {{status}}：{{detail}}。",
@@ -3003,12 +3041,29 @@
         "dialog": {
           "title": "账号异常",
           "description": "显示账号池与账号异常；只有明确归属账号的故障才提供相应操作。",
-          "noIssues": "当前没有异常账号",
+          "noIssues": "当前没有待展示的异常",
           "unscopedApiKey": "当前 API Key",
           "poolUnavailable": "账号池无可用账号",
           "poolUnavailableDetail": "模型 {{model}} 的请求没有选出可用账号",
           "poolUnattributedDetail": "未收到逐账号诊断，无法归属到具体账号。请检查此 API Key 的账号范围及模型配置。",
           "poolDiagnosticDetail": "模型 {{model}}：候选 {{candidate}}，范围匹配 {{scoped}}，可用 {{available}}，不可用 {{unavailable}}，模型排除 {{modelExcluded}}，额度保留 {{quotaReserved}}，生图策略拦截 {{imageBlocked}}",
+          "poolNoCandidatesDetail": "本次请求没有候选账号。请检查请求模型和账号加载状态。",
+          "poolScopeMismatchDetail": "候选账号未匹配此 API Key 的账号范围，或账号映射无法识别。请检查绑定账号及模型配置。",
+          "inspectBinding": "检查绑定",
+          "inspectConfig": "检查配置",
+          "unmappedAccount": "未识别账号",
+          "accountReference": "账号 {{id}}",
+          "scopeMismatchDetail": "此候选账号不在当前 API Key 的绑定范围内。",
+          "accountMappingMissingDetail": "候选凭据无法映射到账号，请检查账号加载及账号池同步状态。",
+          "boundAccountNotLoadedDetail": "此绑定账号尚未加载到当前服务，请检查账号加载及账号池同步状态。",
+          "boundAccountNotCandidateDetail": "此绑定账号已加载，但未进入本次请求的候选集，请检查请求模型、供应商及请求类型。",
+          "scopeUnknownDetail": "当前范围诊断不足以确定具体原因，请检查绑定和服务日志。",
+          "poolBlockedDetail": "范围内筛选结果：不可调度 {{unavailable}}（如停用、冷却或鉴权失败），模型排除 {{modelExcluded}}，额度保留 {{quotaReserved}}，生图策略拦截 {{imageBlocked}}。请检查逐账号原因及对应设置。",
+          "poolUnknownDetail": "当前诊断不足以确定具体原因。请检查此 API Key 的账号范围、模型配置和服务日志。",
+          "clearHint": "清除仅移除此条诊断记录，不会修复配置、Token 或额度；请求再次失败时会重新出现。",
+          "clearSuccess": "已清除诊断记录，不代表账号池已恢复可用。",
+          "clearStale": "此记录已被新的失败替换。请查看最新状态后重试。",
+          "clearFailed": "清除记录失败：{{error}}",
           "missing": "账号缺失",
           "cooldown": "冷却中",
           "quota": "额度受限",
@@ -3173,7 +3228,16 @@
       "testChatSend": "发送",
       "testChatInputRequired": "请输入测试消息",
       "testChatModelRequired": "请选择模型 ID",
-      "testChatEmptyResponse": "响应为空"
+      "testChatEmptyResponse": "响应为空",
+      "imageGenerationMainModel": {
+        "label": "生图主模型",
+        "hint": "留空沿用 gpt-5.5。此模型负责调用图片工具；所选 OAuth 账号必须支持该主模型的 image_generation。",
+        "invalid": "请输入不含空白的模型 ID，最长 200 字符。"
+      },
+      "requestDetail": {
+        "invalidRequestId": "请求 ID 无效。",
+        "settingsChanged": "设置已被其他操作修改，请重试。"
+      }
     },
     "api": {
       "baseUrl": "基础地址",
@@ -4150,6 +4214,11 @@
       "importModal": {
         "title": "导入会话",
         "hint": "会话包只导入 rollout 文件和 session_index 条目，不包含账号、Token、API Key 或应用配置；目标实例已有同 ID 会话时会跳过。",
+        "cwdPathAbsolute": "请输入此电脑上的绝对路径",
+        "cwdPathMissing": "目录不存在或无法访问",
+        "cwdMappingTitle": "项目路径映射（可选）",
+        "cwdMappingHint": "将源工作目录映射到此电脑上已添加到 Codex 的项目路径；留空则保留源路径。",
+        "cwdTargetPlaceholder": "输入此电脑上的项目绝对路径",
         "noTarget": "未发现可导入的 Codex 实例",
         "noPackage": "请先选择会话包",
         "pickOne": "请至少选择一条可导入会话",
@@ -4312,7 +4381,8 @@
         "7d": "近 7 天",
         "30d": "近 30 天",
         "month": "本月",
-        "all": "全部"
+        "all": "全部",
+        "today": "今天"
       },
       "instance": {
         "label": "实例",
@@ -4375,7 +4445,8 @@
         "total": "合计",
         "requests": "请求",
         "cost": "费用"
-      }
+      },
+      "costUnavailable": "部分模型没有可用价格，无法完整估算当天费用。"
     },
     "groups": {
       "addToGroup": "添加至分组"
@@ -4390,6 +4461,11 @@
       "saveFailed": "保存速度失败：{{error}}"
     },
     "apiService": {
+      "inspection": {
+        "internalScope": "这是内部客户端请求，请检查服务账号池及实例绑定；它不对应公开客户端 Key。",
+        "keyUnavailable": "请求对应的客户端 Key 已删除或不存在，请检查当前 Key 和账号池。",
+        "imageScope": "图片请求使用生图账号池及账号图片策略，请检查图片配置。"
+      },
       "navTitle": "Codex API 服务",
       "title": "Codex API 服务",
       "openPage": "进入 API 服务",
@@ -5548,6 +5624,129 @@
       "errors": {
         "bindingChanged": "账号绑定已更改，保留当前设置"
       }
+    },
+    "autoRefreshScope": {
+      "label": "自动刷新套餐",
+      "description": "仅筛选标准 OAuth 账号的平台及分组定时额度刷新。默认全选；不影响手动刷新、当前账号刷新、Token 保活和独立账号类型。",
+      "plans": {
+        "free": "免费",
+        "go": "Go",
+        "plus": "Plus",
+        "pro": "Pro",
+        "team": "团队",
+        "business": "商务",
+        "enterprise": "企业",
+        "edu_k12": "教育",
+        "unknown": "未知"
+      }
+    },
+    "requestDiagnostics": {
+      "recordPayloads": "记录请求正文",
+      "recordPayloadsHint": "默认关闭。仅在本地保存有限长度的客户端和上游请求快照；关闭后停止新记录，已有正文可单独清除。",
+      "privacyHint": "认证字段会脱敏，但对话正文中的敏感信息未必能识别。复制或分享前请检查。",
+      "clearPayloads": "清除已存正文",
+      "clearConfirm": "仅清除正文，保留统计和尝试记录？",
+      "cleared": "已清除 {{count}} 条正文记录",
+      "title": "请求详情",
+      "totalLatency": "总耗时",
+      "firstResponse": "首响",
+      "firstResponseHint": "首响为请求开始到首个上游响应片段的耗时，不等同于首个生成 Token。",
+      "unavailable": "此请求暂无诊断详情，可稍后刷新。旧请求不会补录。",
+      "attempts": "尝试轨迹",
+      "noAttempts": "未记录尝试轨迹。",
+      "detailTruncated": "诊断超出容量限制，部分记录已省略。",
+      "payloads": "请求快照",
+      "noPayloads": "未记录正文。开启记录后仅采集新请求，历史不会补录。",
+      "clientPayload": "客户端请求",
+      "upstreamPayload": "上游请求 #{{sequence}}",
+      "headers": "请求头",
+      "payloadTruncated": "快照已截断，仅展示已保存的部分。",
+      "details": "详情",
+      "latencyPair": "用时 {{total}} · 首响 {{first}}",
+      "phases": {
+        "selection": "账号筛选",
+        "upstream_connect": "上游连接",
+        "upstream_response": "上游响应",
+        "stream_read": "流读取",
+        "downstream_delivery": "客户端投递",
+        "client_canceled": "客户端取消",
+        "stream_incomplete": "流未完成",
+        "completed": "已完成",
+        "unknown": "未记录"
+      },
+      "failurePhase": "失败阶段",
+      "applying": "正在应用到运行中的网关…",
+      "applyFailed": "设置已保存，但运行中的网关未能应用，可重试。原因：{{error}}"
+    },
+    "experimentalModels": {
+      "defaultReasoning": "默认档位",
+      "defaultReasoningFollow": "沿用默认",
+      "defaultReasoningHint": "留空沿用模型默认档位；所选档位必须在当前支持范围内。",
+      "defaultReasoningInvalid": "默认推理档位必须属于当前支持的档位。"
+    },
+    "modelConfig": {
+      "transfer": "导入 / 导出",
+      "title": "模型配置",
+      "description": "导出当前已保存的模型清单、默认模型及 API 服务价格、别名和路由引用。文件不含 API Key、账号凭据或服务启停设置。",
+      "importHint": "导入会立即保存到当前实例，并更新已启用的模型目录；API 服务配置为全局共用。不会启用模型管理、启动网关或接管客户端。未保存的模型编辑会被导入结果替换。",
+      "import": "导入",
+      "export": "导出",
+      "file": "选择 JSON",
+      "jsonLabel": "配置 JSON",
+      "strategy": "冲突处理",
+      "keepExisting": "保留现有",
+      "replace": "覆盖同名",
+      "strategyHint": "默认保留现有配置；覆盖同名仅更新文件中列出的同名条目，不删除其他条目。",
+      "preview": "预览",
+      "previewFirst": "先预览并修正所有错误，再确认导入。",
+      "previewLoading": "正在预览…",
+      "importLoading": "正在导入…",
+      "exported": "配置已导出。",
+      "imported": "已保存 {{count}} 项配置。",
+      "section": "范围",
+      "item": "条目",
+      "result": "结果",
+      "actions": {
+        "added": "新增",
+        "updated": "更新",
+        "conflict": "冲突",
+        "skipped": "跳过",
+        "error": "错误"
+      },
+      "sections": {
+        "models": "模型",
+        "defaultModel": "默认模型",
+        "prices": "价格",
+        "aliases": "别名",
+        "accountRules": "账号模型规则",
+        "routing": "路由",
+        "exclusions": "排除模型",
+        "apiService": "API 服务"
+      },
+      "errors": {
+        "invalid": "配置格式或内容无效。",
+        "json": "JSON 无法解析，请检查内容。",
+        "version": "不支持此配置格式或版本。",
+        "fields": "文件字段缺失、格式无效或不受支持；请使用导出的模型配置文件。",
+        "tooLarge": "配置文件过大，最大支持 4 MB。",
+        "tooMany": "配置条目过多，每个范围最多 1000 项。",
+        "duplicate": "文件中同一范围的条目重复。",
+        "stateChanged": "预览后本地配置已变化，请重新预览。",
+        "accountMissing": "引用的账号不存在或不在当前 API 服务账号池中。",
+        "modelMissing": "引用的模型在目标配置和可用账号中不存在。",
+        "serviceMissing": "尚未创建 API 服务配置，无法导入其价格或路由。",
+        "price": "价格必须是非负有限数，长上下文阈值必须大于 0。",
+        "alias": "别名无效，或与来源模型相同。",
+        "rule": "规则无效，请检查模型范围、优先级和权重。",
+        "busy": "另一项模型配置操作正在执行，请稍后重试。",
+        "instanceMissing": "目标实例已不存在，请重新选择。",
+        "read": "读取本地配置失败，请重试。",
+        "write": "保存配置失败，原配置已保留，请重试。",
+        "validation": "配置包含错误，请重新预览并修正。",
+        "recovery": "上次导入未完成，恢复遇到较新的配置或文件问题；已保留恢复记录和现有数据。",
+        "apply": "配置已保存，但运行网关未能重载：{{error}}"
+      },
+      "closeHint": "确认导入后，即使关闭弹框也会继续保存。"
     }
   },
   "codebuddy": {
@@ -7025,6 +7224,15 @@
       "info": "INFO",
       "warn": "WARN",
       "error": "ERROR"
+    },
+    "search": {
+      "placeholder": "搜索日志内容",
+      "regex": "正则",
+      "errors": {
+        "invalidRegex": "正则表达式无效，请修改。",
+        "timeout": "筛选超时，请简化表达式或关闭正则。",
+        "unavailable": "筛选无法启动，请重试。"
+      }
     }
   },
   "twoFactorAuth": {
@@ -7417,6 +7625,10 @@
       "labelOverridePlaceholder": "菜单显示名",
       "supports1mLabel": "声明支持 1M",
       "supports1mShort": "1M上下文"
+    },
+    "errors": {
+      "profileMissing": "未找到 Claude 配置目录，请先打开一次 Claude 后重试。",
+      "cookieSnapshotTooLarge": "Cookie 数据库过大，无法安全读取。"
     }
   },
   "openrouter": {

@@ -939,9 +939,7 @@ pub(crate) fn decorate_catalog_context_windows(
             // 统一口径：写窗口时必须同时写压缩阈值，避免目录里出现「有窗口无阈值」。
             object.insert(
                 "auto_compact_token_limit".to_string(),
-                json!(
-                    crate::modules::codex_protocol::derived_auto_compact_token_limit(window)
-                ),
+                json!(crate::modules::codex_protocol::derived_auto_compact_token_limit(window)),
             );
         }
     }
@@ -1569,6 +1567,7 @@ fn apply_provider_gateway_template_settings(
 ) {
     collection.client_base_url_host = template.client_base_url_host;
     collection.image_generation_mode = template.image_generation_mode;
+    collection.image_generation_main_model = template.image_generation_main_model.clone();
     collection.upstream_proxy_url = template.upstream_proxy_url.clone();
     collection.routing_strategy = template.routing_strategy;
     collection.model_aliases = template.model_aliases.clone();
@@ -1580,12 +1579,15 @@ fn apply_provider_gateway_template_settings(
         template.session_affinity_default_enabled_migrated;
     collection.max_retry_credentials = template.max_retry_credentials;
     collection.max_retry_interval_ms = template.max_retry_interval_ms;
+    collection.max_account_concurrency = template.max_account_concurrency;
+    collection.account_concurrency_wait_ms = template.account_concurrency_wait_ms;
     collection.timeouts = template.timeouts.clone();
     collection.active_timeout_preset_id = template.active_timeout_preset_id.clone();
     collection.timeout_presets = template.timeout_presets.clone();
     collection.disable_cooling = template.disable_cooling;
     collection.restrict_free_accounts = template.restrict_free_accounts;
     collection.debug_logs = template.debug_logs;
+    collection.request_payload_logging = template.request_payload_logging;
 }
 
 fn provider_gateway_bound_oauth_account_id_for_account(account: &CodexAccount) -> Option<String> {
@@ -2958,6 +2960,13 @@ async fn spawn_provider_gateway_sidecar(
 }
 
 async fn stop_provider_gateway_runtime(runtime_key: &str) -> Option<GatewayBindEndpoint> {
+    stop_provider_gateway_runtime_for_reason(runtime_key, "profile_or_instance_stop").await
+}
+
+async fn stop_provider_gateway_runtime_for_reason(
+    runtime_key: &str,
+    reason: &str,
+) -> Option<GatewayBindEndpoint> {
     let (child, task, endpoint) = {
         let mut runtimes = provider_gateway_runtime_store().lock().await;
         let Some(mut runtime) = runtimes.remove(runtime_key) else {
@@ -2970,6 +2979,11 @@ async fn stop_provider_gateway_runtime(runtime_key: &str) -> Option<GatewayBindE
         (runtime.sidecar_child.take(), runtime.task.take(), endpoint)
     };
 
+    logger::log_codex_api_info(&format!(
+        "[CodexLocalAccess][provider-gateway] 停止 sidecar: runtime={} reason={} pid={:?} port={:?}",
+        runtime_key.replace('\n', " / "), reason, child.as_ref().and_then(Child::id),
+        endpoint.as_ref().map(|endpoint| endpoint.port)
+    ));
     if let Some(mut child) = child {
         match timeout(GATEWAY_SHUTDOWN_TIMEOUT, child.kill()).await {
             Ok(Ok(())) => {
@@ -3013,11 +3027,11 @@ async fn stop_spawned_provider_gateway_sidecar(
             let _ = child.wait().await;
         }
         Ok(Err(error)) => logger::log_codex_api_warn(&format!(
-            "[CodexLocalAccess][mixed-model-routing] 启动回滚停止 sidecar 失败: {}",
+            "[CodexLocalAccess][provider-gateway] 启动回滚停止 sidecar 失败: {}",
             error
         )),
         Err(_) => logger::log_codex_api_warn(
-            "[CodexLocalAccess][mixed-model-routing] 启动回滚停止 sidecar 超时",
+            "[CodexLocalAccess][provider-gateway] 启动回滚停止 sidecar 超时",
         ),
     }
     tokio::select! {
@@ -3030,7 +3044,7 @@ async fn stop_spawned_provider_gateway_sidecar(
     }
     if let Err(error) = wait_for_gateway_port_release(bind_host, port).await {
         logger::log_codex_api_warn(&format!(
-            "[CodexLocalAccess][mixed-model-routing] 启动回滚等待端口释放失败: bind={}:{} error={}",
+            "[CodexLocalAccess][provider-gateway] 启动回滚等待端口释放失败: bind={}:{} error={}",
             bind_host, port, error
         ));
     }
@@ -3223,7 +3237,9 @@ async fn stop_all_provider_gateways_for_app_shutdown() -> Vec<GatewayBindEndpoin
 
     let mut endpoints = Vec::new();
     for runtime_key in runtime_keys {
-        if let Some(endpoint) = stop_provider_gateway_runtime(&runtime_key).await {
+        if let Some(endpoint) =
+            stop_provider_gateway_runtime_for_reason(&runtime_key, "app_shutdown").await
+        {
             endpoints.push(endpoint);
         }
     }
@@ -3272,6 +3288,59 @@ pub async fn mixed_model_gateway_runtime_is_managed(profile_dir: &Path) -> bool 
     })
 }
 
+// Do not publish a new profile endpoint until the sidecar emits a valid ready event.
+// The exact snapshot restores ordinary/bound OAuth profiles too, including existing takeovers.
+async fn activate_provider_gateway_profile<
+    T,
+    Start,
+    StartFuture,
+    Publish,
+    PublishFuture,
+    Cleanup,
+    CleanupFuture,
+>(
+    profile_dir: &Path,
+    api_key: &str,
+    start: Start,
+    publish: Publish,
+    cleanup: Cleanup,
+) -> Result<T, String>
+where
+    Start: FnOnce() -> StartFuture,
+    StartFuture: std::future::Future<Output = Result<T, String>>,
+    Publish: FnOnce() -> PublishFuture,
+    PublishFuture: std::future::Future<Output = Result<(), String>>,
+    Cleanup: FnOnce(T) -> CleanupFuture,
+    CleanupFuture: std::future::Future<Output = ()>,
+{
+    // Model caches can be large; snapshot/rollback file IO must not occupy the async runtime.
+    let snapshot_dir = profile_dir.to_path_buf();
+    let snapshot_key = api_key.to_string();
+    let snapshot = tauri::async_runtime::spawn_blocking(move || {
+        capture_mixed_model_profile_activation_snapshot(&snapshot_dir, &snapshot_key)
+    })
+    .await
+    .map_err(|error| format!("准备供应商网关启动快照失败: {}", error))??;
+    let started = start().await?;
+    if let Err(error) = publish().await {
+        cleanup(started).await;
+        let rollback_dir = profile_dir.to_path_buf();
+        let rollback_result = tauri::async_runtime::spawn_blocking(move || {
+            restore_mixed_model_profile_activation_snapshot(&rollback_dir, snapshot)
+        })
+        .await
+        .map_err(|error| format!("恢复供应商网关启动快照失败: {}", error))
+        .and_then(|result| result);
+        return match rollback_result {
+            Ok(()) => Err(error),
+            Err(rollback_error) => {
+                Err(format!("{}; 启动失败回滚也失败: {}", error, rollback_error))
+            }
+        };
+    }
+    Ok(started)
+}
+
 pub async fn ensure_provider_gateway_for_dir(
     profile_dir: &Path,
     account_id: &str,
@@ -3290,32 +3359,10 @@ pub async fn ensure_provider_gateway_for_dir(
     let (collection, key, provider_gateway) =
         build_provider_gateway_collection_for_profile(profile_dir, &account)?;
     let model_slots = provider_gateway_model_slots(&provider_gateway.upstream_models);
-    save_profile_takeover_backup(profile_dir, &key)?;
-    write_local_access_profile_takeover(profile_dir, &collection, Some(&key), false).await?;
-    cleanup_provider_gateway_profile_model_overrides(profile_dir)?;
-    backup_current_profile_model_before_provider_gateway(
-        profile_dir,
-        &model_slots
-            .iter()
-            .map(|slot| slot.client_model.clone())
-            .collect::<Vec<_>>(),
-    )?;
-    if let Some(default_slot) = preferred_provider_gateway_slot(&account, &model_slots) {
-        write_local_access_profile_model_override(profile_dir, &default_slot.client_model)?;
-    }
-    if !model_slots.is_empty() {
-        write_provider_gateway_model_catalog_with_templates(
-            profile_dir,
-            &model_slots,
-            official_catalog_json_for_provider_gateway(&account)?.as_deref(),
-            Some(&account),
-        )?;
-    }
-    codex_account::reapply_experimental_model_policy_if_enabled(profile_dir)?;
-    reapply_deepseek_profile_config_overrides(profile_dir, &account)?;
-
     let runtime_key = provider_gateway_runtime_key(profile_dir, account_id);
-    if let Some(endpoint) = stop_provider_gateway_runtime(&runtime_key).await {
+    if let Some(endpoint) =
+        stop_provider_gateway_runtime_for_reason(&runtime_key, "configuration_rebuild").await
+    {
         wait_for_gateway_port_release(&endpoint.bind_host, endpoint.port).await?;
     }
 
@@ -3347,7 +3394,11 @@ pub async fn ensure_provider_gateway_for_dir(
         .await
         .is_ok()
     {
-        let killed = process::kill_port_processes(collection.port)?;
+        let killed = cleanup_managed_sidecar_port_processes(
+            collection.port,
+            launch_config.config_path.clone(),
+        )
+        .await??;
         if killed > 0 {
             logger::log_codex_api_info(&format!(
                 "[CodexLocalAccess][provider-gateway] 已停止旧 sidecar: port={}, killed={}",
@@ -3358,8 +3409,43 @@ pub async fn ensure_provider_gateway_for_dir(
             .await?;
     }
 
-    let (child, task, bind_host) =
-        spawn_provider_gateway_sidecar(&collection, &launch_config, false).await?;
+    let port = collection.port;
+    let (child, task, bind_host) = activate_provider_gateway_profile(
+        profile_dir,
+        &key,
+        || spawn_provider_gateway_sidecar(&collection, &launch_config, false),
+        || async {
+            save_profile_takeover_backup(profile_dir, &key)?;
+            write_local_access_profile_takeover(profile_dir, &collection, Some(&key), false)
+                .await?;
+            cleanup_provider_gateway_profile_model_overrides(profile_dir)?;
+            backup_current_profile_model_before_provider_gateway(
+                profile_dir,
+                &model_slots
+                    .iter()
+                    .map(|slot| slot.client_model.clone())
+                    .collect::<Vec<_>>(),
+            )?;
+            if let Some(default_slot) = preferred_provider_gateway_slot(&account, &model_slots) {
+                write_local_access_profile_model_override(profile_dir, &default_slot.client_model)?;
+            }
+            if !model_slots.is_empty() {
+                write_provider_gateway_model_catalog_with_templates(
+                    profile_dir,
+                    &model_slots,
+                    official_catalog_json_for_provider_gateway(&account)?.as_deref(),
+                    Some(&account),
+                )?;
+            }
+            codex_account::reapply_experimental_model_policy_if_enabled(profile_dir)?;
+            reapply_deepseek_profile_config_overrides(profile_dir, &account)?;
+            Ok(())
+        },
+        |(child, task, bind_host)| async move {
+            stop_spawned_provider_gateway_sidecar(child, task, &bind_host, port).await;
+        },
+    )
+    .await?;
     let mut runtimes = provider_gateway_runtime_store().lock().await;
     runtimes.insert(
         runtime_key,
@@ -3572,13 +3658,10 @@ pub async fn ensure_bound_oauth_local_gateway_for_dir(
     release_occupied_provider_gateway_profile_port(profile_dir, account_id).await;
     let (collection, key) =
         build_bound_oauth_local_gateway_collection_for_profile(profile_dir, &account)?;
-    save_profile_takeover_backup(profile_dir, &key)?;
-    write_local_access_profile_takeover(profile_dir, &collection, Some(&key), false).await?;
-    cleanup_provider_gateway_profile_model_overrides(profile_dir)?;
-    codex_account::reapply_experimental_model_policy_if_enabled(profile_dir)?;
-
     let runtime_key = provider_gateway_runtime_key(profile_dir, account_id);
-    if let Some(endpoint) = stop_provider_gateway_runtime(&runtime_key).await {
+    if let Some(endpoint) =
+        stop_provider_gateway_runtime_for_reason(&runtime_key, "configuration_rebuild").await
+    {
         wait_for_gateway_port_release(&endpoint.bind_host, endpoint.port).await?;
     }
 
@@ -3600,7 +3683,11 @@ pub async fn ensure_bound_oauth_local_gateway_for_dir(
         .await
         .is_ok()
     {
-        let killed = process::kill_port_processes(collection.port)?;
+        let killed = cleanup_managed_sidecar_port_processes(
+            collection.port,
+            launch_config.config_path.clone(),
+        )
+        .await??;
         if killed > 0 {
             logger::log_codex_api_info(&format!(
                 "[CodexLocalAccess][bound-oauth-local-gateway] 已停止旧 sidecar: port={}, killed={}",
@@ -3611,8 +3698,24 @@ pub async fn ensure_bound_oauth_local_gateway_for_dir(
             .await?;
     }
 
-    let (child, task, bind_host) =
-        spawn_provider_gateway_sidecar(&collection, &launch_config, false).await?;
+    let port = collection.port;
+    let (child, task, bind_host) = activate_provider_gateway_profile(
+        profile_dir,
+        &key,
+        || spawn_provider_gateway_sidecar(&collection, &launch_config, false),
+        || async {
+            save_profile_takeover_backup(profile_dir, &key)?;
+            write_local_access_profile_takeover(profile_dir, &collection, Some(&key), false)
+                .await?;
+            cleanup_provider_gateway_profile_model_overrides(profile_dir)?;
+            codex_account::reapply_experimental_model_policy_if_enabled(profile_dir)?;
+            Ok(())
+        },
+        |(child, task, bind_host)| async move {
+            stop_spawned_provider_gateway_sidecar(child, task, &bind_host, port).await;
+        },
+    )
+    .await?;
     let mut runtimes = provider_gateway_runtime_store().lock().await;
     runtimes.insert(
         runtime_key,

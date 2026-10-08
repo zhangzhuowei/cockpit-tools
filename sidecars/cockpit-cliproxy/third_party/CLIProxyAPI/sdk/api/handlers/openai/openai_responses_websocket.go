@@ -270,8 +270,12 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 		return
 	}
 	writer := newResponsesWebsocketWriter(conn)
+	readPump := newResponsesWebsocketReadPump(c.Request.Context(), conn, writer)
+	defer readPump.stop()
+	c.Request = c.Request.WithContext(readPump.ctx)
 	passthroughSessionID := uuid.NewString()
 	downstreamSessionKey := websocketDownstreamSessionKey(c.Request)
+	toolCacheBaseKey := downstreamSessionKey
 	retainResponsesWebsocketToolCaches(downstreamSessionKey)
 	clientIP := websocketClientAddress(c)
 	log.Infof("responses websocket: client connected id=%s remote=%s", passthroughSessionID, clientIP)
@@ -329,6 +333,7 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 	var lastRequest []byte
 	lastResponseOutput := []byte("[]")
 	lastResponseID := ""
+	lastWindowID := ""
 	// Remains pending until a generating request commits successfully.
 	pendingPrewarmID := ""
 	var lastResponsePendingToolCallIDs []string
@@ -388,7 +393,7 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 	}
 
 	for {
-		msgType, payload, errReadMessage := conn.ReadMessage()
+		msgType, payload, errReadMessage := readPump.next()
 		if errReadMessage != nil {
 			wsTerminateErr = errReadMessage
 			if websocket.IsCloseError(errReadMessage, websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseNoStatusReceived) {
@@ -420,6 +425,9 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 			requestModelName = strings.TrimSpace(gjson.GetBytes(lastRequest, "model").String())
 		}
 		executionParent := context.WithValue(c.Request.Context(), "gin", c)
+		if observer := cliproxyexecutor.DiagnosticsObserver(executionParent); observer != nil {
+			observer.ClientPayload(executionParent, payload, c.Request.Header, "websocket")
+		}
 		executionParent, routeOverridesModelResolution := h.PrepareStreamModelRoute(
 			executionParent,
 			h.HandlerType(),
@@ -450,6 +458,26 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 					}
 				}
 			}
+		}
+		windowPayload, windowID, windowChanged, errWindow := normalizeResponsesWebsocketContextWindow(payload, lastWindowID)
+		if errWindow != nil {
+			wsTerminateErr = errWindow
+			return
+		}
+		if windowChanged {
+			payload = windowPayload
+			lastRequest = nil
+			lastResponseOutput = []byte("[]")
+			lastResponseID = ""
+			lastResponsePendingToolCallIDs = nil
+			pendingPrewarmID = ""
+		}
+		if windowID != "" && windowID != lastWindowID {
+			// Keep other connections' tool caches intact while isolating this window.
+			releaseResponsesWebsocketToolCaches(downstreamSessionKey)
+			downstreamSessionKey = toolCacheBaseKey + ":window:" + windowID
+			retainResponsesWebsocketToolCaches(downstreamSessionKey)
+			lastWindowID = windowID
 		}
 		useUpstreamWebsocketPassthrough := h.responsesWebsocketUsesUpstreamWebsocketPassthrough(requestModelName)
 		if pinnedAuthID != "" {

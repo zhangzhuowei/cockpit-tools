@@ -23,3 +23,12 @@ test('empty models and removed credentials cannot start a provider test', () => 
     assert.equal(validatePelicanProviderTargets([provider], [target]), false);
   }
 });
+
+
+test('provider tests select the current key model catalog instead of provider defaults', () => {
+  const isolated = { ...provider, apiKeys: provider.apiKeys.map((key) => ({
+    ...key, modelCatalog: key.id === 'one' ? ['model-a'] : ['model-b'],
+  })) };
+  assert.equal(pelicanProviderTarget(isolated, 'one')?.model, 'model-a');
+  assert.equal(pelicanProviderTarget(isolated, 'two')?.model, 'model-b');
+});

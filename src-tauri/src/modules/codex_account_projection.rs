@@ -1,5 +1,8 @@
 // Codex 账号模块：Auth projection, bundle writing and managed sidecar persistence。
 // 通过 include! 保持原 modules::codex_account 作用域，完整保留私有调用关系。
+#[path = "codex_external_bridge.rs"]
+mod external_bridge;
+
 /// 获取当前激活的账号（基于 Tools 显式 current_account_id）
 pub fn get_current_account() -> Option<CodexAccount> {
     let base_dir = get_codex_home();
@@ -180,7 +183,11 @@ fn build_auth_file_value(account: &CodexAccount) -> Result<serde_json::Value, St
             refresh_token: Some(
                 normalize_optional_ref(account.tokens.refresh_token.as_deref()).unwrap_or_default(),
             ),
-            account_id: account.account_id.clone(),
+            // Missing id_token metadata must not discard an available workspace identity.
+            // Preserve an explicit stored identity; otherwise use the access-token claim.
+            account_id: normalize_optional_ref(account.account_id.as_deref()).or_else(|| {
+                extract_chatgpt_account_id_from_access_token(&account.tokens.access_token)
+            }),
         }),
         agent_identity: None,
         personal_access_token: None,
@@ -751,6 +758,25 @@ fn write_auth_file_to_dir_with_after_commit(
     account: &CodexAccount,
     after_commit: impl FnOnce(),
 ) -> Result<(), String> {
+    let preserve_bridge = crate::modules::config::get_user_config()
+        .codex_preserve_verified_external_bridge;
+    // Inspect the previous auth before replacing it: this compatibility policy
+    // applies only to OAuth -> OAuth, never to an old API Service/key route.
+    let bridge_url = if preserve_bridge {
+        let existing_auth = read_configured_codex_auth_value(base_dir).ok().flatten();
+        external_bridge::preserved_url(base_dir, account, existing_auth.as_ref(), true)
+    } else {
+        None
+    };
+    write_auth_file_to_dir_with_after_commit_and_bridge(base_dir, account, after_commit, bridge_url)
+}
+
+fn write_auth_file_to_dir_with_after_commit_and_bridge(
+    base_dir: &Path,
+    account: &CodexAccount,
+    after_commit: impl FnOnce(),
+    bridge_url: Option<String>,
+) -> Result<(), String> {
     let auth_path = base_dir.join("auth.json");
     logger::log_info(&format!(
         "[Codex切号] 准备写入登录信息: account_id={}, email={}, target_dir={}, target_file={}",
@@ -786,7 +812,7 @@ fn write_auth_file_to_dir_with_after_commit(
     } else {
         let provider_config = ApiProviderConfig {
             mode: CodexApiProviderMode::OpenaiBuiltin,
-            base_url: None,
+            base_url: bridge_url,
             provider_id: None,
             provider_name: None,
         };

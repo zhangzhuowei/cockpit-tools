@@ -96,6 +96,10 @@
     "providerClear": "선택 해제"
   },
   "common": {
+    "requestId": "요청 ID",
+    "failureTime": "실패 시간",
+    "clearRecord": "기록 삭제",
+    "clearingRecord": "삭제 중…",
     "dragSortHint": "왼쪽 핸들을 드래그해 순서를 변경하세요. 놓으면 자동 저장됩니다.",
     "dragSortFilteredHint": "순서를 변경하려면 검색을 지우세요.",
     "recycleBin": {
@@ -314,6 +318,8 @@
         "manualCallbackPlaceholder": "전체 콜백 URL을 붙여넣으세요. 예: http://localhost:1455/auth/callback?code=...&state=..."
       },
       "refreshAll": "전체 새로고침",
+      "refreshSuccess": "새로고침 완료",
+      "refreshFailed": "새로고침 실패: {{error}}",
       "refreshQuota": "쿼터 새로고침",
       "search": "계정 검색...",
       "sort": {
@@ -417,7 +423,10 @@
     },
     "optional": "(선택)",
     "hide": "숨기기",
-    "show": "표시"
+    "show": "표시",
+    "configSaveTimeout": "작업 시간이 초과되었습니다. 새로고침하여 결과를 확인한 후 재시도하세요.",
+    "clearAll": "전체 해제",
+    "clear": "지우기"
   },
   "nav": {
     "overview": "Antigravity IDE​",
@@ -1139,7 +1148,19 @@
       "menuBarAccountPrefixDesc": "일반 계정만: 끄면 이메일 접두사 숨김. Codex API 서비스 / API Key는 API 라벨 유지",
       "menuBarQuotaConfirmEnable": "사용",
       "codexHideRelayQuota": "중계 한도 숨기기",
-      "codexHideRelayQuotaDesc": "켜면 Codex 계정 개요에서 중계/New API 잔액 패널을 숨겨 겹침을 줄입니다."
+      "codexHideRelayQuotaDesc": "켜면 Codex 계정 개요에서 중계/New API 잔액 패널을 숨겨 겹침을 줄입니다.",
+      "floatingCardStyle": "플로팅 스타일",
+      "floatingCardStyleDesc": "모든 플로팅 창에 적용됩니다. 창에서도 바꿀 수 있습니다.",
+      "floatingCardFull": "전체 카드",
+      "floatingCardMinimal": "할당량만",
+      "floatingCardOpacity": "배경 농도",
+      "floatingCardOpacityDesc": "100%는 기존 배경을 유지하고 0%는 배경을 숨깁니다. 할당량 텍스트는 선명하게 유지됩니다.",
+      "floatingCardOpacityValue": "배경: {{value}}%",
+      "themeColorOled": "OLED 흑백",
+      "codexAutoRestoreTakeoverOnLaunch": "시작 시 Codex 설정 복원",
+      "codexAutoRestoreTakeoverOnLaunchDesc": "시작 시 활성 모델 설정과 관리 중인 API 연결을 복원합니다. 수동으로 변경한 연결은 유지합니다.",
+      "codexPreserveExternalBridge": "외부 브리지 유지",
+      "codexPreserveExternalBridgeDesc": "OAuth 계정 전환 시 로컬 기록으로 검증된 Codex Web GPT 브리지를 유지합니다. 기본값은 꺼짐입니다."
     },
     "network": {
       "apiTitle": "반중력 조종석 API",
@@ -1522,6 +1543,9 @@
       "all": "전체 ({{count}})",
       "pro": "프로({{count}})",
       "ultra": "울트라({{count}})"
+    },
+    "filters": {
+      "all": "전체"
     },
     "sortLabel": "정렬",
     "sort": {
@@ -2137,6 +2161,12 @@
     "other_group": "기타 모델"
   },
   "codex": {
+    "thresholds": {
+      "shortCycle": "단기 한도",
+      "weekly": "주간 한도",
+      "windowHint": "실제 기간에 따라 기준을 적용하며, 1주 이상은 주간 기준을 사용합니다. 주간 한도만 있는 계정은 해당 한도만 확인합니다. 기간이 없으면 기본·보조 창 매핑을 유지합니다.",
+      "rule": "단기 잔여 <= {{shortCycle}}% 또는 주간 잔여 <= {{weekly}}%"
+    },
     "launchErrors": {
       "bindingFailed": "계정 연결을 확인할 수 없어 시작을 중단했습니다. 계정 전환을 다시 시도하세요.",
       "processScanFailed": "기존 백그라운드 프로세스를 확인할 수 없어 시작을 중단했습니다. 다시 시도하세요.",
@@ -2339,7 +2369,8 @@
       "repairCompleted": "세션 표시 복구 완료",
       "forceRefreshTitle": "Token 강제 새로 고침",
       "forceRefreshReady": "OAuth Token을 수동으로 새로 고칠 수 있습니다",
-      "forceRefreshDescription": "refresh_token으로 새 access_token과 id_token을 가져옵니다. 현재 refresh token이 교체될 수 있습니다.",
+      "forceRefreshDescription": "refresh_token으로 access_token을 갱신합니다. id_token은 응답에 포함된 경우에만 갱신되며 refresh_token이 교체될 수 있습니다.",
+      "tokenExpiryDescription": "access_token은 요청 인증에, id_token은 신원 정보에 사용됩니다. id_token 만료만으로 API 인증이 무효임을 뜻하지는 않습니다. 사용 가능 여부는 시작 시 확인과 서비스 응답으로 판단합니다.",
       "forceRefreshUnavailable": "이 계정 유형에서는 사용할 수 없음",
       "forceRefreshAction": "지금 새로 고침",
       "forceRefreshRunning": "Token 새로 고침 중…",
@@ -2528,7 +2559,14 @@
       "testServiceUnavailable": "서비스에 연결되었지만 현재 사용할 수 없습니다: {{detail}}. 서비스가 활성화되어 있는지, 계정 모음이 비어 있지 않은지, 계정을 사용할 수 있는지 확인하세요.",
       "gatewayErrors": {
         "authUnavailable": "현재 라우팅할 수 있는 계정이 없습니다. 계정이 대기 중이거나 인증되지 않았거나 할당량이 제한되었을 수 있습니다. Cockpit Tools API 서비스에서 상태를 확인하세요.",
-        "authNotFound": "계정 풀에 사용 가능한 계정이 설정되어 있지 않습니다. Cockpit Tools API 서비스에서 계정을 추가하거나 활성화하세요."
+        "authNotFound": "계정 풀에 사용 가능한 계정이 설정되어 있지 않습니다. Cockpit Tools API 서비스에서 계정을 추가하거나 활성화하세요.",
+        "accountConcurrencyExceeded": "계정의 동시 요청 한도에 도달했습니다. 나중에 다시 시도하세요.",
+        "providerRetryAfter": "공급자가 요청 일시 중지를 요구했습니다. {{seconds}}초 후 다시 시도하세요.",
+        "audioInvalidRequest": "잘못된 오디오 요청: {{detail}}",
+        "audioTooLarge": "오디오 요청은 26 MiB를 초과할 수 없습니다.",
+        "audioNotSupported": "이 OAuth 계정은 음성 전사만 지원합니다. 다른 오디오 작업에는 API Key 공급자를 사용하세요.",
+        "audioUnavailable": "오디오 전달을 사용할 수 없습니다.",
+        "audioUpstreamFailed": "오디오 업스트림 요청이 실패했습니다."
       },
       "testRateLimited": "서비스에 연결되었지만 업스트림 제한 또는 할당량 부족입니다: {{detail}}.",
       "testHttpFailed": "서비스에 연결되었지만 요청이 HTTP {{status}}를 반환했습니다: {{detail}}.",
@@ -2786,12 +2824,29 @@
         "dialog": {
           "title": "계정 이상",
           "description": "계정 풀과 개별 계정의 문제를 표시합니다. 특정 계정에 귀속된 오류에만 해당 계정 작업을 제공합니다.",
-          "noIssues": "계정에 이상이 없습니다",
+          "noIssues": "표시할 문제가 없습니다",
           "unscopedApiKey": "현재 API Key",
           "poolUnavailable": "풀에 사용 가능한 계정이 없습니다",
           "poolUnavailableDetail": "모델 {{model}}에 사용할 계정을 선택하지 못했습니다",
           "poolUnattributedDetail": "계정별 진단 정보를 받지 못해 이 오류를 특정 계정에 연결할 수 없습니다. 이 API 키의 계정 범위와 모델 설정을 확인하세요.",
           "poolDiagnosticDetail": "모델 {{model}}: 후보 {{candidate}}, 범위 내 {{scoped}}, 사용 가능 {{available}}, 사용 불가 {{unavailable}}, 모델 제외 {{modelExcluded}}, 할당량 예약 {{quotaReserved}}, 이미지 정책 차단 {{imageBlocked}}",
+          "poolNoCandidatesDetail": "이 요청에 후보 계정이 없습니다. 요청 모델과 계정 로딩 상태를 확인하세요.",
+          "poolScopeMismatchDetail": "이 API 키의 계정 범위에 일치하는 후보가 없거나 계정 연결을 인식할 수 없습니다. 선택한 계정과 모델 설정을 확인하세요.",
+          "inspectBinding": "연결 확인",
+          "inspectConfig": "설정 확인",
+          "unmappedAccount": "식별되지 않은 계정",
+          "accountReference": "계정 {{id}}",
+          "scopeMismatchDetail": "이 후보 계정은 현재 API Key에 연결된 계정 범위 밖에 있습니다.",
+          "accountMappingMissingDetail": "후보 인증 정보를 계정에 연결할 수 없습니다. 계정 로딩과 계정 풀 동기화를 확인하세요.",
+          "boundAccountNotLoadedDetail": "이 연결된 계정은 현재 서비스에 로드되지 않았습니다. 계정 로딩과 풀 동기화를 확인하세요.",
+          "boundAccountNotCandidateDetail": "이 연결된 계정은 로드되었지만 이번 요청의 후보에 포함되지 않았습니다. 요청 모델, 공급자 및 요청 유형을 확인하세요.",
+          "scopeUnknownDetail": "현재 범위 진단으로는 정확한 원인을 알 수 없습니다. 계정 연결과 서비스 로그를 확인하세요.",
+          "poolBlockedDetail": "범위 내 필터 결과: 사용 불가 {{unavailable}}(비활성화, 대기 또는 인증 실패 등), 모델 제외 {{modelExcluded}}, 할당량 예약으로 차단 {{quotaReserved}}, 이미지 정책으로 차단 {{imageBlocked}}. 계정별 원인과 설정을 확인하세요.",
+          "poolUnknownDetail": "현재 진단으로 구체적인 원인을 확인할 수 없습니다. API 키의 계정 범위, 모델 설정, 서비스 로그를 확인하세요.",
+          "clearHint": "삭제는 이 진단 기록만 제거합니다. 설정, 토큰, 할당량은 복구하지 않으며 요청이 다시 실패하면 새 기록이 생성될 수 있습니다.",
+          "clearSuccess": "진단 기록을 삭제했습니다. 계정 풀이 복구되었다는 뜻은 아닙니다.",
+          "clearStale": "새로운 실패가 이 기록을 대체했습니다. 최신 상태를 확인한 뒤 다시 시도하세요.",
+          "clearFailed": "기록을 삭제하지 못했습니다: {{error}}",
           "missing": "계정 누락",
           "cooldown": "대기 중",
           "quota": "할당량 제한",
@@ -2822,7 +2877,16 @@
       "testChatInputRequired": "테스트 메시지를 입력하세요",
       "testChatModelRequired": "모델 ID를 선택하세요",
       "testChatEmptyResponse": "빈 응답",
-      "removeAction": "API에서 제거"
+      "removeAction": "API에서 제거",
+      "imageGenerationMainModel": {
+        "label": "이미지 주 모델",
+        "hint": "비워 두면 gpt-5.5를 사용합니다. 이 모델이 이미지 도구를 호출하므로 선택한 OAuth 계정은 해당 모델의 image_generation을 지원해야 합니다.",
+        "invalid": "공백 없이 200자 이하의 모델 ID를 입력하세요."
+      },
+      "requestDetail": {
+        "invalidRequestId": "요청 ID가 올바르지 않습니다.",
+        "settingsChanged": "다른 작업에서 설정을 변경했습니다. 다시 시도하세요."
+      }
     },
     "local": {
       "desc": "~/.codex/auth.json에서 현재 로그인된 계정 가져오기",
@@ -3328,6 +3392,11 @@
       "importModal": {
         "title": "세션 가져오기",
         "hint": "세션 패키지는 rollout 파일과 session_index 항목만 가져옵니다. 계정, Token, API Key, 앱 설정은 포함되지 않으며 대상 인스턴스에 같은 ID 세션이 있으면 건너뜁니다.",
+        "cwdPathAbsolute": "이 컴퓨터의 절대 경로를 입력하세요",
+        "cwdPathMissing": "폴더가 없거나 접근할 수 없습니다",
+        "cwdMappingTitle": "프로젝트 경로 매핑(선택 사항)",
+        "cwdMappingHint": "원본 작업 디렉터리를 이 컴퓨터에서 Codex에 이미 추가한 프로젝트 경로에 연결합니다. 원본 경로를 유지하려면 비워 두세요.",
+        "cwdTargetPlaceholder": "이 컴퓨터에 있는 프로젝트의 절대 경로 입력",
         "noTarget": "가져올 수 있는 Codex 인스턴스가 없습니다",
         "noPackage": "먼저 세션 패키지를 선택하세요",
         "pickOne": "가져올 수 있는 세션을 하나 이상 선택하세요",
@@ -3428,7 +3497,8 @@
         "7d": "7일",
         "30d": "30일",
         "month": "이번 달",
-        "all": "전체"
+        "all": "전체",
+        "today": "오늘"
       },
       "instance": {
         "label": "인스턴스",
@@ -3491,7 +3561,8 @@
         "total": "합계",
         "requests": "요청",
         "cost": "비용"
-      }
+      },
+      "costUnavailable": "일부 모델의 가격이 없어 전체 일일 비용을 추정할 수 없습니다."
     },
     "api": {
       "baseUrl": "기본 URL",
@@ -4158,6 +4229,11 @@
       "saveFailed": "속도 저장 실패: {{error}}"
     },
     "apiService": {
+      "inspection": {
+        "internalScope": "내부 클라이언트 요청입니다. 서비스 계정 풀과 인스턴스 연결을 확인하세요. 공개 클라이언트 Key에 해당하지 않습니다.",
+        "keyUnavailable": "요청에 해당하는 클라이언트 Key가 삭제되었거나 없습니다. 현재 Key와 계정 풀을 확인하세요.",
+        "imageScope": "이미지 요청은 이미지 계정 풀과 계정별 이미지 정책을 사용합니다. 이미지 설정을 확인하세요."
+      },
       "navTitle": "Codex API 서비스",
       "title": "Codex API 서비스",
       "openPage": "API 서비스 열기",
@@ -5328,6 +5404,129 @@
       "errors": {
         "bindingChanged": "계정 연결이 변경되어 현재 설정을 유지했습니다."
       }
+    },
+    "autoRefreshScope": {
+      "label": "자동 갱신 요금제",
+      "description": "표준 OAuth 계정의 플랫폼 및 그룹별 예약 할당량 갱신을 필터링합니다. 기본값은 모든 요금제입니다. 수동 갱신, 현재 계정 갱신, 토큰 유지 및 다른 계정 유형은 바뀌지 않습니다.",
+      "plans": {
+        "free": "무료",
+        "go": "Go",
+        "plus": "Plus",
+        "pro": "Pro",
+        "team": "팀",
+        "business": "비즈니스",
+        "enterprise": "기업",
+        "edu_k12": "교육",
+        "unknown": "알 수 없음"
+      }
+    },
+    "requestDiagnostics": {
+      "recordPayloads": "요청 본문 기록",
+      "recordPayloadsHint": "기본값은 꺼짐입니다. 클라이언트와 상위 요청 스냅샷을 크기 제한 내에서 로컬 저장합니다. 끄면 새 기록만 중단하며 저장된 본문은 별도로 지울 수 있습니다.",
+      "privacyHint": "인증 필드는 가리지만 대화 본문의 민감한 정보는 남을 수 있습니다. 복사하거나 공유하기 전에 확인하세요.",
+      "clearPayloads": "저장 본문 삭제",
+      "clearConfirm": "본문만 지우고 통계와 시도 기록은 유지할까요?",
+      "cleared": "본문 기록 {{count}}개를 삭제했습니다",
+      "title": "요청 상세",
+      "totalLatency": "총 소요 시간",
+      "firstResponse": "첫 응답",
+      "firstResponseHint": "요청 시작부터 상위 서버의 첫 응답 조각까지의 시간이며 첫 생성 토큰 시간과 다를 수 있습니다.",
+      "unavailable": "진단 정보가 아직 없습니다. 나중에 새로고침하세요. 과거 요청은 소급 기록하지 않습니다.",
+      "attempts": "시도 이력",
+      "noAttempts": "시도 이력이 기록되지 않았습니다.",
+      "detailTruncated": "크기 제한으로 일부 진단 기록이 생략되었습니다.",
+      "payloads": "요청 스냅샷",
+      "noPayloads": "본문이 기록되지 않았습니다. 활성화한 뒤의 새 요청만 기록합니다.",
+      "clientPayload": "클라이언트 요청",
+      "upstreamPayload": "상위 요청 #{{sequence}}",
+      "headers": "헤더",
+      "payloadTruncated": "스냅샷이 잘렸습니다. 저장된 부분만 표시합니다.",
+      "details": "상세",
+      "latencyPair": "총 {{total}} · 첫 응답 {{first}}",
+      "phases": {
+        "selection": "계정 선택",
+        "upstream_connect": "상위 연결",
+        "upstream_response": "상위 응답",
+        "stream_read": "스트림 읽기",
+        "downstream_delivery": "클라이언트 전달",
+        "client_canceled": "클라이언트 취소",
+        "stream_incomplete": "미완료 스트림",
+        "completed": "완료",
+        "unknown": "미기록"
+      },
+      "failurePhase": "실패 단계",
+      "applying": "실행 중인 게이트웨이에 적용 중…",
+      "applyFailed": "설정은 저장됐지만 실행 중인 게이트웨이에 적용하지 못했습니다. 다시 시도하세요. 원인: {{error}}"
+    },
+    "experimentalModels": {
+      "defaultReasoning": "기본 추론 강도",
+      "defaultReasoningFollow": "기본값 사용",
+      "defaultReasoningHint": "비워 두면 모델의 기본 추론 강도를 사용합니다. 선택한 강도는 현재 지원 범위에 있어야 합니다.",
+      "defaultReasoningInvalid": "기본 추론 강도는 이 모델이 지원하는 값이어야 합니다."
+    },
+    "modelConfig": {
+      "transfer": "가져오기 / 내보내기",
+      "title": "모델 설정",
+      "description": "저장된 모델 목록, 기본 모델, API 서비스의 가격·별칭·라우팅 참조를 내보냅니다. 파일에는 API Key, 계정 인증 정보, 서비스 시작·중지 설정이 포함되지 않습니다.",
+      "importHint": "가져오면 현재 인스턴스에 즉시 저장하고 활성화된 모델 카탈로그를 업데이트합니다. API 서비스 설정은 전체에서 공유합니다. 모델 관리를 활성화하거나 게이트웨이를 시작하거나 클라이언트를 인계받지 않습니다. 저장하지 않은 모델 편집 내용은 가져온 결과로 대체됩니다.",
+      "import": "가져오기",
+      "export": "내보내기",
+      "file": "JSON 선택",
+      "jsonLabel": "설정 JSON",
+      "strategy": "충돌 처리",
+      "keepExisting": "기존 유지",
+      "replace": "동명 덮어쓰기",
+      "strategyHint": "기본적으로 기존 설정을 유지합니다. 덮어쓰기는 파일에 나열된 이름이 같은 항목만 업데이트하며 다른 항목은 삭제하지 않습니다.",
+      "preview": "미리보기",
+      "previewFirst": "미리 보고 모든 오류를 수정한 후 가져오기를 확정하세요.",
+      "previewLoading": "미리 보는 중…",
+      "importLoading": "가져오는 중…",
+      "exported": "설정을 내보냈습니다.",
+      "imported": "설정 {{count}}개를 저장했습니다.",
+      "section": "범위",
+      "item": "항목",
+      "result": "결과",
+      "actions": {
+        "added": "추가",
+        "updated": "업데이트",
+        "conflict": "충돌",
+        "skipped": "건너뛰기",
+        "error": "오류"
+      },
+      "sections": {
+        "models": "모델",
+        "defaultModel": "기본 모델",
+        "prices": "가격",
+        "aliases": "별칭",
+        "accountRules": "계정 규칙",
+        "routing": "라우팅",
+        "exclusions": "제외 모델",
+        "apiService": "API 서비스"
+      },
+      "errors": {
+        "invalid": "설정 형식 또는 내용이 올바르지 않습니다.",
+        "json": "JSON을 해석할 수 없습니다. 내용을 확인하세요.",
+        "version": "이 설정 형식 또는 버전은 지원하지 않습니다.",
+        "fields": "파일에 필수 필드가 없거나, 형식이 잘못되었거나, 지원하지 않는 필드가 있습니다. 내보낸 모델 설정 파일을 사용하세요.",
+        "tooLarge": "설정 파일이 최대 크기인 4 MB를 초과합니다.",
+        "tooMany": "항목이 너무 많습니다. 각 범위는 최대 1000개 항목을 지원합니다.",
+        "duplicate": "파일의 같은 범위에 중복 항목이 있습니다.",
+        "stateChanged": "미리 본 후 로컬 설정이 변경되었습니다. 다시 미리 보세요.",
+        "accountMissing": "참조된 계정이 없거나 현재 API 서비스 계정 풀에 포함되지 않습니다.",
+        "modelMissing": "참조된 모델이 대상 설정과 사용 가능한 계정에 없습니다.",
+        "serviceMissing": "API 서비스 설정이 아직 생성되지 않았습니다. 가격이나 경로를 가져올 수 없습니다.",
+        "price": "가격은 유한한 음이 아닌 수여야 하며 긴 컨텍스트 임계값은 0보다 커야 합니다.",
+        "alias": "별칭이 올바르지 않거나 원본 모델과 같습니다.",
+        "rule": "규칙이 올바르지 않습니다. 모델 범위, 우선순위, 가중치를 확인하세요.",
+        "busy": "다른 모델 설정 작업이 진행 중입니다. 잠시 후 다시 시도하세요.",
+        "instanceMissing": "대상 인스턴스가 더 이상 존재하지 않습니다. 다시 선택하세요.",
+        "read": "로컬 설정을 읽지 못했습니다. 다시 시도하세요.",
+        "write": "설정을 저장하지 못했습니다. 원래 설정은 유지되었습니다. 다시 시도하세요.",
+        "validation": "설정에 오류가 있습니다. 다시 미리 보고 수정하세요.",
+        "recovery": "이전 가져오기가 중단되었습니다. 더 최근의 설정이나 파일 문제로 복구하지 못했습니다. 복구 기록과 기존 데이터는 유지되었습니다.",
+        "apply": "설정은 저장되었지만 실행 중인 게이트웨이를 다시 로드하지 못했습니다: {{error}}"
+      },
+      "closeHint": "가져오기를 확인한 뒤에는 대화상자를 닫아도 저장이 계속됩니다."
     }
   },
   "githubCopilot": {
@@ -6883,6 +7082,15 @@
       "info": "정보",
       "warn": "경고",
       "error": "오류"
+    },
+    "search": {
+      "placeholder": "로그 내용 검색",
+      "regex": "정규식",
+      "errors": {
+        "invalidRegex": "잘못된 정규식입니다. 수정해 주세요.",
+        "timeout": "필터 시간이 초과되었습니다. 식을 단순화하거나 정규식을 꺼 주세요.",
+        "unavailable": "필터를 시작할 수 없습니다. 다시 시도해 주세요."
+      }
     }
   },
   "mfaQuick": {
@@ -7417,6 +7625,10 @@
       "labelOverridePlaceholder": "메뉴 표시 이름",
       "supports1mLabel": "1M 지원 선언",
       "supports1mShort": "1M지원"
+    },
+    "errors": {
+      "profileMissing": "Claude 프로필 폴더를 찾을 수 없습니다. Claude를 한 번 연 후 다시 시도하세요.",
+      "cookieSnapshotTooLarge": "쿠키 데이터베이스가 너무 커서 안전하게 읽을 수 없습니다."
     }
   },
   "openrouter": {

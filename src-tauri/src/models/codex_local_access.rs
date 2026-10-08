@@ -176,6 +176,10 @@ pub struct CodexLocalAccessModelAlias {
 #[serde(rename_all = "camelCase")]
 pub struct CodexLocalAccessModelPricing {
     pub model_id: String,
+    /// Only explicitly edited long-context prices override the multiplier policy.
+    /// Legacy configurations retain their existing derived-price behavior.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub standard_long_price_override: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub long_context_threshold_tokens: Option<u64>,
     #[serde(default)]
@@ -518,6 +522,9 @@ pub struct CodexLocalAccessCollection {
     pub image_generation_mode: CodexLocalAccessImageGenerationMode,
     #[serde(default = "default_image_generation_model")]
     pub image_generation_model: String,
+    /// None preserves the legacy image relay model without expanding account catalogs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_generation_main_model: Option<String>,
     #[serde(default)]
     pub image_generation_account_policies: HashMap<String, CodexLocalAccessImageGenerationPolicy>,
     /// 生图转发账号池：生图请求只允许落到这些 OAuth 账号；为空表示不转发。
@@ -570,6 +577,10 @@ pub struct CodexLocalAccessCollection {
     pub restrict_free_accounts: bool,
     #[serde(default = "default_true")]
     pub debug_logs: bool,
+    /// Explicit opt-in: stores bounded, field-redacted local request snapshots.
+    /// Plain text inside prompts may still contain private information.
+    #[serde(default)]
+    pub request_payload_logging: bool,
     #[serde(default)]
     pub immediate_sse_response: bool,
     #[serde(default = "default_max_concurrent_image_requests")]
@@ -772,6 +783,10 @@ pub struct CodexLocalAccessUsageEvent {
     pub error_message: String,
     #[serde(default)]
     pub latency_ms: u64,
+    /// First nonempty upstream response fragment, measured from request start.
+    /// Historical records remain None; this is not a generated-token metric.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_response_ms: Option<u64>,
     #[serde(default)]
     pub input_tokens: u64,
     #[serde(default)]
@@ -872,6 +887,84 @@ pub struct CodexLocalAccessUsageEventPage {
     pub total_pages: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexLocalAccessRequestAttempt {
+    pub sequence: u32,
+    #[serde(default)]
+    pub account_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_email: Option<String>,
+    #[serde(default)]
+    pub model_id: String,
+    #[serde(default)]
+    pub transport: String,
+    #[serde(default)]
+    pub started_at_ms: i64,
+    #[serde(default)]
+    pub latency_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<u16>,
+    #[serde(default)]
+    pub success: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_category: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_phase: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexLocalAccessRequestPayload {
+    pub stage: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attempt_sequence: Option<u32>,
+    #[serde(default)]
+    pub transport: String,
+    #[serde(default)]
+    pub content_type: String,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub headers: HashMap<String, String>,
+    #[serde(default)]
+    pub body: String,
+    #[serde(default)]
+    pub truncated: bool,
+    #[serde(default)]
+    pub original_bytes: u64,
+    /// SHA-256 of the redacted local snapshot, never of secret-bearing source bytes.
+    #[serde(default)]
+    pub sha256: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexLocalAccessRequestDetail {
+    pub request_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_response_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_phase: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_diagnostic_items")]
+    pub attempts: Vec<CodexLocalAccessRequestAttempt>,
+    #[serde(default, deserialize_with = "deserialize_optional_diagnostic_items")]
+    pub payloads: Vec<CodexLocalAccessRequestPayload>,
+    #[serde(default)]
+    pub captured_at_ms: i64,
+    #[serde(default)]
+    pub truncated: bool,
+}
+
+fn deserialize_optional_diagnostic_items<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    // Legacy sidecars serialize absent Go slices as null when body recording is off.
+    Option::<Vec<T>>::deserialize(deserializer).map(Option::unwrap_or_default)
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexLocalAccessAccountCooldown {
@@ -904,6 +997,7 @@ pub struct CodexLocalAccessAccountHealth {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexLocalAccessAccountPoolHealth {
+    pub request_id: String,
     pub api_key_id: String,
     pub api_key_label: String,
     pub provider: String,
@@ -921,7 +1015,20 @@ pub struct CodexLocalAccessAccountPoolHealth {
     pub image_policy_blocked_auths: usize,
     #[serde(default)]
     pub account_statuses: Vec<CodexLocalAccessAccountPoolMemberHealth>,
+    #[serde(default)]
+    pub scope_diagnostics: Vec<CodexLocalAccessAccountPoolScopeDiagnostic>,
     pub last_failure_at: i64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexLocalAccessAccountPoolScopeDiagnostic {
+    #[serde(default)]
+    pub account_id: String,
+    #[serde(default)]
+    pub account_email: String,
+    #[serde(default)]
+    pub reason_code: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

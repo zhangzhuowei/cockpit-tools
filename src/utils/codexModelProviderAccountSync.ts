@@ -9,6 +9,7 @@ import {
   resolveCodexApiProviderPresetId,
 } from "./codexProviderPresets";
 import { resolveCodexProviderCapabilityProfile } from "./codexProviderGateway";
+import { resolveCodexModelProviderForApiKey } from "./codexModelProviderKeyConfig";
 import { resolveCodexModelProviderAccountName } from "./codexModelProviderAccountName";
 
 export interface CodexModelProviderReference {
@@ -53,6 +54,7 @@ export function mergeCodexModelProviderCredentialInput(
     integrationType?: "sub2api" | "new_api" | null;
   },
 ) {
+  provider = provider ? resolveCodexModelProviderForApiKey(provider, fallback.apiKey) : null;
   return {
     ...fallback,
     providerId: provider?.id ?? fallback.providerId,
@@ -120,7 +122,9 @@ export function findCodexAccountsReferencingModelProvider(
 export function buildCodexModelProviderAccountSnapshot(
   provider: CodexModelProvider,
   apiKeyName?: string | null,
+  apiKey?: string | null,
 ): CodexModelProviderAccountSnapshot {
+  provider = resolveCodexModelProviderForApiKey(provider, apiKey);
   const presetId = resolveCodexApiProviderPresetId(provider.baseUrl);
   const isOpenAI = presetId === "openai_official";
   const wireApi = provider.wireApi ?? "responses";

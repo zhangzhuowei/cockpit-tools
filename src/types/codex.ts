@@ -11,9 +11,47 @@ export interface CodexExperimentalModelDefinition {
   display_name: string;
   /** undefined follows the official model reasoning levels; otherwise custom multi-select. */
   reasoning_efforts?: CodexReasoningEffort[];
+  default_reasoning_effort?: CodexReasoningEffort;
   /** Omitted values follow the model catalog metadata. */
   context_window?: number;
   auto_compact_token_limit?: number;
+}
+
+export interface CodexModelConfigApiService {
+  routingStrategy?: import('./codexLocalAccess').CodexLocalAccessRoutingStrategy;
+  modelPricings: import('./codexLocalAccess').CodexLocalAccessModelPricing[];
+  modelAliases: import('./codexLocalAccess').CodexLocalAccessModelAlias[];
+  accountModelRules: import('./codexLocalAccess').CodexLocalAccessAccountModelRule[];
+  customRoutingRules: import('./codexLocalAccess').CodexLocalAccessCustomRoutingRule[];
+  excludedModels: string[];
+}
+
+export interface CodexModelConfigDocument {
+  schema: 'cockpit-tools.codex-model-config';
+  version: 1;
+  models: CodexExperimentalModelDefinition[];
+  defaultModelId?: string | null;
+  apiService?: CodexModelConfigApiService;
+}
+
+export interface CodexModelConfigImportEntry {
+  section: 'models' | 'defaultModel' | 'prices' | 'aliases' | 'accountRules' | 'routing' | 'exclusions' | 'apiService';
+  id: string;
+  action: 'added' | 'updated' | 'conflict' | 'skipped' | 'error';
+  errorCode?: string;
+}
+
+export interface CodexModelConfigImportPreview {
+  revision: string;
+  entries: CodexModelConfigImportEntry[];
+  added: string[];
+  updated: string[];
+  conflicts: string[];
+  skipped: string[];
+  errors: string[];
+  committed: number;
+  models: CodexExperimentalModelDefinition[];
+  defaultModelId: string | null;
 }
 
 export type CodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
@@ -468,6 +506,7 @@ export interface CodexSessionUsageTotals {
 }
 
 export interface CodexSessionUsageBreakdownRow {
+  estimatedCostUsd?: number | null;
   key: string;
   label: string;
   inputTokens: number;

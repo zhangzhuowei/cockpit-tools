@@ -11,6 +11,7 @@ fn new_local_access_collection() -> Result<CodexLocalAccessCollection, String> {
         client_base_url_host: CodexLocalAccessClientBaseUrlHost::default(),
         image_generation_mode: CodexLocalAccessImageGenerationMode::default(),
         image_generation_model: DEFAULT_CODEX_IMAGE_GENERATION_MODEL.to_string(),
+        image_generation_main_model: None,
         image_generation_account_policies: HashMap::new(),
         image_generation_account_ids: Vec::new(),
         gateway_mode: CodexLocalAccessGatewayMode::default(),
@@ -35,6 +36,7 @@ fn new_local_access_collection() -> Result<CodexLocalAccessCollection, String> {
         disable_cooling: false,
         restrict_free_accounts: true,
         debug_logs: true,
+        request_payload_logging: false,
         immediate_sse_response: false,
         max_concurrent_image_requests: 1,
         max_account_concurrency: 0,
@@ -800,6 +802,24 @@ pub async fn update_local_access_debug_logs(
     snapshot_state().await
 }
 
+fn normalize_image_generation_main_model(model: Option<String>) -> Result<Option<String>, String> {
+    let normalized = model.unwrap_or_default().trim().to_string();
+    if normalized.is_empty() {
+        return Ok(None);
+    }
+    if normalized.chars().count() > 200 || normalized.chars().any(|ch| ch.is_whitespace() || ch.is_control()) {
+        return Err("codex.localAccess.imageGenerationMainModel.invalid".to_string());
+    }
+    Ok(Some(normalized))
+}
+
+pub async fn update_local_access_image_generation_main_model(
+    model: Option<String>,
+) -> Result<CodexLocalAccessState, String> {
+    let normalized = normalize_image_generation_main_model(model)?;
+    save_image_generation_models(None, Some(normalized)).await
+}
+
 pub async fn update_local_access_image_generation_model(
     image_generation_model: String,
 ) -> Result<CodexLocalAccessState, String> {
@@ -810,6 +830,15 @@ pub async fn update_local_access_image_generation_model(
     if normalized_model.chars().count() > 200 {
         return Err("codex.localAccess.imageGenerationModel.tooLong".to_string());
     }
+    save_image_generation_models(Some(normalized_model), None).await
+}
+
+async fn save_image_generation_models(
+    tool_model: Option<String>,
+    main_model: Option<Option<String>>,
+) -> Result<CodexLocalAccessState, String> {
+    static UPDATE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _update_guard = UPDATE_LOCK.lock().await;
     ensure_runtime_loaded().await?;
 
     let maybe_collection = {
@@ -819,8 +848,16 @@ pub async fn update_local_access_image_generation_model(
     let Some(mut collection) = maybe_collection else {
         return Err("本地接入集合尚未创建".to_string());
     };
-    if collection.image_generation_model != normalized_model {
-        collection.image_generation_model = normalized_model;
+    let mut changed = false;
+    if let Some(model) = tool_model {
+        changed |= collection.image_generation_model != model;
+        collection.image_generation_model = model;
+    }
+    if let Some(model) = main_model {
+        changed |= collection.image_generation_main_model != model;
+        collection.image_generation_main_model = model;
+    }
+    if changed {
         collection.updated_at = now_ms();
         let collection_to_save = collection.clone();
         tauri::async_runtime::spawn_blocking(move || save_collection_to_disk(&collection_to_save))
@@ -1422,12 +1459,8 @@ pub async fn update_local_access_bound_oauth_account(
 
 pub async fn clear_local_access_stats() -> Result<CodexLocalAccessState, String> {
     ensure_runtime_loaded().await?;
-    if let Err(error) = clear_local_access_usage_events_db() {
-        logger::log_codex_api_warn(&format!(
-            "清空 API 服务请求日志失败，继续清空内存统计: {}",
-            error
-        ));
-    }
+    tauri::async_runtime::spawn_blocking(clear_local_access_usage_events_db).await
+        .map_err(|error| format!("清空 API 服务请求日志任务失败: {error}"))??;
 
     let cleared = empty_stats_snapshot();
     {
@@ -1547,42 +1580,101 @@ pub async fn update_local_access_port(port: u16) -> Result<CodexLocalAccessState
     snapshot_state().await
 }
 
+fn local_access_enable_transition_lock() -> &'static TokioMutex<()> {
+    static LOCK: std::sync::OnceLock<TokioMutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| TokioMutex::new(()))
+}
+
+fn finish_local_access_disable(
+    gateway_result: Result<(), String>,
+    restore_profiles: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    let restore_result = restore_profiles();
+    match (gateway_result, restore_result) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(stop_error), Ok(())) => Err(stop_error),
+        (Ok(()), Err(restore_error)) => Err(restore_error),
+        (Err(stop_error), Err(restore_error)) => Err(format!(
+            "{}; 恢复 Codex 配置时也失败: {}",
+            stop_error, restore_error
+        )),
+    }
+}
+
 pub async fn set_local_access_enabled(enabled: bool) -> Result<CodexLocalAccessState, String> {
-    if enabled {
-        advance_gateway_lifecycle_generation();
-        ensure_runtime_loaded().await?;
-    } else {
-        ensure_runtime_loaded_without_start().await?;
+    // Concurrent entry points must not duplicate file restoration or overwrite a newer toggle.
+    let _transition_guard = local_access_enable_transition_lock().try_lock()
+        .map_err(|_| "API 服务正在启停，请稍后重试".to_string())?;
+    let mut result = async {
+        if enabled {
+            advance_gateway_lifecycle_generation();
+            ensure_runtime_loaded().await?;
+        } else {
+            ensure_runtime_loaded_without_start().await?;
+        }
+
+        let maybe_collection = {
+            let runtime = gateway_runtime().lock().await;
+            runtime.collection.clone()
+        };
+
+        let Some(mut collection) = maybe_collection else {
+            return Err("本地接入集合尚未创建".to_string());
+        };
+
+        collection.enabled = enabled;
+        collection.updated_at = now_ms();
+        let persisted = collection.clone();
+        tauri::async_runtime::spawn_blocking(move || save_collection_to_disk(&persisted))
+            .await.map_err(|error| format!("保存 API 服务配置失败: {error}"))??;
+        let next_collection = collection.clone();
+
+        {
+            let mut runtime = gateway_runtime().lock().await;
+            sync_runtime_collection(&mut runtime, collection);
+        }
+
+        if enabled {
+            ensure_gateway_matches_runtime().await?;
+            ensure_local_access_profile_takeovers(&next_collection).await?;
+            snapshot_state().await
+        } else {
+            let gateway_result = stop_gateway_and_wait_for_release(
+                bind_host_for_collection(&next_collection),
+                next_collection.port,
+            )
+            .await;
+            let generation = current_gateway_lifecycle_generation();
+            let restore_deadline = Instant::now() + Duration::from_secs(30);
+            let restore_worker = tauri::async_runtime::spawn_blocking(move || {
+                restore_takeover_profiles_after_disable_checked(&next_collection, || {
+                    if Instant::now() >= restore_deadline || gateway_lifecycle_generation_changed(generation) {
+                        return Err("恢复客户端配置已超时或被新的启停操作替代，请重试".to_string());
+                    }
+                    Ok(())
+                })
+            });
+            let restore_result = match timeout(Duration::from_secs(30), restore_worker).await {
+                Ok(result) => result.map_err(|error| format!("恢复客户端配置失败: {error}")).and_then(|result| result),
+                Err(_) => Err("恢复客户端配置超时，请重试".to_string()),
+            };
+            finish_local_access_disable(gateway_result, || restore_result)?;
+            snapshot_state_without_gateway_reload().await
+        }
     }
+    .await;
 
-    let maybe_collection = {
-        let runtime = gateway_runtime().lock().await;
-        runtime.collection.clone()
-    };
-
-    let Some(mut collection) = maybe_collection else {
-        return Err("本地接入集合尚未创建".to_string());
-    };
-
-    collection.enabled = enabled;
-    collection.updated_at = now_ms();
-    save_collection_to_disk(&collection)?;
-    let next_collection = collection.clone();
-
-    {
-        let mut runtime = gateway_runtime().lock().await;
-        sync_runtime_collection(&mut runtime, collection);
+    let mut runtime = gateway_runtime().lock().await;
+    match &mut result {
+        Ok(state) => {
+            runtime.last_error = None;
+            state.last_error = None;
+        }
+        Err(error) => runtime.last_error = Some(error.clone()),
     }
-
-    if enabled {
-        ensure_gateway_matches_runtime().await?;
-        ensure_local_access_profile_takeovers(&next_collection).await?;
-        snapshot_state().await
-    } else {
-        stop_gateway().await;
-        restore_takeover_profiles_after_disable(&next_collection)?;
-        snapshot_state_without_gateway_reload().await
-    }
+    drop(runtime);
+    emit_local_access_state_updated();
+    result
 }
 
 pub async fn restore_local_access_gateway() {

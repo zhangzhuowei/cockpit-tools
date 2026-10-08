@@ -381,11 +381,11 @@ async fn update_sidecar_auth_result_health(event: &SidecarAuthResultEvent, pool_
     )
     .await;
     sync_sidecar_scheduler_state(event).await;
-    update_sidecar_account_pool_health(event, pool_diagnostic).await;
+    let pool_changed = update_sidecar_account_pool_health(event, pool_diagnostic).await;
     // Pool failures are the source of the account-pool dialog state. Failed
     // account events also update per-account health; successful request events
     // are intentionally not broadcast to avoid reloading the UI per request.
-    if pool_diagnostic || !event.success {
+    if pool_changed || pool_diagnostic || !event.success {
         emit_local_access_state_updated();
     }
 }
@@ -395,106 +395,6 @@ fn emit_local_access_state_updated() {
         return;
     };
     let _ = app.emit("codex-local-access-state-updated", ());
-}
-
-const UNSCOPED_ACCOUNT_POOL_HEALTH_KEY: &str = "__unscoped__";
-
-fn account_pool_health_key(api_key_id: &str) -> String {
-    let api_key_id = api_key_id.trim();
-    if api_key_id.is_empty() {
-        UNSCOPED_ACCOUNT_POOL_HEALTH_KEY.to_string()
-    } else {
-        api_key_id.to_string()
-    }
-}
-
-fn is_account_pool_unavailable_error(event: &SidecarAuthResultEvent) -> bool {
-    matches!(
-        event.error_code.as_deref().map(str::trim),
-        Some("auth_not_found" | "auth_unavailable")
-    ) || event
-        .error_message
-        .as_deref()
-        .is_some_and(|message| message.to_ascii_lowercase().contains("no auth available"))
-}
-
-// Pool selection can fail before Sidecar chooses an auth, so account_id is correctly empty.
-// Keep that state separately instead of discarding it or blaming an arbitrary account.
-async fn update_sidecar_account_pool_health(event: &SidecarAuthResultEvent, pool_diagnostic: bool) {
-    let mut runtime = gateway_runtime().lock().await;
-    apply_sidecar_account_pool_health(&mut runtime, event, pool_diagnostic, now_ms());
-}
-
-fn apply_sidecar_account_pool_health(
-    runtime: &mut GatewayRuntime,
-    event: &SidecarAuthResultEvent,
-    pool_diagnostic: bool,
-    now: i64,
-) {
-    let key = account_pool_health_key(&event.api_key_id);
-    if event.success {
-        runtime.account_pool_health.remove(&key);
-        return;
-    }
-    if !pool_diagnostic
-        && (!event.account_id.trim().is_empty() || !is_account_pool_unavailable_error(event))
-    {
-        return;
-    }
-
-    let health = runtime.account_pool_health.entry(key).or_default();
-    health.api_key_id = event.api_key_id.trim().to_string();
-    if !event.api_key_label.trim().is_empty() {
-        health.api_key_label = event.api_key_label.trim().to_string();
-    }
-    if !event.provider.trim().is_empty() {
-        health.provider = event.provider.trim().to_string();
-    }
-    if !event.model.trim().is_empty() {
-        health.model = event.model.trim().to_string();
-    }
-    if !event.request_kind.trim().is_empty() {
-        health.request_kind = event.request_kind.trim().to_string();
-    }
-    if let Some(error_code) = event
-        .error_code
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        health.error_code = error_code.to_string();
-    }
-    if let Some(error_message) = event
-        .error_message
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        health.error_message = error_message.to_string();
-    }
-    if pool_diagnostic {
-        health.diagnostic_available = true;
-        health.candidate_auths = event.candidate_auths;
-        health.scoped_auths = event.scoped_auths;
-        health.available_auths = event.available_auths;
-        health.unavailable_auths = event.unavailable_auths;
-        health.model_excluded_auths = event.model_excluded_auths;
-        health.quota_reserved_auths = event.quota_reserved_auths;
-        health.image_policy_blocked_auths = event.image_policy_blocked_auths;
-        health.account_statuses = event
-            .account_statuses
-            .iter()
-            .filter(|item| !item.account_id.trim().is_empty())
-            .map(|item| RuntimeAccountPoolMemberHealth {
-                account_id: item.account_id.trim().to_string(),
-                account_email: item.account_email.trim().to_string(),
-                available: item.available,
-                reason_code: item.reason_code.trim().to_string(),
-                reason_message: item.reason_message.trim().to_string(),
-            })
-            .collect();
-    }
-    health.last_failure_at = now;
 }
 
 fn apply_sidecar_scheduler_state(
@@ -1121,6 +1021,7 @@ async fn record_sidecar_usage_event(event: SidecarUsageEvent) {
             reasoning_effort: event.reasoning_effort.as_deref(),
             requested_model: requested_model.as_deref(),
             upstream_model: upstream_model.as_deref(),
+            first_response_ms: event.first_response_ms,
         },
     )
     .await
@@ -1196,8 +1097,8 @@ async fn handle_sidecar_stdout_line(
     if trimmed.is_empty() {
         return;
     }
-    update_sidecar_stdout_diagnostics(diagnostics, trimmed, false);
     let Ok(value) = serde_json::from_str::<Value>(trimmed) else {
+        update_sidecar_stdout_diagnostics(diagnostics, trimmed, false);
         logger::log_codex_api_info(&format!("[CodexLocalAccess][sidecar] {}", trimmed));
         return;
     };
@@ -1205,7 +1106,16 @@ async fn handle_sidecar_stdout_line(
         .get("type")
         .and_then(Value::as_str)
         .unwrap_or_default();
+    // Request bodies belong only in the opt-in diagnostics store. Never copy them
+    // into regular application logs or startup error snapshots.
+    if event_type != "request_diagnostics" {
+        update_sidecar_stdout_diagnostics(diagnostics, trimmed, false);
+    }
     match event_type {
+        "request_diagnostics" => match serde_json::from_value::<CodexLocalAccessRequestDetail>(value) {
+            Ok(detail) => queue_request_diagnostics(detail),
+            Err(error) => logger::log_codex_api_warn(&format!("sidecar 请求诊断事件解析失败: {error}")),
+        },
         "usage" => match serde_json::from_value::<SidecarUsageEvent>(value) {
             Ok(event) => record_sidecar_usage_event(event).await,
             Err(error) => logger::log_codex_api_warn(&format!(
@@ -1263,6 +1173,9 @@ async fn drain_sidecar_stdout(
     ready_sender: oneshot::Sender<SidecarReadySignal>,
     diagnostics: SharedSidecarStartupDiagnostics,
 ) {
+    // Profile gateways can start before the global service runtime is loaded.
+    // The shared poller only observes live owned children; it never starts services.
+    ensure_request_diagnostics_poller_started();
     let mut lines = BufReader::new(stdout).lines();
     let mut ready_sender = Some(ready_sender);
     loop {
@@ -1853,6 +1766,7 @@ pub(crate) fn api_service_preview_model_definitions(
                 model_id: definition.model_id,
                 display_name: definition.display_name,
                 reasoning_efforts: None,
+                default_reasoning_effort: None,
                 context_window: None,
                 auto_compact_token_limit: None,
             })

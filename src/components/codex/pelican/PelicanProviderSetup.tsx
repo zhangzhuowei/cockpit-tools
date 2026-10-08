@@ -55,7 +55,7 @@ export function PelicanProviderSetup({ busy, invalid, mask, onValidChange, onCha
       {filtered.map((provider) => {
         const target = targets.find((entry) => entry.providerId === provider.id);
         const initial = pelicanProviderTarget(provider);
-        const models = pelicanProviderModels(provider);
+        const models = pelicanProviderModels(provider, target?.apiKeyId ?? initial?.apiKeyId);
         return <div className="pelican-provider-row" key={provider.id}>
           <label className="pelican-provider-choice"><input type="checkbox" checked={!!target} disabled={busy || !initial} onChange={() => {
             setTargets(target ? targets.filter((entry) => entry.providerId !== provider.id) : initial ? [...targets, initial] : targets); onChange();

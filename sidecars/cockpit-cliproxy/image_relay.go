@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/sjson"
 
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
 
@@ -259,7 +260,13 @@ func (s *relayServer) handleImagesRelayRequest(c *gin.Context, imageReq imageRel
 		writeAPIError(c, http.StatusNotFound, fmt.Sprintf("模型 %s 不在当前 API Key 的可用模型范围内", requestedModel), "model_not_available")
 		return
 	}
-	model := defaultImagesMainModel
+	model := configuredImagesMainModel(s.manifest)
+	body, err := sjson.SetBytes(imageReq.body, "model", model)
+	if err != nil {
+		writeAPIError(c, http.StatusBadRequest, err.Error(), "invalid_request")
+		return
+	}
+	imageReq.body = body
 	req, opts := buildExecutorRequest(c, imageReq.body, model, sdktranslator.FormatOpenAIResponse, "", true)
 	startedAt := time.Now()
 	timeouts := s.streamTimeoutsForRequest(c.Request, imageReq.body, defaultImagesToolModel)

@@ -1,5 +1,28 @@
 use super::*;
 
+#[test]
+fn default_exe_clears_profile_environment_and_stale_user_data_arguments() {
+    let mut command = Command::new("never-executed-chatgpt.exe");
+    command.env("CODEX_HOME", "old-home");
+    command.env("CODEX_ELECTRON_USER_DATA_PATH", "old-data");
+    let args = vec![
+        "--user-data-dir=old".into(),
+        "--user-data-dir".into(),
+        "old split".into(),
+        "--remote-debugging-port=9222".into(),
+    ];
+    prepare_codex_windows_default_command(&mut command, &args);
+    for name in ["CODEX_HOME", "CODEX_ELECTRON_USER_DATA_PATH"] {
+        assert!(command
+            .get_envs()
+            .any(|(key, value)| key == name && value.is_none()));
+    }
+    assert_eq!(
+        command.get_args().collect::<Vec<_>>(),
+        vec![std::ffi::OsStr::new("--remote-debugging-port=9222")]
+    );
+}
+
 fn package() -> CodexRegisteredLaunch {
     CodexRegisteredLaunch {
         family_name: "OpenAI.Codex_2p2nqsd0c76g0".into(),

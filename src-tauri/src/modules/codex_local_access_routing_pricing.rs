@@ -1084,6 +1084,7 @@ fn model_pricing(
 ) -> CodexLocalAccessModelPricing {
     CodexLocalAccessModelPricing {
         model_id: model_id.to_string(),
+        standard_long_price_override: false,
         long_context_threshold_tokens,
         input_usd_per_million: standard.input_usd_per_million,
         output_usd_per_million: standard.output_usd_per_million,
@@ -1474,7 +1475,10 @@ fn compute_effective_unit_prices(
         .unwrap_or(pricing.input_usd_per_million);
     let mut tier_multiplier = 1.0_f64;
 
-    match parse_billing_service_tier(service_tier) {
+    let tier = parse_billing_service_tier(service_tier);
+    let use_priority_rates = tier == CodexBillingServiceTier::Priority
+        && pricing_has_explicit_priority_rates(pricing);
+    match tier {
         CodexBillingServiceTier::Priority if pricing_has_explicit_priority_rates(pricing) => {
             if let Some(value) = pricing
                 .priority_input_usd_per_million
@@ -1505,9 +1509,21 @@ fn compute_effective_unit_prices(
     }
 
     if should_apply_session_long_context(model_id, pricing, usage) {
-        input_price *= CODEX_LOCAL_ACCESS_LONG_CONTEXT_INPUT_MULTIPLIER;
-        cache_price *= CODEX_LOCAL_ACCESS_LONG_CONTEXT_CACHE_MULTIPLIER;
-        output_price *= CODEX_LOCAL_ACCESS_LONG_CONTEXT_OUTPUT_MULTIPLIER;
+        // Explicit Priority rates compose with the long-context multipliers.
+        // Standard/Flex (and multiplier-based Priority) use the user's long prices.
+        let derived = derived_standard_long_price(codex_price(input_price, cache_price, output_price));
+        if pricing.standard_long_price_override && !use_priority_rates {
+            input_price = pricing.standard_long_input_usd_per_million
+                .unwrap_or(derived.input_usd_per_million);
+            cache_price = pricing.standard_long_cached_input_usd_per_million
+                .unwrap_or(derived.cached_input_usd_per_million);
+            output_price = pricing.standard_long_output_usd_per_million
+                .unwrap_or(derived.output_usd_per_million);
+        } else {
+            input_price = derived.input_usd_per_million;
+            cache_price = derived.cached_input_usd_per_million;
+            output_price = derived.output_usd_per_million;
+        }
     }
 
     CodexLocalAccessPrice {
@@ -1575,7 +1591,8 @@ fn normalize_model_pricings(
             continue;
         }
         let preset = price_book_entry_for_model(&model_id);
-        let has_custom_rates = pricing.long_context_threshold_tokens.is_some()
+        let has_custom_rates = pricing.standard_long_price_override
+            || pricing.long_context_threshold_tokens.is_some()
             || pricing.priority_input_usd_per_million.is_some()
             || pricing.priority_cached_input_usd_per_million.is_some()
             || pricing.priority_output_usd_per_million.is_some()
@@ -1585,7 +1602,8 @@ fn normalize_model_pricings(
             continue;
         }
 
-        let session_long = is_openai_session_long_context_model(&model_id)
+        let session_long = normalize_positive_tokens(pricing.long_context_threshold_tokens).is_some()
+            || is_openai_session_long_context_model(&model_id)
             || preset
                 .map(|item| item.session_long_context)
                 .unwrap_or(false);
@@ -1611,12 +1629,29 @@ fn normalize_model_pricings(
                 .map(normalize_price_value),
             normalize_price_value(pricing.output_usd_per_million),
         );
-        // standard_long absolute fields are display-only / legacy; billing uses
-        // multipliers. Persist derived display values for session-long models.
-        let standard_long = session_long.then(|| derived_standard_long_price(standard));
+        let standard_long_price_override = session_long && pricing.standard_long_price_override
+            && (pricing.standard_long_input_usd_per_million.is_some()
+                || pricing.standard_long_cached_input_usd_per_million.is_some()
+                || pricing.standard_long_output_usd_per_million.is_some());
+        let standard_long = session_long.then(|| {
+            let derived = derived_standard_long_price(standard);
+            if standard_long_price_override {
+                codex_price(
+                    pricing.standard_long_input_usd_per_million.map(normalize_price_value)
+                        .unwrap_or(derived.input_usd_per_million),
+                    pricing.standard_long_cached_input_usd_per_million.map(normalize_price_value)
+                        .unwrap_or(derived.cached_input_usd_per_million),
+                    pricing.standard_long_output_usd_per_million.map(normalize_price_value)
+                        .unwrap_or(derived.output_usd_per_million),
+                )
+            } else {
+                derived
+            }
+        });
 
         normalized.push(CodexLocalAccessModelPricing {
             model_id,
+            standard_long_price_override,
             long_context_threshold_tokens,
             input_usd_per_million: standard.input_usd_per_million,
             output_usd_per_million: standard.output_usd_per_million,
@@ -1658,6 +1693,9 @@ fn optional_price_matches_legacy(value: Option<f64>, expected: f64) -> bool {
 /// Former built-in rates that should follow the new book going forward.
 /// Custom overrides that are not these snapshots are kept.
 fn is_superseded_default_56_pricing(pricing: &CodexLocalAccessModelPricing) -> bool {
+    if pricing.standard_long_price_override {
+        return false;
+    }
     let model_id = normalize_known_openai_codex_model(&pricing.model_id)
         .unwrap_or_else(|| pricing.model_id.trim().to_ascii_lowercase());
     let (input, cached, output, priority_input, priority_cached, priority_output) =
@@ -1731,6 +1769,7 @@ fn same_model_pricing_fields(
     right: &CodexLocalAccessModelPricing,
 ) -> bool {
     left.long_context_threshold_tokens == right.long_context_threshold_tokens
+        && left.standard_long_price_override == right.standard_long_price_override
         && left.input_usd_per_million == right.input_usd_per_million
         && left.output_usd_per_million == right.output_usd_per_million
         && left.cached_input_usd_per_million == right.cached_input_usd_per_million
@@ -1907,15 +1946,17 @@ fn calculate_usage_cost_usd(
 }
 
 pub fn estimate_model_token_cost_usd(
-    model: &str,
-    input_tokens: u64,
-    cached_input_tokens: u64,
-    output_tokens: u64,
+    model: &str, input_tokens: u64, cached_input_tokens: u64, output_tokens: u64,
 ) -> f64 {
-    let Some(pricing) = resolve_base_model_pricing(None, model) else {
-        return 0.0;
-    };
-    calculate_usage_cost_usd_from_tokens(input_tokens, output_tokens, cached_input_tokens, &pricing)
+    estimate_known_model_token_cost_usd(model, input_tokens, cached_input_tokens, output_tokens)
+        .unwrap_or(0.0)
+}
+
+pub fn estimate_known_model_token_cost_usd(
+    model: &str, input_tokens: u64, cached_input_tokens: u64, output_tokens: u64,
+) -> Option<f64> {
+    let pricing = resolve_base_model_pricing(None, model)?;
+    Some(calculate_usage_cost_usd_from_tokens(input_tokens, output_tokens, cached_input_tokens, &pricing))
 }
 
 fn calculate_usage_cost_usd_from_tokens(

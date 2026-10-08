@@ -347,7 +347,17 @@ pub fn normalize_responses_body_for_codex_with_lite(
     changed |= ensure_string_field(obj, "instructions", "");
     changed |= ensure_bool_field(obj, "stream", true);
     changed |= ensure_bool_field(obj, "store", false);
-    changed |= ensure_bool_field(obj, "parallel_tool_calls", !responses_lite);
+    // Catalog capability alone does not put an API request on the Lite wire
+    // protocol. Keep the caller's explicit parallel setting unless the actual
+    // request carries the Lite marker, matching the sidecar's request handling.
+    if force_responses_lite
+        || obj
+            .get("parallel_tool_calls")
+            .and_then(Value::as_bool)
+            .is_none()
+    {
+        changed |= ensure_bool_field(obj, "parallel_tool_calls", !force_responses_lite);
+    }
     changed |= ensure_reasoning_include(obj);
     changed |= normalize_responses_input(obj);
     changed |= normalize_codex_builtin_tools(obj);
@@ -1391,18 +1401,33 @@ mod tests {
     }
 
     #[test]
-    fn disables_parallel_tool_calls_for_responses_lite_models() {
-        let mut body = json!({
-            "model": "gpt-5.6-luna",
-            "input": "pong",
-            "parallel_tool_calls": true,
-        });
+    fn preserves_explicit_parallel_tool_calls_without_lite_request_marker() {
+        for model in ["gpt-5.6-luna", "gpt-5.4", "custom-model"] {
+            for parallel in [true, false] {
+                let mut body = json!({
+                    "model": model,
+                    "input": "pong",
+                    "parallel_tool_calls": parallel,
+                });
+                normalize_responses_body_for_codex(&mut body);
+                assert_eq!(
+                    body["parallel_tool_calls"],
+                    json!(parallel),
+                    "model={model}"
+                );
+                // Normalizing an already prepared request must not change it again.
+                assert!(!normalize_responses_body_for_codex(&mut body));
+            }
+        }
+    }
 
-        normalize_responses_body_for_codex(&mut body);
-        assert_eq!(
-            body.get("parallel_tool_calls").and_then(Value::as_bool),
-            Some(false)
-        );
+    #[test]
+    fn missing_parallel_tool_calls_keeps_default_unless_request_is_lite() {
+        for lite in [true, false] {
+            let mut body = json!({ "model": "gpt-5.6-sol", "input": "pong" });
+            normalize_responses_body_for_codex_with_lite(&mut body, lite);
+            assert_eq!(body["parallel_tool_calls"], json!(!lite));
+        }
     }
 
     #[test]

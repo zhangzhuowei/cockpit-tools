@@ -77,8 +77,10 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 	if e.cfg == nil || e.cfg.DisableImageGeneration == config.DisableImageGenerationOff {
 		body = ensureImageGenerationTool(body, baseModel, auth, opts.Headers)
 	}
-	body = normalizeNonOfficialCodexReasoningItems(ctx, "codex executor", body)
-	body = sanitizeOpenAIResponsesReasoningEncryptedContent(ctx, "codex executor", body)
+	if !helps.APIKeyModelIsCompat(req) {
+		body = normalizeNonOfficialCodexReasoningItems(ctx, "codex executor", body)
+	}
+	body = sanitizeOpenAIResponsesReasoningEncryptedContentWithCompat(ctx, "codex executor", body, helps.APIKeyModelIsCompat(req))
 	body = normalizeCodexParallelToolCalls(body, opts.Headers)
 	body = helps.NormalizeCodexToolSchemas(body)
 	body, useFullResponses := normalizeCodexResponsesLiteRequest(body, opts.Headers, auth, true)
@@ -173,6 +175,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 	var outputItemsFallback [][]byte
 
 	var bufferedChunks [][]byte
+	var bufferedEvents, bufferedBytes int
 	var initialChunks [][]byte
 	streamStarted := false
 	immediateTerminal := false
@@ -214,13 +217,13 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 					}
 					helps.RecordAPIResponseError(ctx, e.cfg, streamErr)
 					reporter.PublishFailure(ctx, streamErr)
-					if isCodexOverloadBootstrapFailure(terminalBody) {
+					if isCodexRetryableBootstrapFailure(terminalBody) {
 						// Transient capacity rejection smuggled into an HTTP 200 stream. Fail the
 						// attempt before the downstream headers are committed so the conductor can
 						// transparently retry on another credential, and report the status the
 						// upstream refused to put on the wire.
 						helps.LogWithRequestID(ctx).Debugf("codex executor: bootstrap overload rejection after %d buffered handshake events, failing over", len(bufferedChunks))
-						return nil, newCodexBootstrapOverloadErr(terminalBody)
+						return nil, newCodexBootstrapFailureErr(terminalBody, e.modelLevelCooling())
 					}
 					bootstrapTerminalErr = streamErr
 					break
@@ -262,7 +265,14 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 			translatedLine = applyCodexIdentityExposeResponsePayload(translatedLine, identityState)
 			chunks := helps.TranslateStreamWithClaudeInputTokens(ctx, to, responseFormat, req.Model, originalPayload, body, translatedLine, &param, claudeInputTokens)
 			if isHandshake && !terminalSuccess {
-				if len(bufferedChunks) < codexBootstrapMaxBufferedEvents {
+				if bytes.HasPrefix(line, dataTag) {
+					bufferedEvents++
+				}
+				bufferedBytes += len(line)
+				for _, chunk := range chunks {
+					bufferedBytes += len(chunk)
+				}
+				if bufferedEvents <= codexBootstrapMaxBufferedEvents && bufferedBytes <= codexBootstrapMaxBufferedBytes {
 					bufferedChunks = append(bufferedChunks, chunks...)
 					continue
 				}

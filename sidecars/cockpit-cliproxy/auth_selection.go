@@ -36,14 +36,16 @@ import (
 )
 
 type cockpitSelector struct {
-	manifest   *manifest
-	emitter    *eventEmitter
-	locale     string
-	quota      *quotaReserveStateStore
-	priorities *apiKeyPriorityStateStore
-	tracker    *requestUsageTracker
-	mu         sync.Mutex
-	cursor     int
+	manifest            *manifest
+	emitter             *eventEmitter
+	locale              string
+	quota               *quotaReserveStateStore
+	priorities          *apiKeyPriorityStateStore
+	tracker             *requestUsageTracker
+	mu                  sync.Mutex
+	cursor              int
+	rotationCursors     map[[32]byte]string
+	rotationCursorOrder [][32]byte
 }
 
 type recordingSelector struct {
@@ -476,8 +478,12 @@ func (s *cockpitSelector) Pick(ctx context.Context, provider, model string, opts
 		auths = filtered
 		selectionStats.candidateAuths = 1
 	}
+	scopeCandidates := auths
 	auths = s.filterAuthsForAPIKeyScope(ctx, auths)
 	selectionStats.scopedAuths = len(auths)
+	if len(auths) == 0 {
+		selectionStats.scopeDiagnostics = s.diagnoseAPIKeyScope(ctx, scopeCandidates)
+	}
 	requestKind, _ := ctx.Value(requestKindContextKey).(string)
 	if isImageRequestKind(requestKind) {
 		beforeImagePolicy := len(auths)
@@ -494,7 +500,7 @@ func (s *cockpitSelector) Pick(ctx context.Context, provider, model string, opts
 			}
 		}
 		if len(auths) == 0 {
-			err := authPoolUnavailableError(s.locale, selectionStats, "image generation is disabled for all selected accounts")
+			err := s.poolUnavailableError(model, selectionStats, "image generation is disabled for all selected accounts")
 			s.emitAuthPoolUnavailable(ctx, provider, model, selectionStats, err)
 			return nil, err
 		}
@@ -533,7 +539,7 @@ func (s *cockpitSelector) Pick(ctx context.Context, provider, model string, opts
 		if nextCtx, recovered := maybeAutoRecoverAuthPool(ctx, s.manifest, model, auths); recovered {
 			return s.Pick(nextCtx, provider, model, opts, auths)
 		}
-		err := authPoolUnavailableError(s.locale, selectionStats, noAuthAvailableError(quotaReserveReasons).Error())
+		err := s.poolUnavailableError(model, selectionStats, noAuthAvailableError(quotaReserveReasons).Error())
 		s.emitAuthPoolUnavailable(ctx, provider, model, selectionStats, err)
 		return nil, err
 	}
@@ -543,14 +549,14 @@ func (s *cockpitSelector) Pick(ctx context.Context, provider, model string, opts
 	s.cursor++
 	s.mu.Unlock()
 
-	ordered := s.orderAuths(available, start)
+	var ordered []*coreauth.Auth
 	if isImageRequestKind(requestKind) {
 		ordered = s.orderImageAuths(available, start)
 	} else {
-		ordered = s.prioritizeAuthsForAPIKey(ctx, ordered)
+		ordered = s.orderAuthsForRequest(ctx, provider, model, available, start)
 	}
 	if len(ordered) == 0 {
-		err := authPoolUnavailableError(s.locale, selectionStats, noAuthAvailableError(quotaReserveReasons).Error())
+		err := s.poolUnavailableError(model, selectionStats, noAuthAvailableError(quotaReserveReasons).Error())
 		s.emitAuthPoolUnavailable(ctx, provider, model, selectionStats, err)
 		return nil, err
 	}
@@ -611,6 +617,9 @@ func (s *cockpitSelector) ReportAuthSelectionFailure(ctx context.Context, provid
 	stats := authPoolSelectionStats{candidateAuths: len(candidates)}
 	auths := s.filterAuthsForAPIKeyScope(ctx, candidates)
 	stats.scopedAuths = len(auths)
+	if len(auths) == 0 {
+		stats.scopeDiagnostics = s.diagnoseAPIKeyScope(ctx, candidates)
+	}
 	requestKind, _ := ctx.Value(requestKindContextKey).(string)
 	if isImageRequestKind(requestKind) {
 		before := len(auths)
@@ -676,7 +685,7 @@ func (s *cockpitSelector) ReportAuthSelectionFailure(ctx context.Context, provid
 	if err != nil && strings.TrimSpace(err.Error()) != "" {
 		detail = strings.TrimSpace(err.Error())
 	}
-	diagnosticErr := authPoolUnavailableError(s.locale, stats, detail)
+	diagnosticErr := s.poolUnavailableError(model, stats, detail)
 	var authErr *coreauth.Error
 	if errors.As(err, &authErr) && authErr != nil && strings.TrimSpace(authErr.Code) != "" {
 		diagnosticErr.Code = authErr.Code
@@ -765,18 +774,7 @@ func (s *cockpitSelector) filterAuthsForAPIKeyScope(ctx context.Context, auths [
 	if s == nil || s.manifest == nil || ctx == nil {
 		return auths
 	}
-	spec, _ := ctx.Value(clientAPIKeyContextKey).(*apiKeySpec)
-	if spec == nil {
-		return auths
-	}
-
-	scopeAccountIDs := spec.AccountIDs
-	// 生图转发：请求走实例网关的生图账号池，而不是对话账号。
-	if requestKind, _ := ctx.Value(requestKindContextKey).(string); isImageRequestKind(requestKind) {
-		if imageAccountIDs := imageGenerationAccountIDsForSpec(spec); len(imageAccountIDs) > 0 {
-			scopeAccountIDs = imageAccountIDs
-		}
-	}
+	scopeAccountIDs := apiKeyScopeAccountIDs(ctx)
 	if len(scopeAccountIDs) == 0 {
 		return auths
 	}
@@ -1258,6 +1256,7 @@ func (s *cockpitSelector) emitAuthSelected(ctx context.Context, auth *coreauth.A
 	}
 	s.emitter.emit(requestDiagnosticPayload{
 		Type:            "auth_selected",
+		StartedAtMS:     requestStartedAtMS(ctx),
 		RequestID:       internallogging.GetRequestID(ctx),
 		RequestKind:     requestKind,
 		Model:           model,
@@ -1284,6 +1283,7 @@ type authPoolSelectionStats struct {
 	quotaReservedAuths      int
 	imagePolicyBlockedAuths int
 	members                 []authPoolMemberDiagnostic
+	scopeDiagnostics        []authPoolScopeDiagnostic
 }
 
 // authPoolMemberDiagnostic contains the selector's actual per-account decision.
@@ -1362,6 +1362,7 @@ func (s *cockpitSelector) emitAuthPoolUnavailable(
 	}
 	s.emitter.emit(requestDiagnosticPayload{
 		Type:                    "auth_pool_result",
+		StartedAtMS:             requestStartedAtMS(ctx),
 		RequestID:               internallogging.GetRequestID(ctx),
 		RequestKind:             requestKind,
 		Model:                   model,
@@ -1378,6 +1379,7 @@ func (s *cockpitSelector) emitAuthPoolUnavailable(
 		QuotaReservedAuths:      stats.quotaReservedAuths,
 		ImagePolicyBlockedAuths: stats.imagePolicyBlockedAuths,
 		AccountStatuses:         stats.members,
+		ScopeDiagnostics:        stats.scopeDiagnostics,
 	})
 }
 
@@ -1564,6 +1566,9 @@ func (p *usagePlugin) HandleUsage(ctx context.Context, record coreusage.Record) 
 	}
 	if sink, ok := ctx.Value(websocketUsageContextKey).(*websocketUsageSink); ok {
 		sink.record(record, payload)
+		if observer := requestDiagnosticsFromContext(ctx); observer != nil {
+			observer.recordWebsocketUsage(ctx, record, payload)
+		}
 		return
 	}
 	p.tracker.record(payload)
@@ -1672,6 +1677,12 @@ func (h *authHook) OnAuthUpdated(_ context.Context, auth *coreauth.Auth) {
 }
 
 func (h *authHook) OnResult(ctx context.Context, result coreauth.Result) {
+	if observer := requestDiagnosticsFromContext(ctx); observer != nil {
+		observer.recordResult(ctx, result)
+	}
+	if result.StaleCredential {
+		return
+	}
 	if h == nil || h.emitter == nil {
 		return
 	}
@@ -1716,6 +1727,7 @@ func (h *authHook) OnResult(ctx context.Context, result coreauth.Result) {
 	}
 	h.emitter.emit(requestDiagnosticPayload{
 		Type:            "auth_result",
+		StartedAtMS:     requestStartedAtMS(ctx),
 		RequestID:       internallogging.GetRequestID(ctx),
 		Provider:        result.Provider,
 		Model:           model,
@@ -1816,6 +1828,9 @@ func buildCoreAuthSelectorWithConcurrency(cfg *config.Config, selector coreauth.
 			locale:   normalizeCockpitLocale(m.Locale),
 			fallback: selector,
 		}
+	}
+	if m != nil {
+		selector = &apiKeyScopeSelector{manifest: m, fallback: selector}
 	}
 	return selector
 }

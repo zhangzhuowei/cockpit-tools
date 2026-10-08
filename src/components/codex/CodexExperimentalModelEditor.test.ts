@@ -3,6 +3,7 @@ import test from 'node:test';
 import { loadHookModule } from '../../../tests/helpers/reactHookHarness.ts';
 import * as order from '../../utils/codexExperimentalModelOrder.ts';
 import * as context from '../../utils/codexModelContext.ts';
+import * as modelConfig from '../../utils/codexModelConfig.ts';
 
 function elements(value: any): any[] {
   if (!value || typeof value !== 'object') return [];
@@ -15,6 +16,10 @@ test('editing model IDs and names retains row identity through edits, sorting an
     'react-i18next': { useTranslation: () => ({ t: (key: string) => key }) },
     '../../utils/codexExperimentalModelOrder': order,
     '../../utils/codexModelContext': context,
+    '../../utils/codexModelConfig': modelConfig,
+    '../../services/codexService': { getCodexModelReasoningEfforts: async () => ({}) },
+    '../SingleSelectDropdown': { SingleSelectDropdown: () => null },
+    './CodexModelConfigTransferModal': { CodexModelConfigTransferModal: () => null },
     'react-dom': { createPortal: (child: any) => child },
   }, { document: { addEventListener() {}, removeEventListener() {} }, window: { addEventListener() {}, removeEventListener() {} } });
   let models = [{ model_id: 'first', display_name: 'First' }, { model_id: 'second', display_name: 'Second' }];
@@ -46,6 +51,10 @@ test('editing context and reasoning keeps distinct row keys while model IDs temp
     'react-i18next': { useTranslation: () => ({ t: (key: string) => key }) },
     '../../utils/codexExperimentalModelOrder': order,
     '../../utils/codexModelContext': context,
+    '../../utils/codexModelConfig': modelConfig,
+    '../../services/codexService': { getCodexModelReasoningEfforts: async () => ({}) },
+    '../SingleSelectDropdown': { SingleSelectDropdown: () => null },
+    './CodexModelConfigTransferModal': { CodexModelConfigTransferModal: () => null },
     'react-dom': { createPortal: (child: any) => child },
   }, { document: { addEventListener() {}, removeEventListener() {} }, window: { addEventListener() {}, removeEventListener() {} } });
   let models = [{ model_id: 'same', display_name: 'First' }, { model_id: 'same', display_name: 'Second' }];

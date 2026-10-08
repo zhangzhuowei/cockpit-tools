@@ -59,9 +59,20 @@ test('runtime status styles distinguish missing, starting and running engines', 
 });
 
 
+test('subscription detection accepts custom HTTPS ports with a subscription path or query', () => {
+  for (const value of [
+    'https://example.test:8443/api/v1/client/subscription-id',
+    ' https://example.test:8443/sub?token=private ',
+    'https://example.test:8443/?token=private',
+    'https://[::1]:8443/sub',
+  ]) {
+    assert.equal(detectProxyInputKind(value), 'subscription', value);
+  }
+});
+
 test('subscription detection does not mistake multiline proxies or credential URLs for a subscription', () => {
   assert.equal(detectProxyInputKind(' https://example.test/sub?token=private '), 'subscription');
-  for (const value of ['https://user:pass@proxy.test:443', 'https://proxy.test:8443', 'https://proxy.test', 'socks5://u:p@host:1080', 'host:1080:u:p', 'https://one.test/sub\nhttps://two.test/sub']) {
+  for (const value of ['https://user:pass@proxy.test:443', 'https://user:pass@proxy.test:8443/sub', 'https://proxy.test:8443', 'https://proxy.test:8443/', 'https://proxy.test', 'http://example.test:8080/sub', 'socks5://u:p@host:1080', 'host:1080:u:p', 'https://one.test/sub\nhttps://two.test/sub']) {
     assert.equal(detectProxyInputKind(value), 'manual');
   }
 });

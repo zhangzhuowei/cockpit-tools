@@ -9,6 +9,35 @@ pub async fn codex_local_access_get_state() -> Result<CodexLocalAccessState, Str
     codex_local_access::get_local_access_state().await
 }
 
+#[tauri::command]
+pub async fn codex_local_access_get_request_detail(
+    request_id: String,
+) -> Result<Option<crate::models::codex_local_access::CodexLocalAccessRequestDetail>, String> {
+    codex_local_access::get_local_access_request_detail(request_id).await
+}
+
+#[tauri::command]
+pub async fn codex_local_access_get_request_payload_logging() -> Result<bool, String> {
+    codex_local_access::get_local_access_request_payload_logging().await
+}
+
+#[tauri::command]
+pub fn codex_local_access_get_request_payload_logging_status() -> codex_local_access::RequestPayloadLoggingStatus {
+    codex_local_access::get_local_access_request_payload_logging_status()
+}
+
+#[tauri::command]
+pub async fn codex_local_access_update_request_payload_logging(
+    enabled: bool,
+) -> Result<CodexLocalAccessState, String> {
+    codex_local_access::update_local_access_request_payload_logging(enabled).await
+}
+
+#[tauri::command]
+pub async fn codex_local_access_clear_request_payloads() -> Result<u64, String> {
+    codex_local_access::clear_local_access_request_payloads().await
+}
+
 /// 列出实例级本地网关（provider gateway / 混合模型路由 / 绑定 OAuth 本地网关）的只读快照。
 #[tauri::command]
 pub async fn codex_list_instance_gateways() -> Result<Vec<CodexInstanceGatewayView>, String> {
@@ -73,6 +102,14 @@ pub async fn codex_local_access_recover_accounts(
     account_ids: Vec<String>,
 ) -> Result<CodexLocalAccessState, String> {
     codex_local_access::recover_local_access_accounts(account_ids).await
+}
+
+#[tauri::command]
+pub async fn codex_local_access_clear_pool_failure(
+    api_key_id: String,
+    last_failure_at: i64,
+) -> Result<bool, String> {
+    codex_local_access::clear_local_access_pool_failure(api_key_id, last_failure_at).await
 }
 
 #[tauri::command]
@@ -282,6 +319,13 @@ pub async fn codex_local_access_update_debug_logs(
     debug_logs: bool,
 ) -> Result<CodexLocalAccessState, String> {
     codex_local_access::update_local_access_debug_logs(debug_logs).await
+}
+
+#[tauri::command]
+pub async fn codex_local_access_update_image_generation_main_model(
+    image_generation_main_model: Option<String>,
+) -> Result<CodexLocalAccessState, String> {
+    codex_local_access::update_local_access_image_generation_main_model(image_generation_main_model).await
 }
 
 #[tauri::command]

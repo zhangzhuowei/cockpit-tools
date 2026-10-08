@@ -123,6 +123,9 @@ func (s *relayServer) handleExecutorBody(c *gin.Context, spec *apiKeySpec, body 
 				"",
 			)
 		}
+		originalRequest := c.Request
+		c.Request = originalRequest.WithContext(bindProviderGatewayAccount(originalRequest.Context(), route.ProviderAccountID))
+		defer func() { c.Request = originalRequest }()
 		s.handleProviderGatewayRequest(c, route.ProviderGateway, body, upstreamModel, sourceFormat, fixedAlt)
 		return
 	}
@@ -373,6 +376,12 @@ func (s *relayServer) handleProviderGatewayRequest(c *gin.Context, gateway *prov
 		writeAPIError(c, http.StatusBadGateway, err.Error(), "bad_gateway")
 		return
 	}
+	backoffKey := providerGatewayBackoffKey{providerGatewayBoundAccount(c), strings.TrimRight(gateway.BaseURL, "/"), upstreamModel}
+	release, admitted := s.admitProviderGateway(c, backoffKey)
+	if !admitted {
+		return
+	}
+	defer release()
 	req, err := http.NewRequestWithContext(relayContext(c), http.MethodPost, upstreamURL, bytes.NewReader(upstreamBody))
 	if err != nil {
 		writeAPIError(c, http.StatusBadGateway, err.Error(), "bad_gateway")
@@ -389,12 +398,18 @@ func (s *relayServer) handleProviderGatewayRequest(c *gin.Context, gateway *prov
 		applyOpenCodeSessionHeader(req.Header, c.Request.Header, body)
 	}
 
+	observeDirectGatewayRequest(req.Context(), providerGatewayBoundAccount(c), upstreamModel, req.Header, upstreamBody)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		if observer := requestDiagnosticsFromContext(req.Context()); observer != nil {
+			observer.UpstreamError(req.Context(), "dial", err)
+		}
 		writeAPIError(c, http.StatusBadGateway, err.Error(), "bad_gateway")
 		return
 	}
 	defer resp.Body.Close()
+	observeDirectGatewayResponse(req.Context(), resp)
+	s.providerBackoff.observe(backoffKey, resp.StatusCode, resp.Header.Get("Retry-After"), time.Now())
 	writeUpstreamHeaders(c.Writer.Header(), resp.Header)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		payload, _ := io.ReadAll(resp.Body)

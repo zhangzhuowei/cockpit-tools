@@ -1,6 +1,77 @@
 // Codex Local Access 测试：Usage extraction, routing, request conversion and WebSocket behavior。
 // 测试与生产实现共享 super 作用域，验证真实网关、持久化和请求协议行为。
     #[test]
+    fn gateway_preserves_parallel_setting_unless_request_has_lite_marker() {
+        for model in ["gpt-5.6-sol", "custom-model"] {
+            for lite in [true, false] {
+                for parallel in [true, false] {
+                    let request = ParsedRequest {
+                        method: "POST".to_string(),
+                        target: "/v1/responses".to_string(),
+                        headers: if lite {
+                            HashMap::from([(
+                                super::CODEX_RESPONSES_LITE_HEADER.to_string(),
+                                "true".to_string(),
+                            )])
+                        } else {
+                            HashMap::new()
+                        },
+                        body: serde_json::to_vec(&json!({
+                            "model": model,
+                            "input": "hello",
+                            "parallel_tool_calls": parallel,
+                            "tools": [{ "type": "function", "name": "lookup" }],
+                        }))
+                        .unwrap(),
+                    };
+                    let (prepared, _) = prepare_gateway_request(request).unwrap();
+                    let body: Value = serde_json::from_slice(&prepared.body).unwrap();
+                    assert_eq!(body["parallel_tool_calls"], json!(!lite && parallel));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn chat_completions_preserves_parallel_setting_and_lite_defaults() {
+        for model in ["gpt-5.6-sol", "custom-model"] {
+            for lite in [true, false] {
+                for parallel in [None, Some(true), Some(false)] {
+                    let mut body = json!({
+                        "model": model,
+                        "messages": [{ "role": "user", "content": "hello" }],
+                        "tools": [{ "type": "function", "function": { "name": "lookup" } }],
+                    });
+                    if let Some(parallel) = parallel {
+                        body["parallel_tool_calls"] = json!(parallel);
+                    }
+                    let request = ParsedRequest {
+                        method: "POST".to_string(),
+                        target: "/v1/chat/completions".to_string(),
+                        headers: if lite {
+                            HashMap::from([(
+                                super::CODEX_RESPONSES_LITE_HEADER.to_string(),
+                                "true".to_string(),
+                            )])
+                        } else {
+                            HashMap::new()
+                        },
+                        body: serde_json::to_vec(&body).unwrap(),
+                    };
+                    let (prepared, _) = prepare_gateway_request(request).unwrap();
+                    let mapped: Value = serde_json::from_slice(&prepared.body).unwrap();
+                    let expected = !lite && parallel.unwrap_or(model == "custom-model");
+                    assert_eq!(
+                        mapped["parallel_tool_calls"],
+                        json!(expected),
+                        "model={model}, lite={lite}, parallel={parallel:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn removed_ultrafast_is_not_injected_but_explicit_requests_are_preserved() {
         let mut request = json!({"model": "gpt-5.6-sol"});
         super::apply_default_service_tier_if_missing(&mut request, Some("ultrafast"));
@@ -228,6 +299,7 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
             error_category: Some("request_failed".to_string()),
             error_message: Some("stream error: stream disconnected before completion: stream closed before response.completed/response.done, last_event=response.failed".to_string()),
             latency_ms: 1754,
+            first_response_ms: None,
             usage: SidecarUsageDetails::default(),
         };
 

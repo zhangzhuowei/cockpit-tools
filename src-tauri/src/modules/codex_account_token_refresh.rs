@@ -23,6 +23,7 @@ fn classify_refresh_error(message: &str) -> CodexRefreshErrorKind {
     }
     if lower.contains("refresh_token_invalidated")
         || lower.contains("token_invalidated")
+        || lower.contains("token_revoked")
         || lower.contains("authentication token has been invalidated")
         || lower.contains("服务端撤销")
     {
@@ -344,6 +345,7 @@ pub(crate) fn account_has_remote_api_auth_rejection(account: &CodexAccount) -> b
     if lower.contains("api 返回错误 401")
         || lower.contains("api 返回错误 403")
         || lower.contains("token_invalidated")
+        || lower.contains("token_revoked")
         || lower.contains("invalid_token")
         || lower.contains("your authentication token has been invalidated")
     {
@@ -353,7 +355,11 @@ pub(crate) fn account_has_remote_api_auth_rejection(account: &CodexAccount) -> b
                 "refresh_token_reused" | "refresh_token_expired"
             );
     }
-    !refresh_failure && matches!(code.as_str(), "token_invalidated" | "invalid_token")
+    !refresh_failure
+        && matches!(
+            code.as_str(),
+            "token_revoked" | "token_invalidated" | "invalid_token"
+        )
 }
 
 /// 额度查询只依赖 access_token。官方客户端占用 refresh_token 时，属于内部协调状态，
@@ -472,6 +478,7 @@ pub(crate) async fn prepare_account_for_quota_query_with_runtime_snapshot(
 
     clear_refresh_token_reused_state(&mut account)?;
 
+    reject_known_access_token_revocation(&account)?;
     if account
         .quota_error
         .as_ref()
@@ -974,3 +981,50 @@ fn find_existing_account_id(
 
     None
 }
+
+/// 网络刷新结束后，重新读取账号并校验发起请求时的凭据链。
+/// 只合并本次刷新负责的字段，保留请求期间更新的配额、备注和设置；
+/// 重新授权或删除优先于已经在途的旧请求结果。
+fn update_account_after_refresh_if_current<F>(
+    expected: &CodexAccount,
+    update: F,
+) -> Result<(CodexAccount, bool), String>
+where
+    F: FnOnce(&mut CodexAccount),
+{
+    let _guard = CODEX_ACCOUNT_MUTATION_LOCK
+        .lock()
+        .map_err(|_| "Codex 账号写入锁已损坏".to_string())?;
+    let mut current = load_account(&expected.id)
+        .ok_or_else(|| format!("账号已删除或无法读取，拒绝刷新写回: account_id={}", expected.id))?;
+    if !account_matches_refresh_snapshot(&current, expected) {
+        logger::log_info(&format!(
+            "Codex Token Authority 保留更新的凭据链，忽略旧刷新结果: account_id={}, expected_generation={}, current_generation={}",
+            expected.id, expected.token_generation, current.token_generation
+        ));
+        return Ok((current, false));
+    }
+    update(&mut current);
+    save_account_with_tombstone_guard(&current)?;
+    Ok((current, true))
+}
+
+fn account_matches_refresh_snapshot(current: &CodexAccount, expected: &CodexAccount) -> bool {
+    current.token_generation == expected.token_generation
+        && account_credential_hash(current) == account_credential_hash(expected)
+}
+
+fn persist_refreshed_account(
+    expected: &CodexAccount,
+    tokens: CodexTokens,
+) -> Result<(CodexAccount, bool), String> {
+    update_account_after_refresh_if_current(expected, |current| {
+        current.tokens = tokens;
+        sync_identity_from_tokens(current);
+        mark_token_chain_updated(current);
+    })
+}
+
+#[cfg(test)]
+#[path = "codex_account_tests_token_persistence.rs"]
+mod token_refresh_persistence_tests;

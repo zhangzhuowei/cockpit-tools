@@ -153,6 +153,10 @@ function isAllowedEnglishReuse(key, value) {
     'nav.codebuddy',
     'nav.codebuddyCn',
     'nav.claude',
+    // Official subscription product names, including the refresh-scope selector.
+    'codex.autoRefreshScope.plans.go',
+    'codex.autoRefreshScope.plans.plus',
+    'codex.autoRefreshScope.plans.pro',
     'nav.gemini',
     'nav.qoder',
   ]);

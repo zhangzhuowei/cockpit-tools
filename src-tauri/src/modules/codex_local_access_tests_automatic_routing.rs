@@ -125,7 +125,7 @@ fn automatic_routing_is_runtime_only_and_preserves_explicit_instance_routes() {
 #[test]
 fn automatic_routing_excludes_retired_builtin_models() {
     // 只断言纯函数：清单不依赖全局实验目录（其它用例可能开启「模型管理」）。
-    let trimmed = super::automatic_api_service_visible_model_ids(vec![
+    let trimmed = super::automatic_api_service_visible_model_ids_with_explicit_catalog(vec![
         "gpt-6-astra".into(),
         "gpt-6-sol".into(),
         "gpt-6-luna".into(),
@@ -139,7 +139,7 @@ fn automatic_routing_excludes_retired_builtin_models() {
         "gpt-reserve".into(),
         "deepseek-flash".into(),
         "deepseek-v4-pro".into(),
-    ]);
+    ], &[]);
     assert_eq!(
         trimmed,
         vec![

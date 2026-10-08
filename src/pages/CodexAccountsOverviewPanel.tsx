@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useModalScrollLock } from "../hooks/useModalScrollLock";
 import "./CodexAccountDialogs.css";
@@ -357,6 +357,15 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
     updateActiveAccountNoteForm,
     viewMode,
   } = props;
+  const noteMfaInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!activeAccountNoteMode || !accountNoteFieldErrors.twoFactorSecret) return;
+    const frame = window.requestAnimationFrame(() => {
+      noteMfaInputRef.current?.scrollIntoView({ block: "nearest" });
+      noteMfaInputRef.current?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeAccountNoteMode, accountNoteFieldErrors.twoFactorSecret]);
   const [recycleBinOpen, setRecycleBinOpen] = useState(false);
   const recycleBinButton = (
     <button type="button" className="btn btn-secondary" onClick={() => setRecycleBinOpen(true)}>
@@ -3015,6 +3024,7 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
                       </span>
                       <div className="codex-account-note-input-row">
                         <input
+                          ref={noteMfaInputRef}
                           className={`codex-account-note-input ${
                             accountNoteFieldErrors.twoFactorSecret
                               ? "has-error"
@@ -3573,6 +3583,9 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
               codexLocalAccessService
                 .updateCodexLocalAccessImageGenerationModel(model)
                 .then(setLocalAccessState)
+            }
+            onUpdateImageGenerationMainModel={(model) =>
+              codexLocalAccessService.updateCodexLocalAccessImageGenerationMainModel(model).then(setLocalAccessState)
             }
             onUpdateImageGenerationAccounts={(accountIds) =>
               codexLocalAccessService

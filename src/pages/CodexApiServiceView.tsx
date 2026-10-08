@@ -1,3 +1,4 @@
+import { CodexApiRequestLogs } from "./CodexApiRequestLogs";
 import { Activity, BadgeDollarSign, ChevronDown, Check, CircleAlert, Copy, Eye, EyeOff, FolderPlus, Gauge, Image, Pin, PinOff, Play, Plus, Power, RefreshCw, Route, Send, ShieldCheck, SlidersHorizontal, Trash2, Undo2, Wrench, X } from "lucide-react";
 import { CodexIcon } from "../components/icons/CodexIcon";
 import { ManualHelpIconButton } from "../components/ManualHelpIconButton";
@@ -8,15 +9,14 @@ import { isCodexApiKeyScopeAccountActive, selectCodexApiKeyScopeAccounts } from 
 import * as codexLocalAccessService from "../services/codexLocalAccessService";
 import { buildCodexAccountPresentation } from "../presentation/platformAccountPresentation";
 import { formatCodexQuotaPoolPercent, formatCodexQuotaPoolWindowLabel } from "../utils/codexQuotaPool";
+import { CODEX_LOCAL_ACCESS_STATUS_KEYS, resolveCodexLocalAccessRuntimeStatus } from "../utils/codexLocalAccessStatus";
 import { SingleSelectDropdown } from "../components/SingleSelectDropdown";
 import { CodexLocalAccessModal } from "../components/CodexLocalAccessModal";
 import { CodexAccountPoolHealthModal } from "../components/CodexAccountPoolHealthModal";
 import { CodexStatsRangePicker } from "../components/CodexStatsRangePicker";
 import { CodexUsageTrend } from "../components/codex/CodexUsageTrend";
-import { CodexRequestProxyLabel } from "../components/codex/CodexRequestProxyLabel";
-import { PaginationControls } from "../components/PaginationControls";
-import { resolveCodexApiServiceLogModelPair } from "../utils/codexApiServiceLogModel";
 import { requestCodexOpenAddAccount } from "../utils/codexAddAccountRequest";
+import { codexApiKeyInspectionCardId } from "../hooks/useCodexApiKeyInspection";
 import type {
   CodexLocalAccessCustomRoutingRule,
   CodexLocalAccessScope,
@@ -24,23 +24,19 @@ import type {
 import "./CodexApiServicePage.css";
 import type {
   CopyField,
-  RequestLogKindFilter,
-  RequestLogStatusFilter,
   useCodexApiServicePageController,
 } from "./CodexApiServicePage";
 
 export type CodexApiServiceViewProps = ReturnType<typeof useCodexApiServicePageController>;
 
-/** 宿主内部调度（唤醒、鹈鹕测试）固定使用的 API 服务 Key ID，只在请求日志中展示本地化名称。 */
-const INTERNAL_API_KEY_ID = "__cockpit_internal__";
-
 /** 渲染 CodexApiServicePage 的界面；业务状态与动作统一由 Controller 提供。 */
 export function CodexApiServiceView(props: CodexApiServiceViewProps) {
   const {
     accessScope,
+    inspectionNoticeKey,
+    dismissInspectionNotice,
     accessScopeOptions,
     accountConcurrencyWaitDraft,
-    accountDisplayNames,
     accountModelMappingDrafts,
     accountModelMappingError,
     accountModelMappingsOpen,
@@ -67,12 +63,9 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
     applyTimeoutPreset,
     availableAccountCount,
     busy,
-    cleanRequestLogErrorDetail,
-    clearRequestLogFilters,
     clearTestChat,
     clientBaseUrlHost,
     clientBaseUrlHostOptions,
-    codexInstances,
     collection,
     compatibilityExamples,
     cooldownCount,
@@ -139,7 +132,6 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
     handleUpdateClientBaseUrlHost,
     handleUpdateRouting,
     handleUpdateTimeoutPreset,
-    hasRequestLogFilters,
     healthByAccountId,
     healthModalOpen,
     imageUnavailableCount,
@@ -161,7 +153,6 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
     modelAliasesText,
     modelIds,
     normalizeAddressKind,
-    normalizeRequestLogPageSize,
     notice,
     parseModelRuleText,
     portInput,
@@ -177,30 +168,8 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
     quotaPoolSummary,
     reloadState,
     removeAccountModelMappingRow,
-    REQUEST_LOG_PAGE_SIZE_OPTIONS,
-    requestKindLabel,
-    requestLogAccountQuery,
-    requestLogApiKeyQuery,
-    requestLogCurrentPage,
-    requestLogError,
-    requestLogErrorQuery,
-    requestLogEvents,
-    requestLogInstanceOptions,
-    requestLogInstanceQuery,
-    requestLogKindFilter,
-    requestLogKindOptions,
-    requestLogLoading,
     statsDetailsRefreshing,
-    requestLogModelQuery,
-    requestLogPageSize,
-    requestLogRangeEnd,
-    requestLogRangeStart,
-    requestLogStatusFilter,
-    requestLogStatusOptions,
-    requestLogTotal,
-    requestLogTotalPages,
     resetPricingDraft,
-    resolveClientInstanceLabel,
     responsesWebsocketsEnabledDraft,
     routingOptions,
     routingSaving,
@@ -237,15 +206,6 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
     setPortInput,
     setPricingModalOpen,
     setProxyInput,
-    setRequestLogAccountQuery,
-    setRequestLogApiKeyQuery,
-    setRequestLogErrorQuery,
-    setRequestLogInstanceQuery,
-    setRequestLogKindFilter,
-    setRequestLogModelQuery,
-    setRequestLogPage,
-    setRequestLogPageSize,
-    setRequestLogStatusFilter,
     setResponsesWebsocketsEnabledDraft,
     setSelectedModelId,
     setSelectedTimeoutPresetId,
@@ -283,11 +243,11 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
     timeoutsModalOpen,
     toggleApiKeyPolicyExpanded,
     toggleStringSelection,
-    truncateRequestLogErrorDetail,
     updateAccountModelMappingDraft,
     updatePricingDraft,
     updateTimeoutDraft,
   } = props;
+  const localAccessStatus = resolveCodexLocalAccessRuntimeStatus(collection, state);
   return (
     <div className="codex-api-service-page">
       <div className="page-top-strip">
@@ -346,15 +306,11 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                     </span>
                   )}
                   <span
-                    className={`codex-api-service-status ${state?.running ? "running" : collection?.enabled ? "stopped" : "disabled"}`}
+                    className={`codex-api-service-status ${localAccessStatus}`}
                   >
-                    {collection?.enabled
-                      ? state?.preparing
-                        ? t("instances.status.starting", "启动中")
-                        : state?.running
-                        ? t("codex.localAccess.statusRunning", "运行中")
-                        : t("codex.localAccess.statusStopped", "未运行")
-                      : t("codex.localAccess.statusDisabled", "已停用")}
+                    {collection?.enabled && state?.preparing
+                      ? t("instances.status.starting", "启动中")
+                      : t(CODEX_LOCAL_ACCESS_STATUS_KEYS[localAccessStatus])}
                   </span>
                   {state?.preparing && state.preparationTotal > 0 && (
                     <span className="codex-api-service-current-tag">
@@ -456,8 +412,18 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
           </div>
         </section>
 
-        {(error || notice || state?.lastError || pricingRepriceActive) && (
+        {(error || notice || inspectionNoticeKey || state?.lastError || pricingRepriceActive) && (
           <div className="codex-api-service-message-stack">
+            {inspectionNoticeKey && (
+              <div className="codex-api-service-message warning" role="status">
+                <CircleAlert size={15} />
+                <span>{t(inspectionNoticeKey)}</span>
+                <button type="button" className="codex-api-service-message-dismiss"
+                  onClick={dismissInspectionNotice} aria-label={t("common.close")}>
+                  <X size={14} />
+                </button>
+              </div>
+            )}
             {error && (
               <div className="codex-api-service-message error">
                 <CircleAlert size={15} />
@@ -919,7 +885,8 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                     : 0;
                 const policyExpanded = expandedApiKeyPolicyIds.has(apiKey.id);
                 return (
-                  <div key={apiKey.id} className="codex-api-service-key-card">
+                  <div key={apiKey.id} className="codex-api-service-key-card"
+                    id={codexApiKeyInspectionCardId(apiKey.id)} tabIndex={-1}>
                     <div className="codex-api-service-key-main">
                       <input
                         value={labelDraft}
@@ -2279,323 +2246,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
             )}
 
             {statsLogTab === "logs" && (
-              <>
-                <div className="codex-api-service-log-filters">
-                  <label>
-                    <span>
-                      {t("codex.apiService.logs.modelFilter", "模型")}
-                    </span>
-                    <input
-                      value={requestLogModelQuery}
-                      onChange={(event) =>
-                        setRequestLogModelQuery(event.target.value)
-                      }
-                      placeholder={t(
-                        "codex.apiService.logs.modelPlaceholder",
-                        "Model ID",
-                      )}
-                    />
-                  </label>
-                  <label>
-                    <span>
-                      {t("codex.apiService.logs.accountFilter", "Account")}
-                    </span>
-                    <input
-                      value={requestLogAccountQuery}
-                      onChange={(event) =>
-                        setRequestLogAccountQuery(event.target.value)
-                      }
-                      placeholder={t(
-                        "codex.apiService.logs.accountPlaceholder",
-                        "Email or account ID",
-                      )}
-                    />
-                  </label>
-                  <label>
-                    <span>
-                      {t("codex.apiService.logs.apiKeyFilter", "API Key")}
-                    </span>
-                    <input
-                      value={requestLogApiKeyQuery}
-                      onChange={(event) =>
-                        setRequestLogApiKeyQuery(event.target.value)
-                      }
-                      placeholder={t(
-                        "codex.apiService.logs.apiKeyPlaceholder",
-                        "Name or ID",
-                      )}
-                    />
-                  </label>
-                  <label>
-                    <span>
-                      {t("codex.apiService.logs.instanceFilter", "Instance")}
-                    </span>
-                    <SingleSelectDropdown
-                      value={requestLogInstanceQuery}
-                      options={requestLogInstanceOptions}
-                      onChange={setRequestLogInstanceQuery}
-                      ariaLabel={t(
-                        "codex.apiService.logs.instanceFilter",
-                        "Instance",
-                      )}
-                      placeholder={t(
-                        "codex.apiService.logs.allInstances",
-                        "All Instances",
-                      )}
-                    />
-                  </label>
-                  <label>
-                    <span>{t("codex.apiService.logs.kindFilter", "Type")}</span>
-                    <SingleSelectDropdown
-                      value={requestLogKindFilter}
-                      options={requestLogKindOptions}
-                      onChange={(value) =>
-                        setRequestLogKindFilter(value as RequestLogKindFilter)
-                      }
-                      ariaLabel={t("codex.apiService.logs.kindFilter", "Type")}
-                    />
-                  </label>
-                  <label>
-                    <span>
-                      {t("codex.apiService.logs.statusFilter", "Status")}
-                    </span>
-                    <SingleSelectDropdown
-                      value={requestLogStatusFilter}
-                      options={requestLogStatusOptions}
-                      onChange={(value) =>
-                        setRequestLogStatusFilter(
-                          value as RequestLogStatusFilter,
-                        )
-                      }
-                      ariaLabel={t(
-                        "codex.apiService.logs.statusFilter",
-                        "Status",
-                      )}
-                    />
-                  </label>
-                  <label>
-                    <span>
-                      {t("codex.apiService.logs.errorFilter", "Error")}
-                    </span>
-                    <input
-                      value={requestLogErrorQuery}
-                      onChange={(event) =>
-                        setRequestLogErrorQuery(event.target.value)
-                      }
-                      placeholder={t(
-                        "codex.apiService.logs.errorPlaceholder",
-                        "Error category",
-                      )}
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    onClick={clearRequestLogFilters}
-                    disabled={!hasRequestLogFilters}
-                  >
-                    {t("codex.apiService.logs.clearFilters", "Clear Filters")}
-                  </button>
-                </div>
-                <div className="codex-api-service-log-list">
-                  {requestLogError && (
-                    <div className="codex-api-service-message error">
-                      <CircleAlert size={15} />
-                      <span>{requestLogError}</span>
-                    </div>
-                  )}
-                  {requestLogLoading && requestLogEvents.length === 0 && (
-                    <div className="codex-api-service-empty">
-                      {t("codex.apiService.logs.loading", "正在加载请求日志")}
-                    </div>
-                  )}
-                  {requestLogEvents.map((event, index) => {
-                    const fullErrorDetail = cleanRequestLogErrorDetail(
-                      event.errorMessage,
-                    );
-                    const errorDetail =
-                      truncateRequestLogErrorDetail(fullErrorDetail);
-                    const accountDisplayName =
-                      accountDisplayNames.get((event.accountId || "").trim()) ||
-                      accountDisplayNames.get((event.email || "").trim()) ||
-                      event.email ||
-                      event.accountId ||
-                      "-";
-                    const serviceTier = (event.serviceTier || "")
-                      .trim()
-                      .toLowerCase();
-                    const serviceTierIsFast = serviceTier === "priority";
-                    const serviceTierLabel =
-                      serviceTier === "priority"
-                        ? t("codex.speed.fast", "快速")
-                        : serviceTier === "standard"
-                          ? t("codex.speed.standard", "标准")
-                          : event.serviceTier
-                            ? t("codex.apiService.logs.serviceTierValue", {
-                                tier: event.serviceTier,
-                                defaultValue: "Tier {{tier}}",
-                              })
-                            : "";
-                    // 始终标出实际上游模型（与请求模型一致时也展示）；仅当日志未记录上游模型时回退为单行。
-                    const { requestedModel, upstreamModel } =
-                      resolveCodexApiServiceLogModelPair(event);
-                    return (
-                      <div
-                        key={`${event.timestamp}-${event.requestId || event.apiKeyId}-${index}`}
-                        className="codex-api-service-log-row"
-                      >
-                        <div>
-                          <div className="codex-api-service-log-model">
-                            <strong title={requestedModel}>
-                              {requestedModel}
-                            </strong>
-                            {upstreamModel ? (
-                              <span
-                                className="codex-api-service-log-model-upstream"
-                                title={t(
-                                  "codex.apiService.logs.upstreamModel",
-                                  "实际模型",
-                                )}
-                              >
-                                ↳ {upstreamModel}
-                              </span>
-                            ) : null}
-                          </div>
-                          <span
-                            className={`codex-api-service-pill ${event.success ? "success" : "error"}`}
-                          >
-                            {event.success
-                              ? t("codex.localAccess.requestLogSuccess", "成功")
-                              : t("codex.localAccess.requestLogFailed", "失败")}
-                          </span>
-                          {event.reasoningEffort ? (
-                            <span
-                              className="codex-api-service-pill muted"
-                              title={t(
-                                "codex.apiService.logs.reasoningEffort",
-                                "思考强度",
-                              )}
-                            >
-                              {t("codex.apiService.logs.reasoningEffortValue", {
-                                effort: event.reasoningEffort,
-                                defaultValue: "思考 {{effort}}",
-                              })}
-                            </span>
-                          ) : null}
-                          {serviceTierLabel ? (
-                            <span
-                              className={`codex-api-service-pill ${serviceTierIsFast ? "fast" : "muted"}`}
-                              title={t(
-                                "codex.apiService.logs.serviceTier",
-                                "服务等级",
-                              )}
-                            >
-                              {serviceTierLabel}
-                            </span>
-                          ) : null}
-                        </div>
-                        <div>
-                          <span>{formatDateTime(event.timestamp)}</span>
-                          <span>{requestKindLabel(event.requestKind, t)}</span>
-                          <span>
-                            {event.apiKeyId === INTERNAL_API_KEY_ID
-                              ? t(
-                                  "codex.localAccess.internalSchedulerLabel",
-                                  "Internal scheduler",
-                                )
-                              : event.apiKeyLabel || event.apiKeyId || "-"}
-                          </span>
-                          <span
-                            title={
-                              event.clientInstanceId
-                                ? `${resolveClientInstanceLabel(
-                                    event.clientInstanceId,
-                                    codexInstances,
-                                    t,
-                                  )} (${event.clientInstanceId})`
-                                : undefined
-                            }
-                          >
-                            {resolveClientInstanceLabel(
-                              event.clientInstanceId,
-                              codexInstances,
-                              t,
-                            )}
-                          </span>
-                          <span>
-                            {maskAccountText(accountDisplayName)}
-                          </span>
-                          <CodexRequestProxyLabel route={event.proxyRoute} t={t} />
-                          <span>{formatLatencyMs(event.latencyMs)}</span>
-                          <span>
-                            {formatCompactNumber(event.totalTokens)} Tokens
-                          </span>
-                          <span>{formatUsdCost(event.estimatedCostUsd)}</span>
-                          {event.requestId ? (
-                            <span>
-                              {t("codex.apiService.logs.requestIdShort", {
-                                id: event.requestId,
-                                defaultValue: "ID {{id}}",
-                              })}
-                            </span>
-                          ) : null}
-                          {event.httpStatus ? (
-                            <span>
-                              {t("codex.apiService.logs.httpStatus", {
-                                status: event.httpStatus,
-                                defaultValue: "HTTP {{status}}",
-                              })}
-                            </span>
-                          ) : null}
-                          {event.errorCategory ? (
-                            <span>{event.errorCategory}</span>
-                          ) : null}
-                          {errorDetail ? (
-                            <span
-                              className="codex-api-service-log-error-detail"
-                              title={fullErrorDetail}
-                            >
-                              {errorDetail}
-                            </span>
-                          ) : null}
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {!requestLogLoading &&
-                    !requestLogError &&
-                    requestLogEvents.length === 0 && (
-                      <div className="codex-api-service-empty">
-                        {t("codex.localAccess.requestLogEmpty", "暂无请求日志")}
-                      </div>
-                    )}
-                </div>
-                <PaginationControls
-                  totalItems={requestLogTotal}
-                  currentPage={requestLogCurrentPage}
-                  totalPages={requestLogTotalPages}
-                  pageSize={requestLogPageSize}
-                  pageSizeOptions={REQUEST_LOG_PAGE_SIZE_OPTIONS}
-                  rangeStart={requestLogRangeStart}
-                  rangeEnd={requestLogRangeEnd}
-                  canGoPrevious={requestLogCurrentPage > 1}
-                  canGoNext={requestLogCurrentPage < requestLogTotalPages}
-                  onPageSizeChange={(pageSize) => {
-                    setRequestLogPageSize(
-                      normalizeRequestLogPageSize(pageSize),
-                    );
-                    setRequestLogPage(1);
-                  }}
-                  onPreviousPage={() =>
-                    setRequestLogPage((page) => Math.max(1, page - 1))
-                  }
-                  onNextPage={() =>
-                    setRequestLogPage((page) =>
-                      Math.min(requestLogTotalPages, page + 1),
-                    )
-                  }
-                />
-              </>
+              <CodexApiRequestLogs {...props} />
             )}
           </section>
         )}
@@ -4168,6 +3819,9 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
             .updateCodexLocalAccessImageGenerationModel(model)
             .then(setState)
         }
+        onUpdateImageGenerationMainModel={(model) =>
+          codexLocalAccessService.updateCodexLocalAccessImageGenerationMainModel(model).then(setState)
+        }
         onUpdateImageGenerationAccounts={(accountIds) =>
           codexLocalAccessService
             .updateCodexLocalAccessImageGenerationAccounts(accountIds)
@@ -4183,7 +3837,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
         }
         onRestartSidecar={handleRestartSidecar}
         onKillPort={handleKillPort}
-        onToggleEnabled={handleToggleEnabled}
+        onToggleEnabled={() => handleToggleEnabled(true)}
         onRecoverAccounts={handleRecoverAccounts}
         healthActionBusy={busy}
         onStreamTestMessage={({ sessionId, modelId, messages }) =>

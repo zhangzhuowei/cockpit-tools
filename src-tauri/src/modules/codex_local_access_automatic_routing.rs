@@ -1,8 +1,18 @@
 // Runtime-only API Service routing. Instance gateways keep their explicit routing configuration.
 
-/// GPT / Codex 命名空间只保留官方推荐集（外加客户端内部需要的隐藏条目）。
+/// GPT / Codex 命名空间保留官方推荐集、明确配置的模型和客户端内部条目。
 /// 其它命名空间（如 DeepSeek）原样保留。
 fn automatic_api_service_visible_model_ids(models: Vec<String>) -> Vec<String> {
+    automatic_api_service_visible_model_ids_with_explicit_catalog(
+        models,
+        api_service_experimental_model_catalog().as_deref().unwrap_or(&[]),
+    )
+}
+
+fn automatic_api_service_visible_model_ids_with_explicit_catalog(
+    models: Vec<String>,
+    explicit_models: &[String],
+) -> Vec<String> {
     models
         .into_iter()
         .filter(|model| {
@@ -13,7 +23,10 @@ fn automatic_api_service_visible_model_ids(models: Vec<String>) -> Vec<String> {
             if !key.starts_with("gpt-") && !key.starts_with("codex-") {
                 return true;
             }
-            key == CODEX_GPT_RESERVE_MODEL_ID
+            explicit_models
+                .iter()
+                .any(|model| model.trim().eq_ignore_ascii_case(&key))
+                || key == CODEX_GPT_RESERVE_MODEL_ID
                 || key == CODEX_AUTO_REVIEW_MODEL_ID
                 || key.starts_with("gpt-image")
                 || LOCAL_GATEWAY_VISIBLE_GPT_MODELS
@@ -568,6 +581,7 @@ pub(crate) fn overlay_rendered_pool_models_on_experimental_catalog(
             display_name: crate::modules::codex_account::provider_model_display_name(&model_id),
             model_id,
             reasoning_efforts: None,
+            default_reasoning_effort: None,
             context_window: None,
             auto_compact_token_limit: None,
         });

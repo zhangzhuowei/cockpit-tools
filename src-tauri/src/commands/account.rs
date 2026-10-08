@@ -379,6 +379,7 @@ pub async fn fetch_account_quota(account_id: String) -> AppResult<models::Accoun
 pub async fn refresh_all_quotas(
     app: tauri::AppHandle,
     trigger: Option<String>,
+    runtime_target: Option<String>,
 ) -> Result<modules::account::RefreshStats, String> {
     let trigger = match trigger
         .as_deref()
@@ -392,7 +393,7 @@ pub async fn refresh_all_quotas(
     let result = modules::account::refresh_all_quotas_logic(trigger).await;
     if result.is_ok() {
         let mut switched = false;
-        match modules::account::run_auto_switch_if_needed().await {
+        match run_auto_switch_for_runtime_target(&app, runtime_target.as_deref()).await {
             Ok(Some(account)) => {
                 modules::logger::log_info(&format!("[AutoSwitch] 自动切号完成: {}", account.email));
                 switched = true;
@@ -413,8 +414,11 @@ pub async fn refresh_all_quotas(
 }
 
 #[tauri::command]
-pub async fn refresh_current_quota(app: tauri::AppHandle) -> Result<(), String> {
-    let Some(account) = modules::get_current_account().map_err(|e| e.to_string())? else {
+pub async fn refresh_current_quota(
+    app: tauri::AppHandle,
+    runtime_target: Option<String>,
+) -> Result<(), String> {
+    let Some(account) = get_current_account(runtime_target.clone()).await? else {
         return Err("未找到当前账号".to_string());
     };
     let mut account = account;
@@ -424,7 +428,7 @@ pub async fn refresh_current_quota(app: tauri::AppHandle) -> Result<(), String> 
     modules::update_account_quota(&account.id, quota).map_err(|e| e.to_string())?;
 
     let mut switched = false;
-    match modules::account::run_auto_switch_if_needed().await {
+    match run_auto_switch_for_runtime_target(&app, runtime_target.as_deref()).await {
         Ok(Some(account)) => {
             modules::logger::log_info(&format!(
                 "[AutoSwitch] 当前账号刷新后自动切号完成: {}",
@@ -446,6 +450,30 @@ pub async fn refresh_current_quota(app: tauri::AppHandle) -> Result<(), String> 
 
     let _ = crate::modules::tray::update_tray_menu(&app);
     Ok(())
+}
+
+async fn run_auto_switch_for_runtime_target(
+    app: &AppHandle,
+    runtime_target: Option<&str>,
+) -> Result<Option<models::Account>, String> {
+    if !modules::config::get_user_config().auto_switch_enabled {
+        return Ok(None);
+    }
+    let target = normalize_antigravity_runtime_target(runtime_target);
+    let current_id = get_current_account(runtime_target.map(str::to_owned))
+        .await?
+        .map(|account| account.id);
+    modules::account::run_auto_switch_if_needed(current_id, |account_id, reason| async move {
+        match target {
+            AntigravityRuntimeTarget::Legacy => {
+                switch_account_legacy_antigravity(app.clone(), account_id).await
+            }
+            AntigravityRuntimeTarget::Ide => {
+                modules::account::execute_ide_auto_switch(account_id, reason).await
+            }
+        }
+    })
+    .await
 }
 
 async fn switch_account_legacy_antigravity(
@@ -822,7 +850,13 @@ fn resolve_platform_groups_filename(platform: &str) -> String {
         other => {
             let sanitized: String = other
                 .chars()
-                .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+                .map(|c| {
+                    if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                        c
+                    } else {
+                        '_'
+                    }
+                })
                 .collect();
             format!("{}_account_groups.json", sanitized)
         }

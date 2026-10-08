@@ -2881,6 +2881,7 @@ export function useCodexAccountsBaseController() {
     selectedTerminal,
     sessionWindowStats,
     setAccountNoteError,
+    setAccountNoteFieldErrors,
     setAccountNoteMfaPickerOpen,
     setAccountNotePasswordVisible,
     setAccountNoteSecretVisible,

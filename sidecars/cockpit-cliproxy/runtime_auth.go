@@ -757,6 +757,20 @@ func manifestModelsForAuth(m *manifest, auth *coreauth.Auth) []*cliproxy.ModelIn
 	provider := strings.ToLower(strings.TrimSpace(auth.Provider))
 	if provider == "" || provider == "codex" {
 		models := manifestRegistryModels(m)
+		// Explicit image relay configuration only expands the internal scheduler
+		// catalog; client model visibility and key permissions stay unchanged.
+		if mainModel := strings.TrimSpace(m.ImageGenerationMainModel); mainModel != "" {
+			found := false
+			for _, model := range models {
+				if model != nil && strings.EqualFold(model.ID, mainModel) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				models = append(models, manifestRegistryModelInfo(mainModel, "", time.Now().Unix()))
+			}
+		}
 		// 仅由第三方 provider（例如 xai/Grok）承接的模型不能注册到 Codex 账号上，
 		// 否则调度会把 grok 模型发给 ChatGPT 上游。
 		thirdPartyModels := xaiOnlyModelIDs(m)

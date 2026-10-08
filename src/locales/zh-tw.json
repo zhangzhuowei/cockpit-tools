@@ -96,6 +96,10 @@
     "providerClear": "清除選取"
   },
   "common": {
+    "requestId": "請求 ID",
+    "failureTime": "失敗時間",
+    "clearRecord": "清除紀錄",
+    "clearingRecord": "清除中…",
     "dragSortHint": "拖曳左側把手調整順序，放開後自動儲存。",
     "dragSortFilteredHint": "清除搜尋後可調整順序。",
     "recycleBin": {
@@ -314,6 +318,8 @@
         "manualCallbackPlaceholder": "貼上完整回呼網址，例如：http://localhost:1455/auth/callback?code=...&state=..."
       },
       "refreshAll": "全部刷新",
+      "refreshSuccess": "重新整理成功",
+      "refreshFailed": "重新整理失敗：{{error}}",
       "refreshQuota": "刷新配額",
       "search": "搜尋帳號...",
       "sort": {
@@ -417,7 +423,10 @@
     },
     "optional": "（可選）",
     "hide": "隱藏",
-    "show": "顯示"
+    "show": "顯示",
+    "configSaveTimeout": "操作逾時，請重新整理確認結果後再試。",
+    "clearAll": "取消全選",
+    "clear": "清除"
   },
   "nav": {
     "overview": "Antigravity IDE",
@@ -1139,7 +1148,19 @@
       "menuBarAccountPrefixDesc": "僅一般帳號：關閉後不顯示信箱前綴。Codex API 服務 / API Key 仍會顯示 API 標籤",
       "menuBarQuotaConfirmEnable": "啟用",
       "codexHideRelayQuota": "隱藏中轉站額度",
-      "codexHideRelayQuotaDesc": "開啟後，Codex 帳號總覽隱藏中轉 / New API 類額度面板，減輕列表重疊與視覺干擾。"
+      "codexHideRelayQuotaDesc": "開啟後，Codex 帳號總覽隱藏中轉 / New API 類額度面板，減輕列表重疊與視覺干擾。",
+      "floatingCardStyle": "懸浮窗樣式",
+      "floatingCardStyleDesc": "所有懸浮窗共用此設定，可在懸浮窗內切換。",
+      "floatingCardFull": "完整卡片",
+      "floatingCardMinimal": "極簡額度",
+      "floatingCardOpacity": "背景強度",
+      "floatingCardOpacityDesc": "100% 保留現有背景，0% 隱藏背景。額度文字保持清晰。",
+      "floatingCardOpacityValue": "背景：{{value}}%",
+      "themeColorOled": "OLED 黑白",
+      "codexAutoRestoreTakeoverOnLaunch": "啟動時還原 Codex 設定",
+      "codexAutoRestoreTakeoverOnLaunchDesc": "啟動時還原已啟用的模型設定與仍由工具管理的 API 接管，不覆寫手動修改的連線。",
+      "codexPreserveExternalBridge": "保留外部橋接",
+      "codexPreserveExternalBridgeDesc": "切換 OAuth 帳號時保留經本機紀錄驗證的 Codex Web GPT 橋接；預設關閉。"
     },
     "network": {
       "apiTitle": "反重力駕駛艙 API",
@@ -1522,6 +1543,9 @@
       "all": "全部 ({{count}})",
       "pro": "專業版 ({{count}})",
       "ultra": "超 ({{count}})"
+    },
+    "filters": {
+      "all": "全部"
     },
     "sortLabel": "排序",
     "sort": {
@@ -2137,6 +2161,12 @@
     "other_group": "其他模型"
   },
   "codex": {
+    "thresholds": {
+      "shortCycle": "短週期額度",
+      "weekly": "週額度",
+      "windowHint": "依實際時長匹配閾值，一週及以上使用週額度閾值；只有週額度時僅檢查週額度。缺少時長時沿用主／次視窗對應。",
+      "rule": "短週期剩餘 <= {{shortCycle}}% 或週剩餘 <= {{weekly}}%"
+    },
     "launchErrors": {
       "bindingFailed": "無法確認帳號綁定，已停止啟動，請重試切換帳號。",
       "processScanFailed": "無法檢查舊背景程序，已停止啟動，請重試。",
@@ -2339,7 +2369,8 @@
       "repairCompleted": "工作階段可見性修復完成",
       "forceRefreshTitle": "強制重新整理 Token",
       "forceRefreshReady": "可手動重新整理 OAuth Token",
-      "forceRefreshDescription": "使用 refresh_token 取得新的 access_token 與 id_token；目前的 refresh_token 可能會被輪替。",
+      "forceRefreshDescription": "使用 refresh_token 更新 access_token；僅在回應傳回時更新 id_token，refresh_token 可能輪替。",
+      "tokenExpiryDescription": "access_token 用於請求授權，id_token 儲存身分資訊。id_token 到期本身不代表 API 授權失效；實際可用性以啟動檢查和服務回應為準。",
       "forceRefreshUnavailable": "此帳號類型無法使用",
       "forceRefreshAction": "立即重新整理",
       "forceRefreshRunning": "正在重新整理 Token…",
@@ -2528,7 +2559,14 @@
       "testServiceUnavailable": "服務可達，但目前不可用：{{detail}}。請檢查服務是否啟用、帳號集合是否為空或帳號是否可用。",
       "gatewayErrors": {
         "authUnavailable": "帳號池目前沒有可調度帳號；帳號可能正在冷卻、授權失效或額度受限，請在 Cockpit Tools 的 API 服務頁查看帳號狀態。",
-        "authNotFound": "帳號池目前沒有已設定的可用帳號，請在 Cockpit Tools 的 API 服務頁新增或啟用帳號。"
+        "authNotFound": "帳號池目前沒有已設定的可用帳號，請在 Cockpit Tools 的 API 服務頁新增或啟用帳號。",
+        "accountConcurrencyExceeded": "帳號並行請求已達上限，請稍後重試。",
+        "providerRetryAfter": "供應商要求暫停請求，請在 {{seconds}} 秒後重試。",
+        "audioInvalidRequest": "音訊請求無效：{{detail}}",
+        "audioTooLarge": "音訊請求不能超過 26 MiB。",
+        "audioNotSupported": "此 OAuth 帳號僅支援語音轉寫，其他音訊操作需使用 API Key 供應商。",
+        "audioUnavailable": "音訊轉送暫時無法使用。",
+        "audioUpstreamFailed": "音訊上游請求失敗。"
       },
       "testRateLimited": "服務可達，但上游限流或額度不足：{{detail}}。",
       "testHttpFailed": "服務可達，但請求返回 HTTP {{status}}：{{detail}}。",
@@ -2786,12 +2824,29 @@
         "dialog": {
           "title": "帳號異常",
           "description": "顯示帳號池與帳號異常；只有明確歸屬帳號的故障才提供對應操作。",
-          "noIssues": "目前沒有異常帳號",
+          "noIssues": "目前沒有待顯示的異常",
           "unscopedApiKey": "目前 API Key",
           "poolUnavailable": "帳號池無可用帳號",
           "poolUnavailableDetail": "模型 {{model}} 的請求未能選出可用帳號",
           "poolUnattributedDetail": "未收到逐帳號診斷，無法歸屬到特定帳號。請檢查此 API Key 的帳號範圍與模型設定。",
           "poolDiagnosticDetail": "模型 {{model}}：候選 {{candidate}}，範圍符合 {{scoped}}，可用 {{available}}，不可用 {{unavailable}}，模型排除 {{modelExcluded}}，額度保留 {{quotaReserved}}，生圖策略攔截 {{imageBlocked}}",
+          "poolNoCandidatesDetail": "本次請求沒有候選帳號。請檢查請求模型與帳號載入狀態。",
+          "poolScopeMismatchDetail": "候選帳號未符合此 API Key 的帳號範圍，或無法識別帳號對應關係。請檢查綁定帳號與模型設定。",
+          "inspectBinding": "檢查綁定",
+          "inspectConfig": "檢查設定",
+          "unmappedAccount": "未識別帳號",
+          "accountReference": "帳號 {{id}}",
+          "scopeMismatchDetail": "此候選帳號不在目前 API Key 的綁定範圍內。",
+          "accountMappingMissingDetail": "候選憑證無法對應到帳號，請檢查帳號載入及帳號池同步狀態。",
+          "boundAccountNotLoadedDetail": "此綁定帳號尚未載入目前服務，請檢查帳號載入及帳號池同步狀態。",
+          "boundAccountNotCandidateDetail": "此綁定帳號已載入，但未進入本次請求的候選集，請檢查請求模型、供應商及請求類型。",
+          "scopeUnknownDetail": "目前範圍診斷不足以確定具體原因，請檢查綁定和服務日誌。",
+          "poolBlockedDetail": "範圍內篩選結果：無法調度 {{unavailable}}（如停用、冷卻或驗證失敗），模型排除 {{modelExcluded}}，額度保留 {{quotaReserved}}，生圖策略攔截 {{imageBlocked}}。請檢查各帳號原因與對應設定。",
+          "poolUnknownDetail": "目前診斷不足以確定具體原因。請檢查此 API Key 的帳號範圍、模型設定與服務記錄。",
+          "clearHint": "清除僅移除此筆診斷紀錄，不會修復設定、Token 或額度；請求再次失敗時會重新出現。",
+          "clearSuccess": "已清除診斷紀錄，不代表帳號池已恢復可用。",
+          "clearStale": "此紀錄已被新的失敗取代。請查看最新狀態後重試。",
+          "clearFailed": "清除紀錄失敗：{{error}}",
           "missing": "帳號缺失",
           "cooldown": "冷卻中",
           "quota": "額度受限",
@@ -2822,7 +2877,16 @@
       "testChatInputRequired": "請輸入測試訊息",
       "testChatModelRequired": "請選擇模型 ID",
       "testChatEmptyResponse": "回應為空",
-      "removeAction": "從 API 移除"
+      "removeAction": "從 API 移除",
+      "imageGenerationMainModel": {
+        "label": "生圖主模型",
+        "hint": "留空沿用 gpt-5.5。此模型負責呼叫圖片工具；所選 OAuth 帳號必須支援該主模型的 image_generation。",
+        "invalid": "請輸入不含空白的模型 ID，最長 200 字元。"
+      },
+      "requestDetail": {
+        "invalidRequestId": "請求 ID 無效。",
+        "settingsChanged": "設定已被其他操作修改，請重試。"
+      }
     },
     "api": {
       "baseUrl": "基礎網址",
@@ -3459,6 +3523,11 @@
       "importModal": {
         "title": "匯入會話",
         "hint": "會話包只會匯入 rollout 檔與 session_index 項目，不包含帳號、Token、API Key 或應用程式設定；目標實例已有相同 ID 的會話時會略過。",
+        "cwdPathAbsolute": "請輸入此電腦上的絕對路徑",
+        "cwdPathMissing": "目錄不存在或無法存取",
+        "cwdMappingTitle": "專案路徑對應（選填）",
+        "cwdMappingHint": "將來源工作目錄對應到這台電腦上已加入 Codex 的專案路徑；留空則保留來源路徑。",
+        "cwdTargetPlaceholder": "輸入這台電腦上的專案絕對路徑",
         "noTarget": "未找到可匯入的 Codex 實例",
         "noPackage": "請先選擇會話包",
         "pickOne": "請至少選擇一個可匯入會話",
@@ -3559,7 +3628,8 @@
         "7d": "近 7 天",
         "30d": "近 30 天",
         "month": "本月",
-        "all": "全部"
+        "all": "全部",
+        "today": "今天"
       },
       "instance": {
         "label": "實例",
@@ -3622,7 +3692,8 @@
         "total": "合計",
         "requests": "請求",
         "cost": "費用"
-      }
+      },
+      "costUnavailable": "部分模型沒有可用價格，無法完整估算當天費用。"
     },
     "grokAdd": {
       "tab": "Grok 帳號"
@@ -4158,6 +4229,11 @@
       "saveFailed": "儲存速度失敗：{{error}}"
     },
     "apiService": {
+      "inspection": {
+        "internalScope": "這是內部用戶端請求，請檢查服務帳號池及執行個體綁定；它不對應公開用戶端 Key。",
+        "keyUnavailable": "請求對應的用戶端 Key 已刪除或不存在，請檢查目前 Key 和帳號池。",
+        "imageScope": "圖片請求使用生圖帳號池及帳號圖片策略，請檢查圖片設定。"
+      },
       "navTitle": "Codex API 服務",
       "title": "Codex API 服務",
       "openPage": "進入 API 服務",
@@ -5328,6 +5404,129 @@
       "errors": {
         "bindingChanged": "賬號綁定已更改，保留當前設置"
       }
+    },
+    "autoRefreshScope": {
+      "label": "自動更新方案",
+      "description": "僅篩選標準 OAuth 帳號的平台及群組定時額度更新。預設全選；不影響手動更新、目前帳號更新、Token 保活和獨立帳號類型。",
+      "plans": {
+        "free": "免費",
+        "go": "Go",
+        "plus": "Plus",
+        "pro": "Pro",
+        "team": "團隊",
+        "business": "商務",
+        "enterprise": "企業",
+        "edu_k12": "教育",
+        "unknown": "未知"
+      }
+    },
+    "requestDiagnostics": {
+      "recordPayloads": "記錄請求本文",
+      "recordPayloadsHint": "預設關閉。僅在本機儲存有限長度的用戶端和上游請求快照；關閉後停止新記錄，既有本文可單獨清除。",
+      "privacyHint": "驗證欄位會遮蔽，但對話本文中的敏感資訊未必能辨識。複製或分享前請檢查。",
+      "clearPayloads": "清除已存本文",
+      "clearConfirm": "僅清除本文，保留統計與嘗試記錄？",
+      "cleared": "已清除 {{count}} 筆本文記錄",
+      "title": "請求詳情",
+      "totalLatency": "總耗時",
+      "firstResponse": "首響",
+      "firstResponseHint": "首響為請求開始到首個上游回應片段的耗時，不等同於首個產生的 Token。",
+      "unavailable": "此請求暫無診斷詳情，可稍後重新整理。舊請求不會補記。",
+      "attempts": "嘗試軌跡",
+      "noAttempts": "未記錄嘗試軌跡。",
+      "detailTruncated": "診斷超出容量限制，部分記錄已省略。",
+      "payloads": "請求快照",
+      "noPayloads": "未記錄本文。開啟記錄後僅擷取新請求，歷史不會補記。",
+      "clientPayload": "用戶端請求",
+      "upstreamPayload": "上游請求 #{{sequence}}",
+      "headers": "請求標頭",
+      "payloadTruncated": "快照已截斷，僅顯示已儲存的部分。",
+      "details": "詳情",
+      "latencyPair": "耗時 {{total}} · 首響 {{first}}",
+      "phases": {
+        "selection": "帳號篩選",
+        "upstream_connect": "上游連線",
+        "upstream_response": "上游回應",
+        "stream_read": "串流讀取",
+        "downstream_delivery": "用戶端傳遞",
+        "client_canceled": "用戶端取消",
+        "stream_incomplete": "串流未完成",
+        "completed": "已完成",
+        "unknown": "未記錄"
+      },
+      "failurePhase": "失敗階段",
+      "applying": "正在套用至執行中的閘道…",
+      "applyFailed": "設定已儲存，但執行中的閘道未能套用，可重試。原因：{{error}}"
+    },
+    "experimentalModels": {
+      "defaultReasoning": "預設檔位",
+      "defaultReasoningFollow": "沿用預設",
+      "defaultReasoningHint": "留空沿用模型預設檔位；所選檔位必須在目前支援範圍內。",
+      "defaultReasoningInvalid": "預設推理檔位必須屬於目前支援的檔位。"
+    },
+    "modelConfig": {
+      "transfer": "匯入 / 匯出",
+      "title": "模型設定",
+      "description": "匯出目前已儲存的模型清單、預設模型及 API 服務價格、別名和路由參照。檔案不含 API Key、帳號憑證或服務啟停設定。",
+      "importHint": "匯入會立即儲存至目前執行個體，並更新已啟用的模型目錄；API 服務設定為全域共用。不會啟用模型管理、啟動閘道或接管用戶端。尚未儲存的模型編輯會被匯入結果取代。",
+      "import": "匯入",
+      "export": "匯出",
+      "file": "選擇 JSON",
+      "jsonLabel": "設定 JSON",
+      "strategy": "衝突處理",
+      "keepExisting": "保留現有",
+      "replace": "覆寫同名",
+      "strategyHint": "預設保留現有設定；覆寫同名僅更新檔案中列出的同名項目，不刪除其他項目。",
+      "preview": "預覽",
+      "previewFirst": "先預覽並修正所有錯誤，再確認匯入。",
+      "previewLoading": "正在預覽…",
+      "importLoading": "正在匯入…",
+      "exported": "設定已匯出。",
+      "imported": "已儲存 {{count}} 項設定。",
+      "section": "範圍",
+      "item": "項目",
+      "result": "結果",
+      "actions": {
+        "added": "新增",
+        "updated": "更新",
+        "conflict": "衝突",
+        "skipped": "略過",
+        "error": "錯誤"
+      },
+      "sections": {
+        "models": "模型",
+        "defaultModel": "預設模型",
+        "prices": "價格",
+        "aliases": "別名",
+        "accountRules": "帳號模型規則",
+        "routing": "路由",
+        "exclusions": "排除模型",
+        "apiService": "API 服務"
+      },
+      "errors": {
+        "invalid": "設定格式或內容無效。",
+        "json": "JSON 無法解析，請檢查內容。",
+        "version": "不支援此設定格式或版本。",
+        "fields": "檔案欄位缺失、格式無效或不受支援；請使用匯出的模型設定檔。",
+        "tooLarge": "設定檔案過大，最大支援 4 MB。",
+        "tooMany": "設定項目過多，每個範圍最多 1000 項。",
+        "duplicate": "檔案中同一範圍的項目重複。",
+        "stateChanged": "預覽後本機設定已變更，請重新預覽。",
+        "accountMissing": "參照的帳號不存在或不在目前 API 服務帳號池中。",
+        "modelMissing": "參照的模型在目標設定和可用帳號中不存在。",
+        "serviceMissing": "尚未建立 API 服務設定，無法匯入其價格或路由。",
+        "price": "價格必須是非負有限數，長上下文門檻必須大於 0。",
+        "alias": "別名無效，或與來源模型相同。",
+        "rule": "規則無效，請檢查模型範圍、優先順序和權重。",
+        "busy": "另一項模型設定操作正在執行，請稍後重試。",
+        "instanceMissing": "目標執行個體已不存在，請重新選擇。",
+        "read": "讀取本機設定失敗，請重試。",
+        "write": "儲存設定失敗，原設定已保留，請重試。",
+        "validation": "設定包含錯誤，請重新預覽並修正。",
+        "recovery": "上次匯入未完成，復原遇到較新的設定或檔案問題；已保留復原記錄和現有資料。",
+        "apply": "設定已儲存，但執行中的閘道無法重新載入：{{error}}"
+      },
+      "closeHint": "確認匯入後，即使關閉對話框也會繼續儲存。"
     }
   },
   "githubCopilot": {
@@ -6883,6 +7082,15 @@
       "info": "資訊",
       "warn": "警告",
       "error": "錯誤"
+    },
+    "search": {
+      "placeholder": "搜尋日誌內容",
+      "regex": "正則",
+      "errors": {
+        "invalidRegex": "正則運算式無效，請修改。",
+        "timeout": "篩選逾時，請簡化運算式或關閉正則。",
+        "unavailable": "無法啟動篩選，請重試。"
+      }
     }
   },
   "mfaQuick": {
@@ -7417,6 +7625,10 @@
       "labelOverridePlaceholder": "選單顯示名稱",
       "supports1mLabel": "宣告支援 1M",
       "supports1mShort": "1M上下文"
+    },
+    "errors": {
+      "profileMissing": "找不到 Claude 設定目錄，請先開啟一次 Claude 後重試。",
+      "cookieSnapshotTooLarge": "Cookie 資料庫過大，無法安全讀取。"
     }
   },
   "openrouter": {

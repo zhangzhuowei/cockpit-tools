@@ -1,5 +1,6 @@
 // Codex 账号模块：Model catalog, quick config and provider catalog persistence。
 // 通过 include! 保持原 modules::codex_account 作用域，完整保留私有调用关系。
+include!("codex_account_model_config_transfer.rs");
 /// 获取 Codex 数据目录
 pub fn get_codex_home() -> PathBuf {
     if let Some(from_env) = resolve_codex_home_from_env() {
@@ -637,6 +638,7 @@ fn default_experimental_model_definitions(
                         model_id: model_id.to_string(),
                         display_name: model_catalog_display_name(model_id, display_name),
                         reasoning_efforts: None,
+                        default_reasoning_effort: None,
                         context_window: None,
                         auto_compact_token_limit: None,
                     })
@@ -651,6 +653,7 @@ fn default_experimental_model_definitions(
                 display_name: model_id.clone(),
                 model_id,
                 reasoning_efforts: None,
+                default_reasoning_effort: None,
                 context_window: None,
                 auto_compact_token_limit: None,
             })
@@ -832,6 +835,58 @@ fn normalize_reasoning_efforts(
     Ok(Some(normalized))
 }
 
+/// Use the same rendered catalog metadata as the client, including template limits.
+pub(crate) fn model_reasoning_efforts(
+    models: &[CodexExperimentalModelDefinition],
+) -> HashMap<String, Vec<String>> {
+    let definitions = models.iter().map(|model| (
+        model.model_id.clone(), model.display_name.clone(), model.reasoning_efforts.clone(),
+    )).collect::<Vec<_>>();
+    let catalog = crate::modules::codex_protocol::build_codex_client_models_response_with_model_definitions_and_reasoning(&definitions);
+    catalog["models"].as_array().into_iter().flatten().filter_map(|model| {
+        let id = model["slug"].as_str()?;
+        let efforts = model["supported_reasoning_levels"].as_array().into_iter().flatten()
+            .filter_map(|level| level["effort"].as_str().map(str::to_owned)).collect();
+        Some((id.to_string(), efforts))
+    }).collect()
+}
+
+pub(crate) fn model_reasoning_efforts_for_profile(
+    base_dir: &Path,
+    models: &[CodexExperimentalModelDefinition],
+) -> HashMap<String, Vec<String>> {
+    let mut result = model_reasoning_efforts(models);
+    let catalog = fs::read_to_string(experimental_model_catalog_path(base_dir)).ok()
+        .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok());
+    for model in models {
+        // Official GPT metadata comes from the bundled source, rather than a previously
+        // narrowed user override. Supplier/namespaced models use the actual profile template.
+        if model.model_id.to_ascii_lowercase().starts_with("gpt-") { continue; }
+        let entry = catalog.as_ref().and_then(|catalog| catalog["models"].as_array())
+            .and_then(|entries| entries.iter().find(|entry| entry["slug"].as_str()
+                .is_some_and(|id| id.eq_ignore_ascii_case(&model.model_id))));
+        let Some(entry) = entry else { continue; };
+        let efforts = entry["supported_reasoning_levels"].as_array().into_iter().flatten()
+            .filter_map(|level| level["effort"].as_str().map(str::to_owned))
+            .filter(|effort| model.reasoning_efforts.as_ref().is_none_or(|efforts| efforts.contains(effort)))
+            .collect::<Vec<_>>();
+        if !efforts.is_empty() { result.insert(model.model_id.clone(), efforts); }
+    }
+    result
+}
+
+fn validate_profile_default_reasoning_efforts(base_dir: &Path, models: &[CodexExperimentalModelDefinition]) -> Result<(), String> {
+    let efforts = model_reasoning_efforts_for_profile(base_dir, models);
+    for model in models {
+        if let Some(default) = model.default_reasoning_effort.as_ref() {
+            if !efforts.get(&model.model_id).is_some_and(|efforts| efforts.contains(default)) {
+                return Err("EXPERIMENTAL_MODEL_CATALOG_DEFAULT_REASONING_INVALID".to_string());
+            }
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn normalize_experimental_model_definitions(
     models: Vec<CodexExperimentalModelDefinition>,
 ) -> Result<Vec<CodexExperimentalModelDefinition>, String> {
@@ -871,10 +926,14 @@ pub(crate) fn normalize_experimental_model_definitions(
                 return Err("EXPERIMENTAL_MODEL_CATALOG_AUTO_COMPACT_RANGE_INVALID".to_string());
             }
         }
-        normalized.push(CodexExperimentalModelDefinition {
+        let reasoning_efforts = normalize_reasoning_efforts(model.reasoning_efforts.clone())?;
+        let default_reasoning_effort = model.default_reasoning_effort.as_deref()
+            .map(str::trim).filter(|value| !value.is_empty()).map(str::to_ascii_lowercase);
+        let definition = CodexExperimentalModelDefinition {
             model_id: model_id.to_string(),
             display_name: display_name.to_string(),
-            reasoning_efforts: normalize_reasoning_efforts(model.reasoning_efforts.clone())?,
+            reasoning_efforts,
+            default_reasoning_effort,
             context_window: model.context_window,
             auto_compact_token_limit: model.context_window.map(|window| {
                 model
@@ -883,7 +942,16 @@ pub(crate) fn normalize_experimental_model_definitions(
                         crate::modules::codex_protocol::derived_auto_compact_token_limit(window)
                     })
             }),
-        });
+        };
+        if let Some(default) = definition.default_reasoning_effort.as_ref() {
+            if !CODEX_REASONING_EFFORTS.contains(&default.as_str())
+                || !model_reasoning_efforts(std::slice::from_ref(&definition))
+                    .get(model_id).is_some_and(|efforts| efforts.contains(default))
+            {
+                return Err("EXPERIMENTAL_MODEL_CATALOG_DEFAULT_REASONING_INVALID".to_string());
+            }
+        }
+        normalized.push(definition);
     }
     Ok(normalized)
 }
@@ -964,6 +1032,7 @@ pub(crate) fn read_experimental_model_definitions(
             model_id: "gpt-reserve".to_string(),
             display_name: crate::modules::codex_protocol::CODEX_RESERVE_DISPLAY_NAME.to_string(),
             reasoning_efforts: None,
+            default_reasoning_effort: None,
             context_window: None,
             auto_compact_token_limit: None,
         });
@@ -984,6 +1053,7 @@ fn persist_experimental_model_definitions(
     let models = prioritize_gpt_6_model_definitions(normalize_experimental_model_definitions(
         models,
     )?);
+    validate_profile_default_reasoning_efforts(base_dir, &models)?;
     let mut default_model_id = default_model_id.and_then(|value| {
         models
             .iter()
@@ -1080,6 +1150,34 @@ fn apply_model_context_config_to_catalog(
     crate::modules::codex_protocol::apply_model_context_overrides(catalog, &definitions);
 }
 
+fn apply_model_reasoning_config_to_catalog(
+    catalog: &mut serde_json::Value,
+    definitions: &[CodexExperimentalModelDefinition],
+) -> Result<(), String> {
+    for entry in catalog["models"].as_array_mut().into_iter().flatten() {
+        let Some(definition) = definitions.iter().find(|definition| entry["slug"].as_str()
+            .is_some_and(|id| id.eq_ignore_ascii_case(&definition.model_id))) else { continue; };
+        if let Some(efforts) = definition.reasoning_efforts.as_ref() {
+            let levels = entry["supported_reasoning_levels"].as_array().cloned().unwrap_or_default();
+            let selected = levels.into_iter().filter(|level| level["effort"].as_str()
+                .is_some_and(|value| efforts.iter().any(|effort| effort == value))).collect::<Vec<_>>();
+            if !selected.is_empty() {
+                entry["supported_reasoning_levels"] = serde_json::json!(selected);
+                if !selected.iter().any(|level| level["effort"] == entry["default_reasoning_level"]) {
+                    entry["default_reasoning_level"] = selected[0]["effort"].clone();
+                }
+            }
+        }
+        if let Some(default) = definition.default_reasoning_effort.as_ref() {
+            let supported = entry["supported_reasoning_levels"].as_array().is_some_and(|levels|
+                levels.iter().any(|level| level["effort"].as_str() == Some(default)));
+            if !supported { return Err("EXPERIMENTAL_MODEL_CATALOG_DEFAULT_REASONING_INVALID".to_string()); }
+            entry["default_reasoning_level"] = serde_json::json!(default);
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn decorate_managed_model_catalog_for_profile(
     base_dir: &Path,
     catalog_json: &str,
@@ -1091,6 +1189,7 @@ pub(crate) fn decorate_managed_model_catalog_for_profile(
         .map_err(|error| format!("解析 Codex 受管模型目录失败: {}", error))?;
     let models = read_experimental_model_definitions(base_dir);
     apply_model_context_config_to_catalog(&mut catalog, &models);
+    apply_model_reasoning_config_to_catalog(&mut catalog, &models)?;
     // 统一口径收口：即使没有任何逐模型覆盖，也要保证受管目录里每个声明了上下文窗口的
     // 模型都带自动压缩阈值（缺失时按 90% 派生）。
     crate::modules::codex_protocol::ensure_client_model_auto_compact_limits(&mut catalog);
@@ -1114,6 +1213,7 @@ fn build_experimental_model_catalog(base_dir: &Path) -> Result<String, String> {
         crate::modules::codex_protocol::build_codex_client_models_response_with_model_definitions_and_reasoning(&definitions);
     crate::modules::codex_protocol::ensure_codex_reserve_fallback(&mut catalog);
     apply_model_context_config_to_catalog(&mut catalog, &model_definitions);
+    apply_model_reasoning_config_to_catalog(&mut catalog, &model_definitions)?;
     serde_json::to_string_pretty(&catalog)
         .map(|mut content| {
             content.push('\n');
@@ -1191,6 +1291,9 @@ fn merge_existing_catalog_into_experimental_catalog(
             merged_models.push(source_model.clone());
         }
     }
+
+    apply_model_context_config_to_catalog(&mut merged_catalog, &read_experimental_model_definitions(base_dir));
+    apply_model_reasoning_config_to_catalog(&mut merged_catalog, &read_experimental_model_definitions(base_dir))?;
 
     serde_json::to_string_pretty(&merged_catalog)
         .map(|mut content| {
@@ -1270,6 +1373,7 @@ fn read_catalog_model_definitions(
                 model_id: model_id.to_string(),
                 display_name: model_catalog_display_name(model_id, display_name),
                 reasoning_efforts: None,
+                default_reasoning_effort: None,
                 context_window,
                 auto_compact_token_limit,
             })

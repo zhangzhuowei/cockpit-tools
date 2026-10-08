@@ -96,6 +96,10 @@
     "providerClear": "選択を解除"
   },
   "common": {
+    "requestId": "リクエスト ID",
+    "failureTime": "失敗日時",
+    "clearRecord": "記録を消去",
+    "clearingRecord": "消去中…",
     "dragSortHint": "左のハンドルをドラッグして並べ替えます。離すと自動保存されます。",
     "dragSortFilteredHint": "並べ替えるには検索をクリアしてください。",
     "recycleBin": {
@@ -314,6 +318,8 @@
         "manualCallbackPlaceholder": "完全なコールバックURLを貼り付けてください。例: http://localhost:1455/auth/callback?code=...&state=..."
       },
       "refreshAll": "すべて更新",
+      "refreshSuccess": "更新しました",
+      "refreshFailed": "更新に失敗：{{error}}",
       "refreshQuota": "クォータ更新",
       "search": "アカウントを検索...",
       "sort": {
@@ -417,7 +423,10 @@
     },
     "optional": "（任意）",
     "hide": "非表示",
-    "show": "表示"
+    "show": "表示",
+    "configSaveTimeout": "操作がタイムアウトしました。更新して結果を確認してから再試行してください。",
+    "clearAll": "選択解除",
+    "clear": "クリア"
   },
   "nav": {
     "overview": "Antigravity IDE​",
@@ -1139,7 +1148,19 @@
       "menuBarAccountPrefixDesc": "通常アカウントのみ：オフでメール先頭を非表示。Codex API サービス / API Key は API ラベルを維持",
       "menuBarQuotaConfirmEnable": "有効にする",
       "codexHideRelayQuota": "中継クォータを隠す",
-      "codexHideRelayQuotaDesc": "オンにすると、Codex アカウント一覧で中継 / New API 系の残高パネルを非表示にし、表示の重なりを減らします。"
+      "codexHideRelayQuotaDesc": "オンにすると、Codex アカウント一覧で中継 / New API 系の残高パネルを非表示にし、表示の重なりを減らします。",
+      "floatingCardStyle": "フロート表示",
+      "floatingCardStyleDesc": "すべてのフロートウィンドウに適用されます。ウィンドウ内でも切り替えられます。",
+      "floatingCardFull": "全項目",
+      "floatingCardMinimal": "割当のみ",
+      "floatingCardOpacity": "背景の濃さ",
+      "floatingCardOpacityDesc": "100% は現在の背景、0% は背景なしです。割当の文字は鮮明なままです。",
+      "floatingCardOpacityValue": "背景：{{value}}%",
+      "themeColorOled": "OLED 白黒",
+      "codexAutoRestoreTakeoverOnLaunch": "起動時に Codex 設定を復元",
+      "codexAutoRestoreTakeoverOnLaunchDesc": "起動時に有効なモデル設定と管理中の API 接続を復元します。手動で変更した接続は上書きしません。",
+      "codexPreserveExternalBridge": "外部ブリッジを保持",
+      "codexPreserveExternalBridgeDesc": "OAuth アカウント切替時、ローカル記録で検証済みの Codex Web GPT ブリッジを保持します。既定はオフです。"
     },
     "network": {
       "apiTitle": "反重力コックピット API",
@@ -1522,6 +1543,9 @@
       "all": "すべて ({{count}})",
       "pro": "プロ ({{count}})",
       "ultra": "ウルトラ ({{count}})"
+    },
+    "filters": {
+      "all": "すべて"
     },
     "sortLabel": "並べ替え",
     "sort": {
@@ -2137,6 +2161,12 @@
     "other_group": "その他のモデル"
   },
   "codex": {
+    "thresholds": {
+      "shortCycle": "短期枠",
+      "weekly": "週次枠",
+      "windowHint": "実際の期間でしきい値を判定し、1週間以上は週次しきい値を使います。週次枠のみのアカウントはその枠だけを確認します。期間がない場合は主枠・副枠の対応を維持します。",
+      "rule": "短期残量 <= {{shortCycle}}% または週次残量 <= {{weekly}}%"
+    },
     "launchErrors": {
       "bindingFailed": "アカウントの関連付けを確認できません。起動を中止しました。切り替えを再試行してください。",
       "processScanFailed": "既存のバックグラウンドプロセスを確認できません。起動を中止しました。再試行してください。",
@@ -2339,7 +2369,8 @@
       "repairCompleted": "セッション表示を修復しました",
       "forceRefreshTitle": "Tokenを強制更新",
       "forceRefreshReady": "OAuth Token は手動で更新できます",
-      "forceRefreshDescription": "refresh_token を使って新しい access_token と id_token を取得します。現在の refresh token がローテーションされる場合があります。",
+      "forceRefreshDescription": "refresh_token で access_token を更新します。id_token は応答に含まれる場合のみ更新され、refresh_token は変更されることがあります。",
+      "tokenExpiryDescription": "access_token はリクエストの認証、id_token は本人情報に使われます。id_token の期限切れだけでは API 認証の無効化を意味しません。利用可否は起動時の確認とサービスの応答で判定されます。",
       "forceRefreshUnavailable": "このアカウント種別では利用できません",
       "forceRefreshAction": "今すぐ更新",
       "forceRefreshRunning": "Tokenを更新中…",
@@ -2528,7 +2559,14 @@
       "testServiceUnavailable": "サービスには到達しましたが、現在利用できません: {{detail}}。サービスが有効か、アカウント集合が空でないか、アカウントが利用可能かを確認してください。",
       "gatewayErrors": {
         "authUnavailable": "現在、ルーティング可能なアカウントがありません。冷却中、認証失敗、またはクォータ制限の可能性があります。Cockpit Tools の API サービスで状態を確認してください。",
-        "authNotFound": "利用可能なアカウントがアカウントプールに設定されていません。Cockpit Tools の API サービスで追加または有効化してください。"
+        "authNotFound": "利用可能なアカウントがアカウントプールに設定されていません。Cockpit Tools の API サービスで追加または有効化してください。",
+        "accountConcurrencyExceeded": "アカウントの同時リクエスト数が上限に達しました。しばらくしてから再試行してください。",
+        "providerRetryAfter": "プロバイダーがリクエストの一時停止を要求しています。{{seconds}} 秒後に再試行してください。",
+        "audioInvalidRequest": "音声リクエストが無効です：{{detail}}",
+        "audioTooLarge": "音声リクエストは 26 MiB 以下にしてください。",
+        "audioNotSupported": "この OAuth アカウントは文字起こしのみ対応しています。他の音声操作には API Key プロバイダーを使用してください。",
+        "audioUnavailable": "音声の転送を利用できません。",
+        "audioUpstreamFailed": "音声の上流リクエストに失敗しました。"
       },
       "testRateLimited": "サービスには到達しましたが、上流でレート制限またはクォータ不足です: {{detail}}。",
       "testHttpFailed": "サービスには到達しましたが、リクエストは HTTP {{status}} を返しました: {{detail}}。",
@@ -2786,12 +2824,29 @@
         "dialog": {
           "title": "アカウントの異常",
           "description": "アカウントプールと各アカウントの問題を表示します。アカウントの操作は、そのアカウントに原因が特定された場合のみ表示されます。",
-          "noIssues": "アカウントに異常はありません",
+          "noIssues": "表示する問題はありません",
           "unscopedApiKey": "現在の API Key",
           "poolUnavailable": "プールに利用可能なアカウントがありません",
           "poolUnavailableDetail": "モデル {{model}} に利用可能なアカウントを選択できませんでした",
           "poolUnattributedDetail": "アカウント別の診断情報がないため、このエラーを特定のアカウントに関連付けることはできません。この API キーの対象アカウントとモデル設定を確認してください。",
           "poolDiagnosticDetail": "モデル {{model}}：候補 {{candidate}}、範囲内 {{scoped}}、利用可能 {{available}}、利用不可 {{unavailable}}、モデル除外 {{modelExcluded}}、クォータ予約 {{quotaReserved}}、画像ポリシー除外 {{imageBlocked}}",
+          "poolNoCandidatesDetail": "このリクエストに候補アカウントがありません。要求モデルとアカウントの読み込み状況を確認してください。",
+          "poolScopeMismatchDetail": "候補がこの API キーのアカウント範囲に一致しないか、アカウントの対応関係を認識できません。選択したアカウントとモデル設定を確認してください。",
+          "inspectBinding": "紐付け確認",
+          "inspectConfig": "設定を確認",
+          "unmappedAccount": "不明なアカウント",
+          "accountReference": "アカウント {{id}}",
+          "scopeMismatchDetail": "この候補アカウントは、この API Key に紐付けられた範囲外です。",
+          "accountMappingMissingDetail": "候補の認証情報をアカウントに対応付けられません。アカウントの読み込みとプールの同期を確認してください。",
+          "boundAccountNotLoadedDetail": "この紐付けアカウントは現在のサービスに読み込まれていません。読み込みとプールの同期を確認してください。",
+          "boundAccountNotCandidateDetail": "この紐付けアカウントは読み込み済みですが、今回のリクエストの候補に含まれていません。モデル、プロバイダー、リクエスト種別を確認してください。",
+          "scopeUnknownDetail": "範囲の診断だけでは原因を特定できません。紐付けとサービスログを確認してください。",
+          "poolBlockedDetail": "範囲内の選別結果：利用不可 {{unavailable}}（無効化、待機中、認証失敗など）、モデル除外 {{modelExcluded}}、クォータ予約による制限 {{quotaReserved}}、画像ポリシーによる制限 {{imageBlocked}}。各アカウントの理由と設定を確認してください。",
+          "poolUnknownDetail": "現在の診断では具体的な原因を特定できません。API キーのアカウント範囲、モデル設定、サービスログを確認してください。",
+          "clearHint": "消去するのはこの診断記録だけです。設定、トークン、クォータは修復されず、リクエストが再び失敗すると新しい記録が作成されます。",
+          "clearSuccess": "診断記録を消去しました。アカウントプールが復旧したことを意味するものではありません。",
+          "clearStale": "この記録は新しい失敗に置き換わっています。最新の状態を確認して再試行してください。",
+          "clearFailed": "記録を消去できませんでした：{{error}}",
           "missing": "アカウント欠落",
           "cooldown": "冷却中",
           "quota": "クォータ制限",
@@ -2822,7 +2877,16 @@
       "testChatInputRequired": "テストメッセージを入力してください",
       "testChatModelRequired": "モデル ID を選択してください",
       "testChatEmptyResponse": "空の応答",
-      "removeAction": "API から削除"
+      "removeAction": "API から削除",
+      "imageGenerationMainModel": {
+        "label": "画像用主モデル",
+        "hint": "空欄なら gpt-5.5 を使用します。このモデルが画像ツールを呼び出します。選択した OAuth アカウントは、このモデルの image_generation に対応している必要があります。",
+        "invalid": "空白を含まないモデル ID を 200 文字以内で入力してください。"
+      },
+      "requestDetail": {
+        "invalidRequestId": "リクエスト ID が無効です。",
+        "settingsChanged": "別の操作で設定が変更されました。再試行してください。"
+      }
     },
     "local": {
       "desc": "~/.codex/auth.json から現在ログイン中のアカウントをインポート",
@@ -3328,6 +3392,11 @@
       "importModal": {
         "title": "セッションを読み込み",
         "hint": "セッションパッケージは rollout ファイルと session_index 項目だけを読み込みます。アカウント、Token、API Key、アプリ設定は含まれません。同じ ID のセッションが対象インスタンスにある場合はスキップします。",
+        "cwdPathAbsolute": "この端末の絶対パスを入力してください",
+        "cwdPathMissing": "フォルダーが存在しないかアクセスできません",
+        "cwdMappingTitle": "プロジェクトパスの割り当て（任意）",
+        "cwdMappingHint": "元の作業ディレクトリを、このコンピューターで Codex に追加済みのプロジェクトパスに割り当てます。元のパスを維持する場合は空欄にします。",
+        "cwdTargetPlaceholder": "このコンピューター上のプロジェクトの絶対パスを入力",
         "noTarget": "読み込み可能な Codex インスタンスがありません",
         "noPackage": "先にセッションパッケージを選択してください",
         "pickOne": "読み込み可能なセッションを少なくとも 1 件選択してください",
@@ -3428,7 +3497,8 @@
         "7d": "7日",
         "30d": "30日",
         "month": "今月",
-        "all": "すべて"
+        "all": "すべて",
+        "today": "今日"
       },
       "instance": {
         "label": "インスタンス",
@@ -3491,7 +3561,8 @@
         "total": "合計",
         "requests": "回数",
         "cost": "費用"
-      }
+      },
+      "costUnavailable": "価格が不明なモデルがあるため、当日の費用全体を推定できません。"
     },
     "api": {
       "baseUrl": "ベース URL",
@@ -4158,6 +4229,11 @@
       "saveFailed": "速度の保存に失敗しました: {{error}}"
     },
     "apiService": {
+      "inspection": {
+        "internalScope": "内部クライアントのリクエストです。サービスのアカウントプールとインスタンスの紐付けを確認してください。公開クライアント Key には対応しません。",
+        "keyUnavailable": "このリクエストのクライアント Key が存在しないか削除されています。現在の Key とアカウントプールを確認してください。",
+        "imageScope": "画像リクエストは画像用アカウントプールと各アカウントの画像ポリシーを使用します。画像設定を確認してください。"
+      },
       "navTitle": "Codex API サービス",
       "title": "Codex API サービス",
       "openPage": "API サービスを開く",
@@ -5328,6 +5404,129 @@
       "errors": {
         "bindingChanged": "紐付けが変更されました。現在の設定を維持しました。"
       }
+    },
+    "autoRefreshScope": {
+      "label": "自動更新プラン",
+      "description": "標準 OAuth アカウントのプラットフォーム・グループ別の定期的な上限更新を絞り込みます。初期状態では全プランを選択します。手動更新、現在のアカウントの更新、トークン維持、その他のアカウント種別は変わりません。",
+      "plans": {
+        "free": "無料",
+        "go": "Go",
+        "plus": "Plus",
+        "pro": "Pro",
+        "team": "チーム",
+        "business": "ビジネス",
+        "enterprise": "企業",
+        "edu_k12": "教育",
+        "unknown": "不明"
+      }
+    },
+    "requestDiagnostics": {
+      "recordPayloads": "リクエスト本文を記録",
+      "recordPayloadsHint": "初期設定はオフです。クライアントと上流の要求を長さ制限付きでローカル保存します。オフにすると新規記録を停止し、保存済み本文は別途削除できます。",
+      "privacyHint": "認証フィールドは伏せられますが、会話中の機密情報は残る場合があります。コピーや共有前に確認してください。",
+      "clearPayloads": "保存本文を削除",
+      "clearConfirm": "本文のみ削除し、統計と試行記録は残しますか？",
+      "cleared": "本文記録を {{count}} 件削除しました",
+      "title": "リクエスト詳細",
+      "totalLatency": "合計時間",
+      "firstResponse": "初回応答",
+      "firstResponseHint": "要求開始から上流の最初の応答断片までの時間です。最初の生成トークンまでの時間とは限りません。",
+      "unavailable": "診断情報はまだありません。後で更新してください。過去の要求は補完されません。",
+      "attempts": "試行履歴",
+      "noAttempts": "試行履歴は記録されていません。",
+      "detailTruncated": "容量上限により、一部の診断記録は省略されました。",
+      "payloads": "要求スナップショット",
+      "noPayloads": "本文は未記録です。有効化後の新しい要求のみ記録します。",
+      "clientPayload": "クライアント要求",
+      "upstreamPayload": "上流要求 #{{sequence}}",
+      "headers": "ヘッダー",
+      "payloadTruncated": "上限により切り詰められています。保存済み部分のみ表示します。",
+      "details": "詳細",
+      "latencyPair": "合計 {{total}} · 初回 {{first}}",
+      "phases": {
+        "selection": "アカウント選択",
+        "upstream_connect": "上流接続",
+        "upstream_response": "上流応答",
+        "stream_read": "ストリーム読取",
+        "downstream_delivery": "クライアント配信",
+        "client_canceled": "クライアント取消",
+        "stream_incomplete": "ストリーム未完了",
+        "completed": "完了",
+        "unknown": "未記録"
+      },
+      "failurePhase": "失敗段階",
+      "applying": "実行中のゲートウェイに適用中…",
+      "applyFailed": "設定は保存されましたが、実行中のゲートウェイに適用できませんでした。再試行してください。理由：{{error}}"
+    },
+    "experimentalModels": {
+      "defaultReasoning": "既定の推論強度",
+      "defaultReasoningFollow": "既定値を使用",
+      "defaultReasoningHint": "空欄にするとモデルの既定値を使用します。選択する推論強度は現在の対応範囲内である必要があります。",
+      "defaultReasoningInvalid": "既定の推論強度は、このモデルが対応する値である必要があります。"
+    },
+    "modelConfig": {
+      "transfer": "インポート / エクスポート",
+      "title": "モデル設定",
+      "description": "保存済みのモデル一覧、既定のモデル、API サービスの料金・別名・ルーティング参照をエクスポートします。ファイルに API Key、アカウントの認証情報、サービスの起動・停止設定は含まれません。",
+      "importHint": "インポートすると現在のインスタンスに即時保存され、有効なモデルカタログが更新されます。API サービス設定は全体で共有されます。モデル管理の有効化、ゲートウェイの起動、クライアントの引き継ぎは行いません。未保存のモデル編集はインポート結果に置き換わります。",
+      "import": "インポート",
+      "export": "エクスポート",
+      "file": "JSON を選択",
+      "jsonLabel": "設定 JSON",
+      "strategy": "競合の処理",
+      "keepExisting": "既存を保持",
+      "replace": "同名を上書き",
+      "strategyHint": "既定では既存の設定を保持します。同名の上書きでは、ファイルに記載された同名の項目だけを更新し、他の項目は削除しません。",
+      "preview": "プレビュー",
+      "previewFirst": "プレビューですべてのエラーを修正してから、インポートを確定してください。",
+      "previewLoading": "プレビュー中…",
+      "importLoading": "インポート中…",
+      "exported": "設定をエクスポートしました。",
+      "imported": "{{count}} 件の設定を保存しました。",
+      "section": "範囲",
+      "item": "項目",
+      "result": "結果",
+      "actions": {
+        "added": "追加",
+        "updated": "更新",
+        "conflict": "競合",
+        "skipped": "スキップ",
+        "error": "エラー"
+      },
+      "sections": {
+        "models": "モデル",
+        "defaultModel": "既定のモデル",
+        "prices": "料金",
+        "aliases": "別名",
+        "accountRules": "アカウントルール",
+        "routing": "ルーティング",
+        "exclusions": "除外モデル",
+        "apiService": "API サービス"
+      },
+      "errors": {
+        "invalid": "設定の形式または内容が無効です。",
+        "json": "JSON を解析できません。内容を確認してください。",
+        "version": "この設定形式またはバージョンには対応していません。",
+        "fields": "ファイルのフィールドが不足しているか、形式が無効、または未対応です。エクスポートしたモデル設定ファイルを使用してください。",
+        "tooLarge": "設定ファイルが上限の 4 MB を超えています。",
+        "tooMany": "項目が多すぎます。各範囲の上限は 1000 件です。",
+        "duplicate": "ファイルの同じ範囲内に重複する項目があります。",
+        "stateChanged": "プレビュー後にローカル設定が変更されました。再度プレビューしてください。",
+        "accountMissing": "参照先のアカウントが存在しないか、現在の API サービスのアカウントプールに含まれていません。",
+        "modelMissing": "参照先のモデルが対象の設定と利用可能なアカウントのいずれにも存在しません。",
+        "serviceMissing": "API サービス設定がまだ作成されていません。料金やルーティングはインポートできません。",
+        "price": "料金は非負の有限数、長いコンテキストのしきい値は 0 より大きい値にしてください。",
+        "alias": "別名が無効か、元のモデルと同じです。",
+        "rule": "ルールが無効です。モデル範囲、優先度、重みを確認してください。",
+        "busy": "別のモデル設定操作が実行中です。しばらくしてから再試行してください。",
+        "instanceMissing": "対象のインスタンスは存在しません。選択し直してください。",
+        "read": "ローカル設定を読み込めませんでした。再試行してください。",
+        "write": "設定を保存できませんでした。元の設定は保持されています。再試行してください。",
+        "validation": "設定にエラーがあります。再度プレビューして修正してください。",
+        "recovery": "前回のインポートは完了していません。新しい設定またはファイルの問題により復旧できませんでした。復旧記録と既存のデータは保持されています。",
+        "apply": "設定は保存されましたが、実行中のゲートウェイを再読み込みできませんでした：{{error}}"
+      },
+      "closeHint": "インポートを確定すると、ダイアログを閉じても保存は続行されます。"
     }
   },
   "githubCopilot": {
@@ -6883,6 +7082,15 @@
       "info": "情報",
       "warn": "警告",
       "error": "エラー"
+    },
+    "search": {
+      "placeholder": "ログ内を検索",
+      "regex": "正規表現",
+      "errors": {
+        "invalidRegex": "正規表現が無効です。修正してください。",
+        "timeout": "検索がタイムアウトしました。式を簡略化するか正規表現をオフにしてください。",
+        "unavailable": "検索を開始できません。再試行してください。"
+      }
     }
   },
   "mfaQuick": {
@@ -7417,6 +7625,10 @@
       "labelOverridePlaceholder": "メニュー表示名",
       "supports1mLabel": "1M 対応を宣言",
       "supports1mShort": "1M対応"
+    },
+    "errors": {
+      "profileMissing": "Claude のプロファイルフォルダーが見つかりません。Claude を一度開いてから再試行してください。",
+      "cookieSnapshotTooLarge": "Cookie データベースが大きすぎるため、安全に読み取れません。"
     }
   },
   "openrouter": {

@@ -96,6 +96,10 @@
     "providerClear": "Clear selection"
   },
   "common": {
+    "requestId": "Request ID",
+    "failureTime": "Failure time",
+    "clearRecord": "Clear record",
+    "clearingRecord": "Clearing…",
     "dragSortHint": "Drag the left handle to reorder. Changes save automatically on release.",
     "dragSortFilteredHint": "Clear the search to reorder.",
     "recycleBin": {
@@ -321,6 +325,8 @@
         "manualCallbackPlaceholder": "Paste the full callback URL, e.g. http://localhost:1455/auth/callback?code=...&state=..."
       },
       "refreshAll": "Refresh All",
+      "refreshSuccess": "Refresh successful",
+      "refreshFailed": "Refresh failed: {{error}}",
       "refreshQuota": "Refresh Quota",
       "search": "Search accounts...",
       "sort": {
@@ -417,7 +423,10 @@
     },
     "optional": " (optional)",
     "hide": "Hide",
-    "show": "Show"
+    "show": "Show",
+    "configSaveTimeout": "Operation timed out. Refresh to confirm the result before retrying.",
+    "clearAll": "Deselect all",
+    "clear": "Clear"
   },
   "floatingCard": {
     "selectPlatform": "Switch platform",
@@ -1353,7 +1362,19 @@
       "menuBarAccountPrefixDesc": "Normal accounts only: when off, hide email prefix. Codex API Service / API Key still show the API label",
       "menuBarQuotaConfirmEnable": "Enable",
       "codexHideRelayQuota": "Hide relay quota",
-      "codexHideRelayQuotaDesc": "When on, Codex account overview hides mid-relay / New API style balance panels to reduce clutter."
+      "codexHideRelayQuotaDesc": "When on, Codex account overview hides mid-relay / New API style balance panels to reduce clutter.",
+      "floatingCardStyle": "Floating style",
+      "floatingCardStyleDesc": "Shared by all floating windows. You can also change it in the window.",
+      "floatingCardFull": "Full card",
+      "floatingCardMinimal": "Minimal quota",
+      "floatingCardOpacity": "Background strength",
+      "floatingCardOpacityDesc": "100% keeps the current background; 0% hides it. Quota text stays clear.",
+      "floatingCardOpacityValue": "Background: {{value}}%",
+      "themeColorOled": "OLED black & white",
+      "codexAutoRestoreTakeoverOnLaunch": "Restore Codex on launch",
+      "codexAutoRestoreTakeoverOnLaunchDesc": "Restore enabled model settings and API connections still managed by Cockpit on launch. Keep manually edited connections.",
+      "codexPreserveExternalBridge": "Keep external bridge",
+      "codexPreserveExternalBridgeDesc": "Keep a Codex Web GPT bridge verified against local integration records when switching OAuth accounts. Off by default."
     },
     "tabs": {
       "general": "General",
@@ -1742,6 +1763,9 @@
       "all": "All ({{count}})",
       "pro": "PRO ({{count}})",
       "ultra": "ULTRA ({{count}})"
+    },
+    "filters": {
+      "all": "All"
     },
     "sortLabel": "Sort",
     "sort": {
@@ -2357,6 +2381,12 @@
     "other_group": "Other Models"
   },
   "codex": {
+    "thresholds": {
+      "shortCycle": "Short-cycle quota",
+      "weekly": "Weekly quota",
+      "windowHint": "Thresholds follow actual durations: a week or longer uses the weekly threshold. Weekly-only accounts check only that quota. Missing durations keep the primary/secondary mapping.",
+      "rule": "Short-cycle remaining <= {{shortCycle}}% or weekly remaining <= {{weekly}}%"
+    },
     "launchErrors": {
       "bindingFailed": "Account binding could not be confirmed. Launch stopped; retry switching accounts.",
       "processScanFailed": "Could not inspect the old background processes. Launch stopped; retry.",
@@ -2559,7 +2589,8 @@
       "repairCompleted": "Session visibility repair completed",
       "forceRefreshTitle": "Force-refresh Token",
       "forceRefreshReady": "OAuth tokens can be refreshed manually",
-      "forceRefreshDescription": "Use refresh_token to obtain new access_token and id_token values. This may rotate the current refresh token.",
+      "forceRefreshDescription": "Refresh access_token using refresh_token. Update id_token only if returned; refresh_token may rotate.",
+      "tokenExpiryDescription": "access_token authorizes requests; id_token carries identity information. An expired id_token alone does not prove API access is invalid. Availability is checked during startup and by the service response.",
       "forceRefreshUnavailable": "Unavailable for this account type",
       "forceRefreshAction": "Refresh now",
       "forceRefreshRunning": "Refreshing Token…",
@@ -2894,7 +2925,14 @@
       "testServiceUnavailable": "Service is reachable, but currently unavailable: {{detail}}. Check whether the service is enabled, the account collection is empty, or accounts are usable.",
       "gatewayErrors": {
         "authUnavailable": "No account is currently schedulable; the account may be cooling down, unauthorized, or quota-limited. Check account status in the Cockpit Tools API Service page.",
-        "authNotFound": "No usable account is configured in the account pool. Add or enable an account in the Cockpit Tools API Service page."
+        "authNotFound": "No usable account is configured in the account pool. Add or enable an account in the Cockpit Tools API Service page.",
+        "accountConcurrencyExceeded": "Account concurrency limit reached. Try again later.",
+        "providerRetryAfter": "The provider requested a pause. Try again in {{seconds}} seconds.",
+        "audioInvalidRequest": "Invalid audio request: {{detail}}",
+        "audioTooLarge": "Audio requests must not exceed 26 MiB.",
+        "audioNotSupported": "This OAuth account supports transcription only. Use an API Key provider for other audio operations.",
+        "audioUnavailable": "Audio forwarding is unavailable.",
+        "audioUpstreamFailed": "The audio upstream request failed."
       },
       "testRateLimited": "Service is reachable, but upstream is rate limited or quota is exhausted: {{detail}}.",
       "testHttpFailed": "Service is reachable, but the request returned HTTP {{status}}: {{detail}}.",
@@ -3003,12 +3041,29 @@
         "dialog": {
           "title": "Account Issues",
           "description": "Shows pool and account issues. Account actions are offered only for failures attributed to that account.",
-          "noIssues": "No account issues",
+          "noIssues": "No issues to display",
           "unscopedApiKey": "Current API Key",
           "poolUnavailable": "No available pool account",
           "poolUnavailableDetail": "No available account was selected for model {{model}}",
           "poolUnattributedDetail": "No per-account diagnostics were received, so this failure cannot be attributed to an account. Check this API key’s account scope and model configuration.",
           "poolDiagnosticDetail": "Model {{model}}: {{candidate}} candidates, {{scoped}} in scope, {{available}} available, {{unavailable}} unavailable, {{modelExcluded}} model-excluded, {{quotaReserved}} quota-reserved, {{imageBlocked}} image-policy blocked",
+          "poolNoCandidatesDetail": "There are no candidate accounts for this request. Check the requested model and account loading status.",
+          "poolScopeMismatchDetail": "No candidate matched this API key’s account scope, or its account mapping could not be recognized. Check the selected accounts and model configuration.",
+          "inspectBinding": "Check binding",
+          "inspectConfig": "Check config",
+          "unmappedAccount": "Unidentified account",
+          "accountReference": "Account {{id}}",
+          "scopeMismatchDetail": "This candidate account is outside this API key’s bound account scope.",
+          "accountMappingMissingDetail": "The candidate credential could not be mapped to an account. Check account loading and pool synchronization.",
+          "boundAccountNotLoadedDetail": "This bound account is not loaded in the current service. Check account loading and pool synchronization.",
+          "boundAccountNotCandidateDetail": "This bound account was loaded but is not a candidate for this request. Check the requested model, provider and request type.",
+          "scopeUnknownDetail": "The scope diagnostic does not identify a specific cause. Check binding and service logs.",
+          "poolBlockedDetail": "In-scope filtering: {{unavailable}} unavailable (such as disabled, cooling down or authentication failure), {{modelExcluded}} model-excluded, {{quotaReserved}} quota-reserved, {{imageBlocked}} image-policy blocked. Check member reasons and the corresponding settings.",
+          "poolUnknownDetail": "The current diagnostics do not identify a specific cause. Check this API key’s account scope, model configuration and service logs.",
+          "clearHint": "Clearing removes only this diagnostic record. It does not repair settings, tokens or quota; another failed request can create a new record.",
+          "clearSuccess": "Diagnostic record cleared. This does not mean the account pool has recovered.",
+          "clearStale": "A newer failure replaced this record. Review the latest status and try again.",
+          "clearFailed": "Could not clear the record: {{error}}",
           "missing": "Missing account",
           "cooldown": "Cooling down",
           "quota": "Quota limited",
@@ -3173,7 +3228,16 @@
       "testChatSend": "Send",
       "testChatInputRequired": "Enter a test message",
       "testChatModelRequired": "Select a model ID",
-      "testChatEmptyResponse": "Empty response"
+      "testChatEmptyResponse": "Empty response",
+      "imageGenerationMainModel": {
+        "label": "Image main model",
+        "hint": "Leave blank to keep gpt-5.5. This model calls the image tool; the selected OAuth accounts must support image_generation on it.",
+        "invalid": "Enter a model ID without whitespace, up to 200 characters."
+      },
+      "requestDetail": {
+        "invalidRequestId": "Invalid request ID.",
+        "settingsChanged": "Settings changed in another operation. Please retry."
+      }
     },
     "api": {
       "baseUrl": "Base URL",
@@ -4150,6 +4214,11 @@
       "importModal": {
         "title": "Import Sessions",
         "hint": "Session packages only import rollout files and session_index entries. Accounts, tokens, API keys, and app settings are not included. Sessions with the same ID already in the target instance are skipped.",
+        "cwdPathAbsolute": "Enter an absolute path on this computer",
+        "cwdPathMissing": "Directory not found or inaccessible",
+        "cwdMappingTitle": "Workspace path mapping (optional)",
+        "cwdMappingHint": "Map each source working directory to an existing Codex project path on this computer. Leave blank to keep the source path.",
+        "cwdTargetPlaceholder": "Enter an absolute project path on this computer",
         "noTarget": "No Codex instance is available for import",
         "noPackage": "Select a session package first",
         "pickOne": "Select at least one importable session",
@@ -4312,7 +4381,8 @@
         "7d": "7 days",
         "30d": "30 days",
         "month": "This month",
-        "all": "All"
+        "all": "All",
+        "today": "Today"
       },
       "instance": {
         "label": "Instance",
@@ -4375,7 +4445,8 @@
         "total": "Total",
         "requests": "Reqs",
         "cost": "Cost"
-      }
+      },
+      "costUnavailable": "Some models have no available price, so the full daily cost cannot be estimated."
     },
     "groups": {
       "addToGroup": "Add to Group"
@@ -4390,6 +4461,11 @@
       "saveFailed": "Failed to save speed: {{error}}"
     },
     "apiService": {
+      "inspection": {
+        "internalScope": "This is an internal client request. Check the service account pool and instance binding; it does not correspond to a public client Key.",
+        "keyUnavailable": "The client Key for this request is missing or was deleted. Check current Keys and the account pool.",
+        "imageScope": "Image requests use the image account pool and account image policies. Check image settings."
+      },
       "navTitle": "Codex API Service",
       "title": "Codex API Service",
       "openPage": "Open API Service",
@@ -5548,6 +5624,129 @@
       "errors": {
         "bindingChanged": "The account binding changed. Its current setting was preserved."
       }
+    },
+    "autoRefreshScope": {
+      "label": "Auto-refresh plans",
+      "description": "Filter scheduled platform and group quota refreshes for standard OAuth accounts. All plans are selected by default. Manual and current-account refreshes, token keep-alive, and other account types are unchanged.",
+      "plans": {
+        "free": "Free",
+        "go": "Go",
+        "plus": "Plus",
+        "pro": "Pro",
+        "team": "Team",
+        "business": "Business",
+        "enterprise": "Enterprise",
+        "edu_k12": "Education",
+        "unknown": "Unknown"
+      }
+    },
+    "requestDiagnostics": {
+      "recordPayloads": "Record request bodies",
+      "recordPayloadsHint": "Off by default. Store bounded client and upstream snapshots locally. Turning this off stops new capture; saved bodies can be cleared separately.",
+      "privacyHint": "Authentication fields are redacted, but secrets inside conversation text may remain. Review before copying or sharing.",
+      "clearPayloads": "Clear saved bodies",
+      "clearConfirm": "Clear bodies only and keep statistics and attempts?",
+      "cleared": "Cleared {{count}} body records",
+      "title": "Request details",
+      "totalLatency": "Total time",
+      "firstResponse": "First response",
+      "firstResponseHint": "Time from request start to the first upstream response fragment, not necessarily the first generated token.",
+      "unavailable": "No diagnostics yet. Try refreshing later. Older requests are not backfilled.",
+      "attempts": "Attempts",
+      "noAttempts": "No attempt trace was recorded.",
+      "detailTruncated": "Some diagnostics were omitted because the size limit was reached.",
+      "payloads": "Request snapshots",
+      "noPayloads": "No body was recorded. Enabling capture applies to new requests only.",
+      "clientPayload": "Client request",
+      "upstreamPayload": "Upstream #{{sequence}}",
+      "headers": "Headers",
+      "payloadTruncated": "Snapshot truncated. Only the saved portion is shown.",
+      "details": "Details",
+      "latencyPair": "Time {{total}} · First {{first}}",
+      "phases": {
+        "selection": "Account selection",
+        "upstream_connect": "Upstream connection",
+        "upstream_response": "Upstream response",
+        "stream_read": "Stream read",
+        "downstream_delivery": "Client delivery",
+        "client_canceled": "Client canceled",
+        "stream_incomplete": "Incomplete stream",
+        "completed": "Completed",
+        "unknown": "Not recorded"
+      },
+      "failurePhase": "Failure stage",
+      "applying": "Applying to running gateways…",
+      "applyFailed": "Settings were saved, but running gateways could not apply them. Retry. Reason: {{error}}"
+    },
+    "experimentalModels": {
+      "defaultReasoning": "Default effort",
+      "defaultReasoningFollow": "Inherit",
+      "defaultReasoningHint": "Leave empty to inherit the model default. The selected effort must be supported.",
+      "defaultReasoningInvalid": "The default reasoning effort must be supported by this model."
+    },
+    "modelConfig": {
+      "transfer": "Import / Export",
+      "title": "Model config",
+      "description": "Export saved models, the default model, and API service prices, aliases, and routing references. Files exclude API keys, account credentials, and service lifecycle settings.",
+      "importHint": "Import saves to the current instance and updates an enabled model catalog. API service settings are shared globally. It does not enable model management, start a gateway, or take over a client. Imported results replace unsaved model edits.",
+      "import": "Import",
+      "export": "Export",
+      "file": "Choose JSON",
+      "jsonLabel": "Config JSON",
+      "strategy": "Conflicts",
+      "keepExisting": "Keep existing",
+      "replace": "Replace matches",
+      "strategyHint": "Existing settings are kept by default. Replace updates matching entries listed in the file and keeps all other entries.",
+      "preview": "Preview",
+      "previewFirst": "Preview and resolve every error before importing.",
+      "previewLoading": "Previewing…",
+      "importLoading": "Importing…",
+      "exported": "Config exported.",
+      "imported": "Saved {{count}} settings.",
+      "section": "Section",
+      "item": "Entry",
+      "result": "Result",
+      "actions": {
+        "added": "Add",
+        "updated": "Update",
+        "conflict": "Conflict",
+        "skipped": "Skip",
+        "error": "Error"
+      },
+      "sections": {
+        "models": "Models",
+        "defaultModel": "Default model",
+        "prices": "Prices",
+        "aliases": "Aliases",
+        "accountRules": "Account rules",
+        "routing": "Routing",
+        "exclusions": "Exclusions",
+        "apiService": "API service"
+      },
+      "errors": {
+        "invalid": "The config format or content is invalid.",
+        "json": "The JSON could not be parsed. Check its contents.",
+        "version": "This config format or version is unsupported.",
+        "fields": "The file has missing, invalid, or unsupported fields. Use an exported model configuration file.",
+        "tooLarge": "The config file exceeds the 4 MB limit.",
+        "tooMany": "There are too many entries. Each section supports up to 1000 entries.",
+        "duplicate": "The file contains duplicate entries within a section.",
+        "stateChanged": "Local settings changed after preview. Preview again.",
+        "accountMissing": "The referenced account is missing or is not in the current API service account pool.",
+        "modelMissing": "The referenced model is absent from the target config and available accounts.",
+        "serviceMissing": "API service settings have not been created. Its prices and routes cannot be imported.",
+        "price": "Prices must be finite nonnegative numbers, and the long-context threshold must be positive.",
+        "alias": "The alias is invalid or matches its source model.",
+        "rule": "The rule is invalid. Check model patterns, priority, and weight.",
+        "busy": "Another model config operation is running. Try again shortly.",
+        "instanceMissing": "The target instance no longer exists. Select it again.",
+        "read": "Failed to read local settings. Try again.",
+        "write": "Failed to save the config. Original settings were kept. Try again.",
+        "validation": "The config contains errors. Preview again and resolve them.",
+        "recovery": "An interrupted import could not be recovered because settings changed or a file could not be read. The recovery journal and current data were kept.",
+        "apply": "Settings were saved, but the running gateway could not reload: {{error}}"
+      },
+      "closeHint": "Once confirmed, import continues saving after the dialog is closed."
     }
   },
   "codebuddy": {
@@ -7025,6 +7224,15 @@
       "info": "INFO",
       "warn": "WARN",
       "error": "ERROR"
+    },
+    "search": {
+      "placeholder": "Search log content",
+      "regex": "Regex",
+      "errors": {
+        "invalidRegex": "Invalid regular expression. Please edit it.",
+        "timeout": "Filter timed out. Simplify the expression or turn off regex.",
+        "unavailable": "Unable to start the filter. Please retry."
+      }
     }
   },
   "twoFactorAuth": {
@@ -7417,6 +7625,10 @@
       "labelOverridePlaceholder": "Menu display name",
       "supports1mLabel": "Declare 1M",
       "supports1mShort": "1M"
+    },
+    "errors": {
+      "profileMissing": "Claude profile folder not found. Open Claude once and try again.",
+      "cookieSnapshotTooLarge": "The cookie database is too large to read safely."
     }
   },
   "openrouter": {

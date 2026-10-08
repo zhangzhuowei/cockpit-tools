@@ -41,6 +41,7 @@ type relayServer struct {
 	responsesWebsocket    gin.HandlerFunc
 	codexLive             *codexlive.Handler
 	quotaPoolStatePath    string
+	providerBackoff       providerGatewayBackoffState
 }
 
 func (s *relayServer) router() *gin.Engine {
@@ -55,6 +56,8 @@ func (s *relayServer) router() *gin.Engine {
 	router.GET("/v1/models", s.handleModels)
 	router.GET(cockpitQuotaPath, s.handleCockpitQuota)
 	router.POST("/v1/cockpit/auth/reset", s.handleResetAuthState)
+	router.POST(requestDiagnosticsConfigPath, s.handleRequestDiagnosticsConfig)
+	router.GET(requestDiagnosticsEventsPath, s.handleRequestDiagnosticsEvents)
 	router.POST("/v1/cockpit/accounts/reset-scheduler", s.handleResetSchedulerState)
 	router.POST("/v1/live", s.handleCodexLive)
 	router.GET("/v1/live/:call_id", s.handleCodexLiveSideband)
@@ -72,6 +75,7 @@ func (s *relayServer) router() *gin.Engine {
 	router.POST("/v1/realtime/calls/:call_id/accept", s.handleCodexSIPControl)
 	router.POST("/v1/realtime/calls/:call_id/reject", s.handleCodexSIPControl)
 	router.POST("/v1/realtime/calls/:call_id/refer", s.handleCodexSIPControl)
+	s.registerVoiceAliases(router)
 	// Codex Responses WebSocket upgrade uses GET /v1/responses (not POST/SSE).
 	router.GET("/v1/responses", s.handleResponsesWebsocket)
 	router.POST("/v1/responses", s.handleResponses)

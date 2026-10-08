@@ -139,7 +139,7 @@ func (e *OpenAICompatExecutor) Execute(ctx context.Context, auth *cliproxyauth.A
 		if updated, errDelete := sjson.DeleteBytes(translated, "stream"); errDelete == nil {
 			translated = updated
 		}
-		translated = sanitizeOpenAIResponsesReasoningEncryptedContent(ctx, "openai compat executor", translated)
+		translated = sanitizeOpenAIResponsesReasoningEncryptedContentWithCompat(ctx, "openai compat executor", translated, true)
 	}
 	reporter.SetTranslatedReasoningEffort(translated, to.String())
 
@@ -528,6 +528,17 @@ func (e *OpenAICompatExecutor) ExecuteStream(ctx context.Context, auth *cliproxy
 		errScan := scanner.Err()
 		if errScan == nil && !seenDone && !streamFailed && !streamAborted && len(frameData) > 0 {
 			_ = processFrame()
+		}
+		if errScan == nil && !seenDone && !streamFailed && !streamAborted && ctx.Err() == nil && responseFormat == sdktranslator.FormatOpenAIResponse && helps.CanFinalizeResponseStream(param) {
+			chunks := helps.TranslateStreamWithClaudeInputTokens(ctx, to, responseFormat, req.Model, opts.OriginalRequest, translated, []byte("data: [DONE]"), &param, claudeInputTokens)
+			for _, chunk := range chunks {
+				select {
+				case out <- cliproxyexecutor.StreamChunk{Payload: chunk}:
+				case <-ctx.Done():
+					return
+				}
+			}
+			seenDone = len(chunks) > 0
 		}
 		if streamFailed || streamAborted {
 			return

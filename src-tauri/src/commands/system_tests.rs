@@ -373,3 +373,23 @@
         assert_eq!(config.codex_quota_alert_primary_threshold, 15);
         assert_eq!(config.codex_quota_alert_secondary_threshold, 25);
     }
+
+    #[test]
+    fn codex_takeover_settings_patch_persists_false_and_defaults_bridge_off() {
+        let mut config = UserConfig::default();
+        assert!(!config.codex_preserve_verified_external_bridge);
+        let updates = serde_json::json!({
+            "codex_auto_restore_takeover_on_launch": false,
+            "codex_preserve_verified_external_bridge": true
+        }).as_object().unwrap().clone();
+        apply_general_config_updates(&mut config, &updates).unwrap();
+        let saved = serde_json::to_value(&config).unwrap();
+        let loaded: UserConfig = serde_json::from_value(saved).unwrap();
+        assert!(!loaded.codex_auto_restore_takeover_on_launch);
+        assert!(loaded.codex_preserve_verified_external_bridge);
+        assert!(loaded.codex_launch_on_switch);
+        let updates = serde_json::json!({"codex_preserve_verified_external_bridge": false})
+            .as_object().unwrap().clone();
+        apply_general_config_updates(&mut config, &updates).unwrap();
+        assert!(!config.codex_preserve_verified_external_bridge);
+    }

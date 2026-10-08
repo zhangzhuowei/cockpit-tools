@@ -654,9 +654,6 @@ function normalizePlatformGroups(
     const antigravityGroup = result.find((group) => group.platformIds.includes('antigravity'));
     if (antigravityGroup) {
       antigravityGroup.platformIds = [...antigravityGroup.platformIds, 'antigravity_ide'];
-      antigravityGroup.defaultPlatformId = 'antigravity_ide';
-      antigravityGroup.iconPlatformId =
-        antigravityGroup.iconKind === 'custom' ? antigravityGroup.iconPlatformId : 'antigravity_ide';
       if (antigravityGroup.name === 'Antigravity IDE' || antigravityGroup.name === 'Antigravity') {
         antigravityGroup.name = 'Antigravity';
       }

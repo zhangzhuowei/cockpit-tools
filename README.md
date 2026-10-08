@@ -99,6 +99,7 @@
 - **配额展示**：清晰展示 Hourly 和 Weekly 配额状态
 - **计划识别**：自动识别账号 Plan 类型 (Basic, Plus, Team 等)
 - **API 服务**：本地 Codex API 服务由内置 CLIProxyAPI sidecar 驱动，Cockpit Tools 负责账号同步、配置投影、状态与用量统计；Base URL、API Key 与用户操作方式保持不变。
+- **语音反代**：支持 Codex backend 实时语音路由与 `/transcribe` 转写入口，并提供 `/v1/audio/transcriptions`、`/v1/audio/translations`、`/v1/audio/speech` 及无 `/v1` 的别名。OAuth 转写使用 ChatGPT backend：兼容入口支持 `file`、`language` 和 JSON／纯文本返回，`model` 仅作为兼容字段，实际模型由 backend 决定；字幕时间戳、流式转写及其他音频操作需使用支持相应接口的 API Key 供应商。原生 `/transcribe` 请求保留原有 multipart 参数，供应商侧未指定模型时使用 `gpt-4o-mini-transcribe`。请求上限为 26 MiB，超时为 2 分钟，音频内容不写入请求快照。只处理实际发送到本地网关的请求；客户端仍直连官方转写服务或自行限制麦克风时，不会因设置模型供应商而自动改走本地网关。
 
 > ![Codex Accounts](docs/images/codex_list.png)
 
@@ -465,6 +466,8 @@ QQ 交流群、微信群或新建的 Telegram 畅聊群都可以加入。
 
 ## 致谢
 
+- Codex 账号池轮询、Token 刷新并发写入保护、首包前故障处理、请求首响与尝试轨迹、可选请求快照，以及模型默认推理档位和配置导入保护的实现思路参考了 [Codex-Manager](https://github.com/qxcnm/Codex-Manager)；仅作为设计与实现参考。
+
 - 部分账号导入校验、网关凭据读取及稳定性改进参考了 [super-ai-tools](https://github.com/lihah111222333-cloud/super-ai-tools) 的本地保留源码快照；来源与许可见 [来源声明](docs/third-party/super-ai-tools.md)。
 
 - Codex 代理工作台的页面层级、订阅卡片、当前节点展示、分组/节点下拉、延迟徽章与排序、原生测速接口调用、快速切换交互和订阅来源命名参考 [Clash Verge Rev](https://github.com/clash-verge-rev/clash-verge-rev) 的界面及实现思路；仅为设计与实现参考，不是运行时依赖或官方合作。
@@ -476,16 +479,17 @@ QQ 交流群、微信群或新建的 Telegram 畅聊群都可以加入。
 - [Linear](https://linear.app/now/behind-the-latest-design-refresh) 与 [Vercel Geist](https://vercel.com/geist/empty-state)：参考其界面层级、控件尺度和空状态引导思路，用于 Codex 工具页视觉设计，不涉及运行时集成。
 - Codex 独立代理的早期实现及旧配置兼容参考 [sing-box](https://github.com/SagerNet/sing-box) 官方节点配置与进程文档；后续自动测速与已有连接处理的设计也参考其源码，当前运行内核仍为 Mihomo，不代表官方合作关系。
 - Antigravity 账号切号逻辑参考：[Antigravity-Manager](https://github.com/lbjlaq/Antigravity-Manager)
-- Codex API 服务集成 CLIProxyAPI，Codex Live WebRTC/sideband、Responses WebSocket 状态安全、canonical token accounting v2、Multi-Agent V2 兼容、Grok CLI 账号与 OAuth，以及 Grok `apply_patch` 协议兼容方向亦参考其开源实现：[router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)（MIT）
+- Codex API 服务集成 CLIProxyAPI，Codex Live WebRTC/sideband、Responses WebSocket 状态安全、canonical token accounting v2、Multi-Agent V2 兼容、Grok CLI 账号与 OAuth，以及 Grok `apply_patch` 协议兼容方向，以及账号池错误分类与状态恢复边界亦参考其开源实现：[router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)（MIT）
 - Grok 图标造型参考：[LobeHub/lobe-icons](https://github.com/lobehub/lobe-icons)（MIT）
 - Grok CLI 任务用量查询与兼容解析方向参考：[junhoyeo/tokscale](https://github.com/junhoyeo/tokscale)（MIT）
 - Grok CLI 第三方 BYOK 与 custom model 配置格式对照上游实现及文档：[xai-org/grok-build](https://github.com/xai-org/grok-build)
 - Codex API 服务协议兼容方向参考：[codex-proxy](https://github.com/icebear0828/codex-proxy)
-- Codex Agent Identity 导入、动态签名、task 失效恢复、账号备份格式兼容、官方账号窗口用量（req / token / A$）展示口径，以及代理取消与响应失败边界的实现参考：[sub2api](https://github.com/Wei-Shaw/sub2api)。API 服务的客户端兼容、指纹、容量错误与请求级重试处理以 CLIProxyAPI 为准，不再保留“仅官方客户端／允许第三方客户端”等 Sub2API 式独立策略；API Key 鉴权与账号范围控制保持不变，Agent Identity 兼容暂保留为本地扩展。
-- Codex 本地认证存储格式、登录凭据回收规则、Agent Identity runtime 注册协议、Ed25519 密钥格式、Responses 客户端 freeform 工具调用（`custom_tool_call`）事件语义，以及鹈鹕测智的响应生命周期与生成产物处理思路参考官方实现：[openai/codex](https://github.com/openai/codex)（Apache-2.0）；鹈鹕测智使用直接对话请求，不等同于官方客户端的完整编码 Agent 流程。
+- Codex Agent Identity 导入、动态签名、task 失效恢复、账号备份格式兼容、官方账号窗口用量（req / token / A$）展示口径，代理取消与响应失败边界，以及账号池诊断与人工恢复操作设计参考：[sub2api](https://github.com/Wei-Shaw/sub2api)。API 服务的客户端兼容、指纹、容量错误与请求级重试处理以 CLIProxyAPI 为准，不再保留“仅官方客户端／允许第三方客户端”等 Sub2API 式独立策略；API Key 鉴权与账号范围控制保持不变，Agent Identity 兼容暂保留为本地扩展。
+- Codex 本地认证存储格式、登录凭据回收规则、Agent Identity runtime 注册协议、Ed25519 密钥格式、Responses 客户端 freeform 工具调用（`custom_tool_call`）事件语义、Responses Lite 请求标记与并行工具约束，以及鹈鹕测智的响应生命周期与生成产物处理思路参考官方实现：[openai/codex](https://github.com/openai/codex)（Apache-2.0）；鹈鹕测智使用直接对话请求，不等同于官方客户端的完整编码 Agent 流程。
 - Codex、Claude CLI 与 Claude Desktop Gateway 第三方供应商预设、模型映射，以及从会话 JSONL 汇总真实用量的方向参考：[CC Switch](https://github.com/farion1231/cc-switch)
 - Codex 模型目录、前端模型显示、loopback CDP 诊断、官方 live auth 保留策略，以及历史会话 Provider、SQLite 本地目录和工作区状态修复方向参考：[CodexPlusPlus](https://github.com/BigPizzaV3/CodexPlusPlus)
 - Codex 用量统计看板、走势图和 Studio 风格界面设计方向参考：[Antigravity Studio](https://github.com/yuzhiqiang1993/antigravity-studio)
+- Codex 外部桥接的可选兼容验证参考 [Codex Web GPT](https://github.com/miuuyy/codex-chatgpt-web) 的本地集成记录与配置约定；仅用于保留用户已安装的有效桥接，不代表运行时依赖或官方合作。
 - Codex 受管模型目录中展示实验模型的思路参考：[gptsolwm](https://github.com/yynxxxxx/gptsolwm)
 - Claude 可选登录 helper 运行时基于：[Electron](https://github.com/electron/electron)
 

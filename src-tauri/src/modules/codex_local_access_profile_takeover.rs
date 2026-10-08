@@ -984,6 +984,14 @@ fn cleanup_profile_takeover_without_backup(
 fn restore_takeover_profiles_after_disable(
     collection: &CodexLocalAccessCollection,
 ) -> Result<(), String> {
+    restore_takeover_profiles_after_disable_checked(collection, || Ok(()))
+}
+
+fn restore_takeover_profiles_after_disable_checked(
+    collection: &CodexLocalAccessCollection,
+    check: impl Fn() -> Result<(), String>,
+) -> Result<(), String> {
+    check()?;
     let backups = load_takeover_backups()?;
     let default_profile = codex_account::get_codex_home();
     let default_key = normalize_profile_dir_key(&default_profile);
@@ -1013,6 +1021,7 @@ fn restore_takeover_profiles_after_disable(
     let mut restored_profiles = HashSet::new();
     let mut remaining_backups = Vec::new();
     for backup in backups.profiles {
+        check()?;
         if protect_default_profile && backup.profile_dir == default_key {
             remaining_backups.push(backup);
             continue;
@@ -1031,6 +1040,7 @@ fn restore_takeover_profiles_after_disable(
         }
     }
 
+    check()?;
     save_takeover_backups(&CodexLocalAccessTakeoverBackups {
         version: CODEX_LOCAL_ACCESS_TAKEOVER_BACKUP_VERSION,
         profiles: remaining_backups,
@@ -1038,6 +1048,7 @@ fn restore_takeover_profiles_after_disable(
 
     let mut cleaned_without_backup = 0usize;
     for (profile_key, profile_dir) in target_profiles {
+        check()?;
         if restored_profiles.contains(&profile_key) {
             continue;
         }

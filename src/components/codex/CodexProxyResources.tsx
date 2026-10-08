@@ -92,7 +92,7 @@ export function CodexProxyResources({ onAssign, onBindingsChanged }: {
       }
     });
   });
-  const hasCandidates = useMemo(() => strategyCandidates(catalog.sources).length > 0, [catalog.sources]);
+  const hasCandidates = useMemo(() => strategyCandidates(catalog.sources, true).length > 0, [catalog.sources]);
   const visibleSources = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
     return ordering.orderedSources.filter((entry) => !needle || [entry.name, ...entry.nodes.map((node) => node.name)].some((value) => value.toLocaleLowerCase().includes(needle)));
@@ -371,7 +371,7 @@ export function CodexProxyResources({ onAssign, onBindingsChanged }: {
       {!visibleSources.length && <div className="codex-resource-no-results">{t('codex.proxy.catalog.noResults')}</div>}
     </>}
     {strategyEditing && <StrategyEditorDialog source={catalog.sources.find((entry) => entry.id === strategyEditing) ?? null} sources={catalog.sources} busy={locked} onClose={() => setStrategyEditing('')}
-      onSaved={(next) => { apply(next); setStrategyEditing(''); setQuery(''); }} />}
+      onCatalogChange={apply} onSaved={(next) => { apply(next); setStrategyEditing(''); setQuery(''); }} />}
     {strategyDeleting && catalog.sources.some((entry) => entry.id === strategyDeleting) && <StrategyDeleteDialog source={catalog.sources.find((entry) => entry.id === strategyDeleting)!} busy={locked} onClose={() => setStrategyDeleting('')}
       onBindingsChanged={() => onBindingsChanged(strategyDeleting, true)}
       onRemoved={(next) => { apply(next); setStrategyDeleting(''); }} />}

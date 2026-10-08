@@ -1,3 +1,4 @@
+import { ALL_CODEX_AUTO_REFRESH_PLAN_KEYS, sanitizeCodexAutoRefreshPlanKeys } from '../utils/codexAutoRefreshPlanScope';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { openUrl } from '@tauri-apps/plugin-opener';
@@ -133,6 +134,7 @@ interface GeneralConfig {
   ui_scale: number;
   auto_refresh_minutes: number;
   codex_auto_refresh_minutes: number;
+  codex_auto_refresh_plan_types?: string[];
   claude_auto_refresh_minutes: number;
   codex_sync_wsl: boolean;
   codex_app_ui_injection_enabled?: boolean;
@@ -227,6 +229,7 @@ interface GeneralConfig {
   hermes_auth_overwrite_on_switch?: boolean;
   codex_launch_on_switch: boolean;
   codex_auto_restore_takeover_on_launch?: boolean;
+  codex_preserve_verified_external_bridge?: boolean;
   antigravity_launch_on_switch: boolean;
   codex_restart_specified_app_on_switch: boolean;
   codex_local_access_entry_visible: boolean;
@@ -520,6 +523,7 @@ export function useSettingsPageController() {
   const [uiScale, setUiScale] = useState('1');
   const [autoRefresh, setAutoRefresh] = useState('5');
   const [codexAutoRefresh, setCodexAutoRefresh] = useState('10');
+  const [codexAutoRefreshPlanTypes, setCodexAutoRefreshPlanTypes] = useState<string[]>([...ALL_CODEX_AUTO_REFRESH_PLAN_KEYS]);
   const [claudeAutoRefresh, setClaudeAutoRefresh] = useState('10');
   const [codexSyncWsl, setCodexSyncWsl] = useState(false);
   const [codexAppUiInjectionEnabled, setCodexAppUiInjectionEnabled] = useState(true);
@@ -662,6 +666,7 @@ export function useSettingsPageController() {
   const [hermesAuthOverwriteOnSwitch, setHermesAuthOverwriteOnSwitch] = useState(false);
   const [codexLaunchOnSwitch, setCodexLaunchOnSwitch] = useState(true);
   const [codexAutoRestoreTakeoverOnLaunch, setCodexAutoRestoreTakeoverOnLaunch] = useState(true);
+  const [codexPreserveVerifiedExternalBridge, setCodexPreserveVerifiedExternalBridge] = useState(false);
   const [antigravityLaunchOnSwitch, setAntigravityLaunchOnSwitch] = useState(true);
   const [codexRestartSpecifiedAppOnSwitch, setCodexRestartSpecifiedAppOnSwitch] = useState(false);
   const [codexLocalAccessEntryVisible, setCodexLocalAccessEntryVisible] = useState(true);
@@ -1074,6 +1079,7 @@ export function useSettingsPageController() {
       ui_scale: normalizedUiScale,
       auto_refresh_minutes: autoRefreshNum,
       codex_auto_refresh_minutes: codexAutoRefreshNum,
+      codex_auto_refresh_plan_types: sanitizeCodexAutoRefreshPlanKeys(codexAutoRefreshPlanTypes),
       claude_auto_refresh_minutes: claudeAutoRefreshNum,
       codex_sync_wsl: codexSyncWsl,
       codex_app_ui_injection_enabled: codexAppUiInjectionEnabled,
@@ -1150,6 +1156,7 @@ export function useSettingsPageController() {
       hermes_auth_overwrite_on_switch: hermesAuthOverwriteOnSwitch,
       codex_launch_on_switch: codexLaunchOnSwitch,
       codex_auto_restore_takeover_on_launch: codexAutoRestoreTakeoverOnLaunch,
+      codex_preserve_verified_external_bridge: codexPreserveVerifiedExternalBridge,
       antigravity_launch_on_switch: antigravityLaunchOnSwitch,
       codex_restart_specified_app_on_switch: codexRestartSpecifiedAppOnSwitch,
       codex_local_access_entry_visible: codexLocalAccessEntryVisible,
@@ -1280,7 +1287,8 @@ export function useSettingsPageController() {
           dispatchSettingsConfigUpdated(configUpdateSource);
         } catch (err) {
           console.error('保存通用配置失败:', err);
-          alert(`${t('settings.network.saveFailed').replace('{error}', String(err))}`);
+          const message = String(err) === 'common.configSaveTimeout' ? t('common.configSaveTimeout') : String(err);
+          alert(`${t('settings.network.saveFailed').replace('{error}', message)}`);
           if (generalSaveQueueRef.current === operation) {
             await loadGeneralConfig();
           }
@@ -1306,6 +1314,7 @@ export function useSettingsPageController() {
   }, [
     autoRefresh,
     codexAutoRefresh,
+    codexAutoRefreshPlanTypes,
     claudeAutoRefresh,
     codexSyncWsl,
     codexAppUiInjectionEnabled,
@@ -1384,6 +1393,8 @@ export function useSettingsPageController() {
     openclawAuthOverwriteOnSwitch,
     hermesAuthOverwriteOnSwitch,
     codexLaunchOnSwitch,
+    codexAutoRestoreTakeoverOnLaunch,
+    codexPreserveVerifiedExternalBridge,
     antigravityLaunchOnSwitch,
     codexRestartSpecifiedAppOnSwitch,
     codexLocalAccessEntryVisible,
@@ -1674,6 +1685,7 @@ export function useSettingsPageController() {
       setUiScale(String(config.ui_scale ?? 1));
       setAutoRefresh(String(config.auto_refresh_minutes));
       setCodexAutoRefresh(String(config.codex_auto_refresh_minutes ?? 10));
+      setCodexAutoRefreshPlanTypes(sanitizeCodexAutoRefreshPlanKeys(config.codex_auto_refresh_plan_types));
       setClaudeAutoRefresh(String(config.claude_auto_refresh_minutes ?? 10));
       setCodexSyncWsl(Boolean(config.codex_sync_wsl ?? false));
       setCodexAppUiInjectionEnabled(Boolean(config.codex_app_ui_injection_enabled ?? false));
@@ -1769,6 +1781,7 @@ export function useSettingsPageController() {
       setHermesAuthOverwriteOnSwitch(config.hermes_auth_overwrite_on_switch ?? false);
       setCodexLaunchOnSwitch(config.codex_launch_on_switch ?? true);
       setCodexAutoRestoreTakeoverOnLaunch(config.codex_auto_restore_takeover_on_launch ?? true);
+      setCodexPreserveVerifiedExternalBridge(config.codex_preserve_verified_external_bridge ?? false);
       setAntigravityLaunchOnSwitch(config.antigravity_launch_on_switch ?? true);
       setCodexRestartSpecifiedAppOnSwitch(
         config.codex_restart_specified_app_on_switch ?? false,
@@ -1989,7 +2002,8 @@ export function useSettingsPageController() {
         alert(t('settings.network.saveSuccess'));
       }
     } catch (err) {
-      alert(t('settings.network.saveFailed').replace('{error}', String(err)));
+      const message = String(err) === 'common.configSaveTimeout' ? t('common.configSaveTimeout') : String(err);
+      alert(t('settings.network.saveFailed').replace('{error}', message));
     } finally {
       setNetworkSaving(false);
     }
@@ -3277,6 +3291,7 @@ export function useSettingsPageController() {
     codexAppScanError,
     codexAppUiInjectionEnabled,
     codexAutoRefresh,
+    codexAutoRefreshPlanTypes,
     codexAutoRefreshCustomMode,
     codexAutoRefreshIsPreset,
     codexAutoSwitchAccountScopeMode,
@@ -3287,6 +3302,8 @@ export function useSettingsPageController() {
     codexLaunchCandidates,
     codexLaunchOnSwitch,
     codexAutoRestoreTakeoverOnLaunch,
+    codexPreserveVerifiedExternalBridge,
+    setCodexPreserveVerifiedExternalBridge,
     setCodexAutoRestoreTakeoverOnLaunch,
     codexLocalAccessEntryVisible,
     codexQuotaAlertEnabled,
@@ -3470,6 +3487,7 @@ export function useSettingsPageController() {
     setCodexAppScanError,
     setCodexAppUiInjectionEnabled,
     setCodexAutoRefresh,
+    setCodexAutoRefreshPlanTypes,
     setCodexAutoRefreshCustomMode,
     setCodexAutoSwitchAccountScopeMode,
     setCodexAutoSwitchSelectedAccountIds,

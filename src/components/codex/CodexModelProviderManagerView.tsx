@@ -8,6 +8,7 @@ import { PaginationControls } from "../PaginationControls";
 import { CodexModelContextWindowTable } from "./CodexModelContextWindowTable";
 import { resolveNewApiQuotaSnapshot } from "../../services/modelProviderUsageService";
 import { CODEX_API_PROVIDER_CUSTOM_ID, CODEX_API_PROVIDER_PRESETS, DEEPSEEK_API_PROVIDER_ID, resolveCodexApiProviderPresetId } from "../../utils/codexProviderPresets";
+import { resolveCodexModelProviderForApiKey } from "../../utils/codexModelProviderKeyConfig";
 import { normalizeApiKeyFunOfficialUrl } from "../../utils/apikeyFunLinks";
 import { getCodexSubscriptionPresentation } from "../../types/codex";
 import { canConfigureCodexProviderVision, resolveCodexProviderCapabilityProfile } from "../../utils/codexProviderGateway";
@@ -2799,7 +2800,8 @@ export function CodexModelProviderManagerView(props: CodexModelProviderManagerVi
       )}
 
       {providerDetailId && (() => {
-        const provider = providers.find((item) => item.id === providerDetailId);
+        const storedProvider = providers.find((item) => item.id === providerDetailId);
+        const provider = storedProvider ? resolveCodexModelProviderForApiKey(storedProvider, getSelectedProviderApiKey(storedProvider)?.apiKey) : null;
         if (!provider) return null;
         const usageState = providerUsageMap[provider.id];
         const primaryApiKey = getSelectedProviderApiKey(provider);

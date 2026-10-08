@@ -1022,6 +1022,11 @@
   transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
 }
 
+.codex-api-service-key-card:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
 .codex-api-service-key-main {
   display: grid;
   grid-template-columns: minmax(180px, 0.9fr) minmax(260px, 1.25fr) minmax(78px, auto) minmax(122px, auto) auto;

@@ -584,6 +584,10 @@ fn mark_token_chain_updated(account: &mut CodexAccount) {
     account.token_generation = account.token_generation.saturating_add(1);
     account.token_updated_at = Some(now_timestamp());
     account.token_source_mode = CODEX_TOKEN_SOURCE_MANAGED.to_string();
+    // A new token chain supersedes revocation of the previous access token.
+    if account_has_known_access_token_revocation(account) {
+        account.quota_error = None;
+    }
     account.requires_reauth = false;
     account.reauth_reason = None;
 }

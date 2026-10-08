@@ -96,6 +96,10 @@
     "providerClear": "Hapus pilihan"
   },
   "common": {
+    "requestId": "ID permintaan",
+    "failureTime": "Waktu gagal",
+    "clearRecord": "Hapus catatan",
+    "clearingRecord": "Menghapus…",
     "dragSortHint": "Seret pegangan kiri untuk mengubah urutan. Perubahan otomatis disimpan saat dilepas.",
     "dragSortFilteredHint": "Hapus pencarian untuk mengubah urutan.",
     "recycleBin": {
@@ -321,6 +325,8 @@
         "manualCallbackPlaceholder": "Tempel URL callback lengkap, contoh: http://localhost:1455/auth/callback?code=...&state=..."
       },
       "refreshAll": "Segarkan Semua",
+      "refreshSuccess": "Berhasil diperbarui",
+      "refreshFailed": "Pembaruan gagal: {{error}}",
       "refreshQuota": "Segarkan Kuota",
       "search": "Cari akun...",
       "sort": {
@@ -417,7 +423,10 @@
     },
     "optional": " (opsional)",
     "hide": "Sembunyikan",
-    "show": "Tampilkan"
+    "show": "Tampilkan",
+    "configSaveTimeout": "Waktu operasi habis. Segarkan untuk memastikan hasil sebelum mencoba lagi.",
+    "clearAll": "Batalkan semua",
+    "clear": "Bersihkan"
   },
   "floatingCard": {
     "selectPlatform": "Ganti platform",
@@ -1186,7 +1195,19 @@
       "menuBarAccountPrefixDesc": "Hanya akun normal: mati menyembunyikan awalan email. Layanan API Codex / API Key tetap menampilkan label API",
       "menuBarQuotaConfirmEnable": "Aktifkan",
       "codexHideRelayQuota": "Sembunyikan kuota relay",
-      "codexHideRelayQuotaDesc": "Menyembunyikan panel kuota relay / New API di ringkasan akun Codex."
+      "codexHideRelayQuotaDesc": "Menyembunyikan panel kuota relay / New API di ringkasan akun Codex.",
+      "floatingCardStyle": "Gaya mengambang",
+      "floatingCardStyleDesc": "Berlaku untuk semua jendela mengambang. Bisa diubah juga dari jendela.",
+      "floatingCardFull": "Kartu lengkap",
+      "floatingCardMinimal": "Kuota saja",
+      "floatingCardOpacity": "Kepekatan latar",
+      "floatingCardOpacityDesc": "100% mempertahankan latar saat ini; 0% menyembunyikannya. Teks kuota tetap jelas.",
+      "floatingCardOpacityValue": "Latar: {{value}}%",
+      "themeColorOled": "OLED hitam putih",
+      "codexAutoRestoreTakeoverOnLaunch": "Pulihkan Codex saat mulai",
+      "codexAutoRestoreTakeoverOnLaunchDesc": "Pulihkan pengaturan model aktif dan koneksi API yang masih dikelola Cockpit saat mulai. Pertahankan koneksi yang diubah manual.",
+      "codexPreserveExternalBridge": "Pertahankan jembatan luar",
+      "codexPreserveExternalBridgeDesc": "Pertahankan jembatan Codex Web GPT yang terverifikasi melalui catatan lokal saat berganti akun OAuth. Nonaktif secara bawaan."
     },
     "network": {
       "apiTitle": "API Antigravity Cockpit",
@@ -1569,6 +1590,9 @@
       "all": "Semua ({{count}})",
       "pro": "PRO ({{count}})​",
       "ultra": "ULTRA ({{count}})​"
+    },
+    "filters": {
+      "all": "Semua"
     },
     "sortLabel": "Urutkan",
     "sort": {
@@ -2184,6 +2208,12 @@
     "other_group": "Model Lainnya"
   },
   "codex": {
+    "thresholds": {
+      "shortCycle": "Kuota jangka pendek",
+      "weekly": "Kuota mingguan",
+      "windowHint": "Ambang mengikuti durasi sebenarnya: seminggu atau lebih memakai ambang mingguan. Akun dengan kuota mingguan saja hanya memeriksa kuota itu. Tanpa durasi, pemetaan jendela utama dan sekunder tetap dipakai.",
+      "rule": "Sisa jangka pendek <= {{shortCycle}}% atau mingguan <= {{weekly}}%"
+    },
     "launchErrors": {
       "bindingFailed": "Tidak dapat memastikan akun yang terhubung. Proses mulai dihentikan; coba beralih akun lagi.",
       "processScanFailed": "Tidak dapat memeriksa proses latar belakang sebelumnya. Proses mulai dihentikan; coba lagi.",
@@ -2386,7 +2416,8 @@
       "repairCompleted": "Perbaikan visibilitas sesi selesai",
       "forceRefreshTitle": "Paksa Segarkan Token",
       "forceRefreshReady": "Token OAuth dapat disegarkan secara manual",
-      "forceRefreshDescription": "Gunakan refresh_token untuk mendapatkan access_token dan id_token baru. Refresh token saat ini mungkin diputar.",
+      "forceRefreshDescription": "Perbarui access_token menggunakan refresh_token. id_token hanya diperbarui jika dikembalikan; refresh_token dapat berganti.",
+      "tokenExpiryDescription": "access_token mengizinkan permintaan; id_token memuat informasi identitas. Kedaluwarsa id_token saja tidak berarti akses API tidak valid. Ketersediaan diperiksa saat memulai dan melalui respons layanan.",
       "forceRefreshUnavailable": "Tidak tersedia untuk jenis akun ini",
       "forceRefreshAction": "Segarkan sekarang",
       "forceRefreshRunning": "Menyegarkan Token…",
@@ -2578,7 +2609,14 @@
       "testServiceUnavailable": "Layanan dapat dijangkau, tetapi saat ini tidak tersedia: {{detail}}. Periksa apakah layanan aktif, koleksi akun kosong, atau akun dapat digunakan.",
       "gatewayErrors": {
         "authUnavailable": "Tidak ada akun yang dapat dirutekan saat ini. Akun mungkin sedang cooldown, tidak terautentikasi, atau dibatasi kuota. Periksa statusnya di layanan API Cockpit Tools.",
-        "authNotFound": "Tidak ada akun yang dapat digunakan di kumpulan akun. Tambahkan atau aktifkan akun di layanan API Cockpit Tools."
+        "authNotFound": "Tidak ada akun yang dapat digunakan di kumpulan akun. Tambahkan atau aktifkan akun di layanan API Cockpit Tools.",
+        "accountConcurrencyExceeded": "Batas permintaan bersamaan akun tercapai. Coba lagi nanti.",
+        "providerRetryAfter": "Penyedia meminta jeda. Coba lagi dalam {{seconds}} detik.",
+        "audioInvalidRequest": "Permintaan audio tidak valid: {{detail}}",
+        "audioTooLarge": "Permintaan audio tidak boleh melebihi 26 MiB.",
+        "audioNotSupported": "Akun OAuth ini hanya mendukung transkripsi. Gunakan penyedia dengan API Key untuk operasi audio lainnya.",
+        "audioUnavailable": "Penerusan audio tidak tersedia.",
+        "audioUpstreamFailed": "Permintaan audio ke penyedia gagal."
       },
       "testRateLimited": "Layanan dapat dijangkau, tetapi upstream dibatasi atau kuota habis: {{detail}}.",
       "testHttpFailed": "Layanan dapat dijangkau, tetapi permintaan mengembalikan HTTP {{status}}: {{detail}}.",
@@ -2836,12 +2874,29 @@
         "dialog": {
           "title": "Masalah Akun",
           "description": "Menampilkan masalah kumpulan akun dan akun individual. Tindakan akun hanya tersedia untuk kegagalan yang terkait dengan akun tersebut.",
-          "noIssues": "Tidak ada masalah akun",
+          "noIssues": "Tidak ada masalah untuk ditampilkan",
           "unscopedApiKey": "API Key saat ini",
           "poolUnavailable": "Tidak ada akun pool yang tersedia",
           "poolUnavailableDetail": "Tidak ada akun tersedia yang dipilih untuk model {{model}}",
           "poolUnattributedDetail": "Diagnostik per akun belum diterima, sehingga kegagalan ini tidak dapat dikaitkan dengan akun tertentu. Periksa cakupan akun dan konfigurasi model untuk kunci API ini.",
           "poolDiagnosticDetail": "Model {{model}}: {{candidate}} kandidat, {{scoped}} dalam cakupan, {{available}} tersedia, {{unavailable}} tidak tersedia, {{modelExcluded}} dikecualikan model, {{quotaReserved}} dicadangkan kuota, {{imageBlocked}} diblokir kebijakan gambar",
+          "poolNoCandidatesDetail": "Tidak ada akun kandidat untuk permintaan ini. Periksa model yang diminta dan status pemuatan akun.",
+          "poolScopeMismatchDetail": "Tidak ada kandidat yang cocok dengan cakupan akun kunci API ini, atau pemetaan akunnya tidak dikenali. Periksa akun yang dipilih dan konfigurasi model.",
+          "inspectBinding": "Cek kaitan",
+          "inspectConfig": "Cek konfigurasi",
+          "unmappedAccount": "Akun tak dikenal",
+          "accountReference": "Akun {{id}}",
+          "scopeMismatchDetail": "Akun kandidat ini berada di luar cakupan akun yang terikat pada API Key ini.",
+          "accountMappingMissingDetail": "Kredensial kandidat tidak dapat dipetakan ke akun. Periksa pemuatan akun dan sinkronisasi kumpulan akun.",
+          "boundAccountNotLoadedDetail": "Akun terikat ini belum dimuat dalam layanan saat ini. Periksa pemuatan akun dan sinkronisasi kumpulan akun.",
+          "boundAccountNotCandidateDetail": "Akun terikat ini sudah dimuat, tetapi bukan kandidat untuk permintaan ini. Periksa model, penyedia, dan jenis permintaan.",
+          "scopeUnknownDetail": "Diagnostik cakupan belum menunjukkan penyebab tertentu. Periksa kaitan dan log layanan.",
+          "poolBlockedDetail": "Filter dalam cakupan: {{unavailable}} tidak tersedia (misalnya dinonaktifkan, dalam masa jeda atau gagal autentikasi), {{modelExcluded}} dikecualikan oleh model, {{quotaReserved}} diblokir cadangan kuota, {{imageBlocked}} diblokir kebijakan gambar. Periksa alasan per akun dan pengaturannya.",
+          "poolUnknownDetail": "Diagnostik saat ini tidak menunjukkan penyebab tertentu. Periksa cakupan kunci API, konfigurasi model dan log layanan.",
+          "clearHint": "Penghapusan hanya menghapus catatan diagnostik ini. Pengaturan, token dan kuota tidak diperbaiki; permintaan yang gagal lagi dapat membuat catatan baru.",
+          "clearSuccess": "Catatan diagnostik dihapus. Ini tidak berarti kumpulan akun telah pulih.",
+          "clearStale": "Kegagalan baru telah menggantikan catatan ini. Periksa status terbaru dan coba lagi.",
+          "clearFailed": "Catatan tidak dapat dihapus: {{error}}",
           "missing": "Akun hilang",
           "cooldown": "Dalam jeda",
           "quota": "Kuota terbatas",
@@ -2872,7 +2927,16 @@
       "testChatInputRequired": "Masukkan pesan uji",
       "testChatModelRequired": "Pilih ID model",
       "testChatEmptyResponse": "Respons kosong",
-      "removeAction": "Hapus dari API"
+      "removeAction": "Hapus dari API",
+      "imageGenerationMainModel": {
+        "label": "Model utama gambar",
+        "hint": "Kosongkan untuk memakai gpt-5.5. Model ini memanggil alat gambar; akun OAuth yang dipilih harus mendukung image_generation pada model ini.",
+        "invalid": "Masukkan ID model tanpa spasi, maksimal 200 karakter."
+      },
+      "requestDetail": {
+        "invalidRequestId": "ID permintaan tidak valid.",
+        "settingsChanged": "Pengaturan diubah oleh operasi lain. Coba lagi."
+      }
     },
     "api": {
       "baseUrl": "URL Dasar",
@@ -3506,6 +3570,11 @@
       "importModal": {
         "title": "Impor sesi",
         "hint": "Paket sesi hanya mengimpor file rollout dan entri session_index. Akun, token, API key, dan pengaturan aplikasi tidak disertakan; sesi dengan ID yang sama di instance target akan dilewati.",
+        "cwdPathAbsolute": "Masukkan jalur absolut di komputer ini",
+        "cwdPathMissing": "Direktori tidak ditemukan atau tidak dapat diakses",
+        "cwdMappingTitle": "Pemetaan jalur proyek (opsional)",
+        "cwdMappingHint": "Petakan direktori kerja sumber ke jalur proyek yang sudah ditambahkan ke Codex di komputer ini. Kosongkan untuk mempertahankan jalur sumber.",
+        "cwdTargetPlaceholder": "Masukkan jalur absolut proyek di komputer ini",
         "noTarget": "Tidak ada instance Codex yang tersedia untuk impor",
         "noPackage": "Pilih paket sesi terlebih dahulu",
         "pickOne": "Pilih setidaknya satu sesi yang dapat diimpor",
@@ -3606,7 +3675,8 @@
         "7d": "7 hari",
         "30d": "30 hari",
         "month": "Bulan ini",
-        "all": "Semua"
+        "all": "Semua",
+        "today": "Hari ini"
       },
       "instance": {
         "label": "Instans",
@@ -3669,7 +3739,8 @@
         "total": "Jumlah",
         "requests": "Mnt",
         "cost": "Biaya"
-      }
+      },
+      "costUnavailable": "Harga beberapa model tidak tersedia, sehingga biaya harian lengkap tidak dapat diperkirakan."
     },
     "grokAdd": {
       "tab": "Akun Grok"
@@ -4205,6 +4276,11 @@
       "saveFailed": "Gagal menyimpan kecepatan: {{error}}"
     },
     "apiService": {
+      "inspection": {
+        "internalScope": "Ini permintaan klien internal. Periksa kumpulan akun layanan dan kaitan instans; permintaan ini tidak terkait dengan Key klien publik.",
+        "keyUnavailable": "Key klien untuk permintaan ini tidak ada atau sudah dihapus. Periksa Key saat ini dan kumpulan akun.",
+        "imageScope": "Permintaan gambar menggunakan kumpulan akun gambar dan kebijakan gambar akun. Periksa pengaturan gambar."
+      },
       "navTitle": "Layanan API Codex",
       "title": "Layanan API Codex",
       "openPage": "Buka layanan API",
@@ -5375,6 +5451,129 @@
       "errors": {
         "bindingChanged": "Ikatan akun berubah. Pengaturan saat ini dipertahankan."
       }
+    },
+    "autoRefreshScope": {
+      "label": "Paket penyegaran",
+      "description": "Memfilter penyegaran kuota terjadwal platform dan grup untuk akun OAuth standar. Semua paket dipilih secara bawaan. Penyegaran manual dan akun aktif, pemeliharaan token, serta jenis akun lain tetap sama.",
+      "plans": {
+        "free": "Gratis",
+        "go": "Go",
+        "plus": "Plus",
+        "pro": "Pro",
+        "team": "Tim",
+        "business": "Bisnis",
+        "enterprise": "Perusahaan",
+        "edu_k12": "Pendidikan",
+        "unknown": "Tidak diketahui"
+      }
+    },
+    "requestDiagnostics": {
+      "recordPayloads": "Rekam isi permintaan",
+      "recordPayloadsHint": "Nonaktif secara bawaan. Salinan permintaan klien dan server dengan ukuran terbatas disimpan secara lokal. Menonaktifkan menghentikan rekaman baru; isi tersimpan dapat dihapus terpisah.",
+      "privacyHint": "Kolom autentikasi disamarkan, tetapi rahasia dalam teks percakapan mungkin tetap ada. Periksa sebelum menyalin atau berbagi.",
+      "clearPayloads": "Hapus isi tersimpan",
+      "clearConfirm": "Hapus isi saja dan pertahankan statistik serta percobaan?",
+      "cleared": "{{count}} rekaman isi dihapus",
+      "title": "Detail permintaan",
+      "totalLatency": "Waktu total",
+      "firstResponse": "Respons pertama",
+      "firstResponseHint": "Waktu sejak permintaan dimulai hingga fragmen respons pertama dari server, bukan selalu token pertama yang dihasilkan.",
+      "unavailable": "Belum ada diagnostik. Segarkan nanti. Permintaan lama tidak dilengkapi.",
+      "attempts": "Percobaan",
+      "noAttempts": "Riwayat percobaan tidak direkam.",
+      "detailTruncated": "Sebagian diagnostik dihilangkan karena batas ukuran.",
+      "payloads": "Snapshot permintaan",
+      "noPayloads": "Isi tidak direkam. Perekaman hanya berlaku untuk permintaan baru.",
+      "clientPayload": "Permintaan klien",
+      "upstreamPayload": "Permintaan server #{{sequence}}",
+      "headers": "Header",
+      "payloadTruncated": "Snapshot terpotong. Hanya bagian tersimpan yang ditampilkan.",
+      "details": "Detail",
+      "latencyPair": "Total {{total}} · Pertama {{first}}",
+      "phases": {
+        "selection": "Pemilihan akun",
+        "upstream_connect": "Koneksi server",
+        "upstream_response": "Respons server",
+        "stream_read": "Pembacaan aliran",
+        "downstream_delivery": "Pengiriman ke klien",
+        "client_canceled": "Dibatalkan klien",
+        "stream_incomplete": "Aliran belum selesai",
+        "completed": "Selesai",
+        "unknown": "Tidak direkam"
+      },
+      "failurePhase": "Tahap kegagalan",
+      "applying": "Menerapkan ke gateway aktif…",
+      "applyFailed": "Pengaturan tersimpan, tetapi gateway aktif gagal menerapkannya. Coba lagi. Alasan: {{error}}"
+    },
+    "experimentalModels": {
+      "defaultReasoning": "Tingkat bawaan",
+      "defaultReasoningFollow": "Ikuti bawaan",
+      "defaultReasoningHint": "Biarkan kosong untuk mengikuti tingkat bawaan model. Tingkat yang dipilih harus didukung.",
+      "defaultReasoningInvalid": "Tingkat penalaran bawaan harus didukung oleh model ini."
+    },
+    "modelConfig": {
+      "transfer": "Impor / Ekspor",
+      "title": "Konfigurasi model",
+      "description": "Ekspor model tersimpan, model bawaan, serta harga, alias, dan referensi perutean layanan API. Berkas tidak memuat API Key, kredensial akun, atau pengaturan untuk memulai dan menghentikan layanan.",
+      "importHint": "Impor langsung menyimpan ke instans saat ini dan memperbarui katalog model jika aktif. Pengaturan layanan API dibagikan secara global. Impor tidak mengaktifkan pengelolaan model, memulai gerbang, atau mengambil alih klien. Hasil impor menggantikan suntingan model yang belum disimpan.",
+      "import": "Impor",
+      "export": "Ekspor",
+      "file": "Pilih JSON",
+      "jsonLabel": "JSON konfigurasi",
+      "strategy": "Konflik",
+      "keepExisting": "Pertahankan yang ada",
+      "replace": "Ganti yang cocok",
+      "strategyHint": "Pengaturan yang ada dipertahankan secara bawaan. Penggantian hanya memperbarui entri bernama sama yang tercantum dalam berkas, tanpa menghapus entri lain.",
+      "preview": "Pratinjau",
+      "previewFirst": "Periksa pratinjau dan perbaiki semua kesalahan sebelum mengonfirmasi impor.",
+      "previewLoading": "Menyiapkan pratinjau…",
+      "importLoading": "Mengimpor…",
+      "exported": "Konfigurasi diekspor.",
+      "imported": "{{count}} pengaturan disimpan.",
+      "section": "Bagian",
+      "item": "Entri",
+      "result": "Hasil",
+      "actions": {
+        "added": "Tambah",
+        "updated": "Perbarui",
+        "conflict": "Konflik",
+        "skipped": "Lewati",
+        "error": "Kesalahan"
+      },
+      "sections": {
+        "models": "Model",
+        "defaultModel": "Model bawaan",
+        "prices": "Harga",
+        "aliases": "Nama alias",
+        "accountRules": "Aturan akun",
+        "routing": "Perutean",
+        "exclusions": "Model dikecualikan",
+        "apiService": "Layanan API"
+      },
+      "errors": {
+        "invalid": "Format atau isi konfigurasi tidak valid.",
+        "json": "JSON tidak dapat diurai. Periksa isinya.",
+        "version": "Format atau versi konfigurasi ini tidak didukung.",
+        "fields": "Berkas memiliki bidang yang hilang, tidak valid, atau tidak didukung. Gunakan berkas konfigurasi model yang telah diekspor.",
+        "tooLarge": "Berkas konfigurasi melebihi batas 4 MB.",
+        "tooMany": "Terlalu banyak entri. Setiap bagian mendukung maksimal 1000 entri.",
+        "duplicate": "Berkas memuat entri duplikat dalam bagian yang sama.",
+        "stateChanged": "Pengaturan lokal berubah setelah pratinjau. Buat pratinjau lagi.",
+        "accountMissing": "Akun yang dirujuk tidak ada atau tidak termasuk kumpulan akun layanan API saat ini.",
+        "modelMissing": "Model yang dirujuk tidak ada dalam konfigurasi tujuan maupun akun yang tersedia.",
+        "serviceMissing": "Pengaturan layanan API belum dibuat. Harga atau rutenya tidak dapat diimpor.",
+        "price": "Harga harus berupa angka terhingga yang tidak negatif, dan ambang konteks panjang harus lebih besar dari 0.",
+        "alias": "Alias tidak valid atau sama dengan model sumbernya.",
+        "rule": "Aturan tidak valid. Periksa cakupan model, prioritas, dan bobot.",
+        "busy": "Operasi konfigurasi model lain sedang berjalan. Coba lagi sebentar lagi.",
+        "instanceMissing": "Instans tujuan sudah tidak ada. Pilih kembali.",
+        "read": "Gagal membaca pengaturan lokal. Coba lagi.",
+        "write": "Gagal menyimpan konfigurasi. Pengaturan awal tetap dipertahankan. Coba lagi.",
+        "validation": "Konfigurasi memuat kesalahan. Buat pratinjau lagi dan perbaiki kesalahannya.",
+        "recovery": "Impor sebelumnya terhenti. Pemulihan gagal karena pengaturan yang lebih baru atau masalah berkas. Jurnal pemulihan dan data yang ada tetap dipertahankan.",
+        "apply": "Pengaturan tersimpan, tetapi gateway yang berjalan gagal dimuat ulang: {{error}}"
+      },
+      "closeHint": "Setelah dikonfirmasi, impor tetap menyimpan meskipun dialog ditutup."
     }
   },
   "codebuddy": {
@@ -6883,6 +7082,15 @@
       "info": "Info",
       "warn": "Peringatan",
       "error": "Galat"
+    },
+    "search": {
+      "placeholder": "Cari isi log",
+      "regex": "Ekspresi reguler",
+      "errors": {
+        "invalidRegex": "Ekspresi reguler tidak valid. Silakan ubah.",
+        "timeout": "Filter kehabisan waktu. Sederhanakan ekspresi atau matikan ekspresi reguler.",
+        "unavailable": "Filter tidak dapat dimulai. Coba lagi."
+      }
     }
   },
   "mfaQuick": {
@@ -7417,6 +7625,10 @@
       "labelOverridePlaceholder": "Nama tampilan menu",
       "supports1mLabel": "Nyatakan dukungan 1M",
       "supports1mShort": "1M konteks"
+    },
+    "errors": {
+      "profileMissing": "Folder profil Claude tidak ditemukan. Buka Claude sekali, lalu coba lagi.",
+      "cookieSnapshotTooLarge": "Basis data cookie terlalu besar untuk dibaca dengan aman."
     }
   },
   "openrouter": {

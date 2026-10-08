@@ -72,6 +72,9 @@ fn stable_sidecar_manifest_for_fingerprint(manifest_content: &str) -> String {
     let Ok(mut manifest) = serde_json::from_str::<Value>(manifest_content) else {
         return manifest_content.to_string();
     };
+    // This field uses a dedicated local control endpoint and applies to new requests.
+    // A toggle must not restart or disconnect active gateway streams.
+    if let Some(object) = manifest.as_object_mut() { object.remove("requestPayloadLogging"); }
     if let Some(accounts) = manifest.get_mut("accounts").and_then(Value::as_array_mut) {
         for account in accounts {
             if let Some(account) = account.as_object_mut() {
@@ -195,12 +198,18 @@ struct SidecarUsageEvent {
     #[serde(default)]
     latency_ms: u64,
     #[serde(default)]
+    first_response_ms: Option<u64>,
+    #[serde(default)]
     usage: SidecarUsageDetails,
 }
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SidecarAuthResultEvent {
+    #[serde(default)]
+    request_id: String,
+    #[serde(default)]
+    started_at_ms: i64,
     #[serde(default)]
     api_key_id: String,
     #[serde(default)]
@@ -245,6 +254,8 @@ struct SidecarAuthResultEvent {
     image_policy_blocked_auths: usize,
     #[serde(default)]
     account_statuses: Vec<SidecarAccountStatus>,
+    #[serde(default)]
+    scope_diagnostics: Vec<CodexLocalAccessAccountPoolScopeDiagnostic>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -2362,6 +2373,19 @@ fn prepare_sidecar_launch_config_in_dir_sync(
     api_service: bool,
     preparation: Option<GatewayPreparationContext>,
 ) -> Result<SidecarLaunchConfig, String> {
+    // Validate public keys before changing authentication files or the existing config.
+    // An internal maintenance key cannot stand in for an unresolved declared public key.
+    let public_client_keys = sidecar_client_api_keys(collection, &account_overrides);
+    if preparation.is_some_and(|context| gateway_lifecycle_generation_changed(context.generation)) {
+        return Err(GATEWAY_PREPARATION_CANCELLED.to_string());
+    }
+    if collection.enabled
+        && public_client_keys.is_empty()
+        && collection.api_keys.iter().any(|key| key.enabled && !key.key.trim().is_empty())
+    {
+        return Err("网关无法解析入站 API Key，已保留原配置；请恢复被引用的账号后重试".to_string());
+    }
+    let client_api_keys = sidecar_client_api_keys_with_internal(collection, &account_overrides, api_service);
     let auths_dir = sidecar_auths_dir(&base_dir);
     std::fs::create_dir_all(&auths_dir)
         .map_err(|e| format!("创建 API 服务 sidecar 认证目录失败: {}", e))?;
@@ -2604,11 +2628,27 @@ fn prepare_sidecar_launch_config_in_dir_sync(
     }
     let manifest = json!({
         "locale": app_locale,
+        "gatewayErrorMessages": {
+            "pool_unavailable": sidecar_localized_messages("codex.localAccess.accountPoolHealth.dialog.poolUnavailable"),
+            "pool_diagnostic_detail": sidecar_localized_messages("codex.localAccess.accountPoolHealth.dialog.poolDiagnosticDetail"),
+            "scope_mismatch": sidecar_localized_messages("codex.localAccess.accountPoolHealth.dialog.scopeMismatchDetail"),
+            "account_mapping_missing": sidecar_localized_messages("codex.localAccess.accountPoolHealth.dialog.accountMappingMissingDetail"),
+            "bound_account_not_loaded": sidecar_localized_messages("codex.localAccess.accountPoolHealth.dialog.boundAccountNotLoadedDetail"),
+            "bound_account_not_candidate": sidecar_localized_messages("codex.localAccess.accountPoolHealth.dialog.boundAccountNotCandidateDetail"),
+            "account_concurrency_exceeded": sidecar_localized_messages("codex.localAccess.gatewayErrors.accountConcurrencyExceeded"),
+            "provider_retry_after": sidecar_localized_messages("codex.localAccess.gatewayErrors.providerRetryAfter"),
+            "audio_invalid_request": sidecar_localized_messages("codex.localAccess.gatewayErrors.audioInvalidRequest"),
+            "audio_too_large": sidecar_localized_messages("codex.localAccess.gatewayErrors.audioTooLarge"),
+            "audio_not_supported": sidecar_localized_messages("codex.localAccess.gatewayErrors.audioNotSupported"),
+            "audio_unavailable": sidecar_localized_messages("codex.localAccess.gatewayErrors.audioUnavailable"),
+            "audio_upstream_failed": sidecar_localized_messages("codex.localAccess.gatewayErrors.audioUpstreamFailed"),
+        },
         "apiKeys": api_key_manifest_values,
         "accounts": manifest_accounts,
         "proxyRouteObservers": proxy_route_observers,
         "modelIds": model_ids,
         "imageGenerationModel": collection.image_generation_model.clone(),
+        "imageGenerationMainModel": collection.image_generation_main_model.clone(),
         "modelAliases": collection.model_aliases.iter().map(|alias| json!({
             "sourceModel": alias.source_model.clone(),
             "alias": alias.alias.clone(),
@@ -2628,6 +2668,8 @@ fn prepare_sidecar_launch_config_in_dir_sync(
             "excludedModels": rule.excluded_models.clone(),
         })).collect::<Vec<_>>(),
         "debugLogs": collection.debug_logs,
+        "requestPayloadLogging": collection.request_payload_logging,
+        "diagnosticsControlKey": internal_api_service_key(),
         "immediateSseResponse": collection.immediate_sse_response,
         "maxConcurrentImageRequests": collection.max_concurrent_image_requests,
         "maxAccountConcurrency": collection.max_account_concurrency,
@@ -2647,11 +2689,7 @@ fn prepare_sidecar_launch_config_in_dir_sync(
     config.insert("debug".to_string(), json!(collection.debug_logs));
     config.insert(
         "api-keys".to_string(),
-        json!(sidecar_client_api_keys_with_internal(
-            collection,
-            &account_overrides,
-            api_service,
-        )),
+        json!(client_api_keys),
     );
     config.insert(
         "api-key-account-ids".to_string(),

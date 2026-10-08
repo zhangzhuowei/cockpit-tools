@@ -96,35 +96,40 @@ type accountModelRule struct {
 }
 
 type manifest struct {
-	ProxyRouteObservers        []proxyRouteObserverSpec `json:"proxyRouteObservers,omitempty"`
-	Locale                     string                   `json:"locale"`
-	APIKeys                    []apiKeySpec             `json:"apiKeys"`
-	Accounts                   []accountSpec            `json:"accounts"`
-	ModelIDs                   []string                 `json:"modelIds"`
-	ImageGenerationModel       string                   `json:"imageGenerationModel"`
-	ModelAliases               []modelAliasSpec         `json:"modelAliases"`
-	ExcludedModels             []string                 `json:"excludedModels"`
-	AccountModelRules          []accountModelRule       `json:"accountModelRules"`
-	RoutingStrategy            string                   `json:"routingStrategy"`
-	CustomRoutingRules         []customRoutingRule      `json:"customRoutingRules"`
-	ImmediateSSEResponse       bool                     `json:"immediateSseResponse"`
-	MaxConcurrentImageRequests int                      `json:"maxConcurrentImageRequests"`
+	GatewayErrorMessages       map[string]map[string]string `json:"gatewayErrorMessages,omitempty"`
+	ProxyRouteObservers        []proxyRouteObserverSpec     `json:"proxyRouteObservers,omitempty"`
+	Locale                     string                       `json:"locale"`
+	APIKeys                    []apiKeySpec                 `json:"apiKeys"`
+	Accounts                   []accountSpec                `json:"accounts"`
+	ModelIDs                   []string                     `json:"modelIds"`
+	ImageGenerationModel       string                       `json:"imageGenerationModel"`
+	ImageGenerationMainModel   string                       `json:"imageGenerationMainModel,omitempty"`
+	ModelAliases               []modelAliasSpec             `json:"modelAliases"`
+	ExcludedModels             []string                     `json:"excludedModels"`
+	AccountModelRules          []accountModelRule           `json:"accountModelRules"`
+	RoutingStrategy            string                       `json:"routingStrategy"`
+	CustomRoutingRules         []customRoutingRule          `json:"customRoutingRules"`
+	ImmediateSSEResponse       bool                         `json:"immediateSseResponse"`
+	MaxConcurrentImageRequests int                          `json:"maxConcurrentImageRequests"`
 	// MaxAccountConcurrency 限制单个账号同时处理的会话数；0 表示不限制。
 	MaxAccountConcurrency int `json:"maxAccountConcurrency"`
 	// AccountConcurrencyWaitMs 账号并发达到上限后的等待时长（毫秒）；0 表示不等待，直接拒绝。
-	AccountConcurrencyWaitMs int   `json:"accountConcurrencyWaitMs"`
-	DebugLogs                *bool `json:"debugLogs,omitempty"`
+	AccountConcurrencyWaitMs int    `json:"accountConcurrencyWaitMs"`
+	DebugLogs                *bool  `json:"debugLogs,omitempty"`
+	RequestPayloadLogging    bool   `json:"requestPayloadLogging"`
+	DiagnosticsControlKey    string `json:"diagnosticsControlKey,omitempty"`
 
-	apiKeyByValue     map[string]*apiKeySpec
-	accountByID       map[string]*accountSpec
-	accountByAuthID   map[string]*accountSpec
-	accountByAPIKey   map[string]*accountSpec
-	accountByChatGPT  map[string]*accountSpec
-	accountByEmail    map[string]*accountSpec
-	aliasToSource     map[string]string
-	originalIndexByID map[string]int
-	quotaCooldowns    *quotaCooldownStateStore
-	authManager       *coreauth.Manager
+	apiKeyByValue                 map[string]*apiKeySpec
+	accountByID                   map[string]*accountSpec
+	accountByAuthID               map[string]*accountSpec
+	accountByAPIKey               map[string]*accountSpec
+	accountByChatGPT              map[string]*accountSpec
+	accountByEmail                map[string]*accountSpec
+	aliasToSource                 map[string]string
+	originalIndexByID             map[string]int
+	quotaCooldowns                *quotaCooldownStateStore
+	authManager                   *coreauth.Manager
+	requestPayloadLoggingOverride atomic.Pointer[bool]
 }
 
 type apiKeySpec struct {
@@ -499,6 +504,7 @@ type requestDiagnosticPayload struct {
 	NextRetryAtMS           int64                      `json:"nextRetryAtMs,omitempty"`
 	AuthStateReason         string                     `json:"authStateReason,omitempty"`
 	AccountStatuses         []authPoolMemberDiagnostic `json:"accountStatuses,omitempty"`
+	ScopeDiagnostics        []authPoolScopeDiagnostic  `json:"scopeDiagnostics,omitempty"`
 }
 
 const executorWaitLogInterval = 30 * time.Second
@@ -1112,6 +1118,15 @@ func configuredImagesToolModel(m *manifest) string {
 	return defaultImagesToolModel
 }
 
+func configuredImagesMainModel(m *manifest) string {
+	if m != nil {
+		if model := strings.TrimSpace(m.ImageGenerationMainModel); model != "" {
+			return model
+		}
+	}
+	return defaultImagesMainModel
+}
+
 // imageGenerationAccountIDsForSpec 返回该 API Key 配置的生图转发账号池。
 func imageGenerationAccountIDsForSpec(spec *apiKeySpec) []string {
 	if spec == nil || len(spec.ImageGenerationAccountIDs) == 0 {
@@ -1278,22 +1293,26 @@ func withClientInstanceID(ctx context.Context, instanceID string) context.Contex
 }
 
 type requestPolicy struct {
-	manifest     *manifest
-	cfg          *config.Config
-	emitter      *eventEmitter
-	tracker      *requestUsageTracker
-	tokenLimiter *apiKeyTokenLimiter
+	diagnosticsOnce  sync.Once
+	diagnosticsQueue *requestDiagnosticsQueue
+	manifest         *manifest
+	cfg              *config.Config
+	emitter          *eventEmitter
+	tracker          *requestUsageTracker
+	tokenLimiter     *apiKeyTokenLimiter
 }
 
 func (p *requestPolicy) middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if c.Request == nil || c.Request.Method == http.MethodOptions {
+		if c.Request == nil || c.Request.Method == http.MethodOptions || isRequestDiagnosticsControlPath(c.Request.URL.Path) {
 			c.Next()
 			return
 		}
 
 		startedAt := time.Now()
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), requestStartedAtContextKey, startedAt.UnixMilli()))
 		requestID := ensureRequestID(c)
+		diagnostics := p.beginRequestDiagnostics(c, requestID, startedAt)
 		spec := p.lookupAPIKey(c.Request)
 		if diagnosticTransport(c.Request) == "websocket" && p.emitter != nil {
 			sink := newWebsocketUsageSink(requestID, func(payload usagePayload) {
@@ -1326,6 +1345,7 @@ func (p *requestPolicy) middleware() gin.HandlerFunc {
 			if startLogged {
 				p.emitRequestCompleted(c, requestID, spec, requestKind, model, startedAt)
 			}
+			diagnostics.finish(c.Request.Context(), c.Writer.Status())
 		}()
 
 		if spec != nil {
@@ -1380,7 +1400,7 @@ func (p *requestPolicy) middleware() gin.HandlerFunc {
 			return
 		}
 
-		if spec == nil || isCodexLiveRequest(c.Request) || !shouldInspectJSONBody(c.Request) {
+		if spec == nil || isCodexLiveRequest(c.Request) || isAudioPath(c.Request.URL.Path) || !shouldInspectJSONBody(c.Request) {
 			emitStart()
 			c.Next()
 			return
@@ -2265,6 +2285,9 @@ func isCodexLiveRequest(r *http.Request) bool {
 		return false
 	}
 	path := strings.TrimRight(strings.TrimSpace(r.URL.Path), "/")
+	if path == "/backend-api/codex/realtime/calls" || strings.HasPrefix(path, "/backend-api/codex/realtime/calls/") {
+		return true
+	}
 	return path == "/v1/live" ||
 		strings.HasPrefix(path, "/v1/live/") ||
 		path == "/v1/realtime" ||
@@ -2950,6 +2973,8 @@ func wildcardModelMatches(pattern, model string) bool {
 func requestKindFromPath(path string) string {
 	path = strings.ToLower(strings.TrimSpace(path))
 	switch {
+	case isAudioPath(path):
+		return "audio"
 	case strings.Contains(path, "/images/generations"):
 		return "image_generation"
 	case strings.Contains(path, "/images/edits"):

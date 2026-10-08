@@ -44,6 +44,10 @@ type ExecutionSessionCloser interface {
 
 // Result captures execution outcome used to adjust auth state.
 type Result struct {
+	// StaleCredential preserves request diagnostics without changing current auth health.
+	StaleCredential   bool
+	CredentialVersion uint64
+	RegistrationEpoch uint64
 	// AuthID references the auth that produced this result.
 	AuthID string
 	// Provider is copied for convenience when emitting hooks.

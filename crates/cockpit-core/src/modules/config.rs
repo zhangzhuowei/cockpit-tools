@@ -83,6 +83,9 @@ pub struct UserConfig {
     /// Codex 自动刷新间隔（分钟），-1 表示禁用
     #[serde(default = "default_codex_auto_refresh")]
     pub codex_auto_refresh_minutes: i32,
+    /// OAuth 套餐范围；旧配置默认全部，显式空数组关闭套餐额度轮询。
+    #[serde(default = "default_codex_auto_refresh_plan_types")]
+    pub codex_auto_refresh_plan_types: Vec<String>,
     /// Codex 切号时是否同步覆盖 WSL 配置 (Windows Only)
     #[serde(default = "default_codex_sync_wsl")]
     pub codex_sync_wsl: bool,
@@ -272,6 +275,9 @@ pub struct UserConfig {
     /// 启动时是否自动恢复 Codex 代理接管状态
     #[serde(default = "default_codex_auto_restore_takeover_on_launch")]
     pub codex_auto_restore_takeover_on_launch: bool,
+    /// OAuth 切号时保留经过本地集成记录验证的外部桥接（默认关闭）。
+    #[serde(default)]
+    pub codex_preserve_verified_external_bridge: bool,
     /// Antigravity 切号是否启用“本地落盘 + 扩展无感”且不重启
     #[serde(default = "default_antigravity_dual_switch_no_restart_enabled")]
     pub antigravity_dual_switch_no_restart_enabled: bool,
@@ -296,10 +302,10 @@ pub struct UserConfig {
     /// 是否启用 Codex 自动切号
     #[serde(default = "default_codex_auto_switch_enabled")]
     pub codex_auto_switch_enabled: bool,
-    /// Codex primary_window 自动切号阈值（百分比）
+    /// Codex 短周期自动切号阈值；缺少时长时用于 primary_window（百分比）
     #[serde(default = "default_codex_auto_switch_primary_threshold")]
     pub codex_auto_switch_primary_threshold: i32,
-    /// Codex secondary_window 自动切号阈值（百分比）
+    /// Codex 周额度自动切号阈值；缺少时长时用于 secondary_window（百分比）
     #[serde(default = "default_codex_auto_switch_secondary_threshold")]
     pub codex_auto_switch_secondary_threshold: i32,
     /// Codex 自动切号账号范围模式：all_accounts | selected_accounts
@@ -326,10 +332,10 @@ pub struct UserConfig {
     /// Zed 配额预警阈值（百分比）
     #[serde(default = "default_zed_quota_alert_threshold")]
     pub zed_quota_alert_threshold: i32,
-    /// Codex primary_window 配额预警阈值（百分比）
+    /// Codex 短周期预警阈值；缺少时长时用于 primary_window（百分比）
     #[serde(default = "default_codex_quota_alert_primary_threshold")]
     pub codex_quota_alert_primary_threshold: i32,
-    /// Codex secondary_window 配额预警阈值（百分比）
+    /// Codex 周额度预警阈值；缺少时长时用于 secondary_window（百分比）
     #[serde(default = "default_codex_quota_alert_secondary_threshold")]
     pub codex_quota_alert_secondary_threshold: i32,
     /// 是否启用 GitHub Copilot 配额预警通知
@@ -486,6 +492,10 @@ fn default_auto_refresh() -> i32 {
 fn default_codex_auto_refresh() -> i32 {
     10
 } // 默认 10 分钟
+fn default_codex_auto_refresh_plan_types() -> Vec<String> {
+    ["free", "go", "plus", "pro", "team", "business", "enterprise", "edu_k12", "unknown"]
+        .into_iter().map(str::to_string).collect()
+}
 fn default_codex_sync_wsl() -> bool {
     false
 }
@@ -810,6 +820,7 @@ impl Default for UserConfig {
             ui_scale: default_ui_scale(),
             auto_refresh_minutes: default_auto_refresh(),
             codex_auto_refresh_minutes: default_codex_auto_refresh(),
+            codex_auto_refresh_plan_types: default_codex_auto_refresh_plan_types(),
             codex_sync_wsl: default_codex_sync_wsl(),
             codex_app_ui_injection_enabled: default_codex_app_ui_injection_enabled(),
             codex_wsl_config_dir: default_codex_wsl_config_dir(),
@@ -880,6 +891,7 @@ impl Default for UserConfig {
             codex_launch_on_switch: default_codex_launch_on_switch(),
             codex_auto_restore_takeover_on_launch:
                 default_codex_auto_restore_takeover_on_launch(),
+            codex_preserve_verified_external_bridge: false,
             antigravity_dual_switch_no_restart_enabled:
                 default_antigravity_dual_switch_no_restart_enabled(),
             auto_switch_enabled: default_auto_switch_enabled(),
@@ -1825,6 +1837,20 @@ pub fn init_server_status(actual_port: u16) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn codex_refresh_scope_legacy_defaults_and_explicit_empty_round_trip() {
+        let defaults = UserConfig::default();
+        let expected = vec!["free", "go", "plus", "pro", "team", "business", "enterprise", "edu_k12", "unknown"];
+        assert_eq!(defaults.codex_auto_refresh_plan_types, expected);
+        let mut legacy = serde_json::to_value(defaults).unwrap();
+        legacy.as_object_mut().unwrap().remove("codex_auto_refresh_plan_types");
+        let mut restored: UserConfig = serde_json::from_value(legacy).unwrap();
+        assert_eq!(restored.codex_auto_refresh_plan_types, expected);
+        restored.codex_auto_refresh_plan_types.clear();
+        let empty: UserConfig = serde_json::from_value(serde_json::to_value(restored).unwrap()).unwrap();
+        assert!(empty.codex_auto_refresh_plan_types.is_empty());
+    }
+
     use super::{patch_runtime_state, RuntimeState, UserConfig};
     use std::fs;
     use std::path::Path;

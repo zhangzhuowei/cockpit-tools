@@ -10,7 +10,7 @@ import { mergeIdListsPreferExisting, subscribeUserMemory } from "../utils/userMe
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { confirm as confirmDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { CodexAccount } from "../types/codex";
+import type { CodexAccount, CodexAccountNoteUpdate } from "../types/codex";
 import type { CodexLocalAccessOAuthQuotaReserve } from "../types/codexLocalAccess";
 import { CODEX_ADDITIONAL_QUOTA_VISIBILITY_CHANGED_EVENT, CODEX_CODE_REVIEW_QUOTA_VISIBILITY_CHANGED_EVENT, isCodexAdditionalQuotaVisibleByDefault, isCodexCodeReviewQuotaVisibleByDefault } from "../utils/codexPreferences";
 import { emitAccountsChanged } from "../utils/accountSyncEvents";
@@ -22,6 +22,8 @@ import { CODEX_API_PROVIDER_CUSTOM_ID, COCKPIT_API_PROVIDER_ID, COCKPIT_API_PROV
 import { isApiKeyFunProviderBaseUrl } from "../utils/apikeyFunLinks";
 import { type ApiKeyFunPrefillPayload } from "../utils/apiKeyFunPrefill";
 import { resolveCodexProviderCapabilityProfile } from "../utils/codexProviderGateway";
+import { contextWindowDraftsFromRecord } from "../utils/codexModelContextWindows";
+import { resolveCodexModelProviderForApiKey } from "../utils/codexModelProviderKeyConfig";
 import { findCodexModelProviderById, findCodexModelProviderByBaseUrl, mergeCodexModelProviderApiKeysFromAccounts, type CodexModelProvider } from "../services/codexModelProviderService";
 import { readCodexApiKeyUsageCache, type CodexApiKeyUsageState } from "../services/codexApiKeyUsageRefreshService";
 import { parseMfaCredentialInput, upsertSavedMfaRecord } from "../utils/mfaVault";
@@ -53,6 +55,7 @@ export function useCodexAccountsOAuthController(context: Pick<ReturnType<typeof 
   | "reloadLocalAccessState"
   | "savingPendingOAuthAccount"
   | "setAccountNoteError"
+  | "setAccountNoteFieldErrors"
   | "setApiKeyUsageDetailAccountId"
   | "setCockpitApiPanelAccountId"
   | "setPendingOAuthEmailInput"
@@ -91,6 +94,7 @@ export function useCodexAccountsOAuthController(context: Pick<ReturnType<typeof 
     reloadLocalAccessState,
     savingPendingOAuthAccount,
     setAccountNoteError,
+    setAccountNoteFieldErrors,
     setApiKeyUsageDetailAccountId,
     setCockpitApiPanelAccountId,
     setPendingOAuthEmailInput,
@@ -105,6 +109,11 @@ export function useCodexAccountsOAuthController(context: Pick<ReturnType<typeof 
     updateApiKeyBoundOAuthAccount,
     t,
   } = context;
+  // Keep the completed exchange separate from the remaining local save steps.
+  // A retry must not reuse an already consumed OAuth authorization code.
+  const oauthCompletedAccountRef = useRef<{ loginId: string; account: CodexAccount } | null>(null);
+  const pendingOAuthNoteFormRef = useRef(pendingOAuthNoteForm);
+  pendingOAuthNoteFormRef.current = pendingOAuthNoteForm;
   const [oauthUrl, setOauthUrl] = useState<string | null>(null);
   const [oauthProxyEnabled, setOauthProxyEnabled] = useState(false);
   const [oauthProxyInput, setOauthProxyInput] = useState("");
@@ -369,6 +378,25 @@ export function useCodexAccountsOAuthController(context: Pick<ReturnType<typeof 
         ) ?? null,
       [editingManagedProviderApiKeyId, selectedEditingManagedProvider],
     );
+    const selectedKeyCatalogIdentity = useRef({ add: "", edit: "" });
+    useEffect(() => {
+      const identity = `${managedProviderId}:${managedProviderApiKeyId}`;
+      if (selectedKeyCatalogIdentity.current.add === identity) return;
+      selectedKeyCatalogIdentity.current.add = identity;
+      if (!selectedManagedProvider || !selectedManagedProviderApiKey) return;
+      const effective = resolveCodexModelProviderForApiKey(selectedManagedProvider, selectedManagedProviderApiKey.apiKey);
+      setApiModelCatalogInput((effective.modelCatalog ?? []).join("\n"));
+      setApiModelContextWindowsInput(contextWindowDraftsFromRecord(effective.modelContextWindows, effective.modelCatalog ?? []));
+    }, [managedProviderId, managedProviderApiKeyId, selectedManagedProvider, selectedManagedProviderApiKey]);
+    useEffect(() => {
+      const identity = `${editingManagedProviderId}:${editingManagedProviderApiKeyId}`;
+      if (selectedKeyCatalogIdentity.current.edit === identity) return;
+      selectedKeyCatalogIdentity.current.edit = identity;
+      if (!selectedEditingManagedProvider || !selectedEditingManagedProviderApiKey) return;
+      const effective = resolveCodexModelProviderForApiKey(selectedEditingManagedProvider, selectedEditingManagedProviderApiKey.apiKey);
+      setEditingApiModelCatalogInput((effective.modelCatalog ?? []).join("\n"));
+      setEditingApiModelContextWindowsInput(contextWindowDraftsFromRecord(effective.modelContextWindows, effective.modelCatalog ?? []));
+    }, [editingManagedProviderId, editingManagedProviderApiKeyId, selectedEditingManagedProvider, selectedEditingManagedProviderApiKey]);
     const apiModelCatalogDraft = useMemo(
       () => parseApiModelCatalogText(apiModelCatalogInput),
       [apiModelCatalogInput],
@@ -567,6 +595,7 @@ export function useCodexAccountsOAuthController(context: Pick<ReturnType<typeof 
         providerId: string,
         customProviderName: string,
         managedProviderApiKeyName?: string | null,
+        managedProviderApiKey?: string | null,
       ): {
         apiProviderMode: CodexApiProviderMode;
         apiProviderId?: string;
@@ -628,23 +657,24 @@ export function useCodexAccountsOAuthController(context: Pick<ReturnType<typeof 
           managedProvider &&
           isSameHttpBaseUrl(managedProvider.baseUrl, normalizedBaseUrl)
         ) {
+          const effective = resolveCodexModelProviderForApiKey(managedProvider, managedProviderApiKey);
           return {
             apiProviderMode: "custom",
             apiProviderId: managedProvider.id,
             apiProviderName: managedProvider.name,
-            apiModelCatalog: managedProvider.modelCatalog,
+            apiModelCatalog: effective.modelCatalog,
             apiWireApi: managedProvider.wireApi ?? undefined,
             apiSupportsWebsockets: managedProvider.supportsWebsockets,
-            apiSupportsVision: managedProvider.supportsVision,
+            apiSupportsVision: effective.supportsVision,
             apiModelVisionSupport: Object.fromEntries(
-              Object.entries(managedProvider.modelCapabilities ?? {}).map(
+              Object.entries(effective.modelCapabilities ?? {}).map(
                 ([model, capability]) => [
                   model,
                   capability.supportsVision === true,
                 ],
               ),
             ),
-            apiVisionRoutingModel: managedProvider.visionRoutingModel,
+            apiVisionRoutingModel: effective.visionRoutingModel,
             accountName: resolveCodexModelProviderAccountName(
               managedProvider.name,
               managedProviderApiKeyName,
@@ -1082,30 +1112,30 @@ export function useCodexAccountsOAuthController(context: Pick<ReturnType<typeof 
     );
   
     const buildPendingOAuthNoteUpdate = useCallback(() => {
-      const rawTwoFactorSecret = pendingOAuthNoteForm.twoFactorSecret.trim();
+      setPendingOAuthFieldErrors({});
+      setAccountNoteFieldErrors({});
+      setAccountNoteError(null);
+      const form = pendingOAuthNoteFormRef.current;
+      const rawTwoFactorSecret = form.twoFactorSecret.trim();
       const parsedTwoFactorSecret = rawTwoFactorSecret
         ? parseMfaCredentialInput(rawTwoFactorSecret)
         : null;
       if (rawTwoFactorSecret && !parsedTwoFactorSecret) {
-        setPendingOAuthFieldErrors((prev) => ({
-          ...prev,
-          twoFactorSecret: t(
-            "codex.accountNote.twoFactorSecretInvalid",
-            "2FA 秘钥格式无效，请输入 Base32 secret 或 otpauth:// 链接",
-          ),
-        }));
+        const error = t("codex.accountNote.twoFactorSecretInvalid");
+        setPendingOAuthFieldErrors({ twoFactorSecret: error });
         openPendingOAuthNoteModal();
+        setAccountNoteFieldErrors({ twoFactorSecret: error });
         return null;
       }
   
       return {
-        note: pendingOAuthNoteForm.note,
+        note: form.note,
         twoFactorSecret: parsedTwoFactorSecret?.secret ?? rawTwoFactorSecret,
-        accountPassword: pendingOAuthNoteForm.accountPassword,
-        phoneNumber: pendingOAuthNoteForm.phoneNumber,
-        mailUrl: pendingOAuthNoteForm.mailUrl,
+        accountPassword: form.accountPassword,
+        phoneNumber: form.phoneNumber,
+        mailUrl: form.mailUrl,
       };
-    }, [openPendingOAuthNoteModal, pendingOAuthNoteForm, t]);
+    }, [openPendingOAuthNoteModal, setAccountNoteError, setAccountNoteFieldErrors, setPendingOAuthFieldErrors, t]);
   
     const handleSavePendingOAuthAccount = useCallback(async () => {
       if (savingPendingOAuthAccount) return;
@@ -1221,8 +1251,58 @@ export function useCodexAccountsOAuthController(context: Pick<ReturnType<typeof 
       [t, oauthProxyEnabled, describeOauthProxyError],
     );
   
+    const resolveCompletedOauthAccount = useCallback(async (loginId: string) => {
+      const completed = oauthCompletedAccountRef.current;
+      if (completed?.loginId === loginId) return completed.account;
+      const account = await codexService.completeCodexOAuthLogin(
+        loginId,
+        reauthTargetAccountId || null,
+      );
+      if (oauthLoginIdRef.current !== loginId || !showAddModalRef.current || addTabRef.current !== "oauth") {
+        return null;
+      }
+      oauthCompletedAccountRef.current = { loginId, account };
+      return account;
+    }, [reauthTargetAccountId]);
+
     const completeOauthSuccess = useCallback(
       async (account?: CodexAccount | null) => {
+        if (!account) return;
+        const loginId = oauthLoginIdRef.current;
+        const isCurrentSession = () => oauthLoginIdRef.current === loginId
+          && showAddModalRef.current && addTabRef.current === "oauth";
+        if (!isCurrentSession()) return;
+        if (account) {
+          const note = buildPendingOAuthNoteUpdate();
+          if (!note) {
+            setAddStatus("error");
+            setAddMessage(t("codex.accountNote.twoFactorSecretInvalid"));
+            setOauthTokenExchangeRetryVisible(true);
+            return;
+          }
+          // An empty draft must not clear details already stored on a reauthorized
+          // or deduplicated account. Only fields entered for this login are applied.
+          const update: CodexAccountNoteUpdate = Object.fromEntries(
+            Object.entries(note).filter(([, value]) => value.trim().length > 0),
+          );
+          if (Object.keys(update).length > 0) {
+            try {
+              account = await codexService.updateCodexAccountNote(account.id, update);
+              if (!isCurrentSession()) return;
+              const completed = oauthCompletedAccountRef.current;
+              if (completed?.account.id === account.id) completed.account = account;
+            } catch (error) {
+              if (!isCurrentSession()) return;
+              applyAccountSnapshot(account);
+              setAddStatus("error");
+              setAddMessage(t("codex.accountNote.saveFailed", {
+                error: String(error).replace(/^Error:\s*/, ""),
+              }));
+              setOauthTokenExchangeRetryVisible(true);
+              return;
+            }
+          }
+        }
         oauthLog("授权完成并保存成功", { loginId: oauthLoginIdRef.current });
         if (account) {
           // OAuth 回调已经返回后端刚保存的账号快照，先立即合并到 UI，
@@ -1292,6 +1372,7 @@ export function useCodexAccountsOAuthController(context: Pick<ReturnType<typeof 
             oauthActiveRef.current = false;
             oauthCompletingRef.current = false;
             oauthLoginIdRef.current = null;
+            oauthCompletedAccountRef.current = null;
             return;
           }
         }
@@ -1367,6 +1448,7 @@ export function useCodexAccountsOAuthController(context: Pick<ReturnType<typeof 
         oauthActiveRef.current = false;
         oauthCompletingRef.current = false;
         oauthLoginIdRef.current = null;
+        oauthCompletedAccountRef.current = null;
         setOauthUrl("");
         setOauthUrlCopied(false);
         setOauthPrepareError(null);
@@ -1388,6 +1470,7 @@ export function useCodexAccountsOAuthController(context: Pick<ReturnType<typeof 
       [
         assignCodexAccountsToTargetGroup,
         applyAccountSnapshot,
+        buildPendingOAuthNoteUpdate,
         fetchAccounts,
         fetchCurrentAccount,
         reloadLocalAccessState,
@@ -1445,17 +1528,13 @@ export function useCodexAccountsOAuthController(context: Pick<ReturnType<typeof 
             return;
           const loginId = event.payload?.loginId;
           if (!loginId) return;
-          if (oauthLoginIdRef.current && oauthLoginIdRef.current !== loginId)
-            return;
+          if (oauthLoginIdRef.current !== loginId) return;
           ++oauthAttemptSeqRef.current;
           setAddStatus("loading");
           setAddMessage(t("codex.oauth.exchanging", "正在交换令牌..."));
           oauthCompletingRef.current = true;
           try {
-            const account = await codexService.completeCodexOAuthLogin(
-              loginId,
-              reauthTargetAccountId || null,
-            );
+            const account = await resolveCompletedOauthAccount(loginId);
             await completeOauthSuccess(account);
           } catch (e) {
             completeOauthError(e, true);
@@ -1525,7 +1604,7 @@ export function useCodexAccountsOAuthController(context: Pick<ReturnType<typeof 
     }, [
       completeOauthError,
       completeOauthSuccess,
-      reauthTargetAccountId,
+      resolveCompletedOauthAccount,
       t,
       setAddStatus,
       setAddMessage,
@@ -1541,6 +1620,7 @@ export function useCodexAccountsOAuthController(context: Pick<ReturnType<typeof 
       const task = codexService.cancelCodexOAuthLogin(loginId).then(() => {
         if (oauthCancelLoginId.current === loginId) oauthCancelLoginId.current = null;
         if (oauthLoginIdRef.current === loginId) oauthLoginIdRef.current = null;
+        if (oauthCompletedAccountRef.current?.loginId === loginId) oauthCompletedAccountRef.current = null;
       });
       oauthCancelTask.current = task;
       void task.then(() => {}, () => {}).finally(() => {
@@ -1822,6 +1902,7 @@ export function useCodexAccountsOAuthController(context: Pick<ReturnType<typeof 
       oauthActiveRef.current = false;
       oauthCompletingRef.current = false;
       oauthLoginIdRef.current = null;
+      oauthCompletedAccountRef.current = null;
       setOauthUrl("");
       setOauthUrlCopied(false);
       setOauthTimeoutInfo(null);
@@ -1874,6 +1955,7 @@ export function useCodexAccountsOAuthController(context: Pick<ReturnType<typeof 
         oauthActiveRef.current = false;
         oauthCompletingRef.current = false;
         oauthLoginIdRef.current = null;
+        oauthCompletedAccountRef.current = null;
       },
       [oauthLog, cancelOauthSession],
     );
@@ -1934,6 +2016,7 @@ export function useCodexAccountsOAuthController(context: Pick<ReturnType<typeof 
       }
       oauthActiveRef.current = false;
       oauthLoginIdRef.current = null;
+      oauthCompletedAccountRef.current = null;
       setOauthTimeoutInfo(null);
       setOauthPrepareError(null);
       setOauthPortInUse(null);
@@ -1999,6 +2082,7 @@ export function useCodexAccountsOAuthController(context: Pick<ReturnType<typeof 
       oauthAttemptSeqRef.current += 1;
       oauthActiveRef.current = false;
       oauthLoginIdRef.current = null;
+      oauthCompletedAccountRef.current = null;
       setOauthUrl(null);
       try {
         const info = await codexService.startCodexDeviceAuth();
@@ -2021,6 +2105,7 @@ export function useCodexAccountsOAuthController(context: Pick<ReturnType<typeof 
       oauthAttemptSeqRef.current += 1;
       oauthActiveRef.current = false;
       oauthLoginIdRef.current = null;
+      oauthCompletedAccountRef.current = null;
       if (currentLoginId) {
         await codexService.cancelCodexOAuthLogin(currentLoginId).catch(() => {});
       }
@@ -2064,6 +2149,7 @@ export function useCodexAccountsOAuthController(context: Pick<ReturnType<typeof 
     };
   
     const handleSubmitOauthCallbackUrl = async () => {
+      if (oauthCompletingRef.current) return;
       const callbackUrl = oauthCallbackInput.trim();
       if (!callbackUrl) return;
       const loginId = oauthLoginIdRef.current;
@@ -2078,14 +2164,13 @@ export function useCodexAccountsOAuthController(context: Pick<ReturnType<typeof 
       oauthCompletingRef.current = true;
       let tokenExchangeStarted = false;
       try {
-        await codexService.submitCodexOAuthCallbackUrl(loginId, callbackUrl);
+        if (oauthCompletedAccountRef.current?.loginId !== loginId) {
+          await codexService.submitCodexOAuthCallbackUrl(loginId, callbackUrl);
+        }
         setAddStatus("loading");
         setAddMessage(t("codex.oauth.exchanging", "正在交换令牌..."));
         tokenExchangeStarted = true;
-        const account = await codexService.completeCodexOAuthLogin(
-          loginId,
-          reauthTargetAccountId || null,
-        );
+        const account = await resolveCompletedOauthAccount(loginId);
         await completeOauthSuccess(account);
       } catch (e) {
         completeOauthError(e, tokenExchangeStarted);
@@ -2103,13 +2188,12 @@ export function useCodexAccountsOAuthController(context: Pick<ReturnType<typeof 
       setOauthCallbackError(null);
       setOauthTokenExchangeRetryVisible(false);
       setAddStatus("loading");
-      setAddMessage(t("codex.oauth.exchanging", "正在交换令牌..."));
+      setAddMessage(t(oauthCompletedAccountRef.current?.loginId === loginId
+        ? "common.saving"
+        : "codex.oauth.exchanging"));
       oauthCompletingRef.current = true;
       try {
-        const account = await codexService.completeCodexOAuthLogin(
-          loginId,
-          reauthTargetAccountId || null,
-        );
+        const account = await resolveCompletedOauthAccount(loginId);
         await completeOauthSuccess(account);
       } catch (e) {
         completeOauthError(e, true);

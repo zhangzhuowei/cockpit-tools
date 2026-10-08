@@ -33,7 +33,21 @@ fn build_codex_app_launch_args(extra_args: &[String]) -> Vec<String> {
 }
 
 fn build_codex_default_launch_args(extra_args: &[String]) -> Vec<String> {
-    build_codex_app_launch_args(extra_args)
+    #[cfg(target_os = "windows")]
+    {
+        build_codex_windows_profile_args(extra_args, None)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        build_codex_app_launch_args(extra_args)
+    }
+}
+
+#[cfg(any(test, target_os = "windows"))]
+fn prepare_codex_windows_default_command(cmd: &mut Command, extra_args: &[String]) {
+    cmd.env_remove("CODEX_HOME")
+        .env_remove("CODEX_ELECTRON_USER_DATA_PATH")
+        .args(build_codex_windows_profile_args(extra_args, None));
 }
 
 #[cfg(any(test, target_os = "windows"))]
@@ -372,10 +386,7 @@ fn start_codex_default_internal(
                 .stderr(Stdio::null());
         }
         // Codex 是 GUI 应用，不设置 CREATE_NO_WINDOW，否则会导致其内部 spawn CLI 子进程失败。
-        let args = build_codex_default_launch_args(extra_args);
-        for arg in args {
-            cmd.arg(arg);
-        }
+        prepare_codex_windows_default_command(&mut cmd, extra_args);
 
         let launch_not_before_epoch_secs = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -806,97 +817,50 @@ pub fn close_codex_default(timeout_secs: u64) -> Result<(), String> {
     }
 }
 
-/// macOS 优雅关闭（osascript）的最长等待时间：超时即回落强杀，避免自动化权限
-/// 弹窗或 System Events 无响应把启动流程挂住。
-#[cfg(target_os = "macos")]
-const CODEX_GRACEFUL_CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
-
 #[cfg(target_os = "macos")]
 fn request_codex_graceful_close(pid: u32) -> bool {
-    if pid == 0 || !is_pid_running(pid) {
+    if pid == 0 {
+        return true;
+    }
+    let Ok(native_pid) = i32::try_from(pid) else {
+        crate::modules::logger::log_warn(&format!(
+            "[Codex Close] graceful native terminate invalid pid={}",
+            pid
+        ));
+        return false;
+    };
+    if !is_pid_running(pid) {
         return true;
     }
 
-    let focus_script = format!(
-        "tell application \"System Events\" to set frontmost of (first process whose unix id is {}) to true",
-        pid
-    );
-    crate::modules::logger::log_info(&format!(
-        "[Codex Close] graceful osascript start pid={}",
-        pid
-    ));
-    // osascript 会等待 System Events 回应；自动化权限弹窗、权限被拒或 System Events
-    // 无响应时可能长时间不返回，进而让整个启动/关闭流程看起来卡死。这里改为带
-    // 超时的等待：超时后结束 osascript，直接回落到强杀流程。
-    let mut child = match Command::new("osascript")
-        .args([
-            "-e",
-            &focus_script,
-            "-e",
-            "tell application \"System Events\" to keystroke \"q\" using command down",
-        ])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-    {
-        Ok(child) => child,
-        Err(err) => {
+    objc2::rc::autoreleasepool(|_| {
+        let Some(application) =
+            objc2_app_kit::NSRunningApplication::runningApplicationWithProcessIdentifier(
+                native_pid,
+            )
+        else {
             crate::modules::logger::log_warn(&format!(
-                "[Codex Close] graceful osascript error pid={} err={}",
-                pid, err
-            ));
-            return false;
-        }
-    };
-    let deadline = Instant::now() + CODEX_GRACEFUL_CLOSE_TIMEOUT;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
-            Ok(None) => {
-                if Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    crate::modules::logger::log_warn(&format!(
-                        "[Codex Close] graceful osascript 超时，改为强制关闭: pid={}, timeout_ms={}",
-                        pid,
-                        CODEX_GRACEFUL_CLOSE_TIMEOUT.as_millis()
-                    ));
-                    return false;
-                }
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            Err(err) => {
-                crate::modules::logger::log_warn(&format!(
-                    "[Codex Close] graceful osascript error pid={} err={}",
-                    pid, err
-                ));
-                return false;
-            }
-        }
-    };
-    match status {
-        Some(status) if status.success() => {
-            crate::modules::logger::log_info(&format!(
-                "[Codex Close] graceful osascript success pid={}",
+                "[Codex Close] graceful native terminate application unavailable pid={}",
                 pid
             ));
-            true
-        }
-        Some(_) => {
-            let mut stderr_text = String::new();
-            if let Some(mut stderr) = child.stderr.take() {
-                use std::io::Read;
-                let _ = stderr.read_to_string(&mut stderr_text);
-            }
-            crate::modules::logger::log_warn(&format!(
-                "[Codex Close] graceful osascript failed pid={} err={}",
-                pid,
-                stderr_text.trim()
+            return false;
+        };
+        // Send a normal quit request to this PID only. The caller still waits for
+        // actual process exit and falls back to its precise process cleanup.
+        let requested = application.terminate();
+        if requested {
+            crate::modules::logger::log_info(&format!(
+                "[Codex Close] graceful native terminate requested pid={}",
+                pid
             ));
-            false
+        } else {
+            crate::modules::logger::log_warn(&format!(
+                "[Codex Close] graceful native terminate rejected pid={}",
+                pid
+            ));
         }
-        None => false,
-    }
+        requested
+    })
 }
 
 /// Request a normal Windows app shutdown before falling back to force close.
@@ -2031,3 +1995,7 @@ pub fn kill_port_processes(port: u16) -> Result<usize, String> {
     let pids = find_pids_by_port(port)?;
     kill_processes_by_pid(&pids)
 }
+
+#[cfg(all(test, target_os = "macos"))]
+#[path = "process_codex_graceful_close_tests.rs"]
+mod codex_graceful_close_tests;

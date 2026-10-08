@@ -1063,6 +1063,7 @@ mod tests {
             model_id: "gpt-5".to_string(),
             display_name: "GPT-5".to_string(),
             reasoning_efforts: None,
+            default_reasoning_effort: None,
             context_window: None,
             auto_compact_token_limit: None,
         }]
@@ -2138,11 +2139,24 @@ pub async fn codex_preview_session_import(
 }
 
 #[tauri::command]
+pub async fn codex_validate_session_import_paths(
+    cwd_mappings: std::collections::HashMap<String, String>,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    tokio::time::timeout(std::time::Duration::from_secs(5),
+        tauri::async_runtime::spawn_blocking(move || {
+            modules::codex_session_import_paths::validate_target_paths(&cwd_mappings)
+        }),
+    ).await.map_err(|_| "验证项目目录超时，请重试".to_string())?
+        .map_err(|error| format!("验证项目目录失败: {}", error))
+}
+
+#[tauri::command]
 pub async fn codex_import_sessions(
     app: AppHandle,
     import_file_path: String,
     target_instance_id: Option<String>,
     session_ids: Vec<String>,
+    cwd_mappings: Option<std::collections::HashMap<String, String>>,
     transfer_id: Option<String>,
 ) -> Result<modules::codex_session_manager::CodexSessionImportSummary, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -2158,6 +2172,7 @@ pub async fn codex_import_sessions(
             import_file_path,
             target_instance_id,
             session_ids,
+            cwd_mappings.unwrap_or_default(),
             transfer_id,
             Some(&reporter),
         )
@@ -2212,27 +2227,27 @@ pub async fn codex_create_instance(
     launch_mode: Option<InstanceLaunchMode>,
     app_speed: Option<CodexAppSpeed>,
 ) -> Result<CodexInstanceProfileView, String> {
-    let effective_launch_mode = launch_mode.clone().unwrap_or_default();
-    // 归一化结果必须落库：绑定账号不支持混合路由时按“已关闭”保存，
-    // 否则后台监控会按启用状态反复尝试恢复一个注定失败的网关。
-    let model_routing = validate_instance_model_routing(
-        bind_account_id.as_deref(),
-        &effective_launch_mode,
-        model_routing.as_ref(),
-    )?;
-    let instance =
-        modules::codex_instance::create_instance(modules::codex_instance::CreateInstanceParams {
-            name,
-            user_data_dir,
-            working_dir,
-            extra_args: extra_args.unwrap_or_default(),
-            bind_account_id,
-            model_routing,
-            copy_source_instance_id,
-            init_mode,
-            launch_mode,
-            app_speed,
-        })?;
+    let params = modules::codex_instance::CreateInstanceParams {
+        name, user_data_dir, working_dir, extra_args: extra_args.unwrap_or_default(),
+        bind_account_id, model_routing, copy_source_instance_id, init_mode, launch_mode, app_speed,
+    };
+    let cancelled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let worker_cancelled = cancelled.clone();
+    let worker = tauri::async_runtime::spawn_blocking(move || {
+        let mut params = params;
+        let effective_launch_mode = params.launch_mode.clone().unwrap_or_default();
+        params.model_routing = validate_instance_model_routing(
+            params.bind_account_id.as_deref(), &effective_launch_mode, params.model_routing.as_ref(),
+        )?;
+        modules::codex_instance::create_instance_with_cancellation(params, &worker_cancelled)
+    });
+    let instance = match tokio::time::timeout(std::time::Duration::from_secs(120), worker).await {
+        Ok(result) => result.map_err(|error| format!("创建实例任务失败: {error}"))??,
+        Err(_) => {
+            cancelled.store(true, std::sync::atomic::Ordering::Release);
+            return Err("创建实例超时，请检查来源目录和磁盘后重试".to_string());
+        }
+    };
 
     created_instance_view_after_binding(
         instance,

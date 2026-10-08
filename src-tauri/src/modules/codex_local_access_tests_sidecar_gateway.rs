@@ -127,7 +127,7 @@
         assert!(runtime.account_health.is_empty());
         let health = runtime
             .account_pool_health
-            .get("key-1")
+            .get(&super::account_pool_route_key(&event))
             .expect("pool health should be created without an account id");
         assert!(health.diagnostic_available);
         assert_eq!(health.candidate_auths, 2);
@@ -1049,6 +1049,7 @@
             client_base_url_host: CodexLocalAccessClientBaseUrlHost::default(),
             image_generation_mode: CodexLocalAccessImageGenerationMode::default(),
             image_generation_model: DEFAULT_CODEX_IMAGE_GENERATION_MODEL.to_string(),
+            image_generation_main_model: None,
             image_generation_account_policies: HashMap::new(),
             image_generation_account_ids: Vec::new(),
             gateway_mode: CodexLocalAccessGatewayMode::default(),
@@ -1073,6 +1074,7 @@
             disable_cooling: false,
             restrict_free_accounts: true,
             debug_logs: true,
+        request_payload_logging: false,
             immediate_sse_response: false,
             max_concurrent_image_requests: 1,
             max_account_concurrency: 0,
@@ -4163,6 +4165,7 @@ http_headers = { "x-cockpit-instance-id" = "default" }
                 model_id: "gpt-5.6-luna".to_string(),
                 display_name: "5.6 Luna".to_string(),
                 reasoning_efforts: None,
+                default_reasoning_effort: None,
                 context_window: Some(516000),
                 auto_compact_token_limit: Some(460000),
             },
@@ -4170,6 +4173,7 @@ http_headers = { "x-cockpit-instance-id" = "default" }
                 model_id: "gpt-reserve".to_string(),
                 display_name: "GPT-5.6 Reserve".to_string(),
                 reasoning_efforts: None,
+                default_reasoning_effort: None,
                 context_window: None,
                 auto_compact_token_limit: None,
             },

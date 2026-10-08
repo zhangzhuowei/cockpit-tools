@@ -3379,3 +3379,18 @@
 .codex-local-access-grok-member-error {
   color: var(--danger, #dc2626);
 }
+
+/* Keep action failures visible while the settings body scrolls. */
+.codex-local-access-error-area {
+  flex: 0 0 auto;
+  min-height: 0;
+  max-height: min(25vh, 160px);
+  margin: 0 20px 12px;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  outline: none;
+}
+
+.codex-local-access-error-area .codex-local-access-inline-error {
+  margin-bottom: 0;
+}

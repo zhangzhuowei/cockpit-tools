@@ -90,6 +90,9 @@ func NewUsageReporter(ctx context.Context, provider, model string, auth *cliprox
 		reporter.authIndex = auth.EnsureIndex()
 		reporter.accessTokenHash = authAccessTokenSHA256(auth)
 	}
+	if observer := cliproxyexecutor.DiagnosticsObserver(ctx); observer != nil {
+		observer.ExecutionStarted(ctx, cliproxyexecutor.DiagnosticExecution{Provider: provider, Model: model, AuthID: reporter.authID, StartedAt: reporter.requestedAt})
+	}
 	return reporter
 }
 
@@ -504,6 +507,9 @@ func (t usageTTFTRoundTripper) RoundTrip(req *http.Request) (*http.Response, err
 		t.reporter.ObserveResponsePacketOnly(resp)
 	} else {
 		t.reporter.ObserveResponse(resp)
+	}
+	if resp != nil && resp.Body != nil && cliproxyexecutor.DiagnosticsObserver(req.Context()) != nil {
+		resp.Body = &usageTTFTReadCloser{ReadCloser: resp.Body, mark: func() { cliproxyexecutor.ObserveUpstreamChunk(req.Context()) }}
 	}
 	return resp, nil
 }

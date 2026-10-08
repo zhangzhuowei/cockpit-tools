@@ -276,10 +276,15 @@ func TestAccountConcurrencyWrapsSelectorChainWhenEnabled(t *testing.T) {
 		t.Fatal("expected concurrency gate to be enabled")
 	}
 	chain := buildCoreAuthSelectorWithConcurrency(nil, &orderedAuthSelector{order: []string{"auth-a"}}, m, nil, tracker)
-	if _, ok := chain.(*accountConcurrencySelector); !ok {
-		t.Fatalf("expected accountConcurrencySelector at the outermost layer, got %#v", chain)
+	scope, ok := chain.(*apiKeyScopeSelector)
+	if !ok {
+		t.Fatalf("expected authorization scope at the outermost layer, got %#v", chain)
 	}
-	if _, ok := chain.(*accountConcurrencySelector).fallback.(*quotaCooldownSelector); !ok {
+	concurrency, ok := scope.fallback.(*accountConcurrencySelector)
+	if !ok {
+		t.Fatalf("expected concurrency gate immediately inside authorization scope, got %#v", scope.fallback)
+	}
+	if _, ok := concurrency.fallback.(*quotaCooldownSelector); !ok {
 		t.Fatalf("expected quota cooldown selector below the concurrency gate, got %#v", chain)
 	}
 }

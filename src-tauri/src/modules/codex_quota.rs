@@ -167,6 +167,7 @@ fn write_quota_error(account: &mut CodexAccount, message: String) -> bool {
         message,
         timestamp: chrono::Utc::now().timestamp(),
     });
+    codex_account::observe_known_access_token_revocation(account);
     true
 }
 
@@ -2324,6 +2325,23 @@ mod tests {
             "PROXY_RUNTIME_BUSY".into()
         ));
         assert_eq!(serde_json::to_value(&account).unwrap(), before);
+    }
+
+    #[test]
+    fn upstream_access_revocation_marks_reauth_without_losing_cached_quota() {
+        let mut account = cached_quota_test_account();
+        let quota = serde_json::to_value(&account.quota).unwrap();
+        let tokens = serde_json::to_value(&account.tokens).unwrap();
+        assert!(write_quota_error(
+            &mut account,
+            "API error 401 [error_code:token_revoked]".into()
+        ));
+        assert!(account.requires_reauth);
+        assert!(account.reauth_reason.is_some());
+        assert_eq!(serde_json::to_value(&account.quota).unwrap(), quota);
+        assert_eq!(serde_json::to_value(&account.tokens).unwrap(), tokens);
+        assert!(!write_quota_error(&mut account, "PROXY_RUNTIME_BUSY".into()));
+        assert_eq!(account.quota_error.as_ref().unwrap().code.as_deref(), Some("token_revoked"));
     }
 
     #[test]

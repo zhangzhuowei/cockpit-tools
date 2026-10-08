@@ -172,6 +172,7 @@ fn create_request_logs_table(
             error_category TEXT NOT NULL DEFAULT '',
             error_message TEXT NOT NULL DEFAULT '',
             latency_ms INTEGER NOT NULL DEFAULT 0,
+            first_response_ms INTEGER,
             input_tokens INTEGER NOT NULL DEFAULT 0,
             output_tokens INTEGER NOT NULL DEFAULT 0,
             total_tokens INTEGER NOT NULL DEFAULT 0,
@@ -274,6 +275,7 @@ fn open_local_access_logs_db_once(
         "error_message TEXT NOT NULL DEFAULT ''",
     )?;
     ensure_request_logs_column(&conn, "latency_ms", "latency_ms INTEGER NOT NULL DEFAULT 0")?;
+    ensure_request_logs_column(&conn, "first_response_ms", "first_response_ms INTEGER")?;
     ensure_request_logs_column(
         &conn,
         "input_tokens",
@@ -812,6 +814,23 @@ fn insert_local_access_usage_event(
         )
         .map_err(|e| format!("写入 API 服务请求日志官方账号 ID 失败: {}", e))?;
     }
+    ensure_request_logs_column(conn, "first_response_ms", "first_response_ms INTEGER")
+        .map_err(|error| format!("添加请求首响列失败: {error}"))?;
+    let first_response_ms = event
+        .first_response_ms
+        .map(|value| value.min(i64::MAX as u64) as i64);
+    if diagnostics_table_exists(conn).unwrap_or(false) {
+        conn.execute("UPDATE request_logs SET first_response_ms=COALESCE(
+            (SELECT first_response_ms FROM request_diagnostics WHERE request_id=?1),?2,first_response_ms)
+            WHERE event_key=?3", params![event.request_id,first_response_ms,local_access_log_event_key(event)])
+            .map_err(|error| format!("合并请求首响失败: {error}"))?;
+    } else if first_response_ms.is_some() {
+        conn.execute(
+            "UPDATE request_logs SET first_response_ms=?1 WHERE event_key=?2",
+            params![first_response_ms, local_access_log_event_key(event)],
+        )
+        .map_err(|error| format!("保存请求首响失败: {error}"))?;
+    }
     Ok(())
 }
 
@@ -1286,6 +1305,32 @@ async fn queue_model_pricing_reprice(
     }
 }
 
+async fn run_model_pricing_reprice_in_background(
+    work: impl FnOnce() + Send + 'static,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|error| format!("历史价格重算任务失败: {error}"))
+}
+
+#[cfg(test)]
+mod model_pricing_background_tests {
+    #[tokio::test(flavor = "current_thread")]
+    async fn slow_reprice_work_does_not_block_async_runtime_progress() {
+        let started = std::time::Instant::now();
+        let work = tokio::spawn(super::run_model_pricing_reprice_in_background(|| {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+        }));
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        assert!(started.elapsed() < std::time::Duration::from_millis(200));
+        assert!(
+            !work.is_finished(),
+            "async work must progress before the slow batch ends"
+        );
+        work.await.unwrap().unwrap();
+    }
+}
+
 async fn run_model_pricing_reprice_worker(app: AppHandle) {
     loop {
         let job = {
@@ -1299,7 +1344,18 @@ async fn run_model_pricing_reprice_worker(app: AppHandle) {
             job
         };
 
-        run_model_pricing_reprice_job(app.clone(), job).await;
+        let job_id = job.job_id;
+        let model_ids = job.model_ids.clone();
+        let job_app = app.clone();
+        // SQLite waits and price calculations stay off the async runtime threads.
+        if let Err(error) = run_model_pricing_reprice_in_background(move || {
+            tauri::async_runtime::block_on(run_model_pricing_reprice_job(job_app, job));
+        })
+        .await
+        {
+            logger::log_codex_api_warn(&error);
+            emit_model_pricing_reprice_event(&app, job_id, "failed", 0, 0, 0, &model_ids, &error);
+        }
 
         let mut worker = model_pricing_reprice_worker().lock().await;
         if worker.pending.is_none() {
@@ -1377,7 +1433,6 @@ async fn run_model_pricing_reprice_job(app: AppHandle, job: ModelPricingRepriceJ
 
     let mut processed = 0_u64;
     let mut updated = 0_u64;
-    let mut all_changes = Vec::new();
     emit_model_pricing_reprice_event(
         &app,
         job.job_id,
@@ -1391,7 +1446,6 @@ async fn run_model_pricing_reprice_job(app: AppHandle, job: ModelPricingRepriceJ
 
     loop {
         if model_pricing_reprice_has_newer_pending_job(job.job_id).await {
-            apply_reprice_changes_to_runtime_stats(&all_changes).await;
             emit_model_pricing_reprice_event(
                 &app,
                 job.job_id,
@@ -1417,7 +1471,6 @@ async fn run_model_pricing_reprice_job(app: AppHandle, job: ModelPricingRepriceJ
                     "API 服务后台历史估算价值分批重算失败: {}",
                     error
                 ));
-                apply_reprice_changes_to_runtime_stats(&all_changes).await;
                 emit_model_pricing_reprice_event(
                     &app,
                     job.job_id,
@@ -1441,14 +1494,13 @@ async fn run_model_pricing_reprice_job(app: AppHandle, job: ModelPricingRepriceJ
                 Err(error) => Err(error),
             }
         };
-        let mut batch_changes = match batch_changes_result {
+        let batch_changes = match batch_changes_result {
             Ok(changes) => changes,
             Err(error) => {
                 logger::log_codex_api_warn(&format!(
                     "API 服务后台历史估算价值分批写回失败: {}",
                     error
                 ));
-                apply_reprice_changes_to_runtime_stats(&all_changes).await;
                 emit_model_pricing_reprice_event(
                     &app,
                     job.job_id,
@@ -1464,7 +1516,8 @@ async fn run_model_pricing_reprice_job(app: AppHandle, job: ModelPricingRepriceJ
         };
         processed = processed.saturating_add(processed_rows).min(total);
         updated = updated.saturating_add(updates.len() as u64);
-        all_changes.append(&mut batch_changes);
+        // Apply each bounded batch and release it instead of retaining the entire history.
+        apply_reprice_changes_to_runtime_stats(&batch_changes).await;
 
         if processed_rows == 0 {
             break;
@@ -1487,7 +1540,6 @@ async fn run_model_pricing_reprice_job(app: AppHandle, job: ModelPricingRepriceJ
         tokio::task::yield_now().await;
     }
 
-    apply_reprice_changes_to_runtime_stats(&all_changes).await;
     emit_model_pricing_reprice_event(
         &app,
         job.job_id,
@@ -1541,9 +1593,19 @@ fn reprice_request_logs_with_model_ids(
 }
 
 fn clear_local_access_usage_events_db() -> Result<(), String> {
+    REQUEST_LOG_RECORDS_CLEARED_BEFORE.store(now_ms(), Ordering::SeqCst);
+    REQUEST_LOG_WRITE_EPOCH.fetch_add(1, Ordering::SeqCst);
     let (_write_guard, conn) = open_local_access_logs_db_for_write()?;
+    conn.execute_batch("BEGIN IMMEDIATE")
+        .map_err(|e| format!("开始清空 API 服务请求日志失败: {}", e))?;
+    if diagnostics_table_exists(&conn).unwrap_or(false) {
+        conn.execute("DELETE FROM request_diagnostics", [])
+            .map_err(|e| format!("清空 API 服务请求诊断失败: {}", e))?;
+    }
     conn.execute("DELETE FROM request_logs", [])
         .map_err(|e| format!("清空 API 服务请求日志失败: {}", e))?;
+    conn.execute_batch("COMMIT")
+        .map_err(|e| format!("提交清空 API 服务请求日志失败: {}", e))?;
     Ok(())
 }
 
@@ -1575,9 +1637,7 @@ fn usage_event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CodexLocalA
             .filter(|raw| !raw.trim().is_empty())
             .and_then(|raw| serde_json::from_str(&raw).ok()),
         model_id: row.get("model_id")?,
-        requested_model: row
-            .get::<_, String>("requested_model")
-            .unwrap_or_default(),
+        requested_model: row.get::<_, String>("requested_model").unwrap_or_default(),
         upstream_model: row.get::<_, String>("upstream_model").unwrap_or_default(),
         gateway_mode: gateway_mode_from_db_value(gateway_mode.as_str()),
         request_kind: request_kind_from_db_value(request_kind.as_str()),
@@ -1589,6 +1649,11 @@ fn usage_event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CodexLocalA
         error_category: row.get("error_category")?,
         error_message: row.get("error_message")?,
         latency_ms: read_u64("latency_ms")?,
+        first_response_ms: row
+            .get::<_, Option<i64>>("first_response_ms")
+            .ok()
+            .flatten()
+            .and_then(|value| u64::try_from(value).ok()),
         input_tokens: read_u64("input_tokens")?,
         output_tokens: read_u64("output_tokens")?,
         total_tokens: read_u64("total_tokens")?,
@@ -1603,10 +1668,7 @@ fn usage_event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CodexLocalA
     })
 }
 
-fn for_each_local_access_usage_event_since<F>(
-    since: i64,
-    on_event: F,
-) -> Result<(), String>
+fn for_each_local_access_usage_event_since<F>(since: i64, on_event: F) -> Result<(), String>
 where
     F: FnMut(CodexLocalAccessUsageEvent) -> Result<(), String>,
 {
@@ -1637,6 +1699,7 @@ where
         "'' AS reasoning_effort"
     };
     let proxy_route_select = request_logs_proxy_route_select(conn)?;
+    let first_response_select = request_logs_first_response_select(conn)?;
     let load_sql = format!(
         r#"
             SELECT
@@ -1655,6 +1718,7 @@ where
                 {service_tier_select},
                 {reasoning_effort_select},
                 {proxy_route_select},
+            {first_response_select},
                 turn_state_length,
                 turn_state_class,
                 success,
@@ -1790,7 +1854,10 @@ fn read_recent_account_proxy_requests(
     path: &Path,
     account_id: &str,
 ) -> Result<Vec<CodexAccountProxyRecentRequest>, String> {
-    if !path.try_exists().map_err(|_| "PROXY_LOGS_UNAVAILABLE".to_string())? {
+    if !path
+        .try_exists()
+        .map_err(|_| "PROXY_LOGS_UNAVAILABLE".to_string())?
+    {
         return Ok(Vec::new());
     }
     let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
@@ -1813,30 +1880,50 @@ mod account_proxy_recent_request_tests {
                 let _ = fs::remove_dir_all(&self.0);
             }
         }
-        let fixture = Fixture(std::env::temp_dir().join(format!(
-            "cockpit-proxy-history-{}", uuid::Uuid::new_v4()
-        )));
+        let fixture = Fixture(
+            std::env::temp_dir().join(format!("cockpit-proxy-history-{}", uuid::Uuid::new_v4())),
+        );
         fs::create_dir_all(&fixture.0).unwrap();
         let path = fixture.0.join("history.db");
         // No account file, binding, unified settings, or engine exists in this fixture.
-        assert!(read_recent_account_proxy_requests(&path, "unbound-account").unwrap().is_empty());
-        assert!(!path.exists(), "reading absent history must not create a database");
+        assert!(read_recent_account_proxy_requests(&path, "unbound-account")
+            .unwrap()
+            .is_empty());
+        assert!(
+            !path.exists(),
+            "reading absent history must not create a database"
+        );
         let conn = Connection::open(&path).unwrap();
-        conn.execute_batch("CREATE TABLE request_logs (
+        conn.execute_batch(
+            "CREATE TABLE request_logs (
             id INTEGER PRIMARY KEY, timestamp INTEGER, account_id TEXT, gateway_mode TEXT,
             model_id TEXT, success INTEGER, http_status INTEGER, latency_ms INTEGER
-        );").unwrap();
+        );",
+        )
+        .unwrap();
         for id in 1..=12 {
             conn.execute("INSERT INTO request_logs VALUES (?1, ?1, 'unbound-account', 'sidecar', 'model', 1, 200, 10)", params![id]).unwrap();
         }
         drop(conn);
         let before = fs::read(&path).unwrap();
         let rows = read_recent_account_proxy_requests(&path, "unbound-account").unwrap();
-        assert_eq!(rows.iter().map(|row| row.timestamp).collect::<Vec<_>>(), vec![12, 11, 10, 9, 8, 7, 6, 5]);
-        assert!(read_recent_account_proxy_requests(&path, "other-account").unwrap().is_empty());
-        assert_eq!(fs::read(&path).unwrap(), before, "history reads must not modify storage");
+        assert_eq!(
+            rows.iter().map(|row| row.timestamp).collect::<Vec<_>>(),
+            vec![12, 11, 10, 9, 8, 7, 6, 5]
+        );
+        assert!(read_recent_account_proxy_requests(&path, "other-account")
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            before,
+            "history reads must not modify storage"
+        );
         fs::write(&path, b"corrupt sqlite database").unwrap();
-        assert_eq!(read_recent_account_proxy_requests(&path, "unbound-account").unwrap_err(), "PROXY_LOGS_UNAVAILABLE");
+        assert_eq!(
+            read_recent_account_proxy_requests(&path, "unbound-account").unwrap_err(),
+            "PROXY_LOGS_UNAVAILABLE"
+        );
         assert_eq!(fs::read(&path).unwrap(), b"corrupt sqlite database");
     }
 
@@ -2024,6 +2111,7 @@ fn query_local_access_usage_events_blocking(
         }
     };
     let proxy_route_select = request_logs_proxy_route_select(&conn)?;
+    let first_response_select = request_logs_first_response_select(&conn)?;
     let list_sql = format!(
         r#"
         SELECT
@@ -2042,6 +2130,7 @@ fn query_local_access_usage_events_blocking(
             {service_tier_select},
             {reasoning_effort_select},
             {proxy_route_select},
+            {first_response_select},
             turn_state_length,
             turn_state_class,
             success,
@@ -2166,9 +2255,11 @@ fn query_local_access_stats_window_blocking(
         "'' AS reasoning_effort"
     };
     let proxy_route_select = request_logs_proxy_route_select(&conn)?;
+    let first_response_select = request_logs_first_response_select(&conn)?;
     let sql = format!(
         r#"SELECT timestamp, request_id, account_id, email, api_key_id, api_key_label,
-                  client_instance_id, model_id, requested_model, upstream_model, gateway_mode, request_kind, {service_tier_select}, {reasoning_effort_select}, {proxy_route_select}, turn_state_length, turn_state_class, success,
+                  client_instance_id, model_id, requested_model, upstream_model, gateway_mode, request_kind, {service_tier_select}, {reasoning_effort_select}, {proxy_route_select},
+            {first_response_select}, turn_state_length, turn_state_class, success,
                   http_status, error_category, error_message, latency_ms, input_tokens,
                   output_tokens, total_tokens, cached_tokens, reasoning_tokens, token_breakdown_json,
                   estimated_cost_usd, model_pricing_version, input_usd_per_million,
@@ -2585,6 +2676,7 @@ fn append_usage_event_with_meta(
         error_category: error_category.unwrap_or_default().trim().to_string(),
         error_message: error_message.unwrap_or_default().trim().to_string(),
         latency_ms,
+        first_response_ms: cached_request_first_response(request_id),
         input_tokens: usage.input_tokens,
         output_tokens: usage.output_tokens,
         total_tokens: usage.total_tokens,

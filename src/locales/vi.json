@@ -96,6 +96,10 @@
     "providerClear": "Bỏ chọn"
   },
   "common": {
+    "requestId": "Mã yêu cầu",
+    "failureTime": "Thời điểm lỗi",
+    "clearRecord": "Xóa bản ghi",
+    "clearingRecord": "Đang xóa…",
     "dragSortHint": "Kéo tay nắm bên trái để đổi thứ tự. Thay đổi tự động lưu khi thả.",
     "dragSortFilteredHint": "Xóa nội dung tìm kiếm để đổi thứ tự.",
     "recycleBin": {
@@ -309,6 +313,8 @@
         "manualCallbackPlaceholder": "Dán đầy đủ URL callback, ví dụ: http://localhost:1455/auth/callback?code=...&state=..."
       },
       "refreshAll": "Làm mới tất cả",
+      "refreshSuccess": "Đã làm mới",
+      "refreshFailed": "Làm mới thất bại: {{error}}",
       "refreshQuota": "Làm mới hạn mức",
       "search": "Tìm kiếm tài khoản...",
       "sort": {
@@ -417,7 +423,10 @@
     },
     "optional": " (tùy chọn)",
     "hide": "Ẩn",
-    "show": "Hiện"
+    "show": "Hiện",
+    "configSaveTimeout": "Thao tác quá hạn. Làm mới để xác nhận kết quả trước khi thử lại.",
+    "clearAll": "Bỏ chọn tất cả",
+    "clear": "Xóa"
   },
   "nav": {
     "overview": "Antigravity IDE​",
@@ -1139,7 +1148,19 @@
       "menuBarAccountPrefixDesc": "Chỉ tài khoản thường: tắt sẽ ẩn tiền tố email. Dịch vụ API Codex / API Key vẫn hiện nhãn API",
       "menuBarQuotaConfirmEnable": "Bật",
       "codexHideRelayQuota": "Ẩn hạn mức relay",
-      "codexHideRelayQuotaDesc": "Ẩn bảng hạn mức relay / New API trên tổng quan tài khoản Codex."
+      "codexHideRelayQuotaDesc": "Ẩn bảng hạn mức relay / New API trên tổng quan tài khoản Codex.",
+      "floatingCardStyle": "Kiểu cửa sổ nổi",
+      "floatingCardStyleDesc": "Áp dụng cho mọi cửa sổ nổi. Có thể đổi ngay trong cửa sổ.",
+      "floatingCardFull": "Thẻ đầy đủ",
+      "floatingCardMinimal": "Chỉ hạn mức",
+      "floatingCardOpacity": "Độ đậm nền",
+      "floatingCardOpacityDesc": "100% giữ nền hiện tại; 0% ẩn nền. Chữ hạn mức vẫn rõ nét.",
+      "floatingCardOpacityValue": "Nền: {{value}}%",
+      "themeColorOled": "OLED đen trắng",
+      "codexAutoRestoreTakeoverOnLaunch": "Khôi phục Codex khi mở",
+      "codexAutoRestoreTakeoverOnLaunchDesc": "Khôi phục cấu hình mô hình đang bật và kết nối API còn do Cockpit quản lý khi mở. Giữ kết nối đã sửa thủ công.",
+      "codexPreserveExternalBridge": "Giữ cầu nối ngoài",
+      "codexPreserveExternalBridgeDesc": "Giữ cầu nối Codex Web GPT đã xác minh bằng bản ghi cục bộ khi đổi tài khoản OAuth. Mặc định tắt."
     },
     "network": {
       "apiTitle": "API Antigravity Cockpit",
@@ -1522,6 +1543,9 @@
       "all": "Tất cả ({{count}})",
       "pro": "CHUYÊN NGHIỆP ({{count}})",
       "ultra": "SIÊU ({{count}})"
+    },
+    "filters": {
+      "all": "Tất cả"
     },
     "sortLabel": "Sắp xếp",
     "sort": {
@@ -2137,6 +2161,12 @@
     "other_group": "Mô hình khác"
   },
   "codex": {
+    "thresholds": {
+      "shortCycle": "Hạn mức ngắn hạn",
+      "weekly": "Hạn mức tuần",
+      "windowHint": "Ngưỡng dựa trên thời lượng thực tế: từ một tuần trở lên dùng ngưỡng tuần. Tài khoản chỉ có hạn mức tuần chỉ kiểm tra hạn mức đó. Khi thiếu thời lượng, giữ ánh xạ cửa sổ chính/phụ.",
+      "rule": "Còn lại ngắn hạn <= {{shortCycle}}% hoặc tuần <= {{weekly}}%"
+    },
     "launchErrors": {
       "bindingFailed": "Không thể xác nhận tài khoản liên kết. Đã dừng khởi động; hãy thử chuyển tài khoản lại.",
       "processScanFailed": "Không thể kiểm tra các tiến trình nền cũ. Đã dừng khởi động; hãy thử lại.",
@@ -2339,7 +2369,8 @@
       "repairCompleted": "Đã sửa khả năng hiển thị phiên",
       "forceRefreshTitle": "Buộc làm mới Token",
       "forceRefreshReady": "Có thể làm mới Token OAuth thủ công",
-      "forceRefreshDescription": "Dùng refresh_token để lấy access_token và id_token mới. Refresh token hiện tại có thể được xoay vòng.",
+      "forceRefreshDescription": "Làm mới access_token bằng refresh_token. Chỉ cập nhật id_token khi được trả về; refresh_token có thể được thay thế.",
+      "tokenExpiryDescription": "access_token dùng để cấp quyền cho yêu cầu; id_token chứa thông tin danh tính. Chỉ riêng việc id_token hết hạn không có nghĩa quyền truy cập API mất hiệu lực. Khả năng sử dụng được kiểm tra khi khởi động và qua phản hồi dịch vụ.",
       "forceRefreshUnavailable": "Không khả dụng cho loại tài khoản này",
       "forceRefreshAction": "Làm mới ngay",
       "forceRefreshRunning": "Đang làm mới Token…",
@@ -2528,7 +2559,14 @@
       "testServiceUnavailable": "Dịch vụ truy cập được nhưng hiện không khả dụng: {{detail}}. Hãy kiểm tra dịch vụ đã bật chưa, bộ sưu tập tài khoản có trống không hoặc tài khoản có dùng được không.",
       "gatewayErrors": {
         "authUnavailable": "Hiện không có tài khoản nào có thể định tuyến. Tài khoản có thể đang tạm nghỉ, mất xác thực hoặc bị giới hạn hạn mức. Kiểm tra trạng thái trong dịch vụ API của Cockpit Tools.",
-        "authNotFound": "Chưa cấu hình tài khoản khả dụng trong nhóm tài khoản. Hãy thêm hoặc bật tài khoản trong dịch vụ API của Cockpit Tools."
+        "authNotFound": "Chưa cấu hình tài khoản khả dụng trong nhóm tài khoản. Hãy thêm hoặc bật tài khoản trong dịch vụ API của Cockpit Tools.",
+        "accountConcurrencyExceeded": "Đã đạt giới hạn yêu cầu đồng thời của tài khoản. Vui lòng thử lại sau.",
+        "providerRetryAfter": "Nhà cung cấp yêu cầu tạm dừng. Hãy thử lại sau {{seconds}} giây.",
+        "audioInvalidRequest": "Yêu cầu âm thanh không hợp lệ: {{detail}}",
+        "audioTooLarge": "Yêu cầu âm thanh không được vượt quá 26 MiB.",
+        "audioNotSupported": "Tài khoản OAuth này chỉ hỗ trợ phiên âm. Hãy dùng nhà cung cấp có API Key cho các thao tác âm thanh khác.",
+        "audioUnavailable": "Không thể chuyển tiếp âm thanh.",
+        "audioUpstreamFailed": "Yêu cầu âm thanh tới nhà cung cấp thất bại."
       },
       "testRateLimited": "Dịch vụ truy cập được nhưng upstream bị giới hạn hoặc hết hạn mức: {{detail}}.",
       "testHttpFailed": "Dịch vụ truy cập được nhưng yêu cầu trả về HTTP {{status}}: {{detail}}.",
@@ -2786,12 +2824,29 @@
         "dialog": {
           "title": "Lỗi tài khoản",
           "description": "Hiển thị sự cố của nhóm tài khoản và từng tài khoản. Chỉ cung cấp thao tác tài khoản khi lỗi được xác định thuộc tài khoản đó.",
-          "noIssues": "Tài khoản không có lỗi",
+          "noIssues": "Không có vấn đề cần hiển thị",
           "unscopedApiKey": "API Key hiện tại",
           "poolUnavailable": "Không có tài khoản khả dụng trong nhóm",
           "poolUnavailableDetail": "Không chọn được tài khoản khả dụng cho mô hình {{model}}",
           "poolUnattributedDetail": "Chưa nhận được dữ liệu chẩn đoán theo tài khoản nên không thể gán lỗi này cho một tài khoản cụ thể. Hãy kiểm tra phạm vi tài khoản và cấu hình mô hình của khóa API này.",
           "poolDiagnosticDetail": "Mô hình {{model}}: {{candidate}} ứng viên, {{scoped}} trong phạm vi, {{available}} khả dụng, {{unavailable}} không khả dụng, {{modelExcluded}} bị loại theo mô hình, {{quotaReserved}} được giữ hạn mức, {{imageBlocked}} bị chặn bởi chính sách ảnh",
+          "poolNoCandidatesDetail": "Không có tài khoản ứng viên cho yêu cầu này. Hãy kiểm tra mô hình được yêu cầu và trạng thái tải tài khoản.",
+          "poolScopeMismatchDetail": "Không có ứng viên phù hợp với phạm vi tài khoản của khóa API này hoặc không nhận diện được ánh xạ tài khoản. Hãy kiểm tra tài khoản đã chọn và cấu hình mô hình.",
+          "inspectBinding": "Kiểm tra liên kết",
+          "inspectConfig": "Xem cấu hình",
+          "unmappedAccount": "Tài khoản chưa rõ",
+          "accountReference": "Tài khoản {{id}}",
+          "scopeMismatchDetail": "Tài khoản ứng viên này nằm ngoài phạm vi tài khoản liên kết với API Key này.",
+          "accountMappingMissingDetail": "Không thể ánh xạ thông tin xác thực ứng viên tới tài khoản. Hãy kiểm tra việc tải tài khoản và đồng bộ nhóm.",
+          "boundAccountNotLoadedDetail": "Tài khoản liên kết này chưa được tải vào dịch vụ hiện tại. Hãy kiểm tra việc tải tài khoản và đồng bộ nhóm.",
+          "boundAccountNotCandidateDetail": "Tài khoản liên kết này đã được tải nhưng không nằm trong nhóm ứng viên của yêu cầu này. Hãy kiểm tra mô hình, nhà cung cấp và loại yêu cầu.",
+          "scopeUnknownDetail": "Chẩn đoán phạm vi chưa xác định được nguyên nhân cụ thể. Hãy kiểm tra liên kết và nhật ký dịch vụ.",
+          "poolBlockedDetail": "Lọc trong phạm vi: {{unavailable}} không khả dụng (ví dụ bị tắt, đang chờ hoặc lỗi xác thực), {{modelExcluded}} bị loại theo mô hình, {{quotaReserved}} bị chặn do dự trữ hạn mức, {{imageBlocked}} bị chặn bởi chính sách ảnh. Hãy kiểm tra nguyên nhân theo tài khoản và cài đặt.",
+          "poolUnknownDetail": "Chẩn đoán hiện tại chưa xác định được nguyên nhân cụ thể. Hãy kiểm tra phạm vi khóa API, cấu hình mô hình và nhật ký dịch vụ.",
+          "clearHint": "Chỉ bản ghi chẩn đoán này bị xóa. Cài đặt, token và hạn mức không được sửa; yêu cầu thất bại lần nữa có thể tạo bản ghi mới.",
+          "clearSuccess": "Đã xóa bản ghi chẩn đoán. Điều này không có nghĩa nhóm tài khoản đã phục hồi.",
+          "clearStale": "Một lỗi mới đã thay thế bản ghi này. Hãy xem trạng thái mới nhất rồi thử lại.",
+          "clearFailed": "Không thể xóa bản ghi: {{error}}",
           "missing": "Thiếu tài khoản",
           "cooldown": "Đang chờ",
           "quota": "Giới hạn hạn mức",
@@ -2822,7 +2877,16 @@
       "testChatInputRequired": "Nhập tin nhắn thử",
       "testChatModelRequired": "Chọn ID mô hình",
       "testChatEmptyResponse": "Phản hồi trống",
-      "removeAction": "Xóa khỏi API"
+      "removeAction": "Xóa khỏi API",
+      "imageGenerationMainModel": {
+        "label": "Mô hình chính tạo ảnh",
+        "hint": "Để trống để dùng gpt-5.5. Mô hình này gọi công cụ ảnh; tài khoản OAuth đã chọn phải hỗ trợ image_generation trên mô hình đó.",
+        "invalid": "Nhập ID mô hình không có khoảng trắng, tối đa 200 ký tự."
+      },
+      "requestDetail": {
+        "invalidRequestId": "ID yêu cầu không hợp lệ.",
+        "settingsChanged": "Cài đặt đã được thay đổi bởi thao tác khác. Hãy thử lại."
+      }
     },
     "local": {
       "desc": "Nhập tài khoản hiện tại từ ~/.codex/auth.json",
@@ -3328,6 +3392,11 @@
       "importModal": {
         "title": "Nhập phiên",
         "hint": "Gói phiên chỉ nhập các tệp rollout và mục session_index. Không bao gồm tài khoản, token, API key hoặc cài đặt ứng dụng; phiên có cùng ID trong instance đích sẽ bị bỏ qua.",
+        "cwdPathAbsolute": "Nhập đường dẫn tuyệt đối trên máy tính này",
+        "cwdPathMissing": "Thư mục không tồn tại hoặc không thể truy cập",
+        "cwdMappingTitle": "Ánh xạ đường dẫn dự án (tùy chọn)",
+        "cwdMappingHint": "Ánh xạ thư mục làm việc nguồn sang đường dẫn dự án đã được thêm vào Codex trên máy tính này. Để trống để giữ nguyên đường dẫn nguồn.",
+        "cwdTargetPlaceholder": "Nhập đường dẫn tuyệt đối đến dự án trên máy tính này",
         "noTarget": "Không có instance Codex nào khả dụng để nhập",
         "noPackage": "Trước tiên hãy chọn gói phiên",
         "pickOne": "Chọn ít nhất một phiên có thể nhập",
@@ -3428,7 +3497,8 @@
         "7d": "7 ngày",
         "30d": "30 ngày",
         "month": "Tháng này",
-        "all": "Tất cả"
+        "all": "Tất cả",
+        "today": "Hôm nay"
       },
       "instance": {
         "label": "Phiên bản",
@@ -3491,7 +3561,8 @@
         "total": "Tổng",
         "requests": "YC",
         "cost": "Phí"
-      }
+      },
+      "costUnavailable": "Một số mô hình không có giá nên không thể ước tính đầy đủ chi phí trong ngày."
     },
     "api": {
       "baseUrl": "URL cơ sở",
@@ -4158,6 +4229,11 @@
       "saveFailed": "Không thể lưu tốc độ: {{error}}"
     },
     "apiService": {
+      "inspection": {
+        "internalScope": "Đây là yêu cầu của ứng dụng khách nội bộ. Hãy kiểm tra nhóm tài khoản dịch vụ và liên kết phiên bản; yêu cầu không tương ứng với Key khách công khai.",
+        "keyUnavailable": "Key khách của yêu cầu này không tồn tại hoặc đã bị xóa. Hãy kiểm tra các Key hiện tại và nhóm tài khoản.",
+        "imageScope": "Yêu cầu hình ảnh dùng nhóm tài khoản tạo ảnh và chính sách ảnh của tài khoản. Hãy kiểm tra cấu hình hình ảnh."
+      },
       "navTitle": "Dịch vụ API Codex",
       "title": "Dịch vụ API Codex",
       "openPage": "Mở dịch vụ API",
@@ -5328,6 +5404,129 @@
       "errors": {
         "bindingChanged": "Liên kết tài khoản đã đổi. Giữ nguyên thiết lập hiện tại."
       }
+    },
+    "autoRefreshScope": {
+      "label": "Gói tự làm mới",
+      "description": "Lọc các lần làm mới hạn mức theo lịch của nền tảng và nhóm cho tài khoản OAuth tiêu chuẩn. Mặc định chọn mọi gói. Làm mới thủ công, làm mới tài khoản hiện tại, duy trì token và các loại tài khoản khác không thay đổi.",
+      "plans": {
+        "free": "Miễn phí",
+        "go": "Go",
+        "plus": "Plus",
+        "pro": "Pro",
+        "team": "Nhóm",
+        "business": "Kinh doanh",
+        "enterprise": "Doanh nghiệp",
+        "edu_k12": "Giáo dục",
+        "unknown": "Không rõ"
+      }
+    },
+    "requestDiagnostics": {
+      "recordPayloads": "Ghi nội dung yêu cầu",
+      "recordPayloadsHint": "Mặc định tắt. Lưu cục bộ bản chụp có giới hạn của yêu cầu từ máy khách và gửi lên máy chủ. Tắt sẽ ngừng ghi mới; nội dung đã lưu có thể xóa riêng.",
+      "privacyHint": "Các trường xác thực được che, nhưng bí mật trong hội thoại có thể vẫn còn. Kiểm tra trước khi sao chép hoặc chia sẻ.",
+      "clearPayloads": "Xóa nội dung đã lưu",
+      "clearConfirm": "Chỉ xóa nội dung và giữ thống kê cùng các lần thử?",
+      "cleared": "Đã xóa {{count}} bản ghi nội dung",
+      "title": "Chi tiết yêu cầu",
+      "totalLatency": "Tổng thời gian",
+      "firstResponse": "Phản hồi đầu",
+      "firstResponseHint": "Thời gian từ lúc bắt đầu yêu cầu đến đoạn phản hồi đầu tiên của máy chủ, không nhất thiết là token đầu tiên được tạo.",
+      "unavailable": "Chưa có chẩn đoán. Hãy làm mới sau. Yêu cầu cũ không được ghi bổ sung.",
+      "attempts": "Các lần thử",
+      "noAttempts": "Không có lịch sử thử được ghi lại.",
+      "detailTruncated": "Một số chẩn đoán đã bị bỏ qua do giới hạn kích thước.",
+      "payloads": "Bản chụp yêu cầu",
+      "noPayloads": "Không có nội dung được ghi. Bật ghi chỉ áp dụng cho yêu cầu mới.",
+      "clientPayload": "Yêu cầu máy khách",
+      "upstreamPayload": "Yêu cầu máy chủ #{{sequence}}",
+      "headers": "Tiêu đề",
+      "payloadTruncated": "Bản chụp đã bị cắt. Chỉ hiển thị phần đã lưu.",
+      "details": "Chi tiết",
+      "latencyPair": "Tổng {{total}} · Đầu {{first}}",
+      "phases": {
+        "selection": "Chọn tài khoản",
+        "upstream_connect": "Kết nối máy chủ",
+        "upstream_response": "Phản hồi máy chủ",
+        "stream_read": "Đọc luồng",
+        "downstream_delivery": "Gửi tới máy khách",
+        "client_canceled": "Máy khách hủy",
+        "stream_incomplete": "Luồng chưa hoàn tất",
+        "completed": "Hoàn tất",
+        "unknown": "Chưa ghi"
+      },
+      "failurePhase": "Giai đoạn lỗi",
+      "applying": "Đang áp dụng cho cổng đang chạy…",
+      "applyFailed": "Đã lưu cài đặt nhưng các cổng đang chạy chưa áp dụng được. Hãy thử lại. Lý do: {{error}}"
+    },
+    "experimentalModels": {
+      "defaultReasoning": "Mức mặc định",
+      "defaultReasoningFollow": "Dùng mặc định",
+      "defaultReasoningHint": "Để trống để dùng mức mặc định của mô hình. Mức đã chọn phải được hỗ trợ.",
+      "defaultReasoningInvalid": "Mức suy luận mặc định phải được mô hình này hỗ trợ."
+    },
+    "modelConfig": {
+      "transfer": "Nhập / Xuất",
+      "title": "Cấu hình mô hình",
+      "description": "Xuất các mô hình đã lưu, mô hình mặc định cùng giá, bí danh và tham chiếu định tuyến của dịch vụ API. Tệp không chứa API Key, thông tin xác thực tài khoản hay cài đặt khởi động và dừng dịch vụ.",
+      "importHint": "Việc nhập lưu ngay vào phiên bản hiện tại và cập nhật danh mục mô hình nếu đang bật. Cấu hình dịch vụ API được dùng chung trên toàn ứng dụng. Không bật quản lý mô hình, khởi động cổng hay tiếp quản ứng dụng khách. Kết quả nhập thay thế các chỉnh sửa mô hình chưa lưu.",
+      "import": "Nhập",
+      "export": "Xuất",
+      "file": "Chọn JSON",
+      "jsonLabel": "JSON cấu hình",
+      "strategy": "Xung đột",
+      "keepExisting": "Giữ hiện có",
+      "replace": "Ghi đè trùng tên",
+      "strategyHint": "Mặc định giữ nguyên cấu hình hiện có. Ghi đè chỉ cập nhật các mục trùng tên được liệt kê trong tệp, không xóa những mục khác.",
+      "preview": "Xem trước",
+      "previewFirst": "Xem trước và sửa tất cả lỗi rồi mới xác nhận nhập.",
+      "previewLoading": "Đang xem trước…",
+      "importLoading": "Đang nhập…",
+      "exported": "Đã xuất cấu hình.",
+      "imported": "Đã lưu {{count}} cấu hình.",
+      "section": "Phạm vi",
+      "item": "Mục",
+      "result": "Kết quả",
+      "actions": {
+        "added": "Thêm",
+        "updated": "Cập nhật",
+        "conflict": "Xung đột",
+        "skipped": "Bỏ qua",
+        "error": "Lỗi"
+      },
+      "sections": {
+        "models": "Mô hình",
+        "defaultModel": "Mô hình mặc định",
+        "prices": "Giá",
+        "aliases": "Bí danh",
+        "accountRules": "Quy tắc tài khoản",
+        "routing": "Định tuyến",
+        "exclusions": "Mô hình loại trừ",
+        "apiService": "Dịch vụ API"
+      },
+      "errors": {
+        "invalid": "Định dạng hoặc nội dung cấu hình không hợp lệ.",
+        "json": "Không thể phân tích JSON. Hãy kiểm tra nội dung.",
+        "version": "Không hỗ trợ định dạng hoặc phiên bản cấu hình này.",
+        "fields": "Tệp thiếu trường hoặc chứa trường không hợp lệ hay không được hỗ trợ. Hãy sử dụng tệp cấu hình mô hình đã xuất.",
+        "tooLarge": "Tệp cấu hình vượt quá giới hạn 4 MB.",
+        "tooMany": "Có quá nhiều mục. Mỗi phạm vi hỗ trợ tối đa 1000 mục.",
+        "duplicate": "Tệp chứa các mục trùng lặp trong cùng một phạm vi.",
+        "stateChanged": "Cấu hình cục bộ đã thay đổi sau khi xem trước. Hãy xem trước lại.",
+        "accountMissing": "Tài khoản được tham chiếu không tồn tại hoặc không thuộc nhóm tài khoản dịch vụ API hiện tại.",
+        "modelMissing": "Mô hình được tham chiếu không có trong cấu hình đích và các tài khoản khả dụng.",
+        "serviceMissing": "Chưa tạo cấu hình dịch vụ API. Không thể nhập giá hoặc tuyến của dịch vụ.",
+        "price": "Giá phải là số hữu hạn không âm và ngưỡng ngữ cảnh dài phải lớn hơn 0.",
+        "alias": "Bí danh không hợp lệ hoặc trùng với mô hình nguồn.",
+        "rule": "Quy tắc không hợp lệ. Hãy kiểm tra phạm vi mô hình, độ ưu tiên và trọng số.",
+        "busy": "Một thao tác cấu hình mô hình khác đang chạy. Hãy thử lại sau.",
+        "instanceMissing": "Phiên bản đích không còn tồn tại. Hãy chọn lại.",
+        "read": "Không thể đọc cấu hình cục bộ. Hãy thử lại.",
+        "write": "Không thể lưu cấu hình. Cấu hình gốc đã được giữ lại. Hãy thử lại.",
+        "validation": "Cấu hình có lỗi. Hãy xem trước lại và sửa lỗi.",
+        "recovery": "Lần nhập trước bị gián đoạn. Không thể khôi phục do cấu hình mới hơn hoặc lỗi tệp. Nhật ký khôi phục và dữ liệu hiện có đã được giữ lại.",
+        "apply": "Đã lưu cài đặt, nhưng không thể tải lại cổng đang chạy: {{error}}"
+      },
+      "closeHint": "Sau khi xác nhận, quá trình nhập vẫn tiếp tục lưu dù bạn đóng hộp thoại."
     }
   },
   "githubCopilot": {
@@ -6883,6 +7082,15 @@
       "info": "Thông tin",
       "warn": "Cảnh báo",
       "error": "Lỗi"
+    },
+    "search": {
+      "placeholder": "Tìm trong nhật ký",
+      "regex": "Biểu thức chính quy",
+      "errors": {
+        "invalidRegex": "Biểu thức chính quy không hợp lệ. Hãy chỉnh sửa.",
+        "timeout": "Lọc quá thời gian. Đơn giản hóa biểu thức hoặc tắt biểu thức chính quy.",
+        "unavailable": "Không thể bắt đầu lọc. Hãy thử lại."
+      }
     }
   },
   "mfaQuick": {
@@ -7417,6 +7625,10 @@
       "labelOverridePlaceholder": "Tên hiển thị trong menu",
       "supports1mLabel": "Khai báo hỗ trợ 1M",
       "supports1mShort": "1M ngữ cảnh"
+    },
+    "errors": {
+      "profileMissing": "Không tìm thấy thư mục hồ sơ Claude. Hãy mở Claude một lần rồi thử lại.",
+      "cookieSnapshotTooLarge": "Cơ sở dữ liệu cookie quá lớn để đọc an toàn."
     }
   },
   "openrouter": {
