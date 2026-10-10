@@ -6025,6 +6025,12 @@
   "cursor": {
     "subscription": "Předplatné",
     "injectToCursor": "Přepnout na Cursor",
+    "injectToGrokBot": "Přepnout na Grok Bot",
+    "grokBot": {
+      "switched": "Místní Grok Bot přepnut na {{email}}",
+      "switchFailed": "Přepnutí Grok Bot selhalo: {{error}}",
+      "needSession": "Webová relace se do Grok Bot nepřihlásí. Nejdřív získejte desktopový session token."
+    },
     "quota": {
       "totalUsage": "Celkové využití",
       "cursorModels": "Modely Cursor",

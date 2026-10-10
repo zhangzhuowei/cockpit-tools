@@ -6025,6 +6025,12 @@
   "cursor": {
     "subscription": "訂閱方案",
     "injectToCursor": "切換至 Cursor",
+    "injectToGrokBot": "切換到 Grok Bot",
+    "grokBot": {
+      "switched": "已將本機 Grok Bot 切換為 {{email}}",
+      "switchFailed": "切換 Grok Bot 失敗：{{error}}",
+      "needSession": "網頁工作階段無法登入 Grok Bot，請先取得桌面 session token"
+    },
     "quota": {
       "totalUsage": "總用量",
       "cursorModels": "Cursor 模型",

@@ -1495,6 +1495,7 @@ pub fn run() {
             commands::cursor::cursor_oauth_login_complete,
             commands::cursor::cursor_oauth_login_cancel,
             commands::cursor::inject_cursor_account,
+            commands::cursor::switch_grok_bot_account,
             commands::cursor::list_cursor_switch_history,
             commands::cursor::clear_cursor_switch_history,
             commands::cursor::get_cursor_usage_breakdown,

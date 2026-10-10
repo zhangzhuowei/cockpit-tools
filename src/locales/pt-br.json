@@ -6025,6 +6025,12 @@
   "cursor": {
     "subscription": "Assinatura",
     "injectToCursor": "Alternar para Cursor",
+    "injectToGrokBot": "Alternar para o Grok Bot",
+    "grokBot": {
+      "switched": "Grok Bot local alternado para {{email}}",
+      "switchFailed": "Falha ao alternar o Grok Bot: {{error}}",
+      "needSession": "O token de sessão da web não entra no Grok Bot. Obtenha antes um token de sessão da área de trabalho."
+    },
     "quota": {
       "totalUsage": "Uso total",
       "cursorModels": "Modelos Cursor",

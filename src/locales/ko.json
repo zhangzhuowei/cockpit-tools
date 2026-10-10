@@ -6025,6 +6025,12 @@
   "cursor": {
     "subscription": "구독",
     "injectToCursor": "Cursor로 전환",
+    "injectToGrokBot": "Grok Bot으로 전환",
+    "grokBot": {
+      "switched": "로컬 Grok Bot을 {{email}}(으)로 전환했습니다",
+      "switchFailed": "Grok Bot 전환 실패: {{error}}",
+      "needSession": "웹 세션으로는 Grok Bot에 로그인할 수 없습니다. 먼저 데스크톱 session token을 받으세요"
+    },
     "quota": {
       "totalUsage": "총 사용량",
       "cursorModels": "Cursor 모델",

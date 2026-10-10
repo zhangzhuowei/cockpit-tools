@@ -6345,6 +6345,12 @@
   "cursor": {
     "subscription": "订阅状态",
     "injectToCursor": "切换到 Cursor",
+    "injectToGrokBot": "切换到 Grok Bot",
+    "grokBot": {
+      "switched": "已将本地 Grok Bot 切换为 {{email}}",
+      "switchFailed": "切换 Grok Bot 失败：{{error}}",
+      "needSession": "网页会话无法登录 Grok Bot，请先获取桌面 session token"
+    },
     "quota": {
       "totalUsage": "总用量",
       "cursorModels": "Cursor 模型",

@@ -71,6 +71,11 @@ export async function injectCursorAccount(accountId: string): Promise<string> {
   return await invoke('inject_cursor_account', { accountId });
 }
 
+/** 用当前 Cursor session token 切换本机 Grok Bot 登录账号（会退出并重新打开 Grok Bot）。 */
+export async function switchGrokBotAccount(accountId: string): Promise<string> {
+  return await invoke('switch_grok_bot_account', { accountId });
+}
+
 /** 用账号 token 打开已登录的 cursor.com Dashboard（独立 Cookie 目录的内嵌窗口）。 */
 export async function openCursorWebview(accountId: string): Promise<void> {
   await invoke('open_cursor_webview', { accountId });

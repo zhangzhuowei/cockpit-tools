@@ -1454,7 +1454,7 @@ pub fn is_token_usable_for_desktop(account: &CursorAccount) -> bool {
 /// 优先级：session 类型的 refresh_token → session 类型的 access_token → 其他 refresh_token。
 /// Cursor 桌面端的 refreshToken 槽位只认 session JWT；把 web cookie JWT 或别的 token 放进去
 /// 会让它在启动续期时失败。
-fn resolve_refresh_token_for_injection(account: &CursorAccount) -> Option<String> {
+pub(crate) fn resolve_refresh_token_for_injection(account: &CursorAccount) -> Option<String> {
     let stored = normalize_non_empty(account.refresh_token.as_deref());
     if let Some(token) = stored.as_deref() {
         if access_token_is_session(token) {

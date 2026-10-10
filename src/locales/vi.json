@@ -6025,6 +6025,12 @@
   "cursor": {
     "subscription": "Gói đăng ký",
     "injectToCursor": "Chuyển sang Cursor",
+    "injectToGrokBot": "Chuyển sang Grok Bot",
+    "grokBot": {
+      "switched": "Đã chuyển Grok Bot cục bộ sang {{email}}",
+      "switchFailed": "Chuyển Grok Bot thất bại: {{error}}",
+      "needSession": "Phiên web không đăng nhập được Grok Bot. Hãy lấy session token máy tính trước."
+    },
     "quota": {
       "totalUsage": "Tổng sử dụng",
       "cursorModels": "Mô hình Cursor",

@@ -6172,6 +6172,12 @@
   "cursor": {
     "subscription": "Subscription​",
     "injectToCursor": "Switch to Cursor​",
+    "injectToGrokBot": "Beralih ke Grok Bot",
+    "grokBot": {
+      "switched": "Grok Bot lokal dialihkan ke {{email}}",
+      "switchFailed": "Gagal beralih Grok Bot: {{error}}",
+      "needSession": "Sesi web tidak bisa masuk Grok Bot. Ambil dulu session token desktop."
+    },
     "quota": {
       "totalUsage": "Total penggunaan",
       "cursorModels": "Model Cursor",

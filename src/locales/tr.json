@@ -6025,6 +6025,12 @@
   "cursor": {
     "subscription": "Abonelik",
     "injectToCursor": "Cursor'a geç",
+    "injectToGrokBot": "Grok Bot'a geç",
+    "grokBot": {
+      "switched": "Yerel Grok Bot {{email}} hesabına geçirildi",
+      "switchFailed": "Grok Bot geçişi başarısız: {{error}}",
+      "needSession": "Web oturumu Grok Bot'a giriş yapamaz. Önce masaüstü session token alın."
+    },
     "quota": {
       "totalUsage": "Toplam kullanım",
       "cursorModels": "Cursor modelleri",

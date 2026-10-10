@@ -81,6 +81,7 @@ pub mod github_copilot_account;
 pub mod github_copilot_instance;
 pub mod github_copilot_oauth;
 pub mod grok_account;
+pub mod grok_bot_account;
 pub mod grok_instance;
 pub mod grok_oauth;
 pub mod group_settings;

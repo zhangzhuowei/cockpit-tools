@@ -6025,6 +6025,12 @@
   "cursor": {
     "subscription": "サブスクリプション",
     "injectToCursor": "Cursor に切り替え",
+    "injectToGrokBot": "Grok Bot に切り替え",
+    "grokBot": {
+      "switched": "ローカルの Grok Bot を {{email}} に切り替えました",
+      "switchFailed": "Grok Bot の切り替えに失敗しました：{{error}}",
+      "needSession": "Web セッションでは Grok Bot にログインできません。先にデスクトップ用 session token を取得してください"
+    },
     "quota": {
       "totalUsage": "合計使用量",
       "cursorModels": "Cursor モデル",

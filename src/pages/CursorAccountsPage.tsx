@@ -20,6 +20,7 @@ import {
   Tag,
   ChevronDown,
   Play,
+  Bot,
   Eye,
   EyeOff,
   Lock,
@@ -74,6 +75,7 @@ import {
   writeAccountsOverviewFilterField,
 } from '../utils/accountsOverviewFilterPersistence';
 
+import { presentWindowsOperationError } from '../utils/windowsOperationDialog';
 import { useProviderAccountsPage } from '../hooks/useProviderAccountsPage';
 import { CursorOverviewTabsHeader, CursorTab } from '../components/CursorOverviewTabsHeader';
 import { CursorInstancesContent } from './CursorInstancesPage';
@@ -126,6 +128,7 @@ export function CursorAccountsPage() {
   const [onDemandAccountId, setOnDemandAccountId] = useState<string | null>(null);
   const [showSwitchHistory, setShowSwitchHistory] = useState(false);
   const [desktopLoginAccountId, setDesktopLoginAccountId] = useState<string | null>(null);
+  const [grokSwitching, setGrokSwitching] = useState<string | null>(null);
   const [filterTypes, setFilterTypes] = useState<string[]>(() =>
     readAccountsOverviewFilterPersistenceEnabled(CURSOR_FILTER_PERSISTENCE_SCOPE)
       ? readAccountsOverviewFilterStringArray(CURSOR_FILTER_PERSISTENCE_SCOPE, FILTER_TYPES_FIELD)
@@ -236,6 +239,44 @@ export function CursorAccountsPage() {
       setDesktopLoginAccountId(null);
     }
   }, [maskAccountText, setMessage, store, t]);
+
+  const handleSwitchGrokBot = useCallback(async (accountId: string) => {
+    if (grokSwitching) return;
+    setMessage(null);
+    setGrokSwitching(accountId);
+    const account = store.accounts.find((item) => item.id === accountId);
+    const displayEmail = account ? getCursorAccountDisplayEmail(account) : accountId;
+    try {
+      const result = await cursorService.switchGrokBotAccount(accountId);
+      setMessage({
+        text: result || t('cursor.grokBot.switched', '已将本地 Grok Bot 切换为 {{email}}', {
+          email: maskAccountText(displayEmail),
+        }),
+        tone: 'success',
+      });
+    } catch (e: unknown) {
+      const retrySwitch = () => handleSwitchGrokBot(accountId);
+      if (
+        presentWindowsOperationError({
+          error: e,
+          operation: 'stop_process',
+          retry: retrySwitch,
+          manualContinue: retrySwitch,
+        })
+      ) {
+        setGrokSwitching(null);
+        return;
+      }
+      setMessage({
+        text: t('cursor.grokBot.switchFailed', '切换 Grok Bot 失败：{{error}}', {
+          error: String(e) || t('common.failed', 'Failed'),
+        }),
+        tone: 'error',
+      });
+    } finally {
+      setGrokSwitching(null);
+    }
+  }, [grokSwitching, maskAccountText, setMessage, store.accounts, t]);
 
   useEffect(() => {
     if (!filterPersistenceEnabled) {
@@ -735,6 +776,11 @@ export function CursorAccountsPage() {
       const errorTitle = statusReason || t('accounts.status.refreshFailed');
       const desktopLoginTitle = t('cursor.webview.desktopLogin', '通过网页会话获取桌面登录（在弹出窗口中点击 Yes, Log In）');
       const switchTitle = isBanned ? t('accounts.status.forbidden_msg') : t('cursor.injectToCursor', '切换到 Cursor');
+      const grokBotTitle = isWebToken
+        ? t('cursor.grokBot.needSession', '网页会话无法登录 Grok Bot，请先获取桌面 session token')
+        : isBanned
+          ? t('accounts.status.forbidden_msg')
+          : t('cursor.injectToGrokBot', '切换到 Grok Bot');
       const webviewTitle = t('cursor.webview.open', '打开网页版 Dashboard');
       const editTagsTitle = t('accounts.editTags', '编辑标签');
       const refreshTitle = t('common.shared.refreshQuota', '刷新配额');
@@ -916,6 +962,15 @@ export function CursorAccountsPage() {
                   {injecting === account.id ? <RefreshCw size={14} className="loading-spinner" /> : <Play size={14} />}
                 </button>
               )}
+              <button
+                className="card-action-btn"
+                onClick={() => void handleSwitchGrokBot(account.id)}
+                disabled={!!grokSwitching || isBanned || isWebToken}
+                title={grokBotTitle}
+                aria-label={grokBotTitle}
+              >
+                {grokSwitching === account.id ? <RefreshCw size={14} className="loading-spinner" /> : <Bot size={14} />}
+              </button>
               <button className="card-action-btn" onClick={() => handleOpenWebview?.(account.id)} disabled={!!webviewing || isBanned} title={webviewTitle} aria-label={webviewTitle}>
                 {webviewing === account.id ? <RefreshCw size={14} className="loading-spinner" /> : <Globe size={14} />}
               </button>
@@ -972,6 +1027,11 @@ export function CursorAccountsPage() {
       const errorTitle = statusReason || t('accounts.status.refreshFailed');
       const desktopLoginTitle = t('cursor.webview.desktopLogin', '通过网页会话获取桌面登录（在弹出窗口中点击 Yes, Log In）');
       const switchTitle = isBanned ? t('accounts.status.forbidden_msg') : t('cursor.injectToCursor', '切换到 Cursor');
+      const grokBotTitle = isWebToken
+        ? t('cursor.grokBot.needSession', '网页会话无法登录 Grok Bot，请先获取桌面 session token')
+        : isBanned
+          ? t('accounts.status.forbidden_msg')
+          : t('cursor.injectToGrokBot', '切换到 Grok Bot');
       const webviewTitle = t('cursor.webview.open', '打开网页版 Dashboard');
       const usageBreakdownTitle = t('cursor.usageBreakdown.title', '用量明细');
       const onDemandTitle = t('cursor.onDemand.title', '按需使用设置');
@@ -1110,6 +1170,15 @@ export function CursorAccountsPage() {
                   {injecting === account.id ? <RefreshCw size={14} className="loading-spinner" /> : <Play size={14} />}
                 </button>
               )}
+              <button
+                className="action-btn"
+                onClick={() => void handleSwitchGrokBot(account.id)}
+                disabled={!!grokSwitching || isBanned || isWebToken}
+                title={grokBotTitle}
+                aria-label={grokBotTitle}
+              >
+                {grokSwitching === account.id ? <RefreshCw size={14} className="loading-spinner" /> : <Bot size={14} />}
+              </button>
               <button className="action-btn" onClick={() => handleOpenWebview?.(account.id)} disabled={!!webviewing || isBanned} title={webviewTitle} aria-label={webviewTitle}>
                 {webviewing === account.id ? <RefreshCw size={14} className="loading-spinner" /> : <Globe size={14} />}
               </button>

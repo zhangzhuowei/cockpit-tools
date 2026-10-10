@@ -6025,6 +6025,12 @@
   "cursor": {
     "subscription": "Подписка",
     "injectToCursor": "Переключиться на Cursor",
+    "injectToGrokBot": "Переключить на Grok Bot",
+    "grokBot": {
+      "switched": "Локальный Grok Bot переключён на {{email}}",
+      "switchFailed": "Не удалось переключить Grok Bot: {{error}}",
+      "needSession": "Веб-сессия не может войти в Grok Bot. Сначала получите desktop session token."
+    },
     "quota": {
       "totalUsage": "Общее использование",
       "cursorModels": "Модели Cursor",

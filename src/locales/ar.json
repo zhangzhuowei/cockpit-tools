@@ -6072,6 +6072,12 @@
   "cursor": {
     "subscription": "الاشتراك",
     "injectToCursor": "التبديل إلى Cursor",
+    "injectToGrokBot": "التبديل إلى Grok Bot",
+    "grokBot": {
+      "switched": "تم تبديل Grok Bot المحلي إلى {{email}}",
+      "switchFailed": "فشل تبديل Grok Bot: {{error}}",
+      "needSession": "جلسة الويب لا تسجّل الدخول إلى Grok Bot. احصل أولاً على رمز جلسة سطح المكتب."
+    },
     "quota": {
       "totalUsage": "إجمالي الاستخدام",
       "cursorModels": "نماذج Cursor",

@@ -6025,6 +6025,12 @@
   "cursor": {
     "subscription": "Abbonamento",
     "injectToCursor": "Passa a Cursor",
+    "injectToGrokBot": "Passa a Grok Bot",
+    "grokBot": {
+      "switched": "Grok Bot locale passato a {{email}}",
+      "switchFailed": "Passaggio a Grok Bot non riuscito: {{error}}",
+      "needSession": "Il token di sessione web non accede a Grok Bot. Prima ottieni un token di sessione desktop."
+    },
     "quota": {
       "totalUsage": "Utilizzo totale",
       "cursorModels": "Modelli Cursor",

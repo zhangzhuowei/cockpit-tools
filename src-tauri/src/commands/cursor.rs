@@ -3,7 +3,7 @@ use std::time::Instant;
 use tauri::{AppHandle, Emitter};
 
 use crate::models::cursor::CursorAccount;
-use crate::modules::{cursor_account, cursor_oauth, cursor_switch_history, logger};
+use crate::modules::{cursor_account, cursor_oauth, cursor_switch_history, grok_bot_account, logger};
 
 #[tauri::command]
 pub fn list_cursor_accounts() -> Result<Vec<CursorAccount>, String> {
@@ -186,6 +186,15 @@ pub fn cursor_oauth_login_cancel(login_id: Option<String>) -> Result<(), String>
 #[tauri::command]
 pub async fn inject_cursor_account(app: AppHandle, account_id: String) -> Result<String, String> {
     switch_cursor_account(&app, &account_id, "manual").await
+}
+
+#[tauri::command]
+pub async fn switch_grok_bot_account(account_id: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        grok_bot_account::switch_local_grok_bot_with_cursor_account(&account_id)
+    })
+    .await
+    .map_err(|error| format!("切换 Grok Bot 任务失败: {}", error))?
 }
 
 #[tauri::command]
