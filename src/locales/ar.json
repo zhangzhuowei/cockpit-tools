@@ -5801,7 +5801,8 @@
     "kiroRefreshInterval": "تحديث الحصة تلقائياً",
     "cursor": {
       "title": "إعدادات Cursor",
-      "appPath": "مسار Cursor"
+      "appPath": "مسار Cursor",
+      "grokBotAppPath": "مسار Grok Bot"
     },
     "cursorRefreshInterval": "تحديث الحصة تلقائيًا",
     "grok": {

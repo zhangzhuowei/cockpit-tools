@@ -374,6 +374,7 @@ interface GeneralConfig extends GeneralConfigTheme, GeneralConfigLanguage {
   windsurf_app_path: string;
   kiro_app_path: string;
   cursor_app_path: string;
+  grok_bot_app_path: string;
   claude_app_path: string;
   claude_app_scan_roots: string;
   codebuddy_app_path: string;

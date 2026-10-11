@@ -351,6 +351,9 @@ pub fn get_general_config(app: tauri::AppHandle) -> Result<GeneralConfig, String
         cursor_app_path: modules::process::normalize_windows_user_facing_path(
             &user_config.cursor_app_path,
         ),
+        grok_bot_app_path: modules::process::normalize_windows_user_facing_path(
+            &user_config.grok_bot_app_path,
+        ),
         codebuddy_app_path: modules::process::normalize_windows_user_facing_path(
             &user_config.codebuddy_app_path,
         ),

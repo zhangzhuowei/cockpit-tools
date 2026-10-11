@@ -5754,7 +5754,8 @@
     "kiroRefreshInterval": "Limit automatycznego odświeżania",
     "cursor": {
       "title": "Ustawienia Cursor",
-      "appPath": "Ścieżka Cursor"
+      "appPath": "Ścieżka Cursor",
+      "grokBotAppPath": "Ścieżka Grok Bot"
     },
     "cursorRefreshInterval": "Automatyczne odświeżanie limitu",
     "grok": {

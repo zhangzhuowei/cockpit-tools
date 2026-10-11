@@ -101,6 +101,7 @@ export function SettingsGeneralPanel(props: SettingsPageViewProps) {
     ghcpQuotaAlertThresholdCustomMode,
     ghcpQuotaAlertThresholdIsPreset,
     grokAutoRefresh,
+    grokBotAppPath,
     grokCliPath,
     grokCliSaving,
     grokCliStatus,
@@ -218,6 +219,7 @@ export function SettingsGeneralPanel(props: SettingsPageViewProps) {
     setGhcpQuotaAlertThreshold,
     setGhcpQuotaAlertThresholdCustomMode,
     setGrokAutoRefresh,
+    setGrokBotAppPath,
     setGrokCliPath,
     setGrokCliStatusError,
     setGrokOpencodeAuthOverwriteOnSwitch,
@@ -3693,6 +3695,41 @@ export function SettingsGeneralPanel(props: SettingsPageViewProps) {
                       {isAppPathResetDetecting('cursor')
                         ? t('common.loading', '加载中...')
                         : getResetLabelByTarget('cursor')}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="settings-row">
+                <div className="row-label">
+                  <div className="row-title">{t('quickSettings.cursor.grokBotAppPath', 'Grok Bot 路径')}</div>
+                  <div className="row-desc">{t('settings.general.codexAppPathDesc', '留空则使用默认路径')}</div>
+                </div>
+                <div className="row-control row-control--grow">
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flex: 1 }}>
+                    <input
+                      type="text"
+                      className="settings-input settings-input--path"
+                      value={grokBotAppPath}
+                      placeholder={t('settings.general.codexAppPathPlaceholder', '默认路径')}
+                      onChange={(e) => setGrokBotAppPath(e.target.value)}
+                    />
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => handlePickAppPath('grok_bot')}
+                      disabled={isAppPathResetDetecting('grok_bot')}
+                    >
+                      {t('settings.general.codexPathSelect', '选择')}
+                    </button>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => handleResetAppPath('grok_bot')}
+                      disabled={isAppPathResetDetecting('grok_bot')}
+                    >
+                      <RefreshCw size={16} className={isAppPathResetDetecting('grok_bot') ? 'spin' : undefined} />
+                      {isAppPathResetDetecting('grok_bot')
+                        ? t('common.loading', '加载中...')
+                        : getResetLabelByTarget('grok_bot')}
                     </button>
                   </div>
                 </div>

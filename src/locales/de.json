@@ -5754,7 +5754,8 @@
     "kiroRefreshInterval": "Kontingent für automatische Aktualisierung",
     "cursor": {
       "title": "Cursor-Einstellungen",
-      "appPath": "Cursor-Pfad"
+      "appPath": "Cursor-Pfad",
+      "grokBotAppPath": "Grok Bot-Pfad"
     },
     "cursorRefreshInterval": "Kontingent automatisch aktualisieren",
     "grok": {

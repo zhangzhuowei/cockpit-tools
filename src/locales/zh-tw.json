@@ -5754,7 +5754,8 @@
     "kiroRefreshInterval": "自動刷新配額",
     "cursor": {
       "title": "Cursor 設定",
-      "appPath": "Cursor 路徑"
+      "appPath": "Cursor 路徑",
+      "grokBotAppPath": "Grok Bot 路徑"
     },
     "cursorRefreshInterval": "配額自動更新",
     "grok": {

@@ -5754,7 +5754,8 @@
     "kiroRefreshInterval": "Quota di aggiornamento automatico",
     "cursor": {
       "title": "Impostazioni Cursor",
-      "appPath": "Percorso Cursor"
+      "appPath": "Percorso Cursor",
+      "grokBotAppPath": "Percorso Grok Bot"
     },
     "cursorRefreshInterval": "Aggiornamento automatico quota",
     "grok": {

@@ -6079,7 +6079,8 @@
     "kiroRefreshInterval": "配额自动刷新",
     "cursor": {
       "title": "Cursor 设置",
-      "appPath": "Cursor 路径"
+      "appPath": "Cursor 路径",
+      "grokBotAppPath": "Grok Bot 路径"
     },
     "cursorRefreshInterval": "配额自动刷新",
     "codebuddy": {

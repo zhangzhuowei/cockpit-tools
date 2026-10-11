@@ -329,6 +329,9 @@ pub struct UserConfig {
     /// Cursor 启动路径（为空则使用默认路径）
     #[serde(default = "default_cursor_app_path")]
     pub cursor_app_path: String,
+    /// Grok Bot 启动路径（为空则自动探测）
+    #[serde(default = "default_grok_bot_app_path")]
+    pub grok_bot_app_path: String,
     /// CodeBuddy 启动路径（为空则使用默认路径）
     #[serde(default = "default_codebuddy_app_path")]
     pub codebuddy_app_path: String,
@@ -978,6 +981,9 @@ fn default_kiro_app_path() -> String {
 fn default_cursor_app_path() -> String {
     String::new()
 }
+fn default_grok_bot_app_path() -> String {
+    String::new()
+}
 fn default_codebuddy_app_path() -> String {
     String::new()
 }
@@ -1309,6 +1315,7 @@ impl Default for UserConfig {
             windsurf_app_path: default_windsurf_app_path(),
             kiro_app_path: default_kiro_app_path(),
             cursor_app_path: default_cursor_app_path(),
+            grok_bot_app_path: default_grok_bot_app_path(),
             codebuddy_app_path: default_codebuddy_app_path(),
             codebuddy_share_sessions_on_switch: default_codebuddy_share_sessions_on_switch(),
             codebuddy_cn_app_path: default_codebuddy_cn_app_path(),

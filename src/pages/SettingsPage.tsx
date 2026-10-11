@@ -174,6 +174,7 @@ interface GeneralConfig {
   windsurf_app_path: string;
   kiro_app_path: string;
   cursor_app_path: string;
+  grok_bot_app_path: string;
   codebuddy_app_path: string;
   codebuddy_share_sessions_on_switch: boolean;
   codebuddy_cn_app_path: string;
@@ -276,6 +277,7 @@ type AppPathTarget =
   | 'windsurf'
   | 'kiro'
   | 'cursor'
+  | 'grok_bot'
   | 'codebuddy'
   | 'codebuddy_cn'
   | 'qoder'
@@ -578,6 +580,7 @@ export function useSettingsPageController() {
   const [windsurfAppPath, setWindsurfAppPath] = useState('');
   const [kiroAppPath, setKiroAppPath] = useState('');
   const [cursorAppPath, setCursorAppPath] = useState('');
+  const [grokBotAppPath, setGrokBotAppPath] = useState('');
   const [codebuddyAppPath, setCodebuddyAppPath] = useState('');
   const [codebuddyShareSessionsOnSwitch, setCodebuddyShareSessionsOnSwitch] = useState(false);
   const [codebuddyCnAppPath, setCodebuddyCnAppPath] = useState('');
@@ -1128,6 +1131,7 @@ export function useSettingsPageController() {
       windsurf_app_path: windsurfAppPath,
       kiro_app_path: kiroAppPath,
       cursor_app_path: cursorAppPath,
+      grok_bot_app_path: grokBotAppPath,
       codebuddy_app_path: codebuddyAppPath,
       codebuddy_share_sessions_on_switch: codebuddyShareSessionsOnSwitch,
       codebuddy_cn_app_path: codebuddyCnAppPath,
@@ -1371,6 +1375,7 @@ export function useSettingsPageController() {
     windsurfAppPath,
     kiroAppPath,
     cursorAppPath,
+    grokBotAppPath,
     codebuddyAppPath,
     codebuddyShareSessionsOnSwitch,
     codebuddyCnAppPath,
@@ -1725,6 +1730,7 @@ export function useSettingsPageController() {
       setWindsurfAppPath(config.windsurf_app_path || '');
       setKiroAppPath(config.kiro_app_path || '');
       setCursorAppPath(config.cursor_app_path || '');
+      setGrokBotAppPath(config.grok_bot_app_path || '');
       setCodebuddyAppPath(config.codebuddy_app_path || '');
       setCodebuddyShareSessionsOnSwitch(config.codebuddy_share_sessions_on_switch ?? false);
       setCodebuddyCnAppPath(config.codebuddy_cn_app_path || '');
@@ -2081,6 +2087,8 @@ export function useSettingsPageController() {
       setKiroAppPath(path);
     } else if (target === 'cursor') {
       setCursorAppPath(path);
+    } else if (target === 'grok_bot') {
+      setGrokBotAppPath(path);
     } else if (target === 'codebuddy') {
       setCodebuddyAppPath(path);
     } else if (target === 'codebuddy_cn') {
@@ -2118,6 +2126,8 @@ export function useSettingsPageController() {
         return 'Kiro';
       case 'cursor':
         return 'Cursor';
+      case 'grok_bot':
+        return 'Grok Bot';
       case 'codebuddy':
         return 'CodeBuddy';
       case 'codebuddy_cn':
@@ -2154,6 +2164,9 @@ export function useSettingsPageController() {
       return t('settings.general.kiroPathReset', '重置默认');
     }
     if (target === 'cursor') {
+      return t('settings.general.cursorPathReset', '重置默认');
+    }
+    if (target === 'grok_bot') {
       return t('settings.general.cursorPathReset', '重置默认');
     }
     if (target === 'codebuddy') {
@@ -3316,6 +3329,7 @@ export function useSettingsPageController() {
     codexSyncWsl,
     codexWslConfigDir,
     cursorAppPath,
+    grokBotAppPath,
     cursorAutoRefresh,
     cursorAutoRefreshCustomMode,
     cursorAutoRefreshIsPreset,
@@ -3503,6 +3517,7 @@ export function useSettingsPageController() {
     setCodexSyncWsl,
     setCodexWslConfigDir,
     setCursorAppPath,
+    setGrokBotAppPath,
     setCursorAutoRefresh,
     setCursorAutoRefreshCustomMode,
     setCursorQuotaAlertEnabled,

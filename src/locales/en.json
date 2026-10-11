@@ -6079,7 +6079,8 @@
     "kiroRefreshInterval": "Auto refresh quota",
     "cursor": {
       "title": "Cursor Settings",
-      "appPath": "Cursor Path"
+      "appPath": "Cursor Path",
+      "grokBotAppPath": "Grok Bot Path"
     },
     "cursorRefreshInterval": "Quota Auto Refresh",
     "codebuddy": {

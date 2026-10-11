@@ -5754,7 +5754,8 @@
     "kiroRefreshInterval": "Автоматическое обновление квоты",
     "cursor": {
       "title": "Настройки Cursor",
-      "appPath": "Путь к Cursor"
+      "appPath": "Путь к Cursor",
+      "grokBotAppPath": "Путь к Grok Bot"
     },
     "cursorRefreshInterval": "Автообновление квоты",
     "grok": {

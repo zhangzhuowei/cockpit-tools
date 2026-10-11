@@ -5754,7 +5754,8 @@
     "kiroRefreshInterval": "Hạn ngạch làm mới tự động",
     "cursor": {
       "title": "Cài đặt Cursor",
-      "appPath": "Đường dẫn Cursor"
+      "appPath": "Đường dẫn Cursor",
+      "grokBotAppPath": "Đường dẫn Grok Bot"
     },
     "cursorRefreshInterval": "Tự động làm mới hạn mức",
     "grok": {

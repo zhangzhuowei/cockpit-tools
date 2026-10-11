@@ -796,6 +796,18 @@ fn windows_app_launch_signature(app: &str) -> Option<WindowsAppLaunchSignature> 
             common_paths: &["Cursor\\Cursor.exe", "Cursor\\Electron.exe"],
             supports_multi_instance: true,
         }),
+        "grok_bot" => Some(WindowsAppLaunchSignature {
+            label: "Grok Bot",
+            exe_names: &["Grok Bot.exe"],
+            command_names: &["grok bot"],
+            protocol_names: &[],
+            display_keywords: &["grok bot"],
+            common_paths: &[
+                "Programs\\Grok Bot\\Grok Bot.exe",
+                "Grok Bot\\Grok Bot.exe",
+            ],
+            supports_multi_instance: true,
+        }),
         "codebuddy" => Some(WindowsAppLaunchSignature {
             label: "CodeBuddy",
             exe_names: &["CodeBuddy.exe"],

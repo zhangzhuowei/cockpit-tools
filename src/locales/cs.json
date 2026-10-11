@@ -5754,7 +5754,8 @@
     "kiroRefreshInterval": "Kvóta automatického obnovení",
     "cursor": {
       "title": "Nastavení Cursor",
-      "appPath": "Cesta k Cursor"
+      "appPath": "Cesta k Cursor",
+      "grokBotAppPath": "Cesta k Grok Bot"
     },
     "cursorRefreshInterval": "Automatická obnova kvóty",
     "grok": {

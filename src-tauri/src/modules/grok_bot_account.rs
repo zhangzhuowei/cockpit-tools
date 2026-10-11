@@ -25,7 +25,7 @@ use sha2::{Digest, Sha256};
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 
 use crate::models::cursor::CursorAccount;
-use crate::modules::{atomic_write, cursor_account, logger};
+use crate::modules::{atomic_write, config, cursor_account, logger, process};
 
 const V10_PREFIX: &[u8] = b"v10";
 const SLOT_PREFIX: &[u8] = b"sand-account-slot\x00";
@@ -351,7 +351,20 @@ fn taskkill_pid(pid: u32, force: bool) {
         .output();
 }
 
-fn find_grok_bot_launch_target() -> Option<PathBuf> {
+fn configured_grok_bot_path_from(raw: &str) -> Option<PathBuf> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let path = PathBuf::from(trimmed);
+    path.is_file().then_some(path)
+}
+
+fn configured_grok_bot_path() -> Option<PathBuf> {
+    configured_grok_bot_path_from(&config::get_user_config().grok_bot_app_path)
+}
+
+fn find_running_grok_bot_exe() -> Option<PathBuf> {
     for (_, exe) in collect_grok_bot_processes() {
         if let Some(path) = exe {
             if path.is_file() {
@@ -359,7 +372,10 @@ fn find_grok_bot_launch_target() -> Option<PathBuf> {
             }
         }
     }
+    None
+}
 
+fn find_installed_grok_bot_path() -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     {
         return find_grok_bot_exe_windows();
@@ -376,6 +392,37 @@ fn find_grok_bot_launch_target() -> Option<PathBuf> {
     {
         None
     }
+}
+
+fn find_grok_bot_launch_target() -> Option<PathBuf> {
+    configured_grok_bot_path()
+        .or_else(find_running_grok_bot_exe)
+        .or_else(find_installed_grok_bot_path)
+}
+
+pub fn detect_and_save_grok_bot_launch_path(force: bool) -> Option<String> {
+    let current = config::get_user_config();
+    if !force {
+        let trimmed = current.grok_bot_app_path.trim();
+        if !trimmed.is_empty() {
+            return Some(process::normalize_windows_user_facing_path(trimmed));
+        }
+    }
+
+    let detected = find_running_grok_bot_exe().or_else(find_installed_grok_bot_path)?;
+    let normalized = process::normalize_windows_user_facing_path(&detected.to_string_lossy());
+    if current.grok_bot_app_path != normalized {
+        let path = normalized.clone();
+        if let Err(err) = config::patch_user_config(move |cfg| {
+            if force || cfg.grok_bot_app_path.trim().is_empty() {
+                cfg.grok_bot_app_path = path;
+            }
+            Ok(())
+        }) {
+            logger::log_warn(&format!("保存 Grok Bot 启动路径失败（已忽略）: {}", err));
+        }
+    }
+    Some(normalized)
 }
 
 #[cfg(target_os = "windows")]
@@ -444,15 +491,26 @@ fn launch_grok_bot(exe: Option<&Path>) -> Result<(), String> {
         let exe = exe
             .filter(|path| path.is_file())
             .map(Path::to_path_buf)
+            .or_else(configured_grok_bot_path)
             .or_else(find_grok_bot_exe_windows)
-            .ok_or_else(|| "未找到 Grok Bot.exe；请先手动打开一次 Grok Bot".to_string())?;
+            .ok_or_else(|| {
+                "未找到 Grok Bot.exe；请在设置中填写 Grok Bot 路径，或先手动打开一次".to_string()
+            })?;
         return launch_grok_bot_windows(&exe);
     }
     #[cfg(target_os = "macos")]
     {
-        let _ = exe;
-        Command::new("open")
-            .args(["-a", "Grok Bot"])
+        let custom = exe
+            .filter(|path| path.exists())
+            .map(Path::to_path_buf)
+            .or_else(configured_grok_bot_path);
+        let mut command = Command::new("open");
+        if let Some(path) = custom {
+            command.arg(path);
+        } else {
+            command.args(["-a", "Grok Bot"]);
+        }
+        command
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -853,5 +911,26 @@ mod tests {
         assert!(is_grok_bot_process_name("Grok Bot.exe"));
         assert!(!is_grok_bot_process_name("grok"));
         assert!(!is_grok_bot_process_name("Grok.exe"));
+    }
+
+    #[test]
+    fn configured_path_ignores_blank() {
+        assert!(configured_grok_bot_path_from("").is_none());
+        assert!(configured_grok_bot_path_from("   ").is_none());
+    }
+
+    #[test]
+    fn configured_path_requires_existing_file() {
+        let path = std::env::temp_dir().join(format!(
+            "cockpit-grok-bot-path-test-{}.exe",
+            std::process::id()
+        ));
+        std::fs::write(&path, b"x").expect("write temp exe");
+        assert_eq!(
+            configured_grok_bot_path_from(&path.to_string_lossy()).as_deref(),
+            Some(path.as_path())
+        );
+        let _ = std::fs::remove_file(&path);
+        assert!(configured_grok_bot_path_from(&path.to_string_lossy()).is_none());
     }
 }

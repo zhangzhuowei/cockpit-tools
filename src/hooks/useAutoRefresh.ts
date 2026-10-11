@@ -90,6 +90,7 @@ interface GeneralConfig {
   windsurf_app_path?: string;
   kiro_app_path?: string;
   cursor_app_path?: string;
+  grok_bot_app_path?: string;
   codebuddy_app_path?: string;
   codebuddy_cn_app_path?: string;
   qoder_app_path?: string;

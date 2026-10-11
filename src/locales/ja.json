@@ -5754,7 +5754,8 @@
     "kiroRefreshInterval": "自動更新クォータ",
     "cursor": {
       "title": "Cursor 設定",
-      "appPath": "Cursor パス"
+      "appPath": "Cursor パス",
+      "grokBotAppPath": "Grok Bot パス"
     },
     "cursorRefreshInterval": "クォータ自動更新",
     "grok": {

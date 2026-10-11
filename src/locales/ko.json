@@ -5754,7 +5754,8 @@
     "kiroRefreshInterval": "자동 새로고침 할당량",
     "cursor": {
       "title": "Cursor 설정",
-      "appPath": "Cursor 경로"
+      "appPath": "Cursor 경로",
+      "grokBotAppPath": "Grok Bot 경로"
     },
     "cursorRefreshInterval": "할당량 자동 새로고침",
     "grok": {

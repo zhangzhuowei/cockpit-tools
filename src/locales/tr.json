@@ -5754,7 +5754,8 @@
     "kiroRefreshInterval": "Otomatik yenileme kotası",
     "cursor": {
       "title": "Cursor Ayarları",
-      "appPath": "Cursor Yolu"
+      "appPath": "Cursor Yolu",
+      "grokBotAppPath": "Grok Bot Yolu"
     },
     "cursorRefreshInterval": "Kota otomatik yenileme",
     "grok": {

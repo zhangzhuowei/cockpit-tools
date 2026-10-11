@@ -810,6 +810,7 @@ mod tests {
         for app in [
             "antigravity_ide",
             "cursor",
+            "grok_bot",
             "zed",
             "codebuddy",
             "codebuddy_cn",

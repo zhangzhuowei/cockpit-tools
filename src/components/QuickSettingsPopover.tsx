@@ -120,6 +120,7 @@ interface GeneralConfig {
   windsurf_app_path: string;
   kiro_app_path: string;
   cursor_app_path: string;
+  grok_bot_app_path: string;
   codebuddy_app_path: string;
   codebuddy_share_sessions_on_switch: boolean;
   codebuddy_cn_app_path: string;
@@ -238,6 +239,7 @@ type AppPathTarget =
   | 'windsurf'
   | 'kiro'
   | 'cursor'
+  | 'grok_bot'
   | 'codebuddy'
   | 'codebuddy_cn'
   | 'qoder'
@@ -316,6 +318,8 @@ const getAppPathKeyForTarget = (target: AppPathTarget): keyof GeneralConfig => {
       return 'kiro_app_path';
     case 'cursor':
       return 'cursor_app_path';
+    case 'grok_bot':
+      return 'grok_bot_app_path';
     case 'codebuddy':
       return 'codebuddy_app_path';
     case 'codebuddy_cn':
@@ -414,6 +418,8 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
   const [config, setConfig] = useState<GeneralConfig | null>(null);
   const [pathDetecting, setPathDetecting] = useState(false);
   const [appLaunchCandidates, setAppLaunchCandidates] = useState<AppLaunchCandidate[]>([]);
+  const [grokBotPathDetecting, setGrokBotPathDetecting] = useState(false);
+  const [grokBotLaunchCandidates, setGrokBotLaunchCandidates] = useState<AppLaunchCandidate[]>([]);
   const [openingCodexConfig, setOpeningCodexConfig] = useState(false);
   const [codexModelManagementConfig, setCodexModelManagementConfig] =
     useState<CodexQuickConfig | null>(null);
@@ -853,6 +859,9 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
       if (!path || !config) return;
 
       setAppLaunchCandidates([]);
+      if (target === 'grok_bot') {
+        setGrokBotLaunchCandidates([]);
+      }
       saveConfig({ [getAppPathKeyForTarget(target)]: path });
     } catch (err) {
       console.error('Failed to pick path:', err);
@@ -912,6 +921,57 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
   const handleSelectAppLaunchCandidate = (candidate: AppLaunchCandidate) => {
     setError(null);
     saveConfig({ [getAppPathKeyForTarget(getAppTarget())]: candidate.target });
+  };
+
+  const handleResetGrokBotAppPath = async () => {
+    if (grokBotPathDetecting) return;
+    if (isWindows) {
+      setGrokBotPathDetecting(true);
+      setError(null);
+      try {
+        const candidates = await invoke<AppLaunchCandidate[]>('scan_app_launch_targets', {
+          app: 'grok_bot',
+        });
+        setGrokBotLaunchCandidates(candidates);
+        if (candidates.length === 0) {
+          setError(
+            t(
+              'quickSettings.appPath.scanEmpty',
+              '未检测到正在运行的应用，请先启动后重试，或手动选择路径。',
+            ),
+          );
+        }
+      } catch (err) {
+        console.error('Failed to scan Grok Bot launch targets:', err);
+        setError(t('quickSettings.error.resetPathFailed', {
+          error: String(err),
+          defaultValue: '重置路径失败：{{error}}',
+        }));
+      } finally {
+        setGrokBotPathDetecting(false);
+      }
+      return;
+    }
+    setGrokBotPathDetecting(true);
+    setError(null);
+    try {
+      const detected = await invoke<string | null>('detect_app_path', { app: 'grok_bot', force: true });
+      setGrokBotLaunchCandidates([]);
+      saveConfig({ grok_bot_app_path: detected || '' });
+    } catch (err) {
+      console.error('Failed to reset Grok Bot path:', err);
+      setError(t('quickSettings.error.resetPathFailed', {
+        error: String(err),
+        defaultValue: '重置路径失败：{{error}}',
+      }));
+    } finally {
+      setGrokBotPathDetecting(false);
+    }
+  };
+
+  const handleSelectGrokBotLaunchCandidate = (candidate: AppLaunchCandidate) => {
+    setError(null);
+    saveConfig({ grok_bot_app_path: candidate.target });
   };
 
   const handlePickCodexSpecifiedAppPath = async () => {
@@ -2505,6 +2565,80 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
                                 )}
                               </div>
                             ) : null}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {type === 'cursor' && config && (
+                  <>
+                    <div className="qs-row" style={{ marginTop: 8 }}>
+                      <div className="qs-row-label">
+                        <span>{t('quickSettings.cursor.grokBotAppPath', 'Grok Bot 路径')}</span>
+                      </div>
+                    </div>
+                    <div className="qs-path-control">
+                      <input
+                        type="text"
+                        className="qs-path-input"
+                        value={config.grok_bot_app_path || ''}
+                        placeholder={t('settings.general.codexAppPathPlaceholder', '默认路径')}
+                        onChange={(e) => {
+                          setGrokBotLaunchCandidates([]);
+                          saveConfig({ grok_bot_app_path: e.target.value });
+                        }}
+                      />
+                      <div className="qs-path-actions">
+                        <button
+                          className="qs-btn"
+                          onClick={() => handlePickAppPath('grok_bot')}
+                          disabled={grokBotPathDetecting}
+                          title={t('settings.general.codexPathSelect', '选择')}
+                        >
+                          {t('settings.general.codexPathSelect', '选择')}
+                        </button>
+                        <button
+                          className="qs-btn"
+                          onClick={() => void handleResetGrokBotAppPath()}
+                          disabled={grokBotPathDetecting}
+                          title={
+                            grokBotPathDetecting
+                              ? t('common.loading', '加载中...')
+                              : isWindows
+                                ? t('appPath.missing.scanApps', '检测运行中应用')
+                                : t('settings.general.cursorPathReset', '重置默认')
+                          }
+                        >
+                          {grokBotPathDetecting ? (
+                            t('common.loading', '加载中...')
+                          ) : isWindows ? (
+                            t('appPath.missing.scanApps', '检测运行中应用')
+                          ) : (
+                            <RefreshCw size={12} className={grokBotPathDetecting ? 'spin' : undefined} />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                    {isWindows && grokBotLaunchCandidates.length > 0 && (
+                      <div className="qs-claude-candidate-list">
+                        {grokBotLaunchCandidates.map((candidate) => (
+                          <button
+                            key={`grok-bot:${candidate.target_type}:${candidate.target}`}
+                            type="button"
+                            className={`qs-claude-candidate-item${
+                              (config.grok_bot_app_path || '').trim() === candidate.target
+                                ? ' selected'
+                                : ''
+                            }`}
+                            onClick={() => handleSelectGrokBotLaunchCandidate(candidate)}
+                          >
+                            <div className="qs-claude-candidate-main">
+                              <span>{candidate.label || 'Grok Bot'}</span>
+                              <span className="qs-claude-candidate-badge">EXE</span>
+                            </div>
+                            <div className="qs-claude-candidate-target">{candidate.target}</div>
                           </button>
                         ))}
                       </div>

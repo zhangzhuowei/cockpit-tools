@@ -50,6 +50,7 @@ pub fn set_app_path(app: String, path: String) -> Result<(), String> {
             "windsurf" => current.windsurf_app_path = normalized_path,
             "kiro" => current.kiro_app_path = normalized_path,
             "cursor" => current.cursor_app_path = normalized_path,
+            "grok_bot" => current.grok_bot_app_path = normalized_path,
             "codebuddy" => current.codebuddy_app_path = normalized_path,
             "codebuddy_cn" => current.codebuddy_cn_app_path = normalized_path,
             "qoder" => current.qoder_app_path = normalized_path,
@@ -126,6 +127,7 @@ pub fn detect_app_path(app: String, force: Option<bool>) -> Result<Option<String
             force,
         )),
         "cursor" => Ok(modules::cursor_instance::detect_and_save_cursor_launch_path(force)),
+        "grok_bot" => Ok(modules::grok_bot_account::detect_and_save_grok_bot_launch_path(force)),
         "claude" => Ok(modules::claude_instance::detect_and_save_claude_launch_path(force)),
         "antigravity" | "antigravity_ide" | "antigravity_legacy" | "codex" | "zed" | "vscode"
         | "codebuddy" | "codebuddy_cn" | "qoder" | "zcode" | "trae" | "trae_solo" | "trae_cn"
@@ -182,7 +184,7 @@ pub async fn scan_app_launch_targets(
 ) -> Result<Vec<modules::process::AppLaunchCandidate>, String> {
     match app.as_str() {
         "antigravity" | "antigravity_ide" | "antigravity_legacy" | "codex" | "claude"
-        | "vscode" | "windsurf" | "kiro" | "cursor" | "codebuddy" | "codebuddy_cn" | "qoder"
+        | "vscode" | "windsurf" | "kiro" | "cursor" | "grok_bot" | "codebuddy" | "codebuddy_cn" | "qoder"
         | "zcode" | "trae" | "trae_solo" | "trae_cn" | "trae_solo_cn" | "workbuddy" | "zed"
         | "opencode" => {}
         _ => return Err("未知应用类型".to_string()),

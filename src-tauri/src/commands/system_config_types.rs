@@ -193,6 +193,8 @@ pub struct GeneralConfig {
     pub kiro_app_path: String,
     /// Cursor 启动路径（为空则使用默认路径）
     pub cursor_app_path: String,
+    /// Grok Bot 启动路径（为空则自动探测）
+    pub grok_bot_app_path: String,
     /// CodeBuddy 启动路径（为空则使用默认路径）
     pub codebuddy_app_path: String,
     /// 切换 CodeBuddy 账号时是否在本机账号间合并本地会话
@@ -1196,6 +1198,7 @@ fn is_general_config_patch_field(key: &str) -> bool {
             | "windsurf_app_path"
             | "kiro_app_path"
             | "cursor_app_path"
+            | "grok_bot_app_path"
             | "codebuddy_app_path"
             | "codebuddy_share_sessions_on_switch"
             | "codebuddy_cn_app_path"
@@ -1387,6 +1390,7 @@ fn apply_general_config_updates(
     normalize_app_path_field!("windsurf_app_path", windsurf_app_path);
     normalize_app_path_field!("kiro_app_path", kiro_app_path);
     normalize_app_path_field!("cursor_app_path", cursor_app_path);
+    normalize_app_path_field!("grok_bot_app_path", grok_bot_app_path);
     normalize_app_path_field!("codebuddy_app_path", codebuddy_app_path);
     normalize_app_path_field!("codebuddy_cn_app_path", codebuddy_cn_app_path);
     normalize_app_path_field!("qoder_app_path", qoder_app_path);
