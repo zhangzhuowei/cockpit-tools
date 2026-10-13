@@ -957,6 +957,7 @@ dependencies = [
  "mac-notification-sys",
  "md5",
  "minisign-verify",
+ "native-tls",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",

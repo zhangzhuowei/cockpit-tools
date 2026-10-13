@@ -70,7 +70,7 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
 	}
 
 	if opts.localInterrupt != nil {
-		opts.localInterrupt.begin()
+		opts.localInterrupt.begin(c.Request.Context())
 		defer opts.localInterrupt.end()
 	}
 	localFrames := opts.localInterrupt.framesChan()
@@ -78,7 +78,7 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
 	for {
 		select {
 		case interruptPayload := <-localFrames:
-			return completeResponsesWebsocketLocalInterrupt(writer, wsTimelineLog, cancel, interruptPayload, outputItemsByIndex, outputItemsFallback, pendingToolCallIDs)
+			return completeResponsesWebsocketLocalInterrupt(writer, wsTimelineLog, cancel, interruptPayload, outputItemsByIndex, outputItemsFallback, pendingToolCallIDs, opts.localInterrupt)
 		case <-c.Request.Context().Done():
 			cancel(c.Request.Context().Err())
 			return completedOutput, completedResponseID, sortedStringSet(pendingToolCallIDs), nil, c.Request.Context().Err()
@@ -149,6 +149,7 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
 			payloads := websocketJSONPayloadsFromChunk(chunk)
 			for i := range payloads {
 				collectResponsesWebsocketOutputItem(payloads[i], outputItemsByIndex, &outputItemsFallback)
+				opts.localInterrupt.observeResponseID(payloads[i])
 				eventType := gjson.GetBytes(payloads[i], "type").String()
 				if isResponsesWebsocketCompletionEvent(eventType) {
 					payloads[i] = restoreResponsesWebsocketCompletionOutput(payloads[i], outputItemsByIndex, outputItemsFallback)
@@ -230,6 +231,7 @@ func completeResponsesWebsocketLocalInterrupt(
 	outputItemsByIndex map[int64][]byte,
 	outputItemsFallback [][]byte,
 	pendingToolCallIDs map[string]struct{},
+	local *responsesLocalInterrupt,
 ) ([]byte, string, []string, *interfaces.ErrorMessage, error) {
 	responseID := strings.TrimSpace(gjson.GetBytes(payload, "response_id").String())
 	output := responseCompletedOutputFromPayload([]byte(`{"response":{"output":[]}}`), outputItemsByIndex, outputItemsFallback)
@@ -245,6 +247,10 @@ func completeResponsesWebsocketLocalInterrupt(
 		cancel(errSet)
 		return output, responseID, sortedStringSet(pendingToolCallIDs), nil, errSet
 	}
+	// This terminal event is synthesized locally, so it bypasses the upstream
+	// observer. Record it before ending the turn and publishing it to the client.
+	local.observeResponseID(incomplete)
+	local.end()
 	if errWrite := writeResponsesWebsocketPayload(writer, wsTimelineLog, incomplete, time.Now()); errWrite != nil {
 		cancel(errWrite)
 		return output, responseID, sortedStringSet(pendingToolCallIDs), nil, errWrite

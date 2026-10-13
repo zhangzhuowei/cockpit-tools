@@ -83,11 +83,9 @@ func TestResponsesInterruptInFlight(t *testing.T) {
 					write(`{"type":"response.output_text.delta","item_id":"partial","output_index":0,"content_index":0,"delta":"unfinished"}`)
 				}
 				// Hold completion until the in-flight interrupt arrives unchanged.
-				for range 2 {
-					if payload := read(); !bytes.Equal(payload, interrupt) {
-						t.Errorf("interrupt changed: %s", payload)
-						return
-					}
+				if payload := read(); !bytes.Equal(payload, interrupt) {
+					t.Errorf("interrupt changed: %s", payload)
+					return
 				}
 				close(interruptForwarded)
 				if testCase.disconnect {
@@ -108,7 +106,18 @@ func TestResponsesInterruptInFlight(t *testing.T) {
 				} else {
 					write(fmt.Sprintf(`{"type":"response.incomplete","response":{"id":"r1","status":"incomplete","incomplete_details":{"reason":"interrupted"},"usage":{"output_tokens":%d},"output":[]}}`, outputTokens))
 				}
-				if payload := read(); gjson.GetBytes(payload, "type").String() != "response.create" || gjson.GetBytes(payload, "previous_response_id").String() != "r1" || bytes.Contains(payload, []byte("unfinished")) {
+				// Duplicate controls may be coalesced while pending. Any copy that
+				// reached upstream must remain byte-identical; the next create is
+				// the wire-order barrier, without a timing-based negative assertion.
+				payload := read()
+				for gjson.GetBytes(payload, "type").String() == "response.interrupt" {
+					if !bytes.Equal(payload, interrupt) {
+						t.Errorf("duplicate interrupt changed: %s", payload)
+						return
+					}
+					payload = read()
+				}
+				if gjson.GetBytes(payload, "type").String() != "response.create" || gjson.GetBytes(payload, "previous_response_id").String() != "r1" || bytes.Contains(payload, []byte("unfinished")) {
 					t.Errorf("expected follow-up response.create, got %s", payload)
 					return
 				}
@@ -212,7 +221,7 @@ func TestResponsesInterruptInFlight(t *testing.T) {
 				t.Fatal(errUpdate)
 			}
 			send(interrupt)
-			send(interrupt) // Both interrupts must arrive before the upstream ends this turn.
+			send(interrupt) // Pending duplicates are coalesced without a second terminal event.
 			if testCase.disconnect {
 				select {
 				case <-interruptForwarded:
@@ -253,8 +262,11 @@ func TestResponsesInterruptInFlight(t *testing.T) {
 			// after the prior forwarding loop has cleared local cancellation.
 			send([]byte(`{"type":"unsupported"}`))
 			expect("error")
-			send(interrupt)
-			expect("error") // An interrupt after the second completed turn is idle.
+			send(interrupt)                        // A completed response is a successful no-op, even while idle.
+			send([]byte(`{"type":"unsupported"}`)) // A validation barrier proves no late-interrupt error was emitted.
+			if payload := expect("error"); !strings.Contains(gjson.GetBytes(payload, "error.message").String(), "unsupported websocket request type") {
+				t.Fatalf("completed-response interrupt produced an error: %s", payload)
+			}
 			send([]byte(fmt.Sprintf(`{"type":"response.create","model":%q,"input":[{"role":"user","content":"new provider"}]}`, otherModel)))
 			expect("response.created")
 			send([]byte(`{"type":"response.interrupt","response_id":"r-http","mode":"discard_partial_items"}`))
@@ -279,7 +291,7 @@ func TestResponsesInterruptInFlight(t *testing.T) {
 
 // Hold the stream open after its terminal frame to deterministically exercise
 // the gap between downstream delivery and forwarding-loop cleanup.
-func TestResponsesInterruptRejectsLateFrameAfterTerminalBeforeStreamClose(t *testing.T) {
+func TestResponsesInterruptAcknowledgesLateFrameAfterTerminalBeforeStreamClose(t *testing.T) {
 	stopped := make(chan struct{})
 	upstream := make(chan []byte, 1)
 	upstream <- []byte(`{"type":"response.completed","response":{"id":"r1","status":"completed","output":[]}}`)
@@ -329,12 +341,16 @@ func TestResponsesInterruptRejectsLateFrameAfterTerminalBeforeStreamClose(t *tes
 	if err := client.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.interrupt","response_id":"r1","mode":"discard_partial_items"}`)); err != nil {
 		t.Fatal(err)
 	}
+	// The unknown/malformed control frame is an ordered reader barrier.
+	if err := client.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.interrupt"}`)); err != nil {
+		t.Fatal(err)
+	}
 	_, payload, err := client.ReadMessage()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gjson.GetBytes(payload, "type").String() != "error" {
-		t.Fatalf("late interrupt must not synthesize another terminal frame after completion: %s", payload)
+	if gjson.GetBytes(payload, "type").String() != "error" || !strings.Contains(gjson.GetBytes(payload, "error.message").String(), "requires response_id") {
+		t.Fatalf("known completed interrupt must be a no-op before the malformed frame: %s", payload)
 	}
 }
 
@@ -524,6 +540,24 @@ func TestResponsesInterruptStopsHTTPUpstream(t *testing.T) {
 	}
 	if got := gjson.GetBytes(created, "type").String(); got != "response.created" {
 		t.Fatalf("expected response.created, got %s", created)
+	}
+	// A delayed control frame for another response cannot cancel this turn.
+	for _, responseID := range []string{"stale-response", "unrelated-response"} {
+		if err := client.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf(`{"type":"response.interrupt","response_id":%q}`, responseID))); err != nil {
+			t.Fatal(err)
+		}
+		_, rejected, err := client.ReadMessage()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if gjson.GetBytes(rejected, "type").String() != "error" {
+			t.Fatalf("wrong ID canceled HTTP turn: %s", rejected)
+		}
+		select {
+		case <-executor.canceled:
+			t.Fatal("wrong ID canceled HTTP upstream")
+		default:
+		}
 	}
 	if errSend := client.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.interrupt","response_id":"r-http","mode":"discard_partial_items"}`)); errSend != nil {
 		t.Fatal(errSend)

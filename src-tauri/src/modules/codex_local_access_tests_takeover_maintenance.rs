@@ -8,13 +8,25 @@ async fn passive_takeover_realtime_fills_missing_sideband_for_pool_and_mixed_key
             collection.api_keys[0].model_routing = None;
         }
         write_local_access_profile_takeover(&profile, &collection, None, true).await.unwrap();
+        assert!(!super::local_access_profile_takeover_needs_sync(
+            &profile,
+            &collection,
+        ));
         let config_path = profile.join(CODEX_PROFILE_CONFIG_FILE);
         let mut doc = fs::read_to_string(&config_path).unwrap().parse::<Document>().unwrap();
         doc.remove("experimental_realtime_ws_base_url");
         fs::write(&config_path, doc.to_string()).unwrap();
+        assert!(super::local_access_profile_takeover_needs_sync(
+            &profile,
+            &collection,
+        ));
         super::maintain_local_access_profile(&profile, &collection).unwrap();
         let doc = fs::read_to_string(&config_path).unwrap().parse::<Document>().unwrap();
         assert_eq!(doc["experimental_realtime_ws_base_url"].as_str(), Some(super::build_collection_base_url(&collection).as_str()));
+        assert!(!super::local_access_profile_takeover_needs_sync(
+            &profile,
+            &collection,
+        ));
         fs::remove_dir_all(profile).unwrap();
     }
 }
@@ -34,12 +46,20 @@ async fn passive_takeover_realtime_preserves_explicit_call_override() {
         let doc = fs::read_to_string(&config_path).unwrap().parse::<Document>().unwrap();
         assert_eq!(doc["experimental_realtime_webrtc_call_base_url"].as_str(), Some("https://voice.example.test/v1"));
         assert!(doc.get("experimental_realtime_ws_base_url").is_none());
+        assert!(!super::local_access_profile_takeover_needs_sync(
+            &profile,
+            &collection,
+        ));
         collection.port += 1;
         super::maintain_local_access_profile(&profile, &collection).unwrap();
         let doc = fs::read_to_string(&config_path).unwrap().parse::<Document>().unwrap();
         assert_eq!(doc["experimental_realtime_webrtc_call_base_url"].as_str(), Some("https://voice.example.test/v1"));
         assert!(doc.get("experimental_realtime_ws_base_url").is_none());
         assert_eq!(doc["model_providers"]["codex_local_access"]["base_url"].as_str(), Some(super::build_collection_base_url(&collection).as_str()));
+        assert!(!super::local_access_profile_takeover_needs_sync(
+            &profile,
+            &collection,
+        ));
         fs::remove_dir_all(profile).unwrap();
     }
 }
@@ -62,6 +82,10 @@ async fn passive_takeover_realtime_migrates_only_managed_sideband() {
                 doc["experimental_realtime_ws_base_url"] = toml_edit::value("https://voice.example.test/v1");
                 fs::write(&config_path, doc.to_string()).unwrap();
             }
+            assert!(!super::local_access_profile_takeover_needs_sync(
+                &profile,
+                &collection,
+            ));
             collection.port += 1;
             super::maintain_local_access_profile(&profile, &collection).unwrap();
             let doc = fs::read_to_string(&config_path).unwrap().parse::<Document>().unwrap();
@@ -69,6 +93,10 @@ async fn passive_takeover_realtime_migrates_only_managed_sideband() {
             let expected_sideband = if custom { "https://voice.example.test/v1" } else { next_base.as_str() };
             assert_eq!(doc["experimental_realtime_ws_base_url"].as_str(), Some(expected_sideband));
             assert_eq!(doc["model_providers"]["codex_local_access"]["base_url"].as_str(), Some(next_base.as_str()));
+            assert!(!super::local_access_profile_takeover_needs_sync(
+                &profile,
+                &collection,
+            ));
             fs::remove_dir_all(profile).unwrap();
         }
     }

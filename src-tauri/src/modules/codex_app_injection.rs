@@ -1656,6 +1656,7 @@ fn injection_script(
           if (root.layoutObserver) root.layoutObserver.disconnect();
           root.layoutFooter = null;
           root.layoutPermissions = null;
+          root.visibleModelFooter = null;
           return;
         }}
         if (!host) {{
@@ -1686,7 +1687,8 @@ fn injection_script(
           return null;
         }};
         const contextRect = contextUsageRect();
-        const modelAnchorNode = contextRect ? null : footer.querySelector('[data-composer-navigation-target="reasoning"]');
+        const modelTrigger = [...footer.querySelectorAll('[data-composer-navigation-target="reasoning"]')].find((node) => node.getClientRects().length > 0);
+        const modelAnchorNode = contextRect ? null : modelTrigger;
         const rightAnchorRect = contextRect || (modelAnchorNode ? modelAnchorNode.getBoundingClientRect() : null);
         const permissionsRight = permissionsRect.left + permissionsRect.width;
         const badgeAnchorLeft = rightAnchorRect && rightAnchorRect.left > permissionsRight
@@ -1749,9 +1751,15 @@ fn injection_script(
           if (/^[0-9]/.test(slug)) return 'codex';
           return null;
         }};
+        // 模型和定位必须来自同一聊天框，切换聊天框后不能沿用旧框的模型缓存。
+        if (root.visibleModelFooter !== footer) {{
+          root.visibleModel = null;
+          root.visibleModelAt = 0;
+          root.visibleModelFooter = footer;
+        }}
         const readVisibleModel = () => {{
           const nodes = [];
-          const trigger = document.querySelector('[data-composer-navigation-target="reasoning"]');
+          const trigger = modelTrigger;
           if (trigger) {{
             nodes.push(trigger.querySelector('[class*="ModelPickerTriggerModelLabel_"]'));
             nodes.push(trigger.querySelector('[class*="ModelPickerTriggerModelGroup_"]'));
@@ -1760,13 +1768,13 @@ fn injection_script(
           }}
           // 选择器展开时触发器可能只剩占位文案，当前模型名在弹框里：
           // 只取弹框里的当前模型行，不读列表里的其它模型。
-          const dropdown = document.querySelector('[class*="ModelPickerDropdownContent_"]');
+          const dropdown = [...document.querySelectorAll('[class*="ModelPickerDropdownContent_"]')].find((node) => node.getClientRects().length > 0);
           if (dropdown) {{
             nodes.push(dropdown.querySelector('[data-model-picker-model-row]'));
             nodes.push(dropdown.querySelector('[class*="ViewToggleModelLabel_"]'));
           }}
           for (const node of nodes) {{
-            if (!node) continue;
+            if (!node || node.getClientRects().length === 0) continue;
             const text = String(node.textContent || '').replace(/\s+/g, ' ').trim();
             if (classifyModel(text)) return text;
           }}
@@ -2020,6 +2028,7 @@ fn deepseek_balance_injection_script(
         delete staleQuotaRoot.quotaDetailsOpen;
         delete staleQuotaRoot.layoutFooter;
         delete staleQuotaRoot.layoutPermissions;
+        delete staleQuotaRoot.visibleModelFooter;
       }}
       document.querySelectorAll('[data-cockpit-quota-footer], [data-cockpit-quota-details]').forEach((node) => node.remove());
       const pendingRefreshToken = typeof root.refreshRequestToken === 'string' && root.refreshRequestToken !== handledRefreshToken
@@ -2074,7 +2083,8 @@ fn deepseek_balance_injection_script(
           return null;
         }};
         const contextRect = contextUsageRect();
-        const modelAnchorNode = contextRect ? null : footer.querySelector('[data-composer-navigation-target="reasoning"]');
+        const modelTrigger = [...footer.querySelectorAll('[data-composer-navigation-target="reasoning"]')].find((node) => node.getClientRects().length > 0);
+        const modelAnchorNode = contextRect ? null : modelTrigger;
         const rightAnchorRect = contextRect || (modelAnchorNode ? modelAnchorNode.getBoundingClientRect() : null);
         const permissionsRight = permissionsRect.left + permissionsRect.width;
         const badgeAnchorLeft = rightAnchorRect && rightAnchorRect.left > permissionsRight
