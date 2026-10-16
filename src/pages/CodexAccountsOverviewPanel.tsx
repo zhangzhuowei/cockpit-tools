@@ -21,7 +21,6 @@ import { SingleSelectFilterDropdown } from "../components/SingleSelectFilterDrop
 import { SingleSelectDropdown } from "../components/SingleSelectDropdown";
 import { CODEX_API_PROVIDER_CUSTOM_ID, CODEX_API_PROVIDER_PRESETS, COCKPIT_API_PROVIDER_ID } from "../utils/codexProviderPresets";
 import { formatCodexQuotaPoolPercent, formatCodexQuotaPoolWindowLabel } from "../utils/codexQuotaPool";
-import { CodexLocalAccessRiskNoticeDialog } from "../components/codex/CodexLocalAccessRiskNoticeDialog";
 import { getMfaOtpToken } from "../utils/mfaVault";
 import type { CodexExportFormat } from "../utils/codexExportFormats";
 import type { CodexAccountsViewProps } from "./CodexAccountsView";
@@ -73,7 +72,6 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
     clearTagFilter,
     closeAccountNoteModal,
     closeApiKeyCredentialsModal,
-    closeLocalAccessRiskNotice,
     closeQuickSwitchModal,
     closeResetCreditConfirmModal,
     codexAccountSortOptions,
@@ -228,8 +226,6 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
     localAccessPortKilling,
     localAccessQuotaPoolLabels,
     localAccessQuotaPoolSummary,
-    localAccessRiskNoticeAction,
-    localAccessRiskNoticeRemember,
     localAccessSaving,
     localAccessSidecarRestarting,
     localAccessStarting,
@@ -311,7 +307,6 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
     setGroupDeleteError,
     setGroupQuickAddGroupId,
     setIncludeExportSensitiveNotes,
-    setLocalAccessRiskNoticeRemember,
     setLocalAccessState,
     setMessage,
     setPendingWebSessionImport,
@@ -2411,12 +2406,6 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
             </div>
           )}
 
-          {localAccessRiskNoticeAction && (
-            <CodexLocalAccessRiskNoticeDialog action={localAccessRiskNoticeAction}
-              remember={localAccessRiskNoticeRemember} onRememberChange={setLocalAccessRiskNoticeRemember}
-              onClose={closeLocalAccessRiskNotice} />
-          )}
-
           {resetCreditConfirmAccount && (
             <div className="modal-overlay codex-reset-credit-confirm-overlay">
               <div
@@ -3455,6 +3444,7 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
             isOpen={showLocalAccessModal}
             mode={localAccessModalMode}
             state={localAccessState}
+            onStateChange={setLocalAccessState}
             addressKind={selectedLocalAccessAddressKind}
             addressOptions={localAccessAddressOptions}
             onAddressKindChange={handleLocalAccessAddressKindChange}

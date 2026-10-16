@@ -285,7 +285,17 @@ func (s *relayServer) writeExecutorError(c *gin.Context, err error) {
 			return
 		}
 	}
-	writeAPIError(c, status, errorMessage(err), code)
+	var continuityError continuityControlError
+	if errors.As(err, &continuityError) {
+		c.Data(status, "application/json", []byte(continuityError.Error()))
+		return
+	}
+	message, structured := publicExecutorError(errorMessage(err))
+	if structured {
+		c.Data(status, "application/json", []byte(message))
+		return
+	}
+	writeAPIError(c, status, message, code)
 }
 
 func shouldThrottleDownstreamExecutorError(status int) bool {
@@ -418,15 +428,20 @@ func streamKeepAliveInterval(cfg *config.Config) time.Duration {
 
 func writeStreamTerminalError(c *gin.Context, err error) {
 	status := statusCodeFromError(err)
-	payload, marshalErr := json.Marshal(gin.H{
-		"error": gin.H{
-			"message": errorMessage(err),
-			"type":    "upstream_error",
-			"code":    status,
-		},
-	})
-	if marshalErr != nil {
-		return
+	message, structured := publicExecutorError(errorMessage(err))
+	payload := []byte(message)
+	if !structured {
+		var marshalErr error
+		payload, marshalErr = json.Marshal(gin.H{
+			"error": gin.H{
+				"message": message,
+				"type":    "upstream_error",
+				"code":    status,
+			},
+		})
+		if marshalErr != nil {
+			return
+		}
 	}
 	_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", string(payload))
 }
@@ -448,7 +463,8 @@ func writeStreamTerminalErrorForFormat(c *gin.Context, err error, sourceFormat s
 		return
 	}
 	status := statusCodeFromError(err)
-	eventName, payload := sdkhandlers.BuildOpenAIResponsesStreamTerminalEvent(status, err, 0)
+	message, _ := publicExecutorError(errorMessage(err))
+	eventName, payload := sdkhandlers.BuildOpenAIResponsesStreamTerminalEvent(status, errors.New(message), 0)
 	_, _ = fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", eventName, string(payload))
 }
 
@@ -463,6 +479,10 @@ const (
 type relayStreamFramer struct {
 	mode      relayStreamFrameMode
 	responses responsesSSEFramer
+	chat      bool
+	done      bool
+	failed    bool
+	choices   map[int64]bool
 }
 
 func newRelayStreamFramer(sourceFormat sdktranslator.Format, path string) *relayStreamFramer {
@@ -476,7 +496,7 @@ func newRelayStreamFramer(sourceFormat sdktranslator.Format, path string) *relay
 	if strings.HasPrefix(strings.Split(path, "?")[0], "/v1/responses") {
 		mode = relayStreamFrameResponses
 	}
-	return &relayStreamFramer{mode: mode}
+	return &relayStreamFramer{mode: mode, chat: mode == relayStreamFrameOpenAI && sourceFormat == sdktranslator.FormatOpenAI}
 }
 
 func (f *relayStreamFramer) Write(w io.Writer, chunk []byte) error {
@@ -487,6 +507,34 @@ func (f *relayStreamFramer) Write(w io.Writer, chunk []byte) error {
 	case relayStreamFrameResponses:
 		return f.responses.WriteChunk(w, normalizeResponsesInputChunk(f.responses.HasPending(), chunk))
 	case relayStreamFrameOpenAI:
+		if f.chat {
+			payload, _ := responsesSSEDataPayload(chunk)
+			if bytes.Equal(bytes.TrimSpace(payload), []byte("[DONE]")) {
+				if f.done {
+					return nil
+				}
+				f.done = true
+			} else {
+				var value struct {
+					Error   json.RawMessage `json:"error"`
+					Choices []struct {
+						Index        int64   `json:"index"`
+						FinishReason *string `json:"finish_reason"`
+					} `json:"choices"`
+				}
+				if json.Unmarshal(payload, &value) == nil {
+					if len(value.Error) != 0 && string(value.Error) != "null" {
+						f.failed = true
+					}
+					if f.choices == nil {
+						f.choices = make(map[int64]bool)
+					}
+					for _, choice := range value.Choices {
+						f.choices[choice.Index] = f.choices[choice.Index] || choice.FinishReason != nil && *choice.FinishReason != ""
+					}
+				}
+			}
+		}
 		_, err := w.Write(frameOpenAIStreamChunk(chunk))
 		return err
 	default:
@@ -498,6 +546,17 @@ func (f *relayStreamFramer) Write(w io.Writer, chunk []byte) error {
 func (f *relayStreamFramer) Close(w io.Writer) error {
 	if f.mode == relayStreamFrameResponses {
 		return f.responses.Flush(w)
+	}
+	if f.chat && !f.done && !f.failed && len(f.choices) > 0 {
+		for _, complete := range f.choices {
+			if !complete {
+				return nil
+			}
+		}
+		if _, err := io.WriteString(w, "data: [DONE]\n\n"); err != nil {
+			return err
+		}
+		f.done = true
 	}
 	return nil
 }

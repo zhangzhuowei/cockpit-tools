@@ -3121,20 +3121,16 @@ async fn codex_start_instance_internal(
         let launch_started = Instant::now();
         ensure_codex_instance_start_not_cancelled(&instance_id)?;
         let launch_args = injection_plan.args.clone();
+        let prepared_home = default_dir.clone();
         // Package registration, activation and PID confirmation can wait on
         // Windows services. Keep that synchronous work off the async runtime.
         let pid = tauri::async_runtime::spawn_blocking(move || {
-            if skip_default_bind_account_injection {
-                modules::process::start_codex_default_fast_after_close_with_egress(
-                    &launch_args,
-                    &launch_proxy,
-                )
-            } else {
-                modules::process::start_codex_default_with_egress(
-                    &launch_args,
-                    &launch_proxy,
-                )
-            }
+            modules::process::start_codex_default_prepared_with_egress(
+                &launch_args,
+                &prepared_home,
+                skip_default_bind_account_injection,
+                &launch_proxy,
+            )
         })
         .await
         .map_err(|error| format!("Codex launch worker failed: {error}"))??;

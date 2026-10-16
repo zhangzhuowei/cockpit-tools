@@ -692,8 +692,8 @@
       "autoSyncThreadsDesc": "Tắt để giữ phiên của nhiều instance tách biệt. Khi bật, việc mở hoặc đóng instance sẽ tự gộp bản ghi phiên cục bộ chỉ sau khi mọi instance Codex đã dừng.",
       "modelRouting": {
         "title": "Định tuyến API của bên thứ ba",
-        "summary": "Các mô hình không có tiền tố sử dụng gói đăng ký hiện tại; các mô hình có tiền tố như cpa/gpt-5.5 được chuyển tiếp đến API của bên thứ ba. Cả hai đều phụ thuộc vào dịch vụ định tuyến cục bộ.",
-        "rowSummary": "Các mô hình không có tiền tố sử dụng gói đăng ký hiện tại; các mô hình có tiền tố như cpa/gpt-5.5 được chuyển tiếp đến API của bên thứ ba. Cả hai đều phụ thuộc vào dịch vụ định tuyến cục bộ.",
+        "summary": "Các mô hình không có tiền tố sử dụng gói đăng ký hiện tại; các mô hình có tiền tố như cpa/gpt-5.6-sol được chuyển tiếp đến API của bên thứ ba. Cả hai đều phụ thuộc vào dịch vụ định tuyến cục bộ.",
+        "rowSummary": "Các mô hình không có tiền tố sử dụng gói đăng ký hiện tại; các mô hình có tiền tố như cpa/gpt-5.6-sol được chuyển tiếp đến API của bên thứ ba. Cả hai đều phụ thuộc vào dịch vụ định tuyến cục bộ.",
         "confirmEnableTitle": "Bật định tuyến API của bên thứ ba?",
         "confirmEnableMessage": "Các yêu cầu mô hình Codex sẽ được định tuyến qua dịch vụ Cockpit Tools cục bộ. Nếu dịch vụ không chạy, cả mô hình đăng ký và bên thứ ba có thể không khả dụng.\n\nBật định tuyến?",
         "confirmEnableAction": "Bật",
@@ -1911,6 +1911,9 @@
     "clearSelection": "Bỏ chọn",
     "switched": "Đã chuyển sang {{email}}",
     "switchFailed": "Chuyển đổi thất bại: {{error}}",
+    "antigravitySwitchBusy": "Đang chuyển tài khoản Antigravity. Vui lòng thử lại sau ít phút.",
+    "antigravitySwitchPrepareTimeout": "Quá trình chuẩn bị tài khoản Antigravity đã hết thời gian. Vui lòng thử lại.",
+    "antigravitySwitchStateSaveFailed": "Thông tin xác thực của ứng dụng khách đã được chuyển, nhưng không lưu được trạng thái tài khoản cục bộ: {{error}}. Hãy thử chuyển lại.",
     "antigravityLegacyUnsupported": "Antigravity 2.0.0 trở lên không được hỗ trợ tại đây. Hãy chọn phiên bản Antigravity thấp hơn 2.0.0 hoặc dùng Antigravity IDE.",
     "importSuccess": "Nhập thành công {{count}} tài khoản",
     "importLocalSuccess": "Nhập thành công tài khoản: {{email}}",
@@ -2368,6 +2371,8 @@
       "configRefreshing": "Đang kiểm tra cấu hình phiên bản. Bạn vẫn có thể xem thông tin hiện có.",
       "configLoadTimeout": "Đã hết thời gian tải cấu hình phiên bản. Vui lòng thử lại.",
       "configChanged": "Cấu hình phiên bản đã được thay đổi ở nơi khác. Hãy tải lại trước khi lưu hoặc khởi chạy.",
+      "reloadConfig": "Tải lại",
+      "contextReloadHint": "Tải lại sẽ thay thế cài đặt chưa lưu. Hãy kiểm tra lại trước khi áp dụng.",
       "accessModeTitle": "Chế độ khởi động",
       "prosLabel": "Ưu điểm:",
       "consLabel": "Nhược điểm:",
@@ -2706,14 +2711,6 @@
       "hideEntryEffectHide": "Ẩn mục Dịch vụ API khỏi phần tổng quan",
       "hideEntryEffectDisable": "Tắt dịch vụ API hiện tại",
       "hideEntryEffectRestore": "Bạn có thể bật lại trong Cài đặt Codex hoặc Cài đặt nhanh",
-      "riskNotice": {
-        "title": "Lưu ý rủi ro",
-        "message": "Việc sử dụng tài khoản chính thức thông thường qua proxy ngược hoặc chuyển tiếp có thể chịu các hạn chế nghiêm ngặt từ dịch vụ chính thức. Cách sử dụng này cũng có thể bị nhận diện là chuyển tiếp và ảnh hưởng đến chất lượng câu trả lời (“giảm trí thông minh”). Hãy sử dụng thận trọng, nhất là khi có nhiều tài khoản.",
-        "remember": "Tôi đã hiểu, đừng nhắc lại",
-        "acknowledge": "Tôi đã hiểu",
-        "continueStart": "Tiếp tục",
-        "continueSwitch": "Tiếp tục"
-      },
       "statsRange": {
         "label": "Khoảng thống kê",
         "daily": "Ngày",
@@ -2850,6 +2847,18 @@
       "gatewayModeNewLabel": "Dich vu API-Moi",
       "gatewayModeOldLabel": "Dich vu API-Cu",
       "gatewayModeSaveSuccess": "Da cap nhat che do cong cua dich vu API",
+      "gatewayEngineNative": "Rust gốc",
+      "gatewayEngineSidecar": "Go (hiện tại)",
+      "gatewayEngineHint": "Rust là bộ máy mặc định. Lần nâng cấp đầu tiên sẽ chuyển sang Rust; các lựa chọn sau đó được giữ lại. Chuyển đổi sẽ khởi động lại dịch vụ API và có thể ngắt yêu cầu đang chạy; cửa sổ Codex vẫn mở.",
+      "gatewayEngineSwitching": "Đang chuyển bộ máy…",
+      "gatewayEngineSwitchFailed": "Không thể chuyển bộ máy: {{error}}",
+      "gatewayEngineReadbackFailed": "Chưa xác nhận được bộ máy hiện tại. Hãy làm mới trước khi thử lại: {{error}}",
+      "gatewayEngineReadbackTimeout": "Làm mới trạng thái đã hết thời gian",
+      "gatewayEngineRequestsBusy": "Vẫn có yêu cầu đang chạy. Hãy thử lại sau khi hoàn tất.",
+      "gatewayEngineOperationBusy": "Dịch vụ đang thực hiện thao tác khác. Hãy thử lại sau ít phút.",
+      "gatewayEngineSwitchRestored": "Chuyển đổi thất bại. Đã khôi phục bộ máy trước đó.",
+      "gatewayEngineRestoreFailed": "Chuyển đổi thất bại và không thể khôi phục bộ máy trước đó. Hãy kiểm tra trạng thái dịch vụ trước khi thử lại.",
+      "gatewayEngineStopped": "Dịch vụ API đã dừng. Hãy khởi động lại trước khi thử lại.",
       "gatewayGuideTitle": "Đổi cổng tại đây",
       "gatewayGuideDesc": "Mặc định dùng cổng mới. Nếu gặp vấn đề tương thích hoặc lỗi yêu cầu từ client, bạn có thể chuyển về cổng cũ tại đây.",
       "gatewayGuideAction": "Đã hiểu",
@@ -2937,7 +2946,7 @@
       "imageGenerationMainModel": {
         "label": "Mô hình chính tạo ảnh",
         "notice": "Không đổi mô hình chính tạo ảnh khi sử dụng thông thường.",
-        "hint": "Chỉ dùng để chuyển tiếp yêu cầu đến dịch vụ ảnh chính thức, không dùng để chọn mô hình tạo ảnh. Chỉ cập nhật thủ công khi mô hình chính của dịch vụ thay đổi. Để trống để dùng gpt-5.5.",
+        "hint": "Chỉ dùng để chuyển tiếp yêu cầu đến dịch vụ ảnh chính thức, không dùng để chọn mô hình tạo ảnh. Chỉ cập nhật thủ công khi mô hình chính của dịch vụ thay đổi. Để trống để dùng gpt-5.6-luna.",
         "invalid": "Nhập ID mô hình không có khoảng trắng, tối đa 200 ký tự."
       },
       "requestDetail": {
@@ -4009,7 +4018,7 @@
       },
       "vision": {
         "providerDefault": "Nhà cung cấp này mặc định hỗ trợ nhập ảnh",
-        "providerDefaultHint": "Mô hình chưa có cài đặt riêng dùng giá trị mặc định này; GPT-5.5 trở lên mặc định hỗ trợ ảnh. Có thể tắt từng mô hình trong danh sách. Nếu cổng không tìm thấy mô hình hỗ trợ ảnh, ảnh sẽ bị bỏ qua và văn bản tiếp tục được xử lý.",
+        "providerDefaultHint": "Mô hình chưa có cài đặt riêng dùng giá trị mặc định này; các mô hình như GPT-5.6 Sol và GPT-5.6 Luna mặc định hỗ trợ ảnh. Có thể tắt từng mô hình trong danh sách. Nếu cổng không tìm thấy mô hình hỗ trợ ảnh, ảnh sẽ bị bỏ qua và văn bản tiếp tục được xử lý.",
         "modelsHint": "Mỗi dòng một mẫu. Dùng khi chỉ một số mẫu của nhà cung cấp hỗ trợ ảnh dán vào.",
         "routingModelHint": "Khi mô hình hiện tại không đọc được ảnh, cổng dùng mô hình này. Để trống để dùng mô hình hỗ trợ ảnh duy nhất nếu có; nếu không, ảnh bị bỏ qua và văn bản tiếp tục được xử lý.",
         "allModels": "Ảnh",
@@ -5091,7 +5100,7 @@
       "restoreEntry": "Khôi phục chuyển tiếp",
       "restoringEntry": "Đang khôi phục…",
       "restoreEntryFailed": "Không thể khôi phục chuyển tiếp proxy cho máy tính. Vui lòng thử lại.",
-      "restoreEntryPortBusy": "Cổng proxy ban đầu đang được sử dụng. Hãy giải phóng cổng rồi thử lại; ứng dụng máy tính không thể tự động đổi sang cổng khác.",
+      "restoreEntryPortBusy": "Không thể liên kết cổng proxy ban đầu; cổng có thể đang được sử dụng hoặc được hệ thống dành riêng. Giải phóng cổng rồi thử lại, hoặc khởi động lại ứng dụng khách qua Cockpit để cấp điểm vào khả dụng.",
       "restoreEntryNotRunning": "Không tìm thấy ứng dụng máy tính đang chạy sử dụng đầu vào proxy đã ghi thuộc phiên bản Cockpit này.",
       "restoreEntryBusy": "Proxy đang được khôi phục. Vui lòng thử lại sau ít phút.",
       "restoreEntryTimeout": "Khôi phục proxy đã hết thời gian chờ. Vui lòng thử lại.",
@@ -5564,6 +5573,22 @@
         "gateway": "HTTP 504 là lỗi hết thời gian chờ cổng. Bản ghi chưa xác định nguyên nhân; xem lỗi máy chủ nguồn và giai đoạn yêu cầu.",
         "threshold": "Ngưỡng áp dụng cho yêu cầu này: {{seconds}} giây.",
         "settings": "Chỉnh thời gian chờ"
+      },
+      "identity": {
+        "title": "Danh tính phiên và tài khoản",
+        "client": "Yêu cầu máy khách",
+        "upstreamAttempt": "Gửi đi #{{sequence}}",
+        "notProvided": "Không cung cấp",
+        "notCaptured": "Chưa ghi nhận",
+        "notSent": "Chưa thử gửi",
+        "hint": "Ghi lại tiêu đề định danh và hồ sơ cục bộ của tài khoản được chọn tại thời điểm yêu cầu. Không xác nhận máy chủ đã nhận. Độc lập với ghi nội dung; không bổ sung yêu cầu cũ.",
+        "copyHeader": "Sao chép {{header}}",
+        "profileTitle": "Hồ sơ danh tính",
+        "profileInstallationId": "ID cài đặt",
+        "profileScope": "Phạm vi",
+        "profileVersion": "Phiên bản",
+        "profileRevision": "Bản sửa đổi",
+        "profileHint": "Ảnh chụp cục bộ của tài khoản được chọn; tiêu đề thực tế đã dùng được liệt kê ở trên."
       }
     },
     "experimentalModels": {
@@ -7465,6 +7490,8 @@
     },
     "quota": {
       "weekly": "Mức dùng hằng tuần",
+      "sharedPool": "Hạn mức chung",
+      "monthly": "Mức dùng tháng",
       "onDemand": "Mức dùng theo nhu cầu",
       "balance": "Số dư và tín dụng",
       "included": "Mức dùng trong gói",

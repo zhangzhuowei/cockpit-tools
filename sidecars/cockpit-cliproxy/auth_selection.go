@@ -1651,6 +1651,32 @@ func errorCategory(status int, body string, success bool) string {
 	if success {
 		return ""
 	}
+	// Explicit upstream codes take precedence over transport text such as
+	// unexpected EOF, which can also describe a disconnected downstream client.
+	var envelope struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+		Response struct {
+			Error struct {
+				Code string `json:"code"`
+			} `json:"error"`
+		} `json:"response"`
+	}
+	if json.Unmarshal([]byte(body), &envelope) == nil {
+		code := strings.TrimSpace(envelope.Error.Code)
+		if code == "" {
+			code = strings.TrimSpace(envelope.Response.Error.Code)
+		}
+		switch strings.ToLower(code) {
+		case "upstream_stream_error":
+			return "upstream_stream_error"
+		case "incomplete_upstream_stream":
+			return "incomplete_upstream_stream"
+		case "request_timeout":
+			return "upstream_stream_timeout"
+		}
+	}
 	lower := strings.ToLower(body)
 	switch {
 	case strings.Contains(lower, "upstream timed out in stream_open") ||

@@ -21,9 +21,22 @@ include!("codex_local_access_image_model_catalog.rs");
 include!("codex_local_access_model_config_transfer.rs");
 include!("codex_local_access_account_references.rs");
 include!("codex_local_access_key_recovery.rs");
+include!("codex_local_access_sidecar_retirement.rs");
 include!("codex_local_access_gateway_runtime.rs");
+include!("codex_local_access_native.rs");
+include!("codex_local_access_native_usage.rs");
+include!("codex_local_access_native_catalog.rs");
+include!("codex_local_access_continuity.rs");
+include!("codex_local_access_sidecar_continuity.rs");
+include!("codex_local_access_native_transport.rs");
+include!("codex_local_access_direct_identity.rs");
+include!("codex_local_access_native_routes.rs");
+include!("codex_local_access_native_images.rs");
+include!("codex_local_access_native_diagnostics.rs");
+include!("codex_local_access_native_profiles.rs");
 include!("codex_local_access_service_tier_control.rs");
 include!("codex_local_access_provider_gateway.rs");
+include!("codex_local_access_provider_lifecycle.rs");
 include!("codex_local_access_provider_auth_sync.rs");
 include!("codex_local_access_instance_gateways.rs");
 include!("codex_local_access_probe_chat.rs");
@@ -32,9 +45,13 @@ include!("codex_pelican_provider_transport.rs");
 include!("codex_local_access_commands.rs");
 include!("codex_local_access_http.rs");
 // The retired in-process WebSocket gateway is retained only as a test oracle.
-// Production traffic is handled by the bundled CLIProxyAPI sidecar.
+// Production traffic is handled by the native engine or the optional CLIProxyAPI sidecar.
 #[cfg(test)]
 include!("codex_local_access_recovery.rs");
+
+#[cfg(test)]
+#[path = "codex_local_access_gateway_default_tests.rs"]
+mod gateway_default_tests;
 
 #[cfg(test)]
 mod tests {
@@ -55,6 +72,7 @@ mod tests {
     }
     include!("codex_local_access_tests_automatic_routing.rs");
     include!("codex_local_access_tests_sidecar_gateway.rs");
+    include!("codex_local_access_tests_shared_api_identity.rs");
     include!("codex_local_access_tests_pool_failure_dismissal.rs");
     include!("codex_local_access_tests_proxy.rs");
     include!("codex_local_access_tests_provider_auth_sync.rs");

@@ -1854,7 +1854,7 @@ export function buildCursorAccountPresentation(
     id: account.id,
     displayName: getCursorAccountDisplayEmail(account),
     planLabel,
-    planClass: getCursorPlanBadgeClass(account.membership_type, account),
+    planClass: getCursorPlanBadgeClass(account.membership_type?.trim() || account.plan_type, account),
     isBanned: isCursorAccountBanned(account),
     quotaItems,
   };
@@ -1868,7 +1868,7 @@ export function buildGrokAccountPresentation(
   const quotaItems: UnifiedQuotaMetric[] = getGrokQuotaSummaryItems(account, t).map(
     (item) => {
       const usedPercent = clampPercent(item.percentage);
-      const remaining = clampPercent(100 - usedPercent);
+      const remaining = clampPercent(100 - Math.floor(usedPercent));
       const amountText = formatGrokQuotaUsedTotal(item.used, item.total);
       const left =
         item.used != null && item.total != null

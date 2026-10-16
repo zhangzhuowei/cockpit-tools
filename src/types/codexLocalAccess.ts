@@ -3,7 +3,8 @@ export type CodexLocalAccessScope = "localhost" | "lan";
 export type CodexLocalAccessClientBaseUrlHost = "localhost" | "127.0.0.1";
 export type CodexLocalAccessImageGenerationMode =
   "enabled" | "images_only" | "disabled";
-export type CodexLocalAccessGatewayMode = "legacy" | "sidecar";
+export type CodexLocalAccessGatewayMode = "legacy" | "sidecar" | "native";
+
 export type CodexLocalAccessRequestKind =
   "text" | "image_generation" | "image_edit" | "other";
 export type CodexLocalAccessImageGenerationStatus =
@@ -133,6 +134,7 @@ export interface CodexLocalAccessCollection {
   imageGenerationAccountIds?: string[];
   imageGenerationAccountModels?: Record<string, string>;
   gatewayMode: CodexLocalAccessGatewayMode;
+  nativeGatewayDefaultMigrated?: boolean;
   upstreamProxyUrl?: string | null;
   routingStrategy: CodexLocalAccessRoutingStrategy;
   customRoutingRules: CodexLocalAccessCustomRoutingRule[];
@@ -349,6 +351,21 @@ export interface CodexLocalAccessRequestAttempt {
   errorCategory?: string | null;
   errorMessage?: string | null;
   failurePhase?: string | null;
+  /** Actual headers prepared for this upstream attempt, independent of body recording. */
+  upstreamIdentityCaptured?: boolean;
+  upstreamSessionId?: string | null;
+  upstreamThreadId?: string | null;
+  /** Additional headers were observed separately from legacy Session/Thread capture. */
+  upstreamIdentityMetadataCaptured?: boolean;
+  upstreamInstallationId?: string | null;
+  upstreamChatgptAccountId?: string | null;
+  /** Local selected-account snapshot, not proof that any header was sent. */
+  accountIdentity?: {
+    version: number;
+    scope: string;
+    installationId: string;
+    revision: number;
+  } | null;
 }
 
 export interface CodexLocalAccessRequestPayload {
@@ -367,6 +384,13 @@ export interface CodexLocalAccessRequestDetail {
   requestId: string;
   firstResponseMs?: number | null;
   failurePhase?: string | null;
+  /** Absent/false on historical records; never inferred from body or requestId. */
+  clientIdentityCaptured?: boolean;
+  clientSessionId?: string | null;
+  clientThreadId?: string | null;
+  clientIdentityMetadataCaptured?: boolean;
+  clientInstallationId?: string | null;
+  clientChatgptAccountId?: string | null;
   attempts: CodexLocalAccessRequestAttempt[];
   payloads: CodexLocalAccessRequestPayload[];
   capturedAtMs: number;

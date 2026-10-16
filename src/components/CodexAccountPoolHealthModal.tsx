@@ -126,11 +126,14 @@ function formatCooldown(
     hour: "2-digit",
     minute: "2-digit",
   });
-  return t("codex.localAccess.accountPoolHealth.dialog.cooldownUntil", {
+  const until = t("codex.localAccess.accountPoolHealth.dialog.cooldownUntil", {
     model,
     time,
     defaultValue: "模型 {{model}} 冷却至 {{time}}",
   });
+  return cooldown.reason === "transient_upstream"
+    ? `${until} · ${t("codex.localAccess.accountPoolHealth.dialog.upstreamDetail")}`
+    : until;
 }
 
 type PoolMemberStatus =
@@ -138,6 +141,7 @@ type PoolMemberStatus =
 
 function isRecoverableReason(reason: string | null | undefined): boolean {
   return ![
+    "state_refreshing",
     "disabled",
     "missing",
     "quota_reserved",
@@ -353,6 +357,8 @@ export function CodexAccountPoolHealthModal({
       );
     }
     switch (issue.health?.schedulerReason) {
+      case "state_refreshing":
+        return t("common.loading");
       case "payment_required":
         return t(
           "codex.localAccess.accountPoolHealth.dialog.paymentDetail",

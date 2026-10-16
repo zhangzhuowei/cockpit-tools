@@ -6,20 +6,19 @@ use crate::models::codex::{
 use crate::models::codex_local_access::{
     CodexInstanceGatewayView, CodexLocalAccessAccountCooldown, CodexLocalAccessAccountHealth,
     CodexLocalAccessAccountModelRule, CodexLocalAccessAccountPoolHealth,
-    CodexLocalAccessAccountPoolMemberHealth, CodexLocalAccessAccountStats,
-    CodexLocalAccessAccountPoolScopeDiagnostic,
-    CodexLocalAccessAccountWindowQuery, CodexLocalAccessAccountWindowStats, CodexLocalAccessApiKey,
-    CodexLocalAccessApiKeyStats, CodexLocalAccessAppendAccountSkipped,
-    CodexLocalAccessAppendAccountsResult, CodexLocalAccessChatMessage, CodexLocalAccessChatResult,
-    CodexLocalAccessClientBaseUrlHost, CodexLocalAccessCollection,
-    CodexLocalAccessCustomRoutingRule, CodexLocalAccessGatewayMode,
+    CodexLocalAccessAccountPoolMemberHealth, CodexLocalAccessAccountPoolScopeDiagnostic,
+    CodexLocalAccessAccountStats, CodexLocalAccessAccountWindowQuery,
+    CodexLocalAccessAccountWindowStats, CodexLocalAccessApiKey, CodexLocalAccessApiKeyStats,
+    CodexLocalAccessAppendAccountSkipped, CodexLocalAccessAppendAccountsResult,
+    CodexLocalAccessChatMessage, CodexLocalAccessChatResult, CodexLocalAccessClientBaseUrlHost,
+    CodexLocalAccessCollection, CodexLocalAccessCustomRoutingRule, CodexLocalAccessGatewayMode,
     CodexLocalAccessImageGenerationMode, CodexLocalAccessImageGenerationPolicy,
     CodexLocalAccessImageGenerationStatus, CodexLocalAccessModelAlias,
     CodexLocalAccessModelPricing, CodexLocalAccessModelRoute, CodexLocalAccessModelRouting,
     CodexLocalAccessModelStats, CodexLocalAccessPortCleanupResult,
-    CodexLocalAccessProfileAttachment, CodexLocalAccessProviderGateway, CodexLocalAccessProxyRoute,
-    CodexLocalAccessProviderGatewayModelCapability, CodexLocalAccessQuotaReserve,
-    CodexLocalAccessQuotaReserveStatus, CodexLocalAccessRequestKind,
+    CodexLocalAccessProfileAttachment, CodexLocalAccessProviderGateway,
+    CodexLocalAccessProviderGatewayModelCapability, CodexLocalAccessProxyRoute,
+    CodexLocalAccessQuotaReserve, CodexLocalAccessQuotaReserveStatus, CodexLocalAccessRequestKind,
     CodexLocalAccessRoutingStrategy, CodexLocalAccessScope, CodexLocalAccessState,
     CodexLocalAccessStats, CodexLocalAccessStatsWindow, CodexLocalAccessTestFailure,
     CodexLocalAccessTestResult, CodexLocalAccessTimeoutPreset, CodexLocalAccessTimeouts,
@@ -29,8 +28,8 @@ use crate::models::codex_local_access::{
 };
 use crate::models::{CodexInstanceApiRoute, CodexInstanceModelRouting};
 use crate::modules::atomic_write::{
-    update_string_atomic, write_secret_string_atomic, write_secret_string_atomic_if_changed, write_string_atomic,
-    write_string_atomic_if_hash_matches,
+    update_string_atomic, write_secret_string_atomic, write_secret_string_atomic_if_changed,
+    write_string_atomic, write_string_atomic_if_hash_matches,
 };
 use crate::modules::{
     account, codex_account, codex_agent_identity, codex_oauth, codex_protocol, codex_quota,
@@ -260,16 +259,12 @@ const CODEX_LOCAL_ACCESS_SIDECAR_DIR: &str = "codex_local_access_sidecar";
 const CODEX_PROVIDER_GATEWAY_SIDECAR_DIR: &str = "codex_provider_gateway_sidecars";
 // Official client shells used for provider model display. Prefer list-friendly models first.
 // This is not a hard client limit; it is our reusable full-template pool for mapping.
-const CODEX_PROVIDER_MODEL_SHELL_POOL: &[&str] = &[
-    "gpt-5.6-sol",
-    "gpt-5.6-terra",
-    "gpt-5.6-luna",
-    "gpt-5.5",
-];
+const CODEX_PROVIDER_MODEL_SHELL_POOL: &[&str] = &["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"];
 // Keep the GPT-6 family available as identity-preserving shells when an upstream
 // account already exposes those exact models, without assigning them to unrelated
-// overflow models.
-const CODEX_PROVIDER_IDENTITY_ONLY_MODEL_IDS: &[&str] = &["gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"];
+// overflow models. The retired model remains valid only for explicit API providers.
+const CODEX_PROVIDER_IDENTITY_ONLY_MODEL_IDS: &[&str] =
+    &["gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.5"];
 const CODEX_PROVIDER_GATEWAY_STATE_FILE: &str = "state.json";
 const CODEX_LOCAL_ACCESS_SIDECAR_CONFIG_FILE: &str = "config.json";
 const CODEX_LOCAL_ACCESS_SIDECAR_MANIFEST_FILE: &str = "manifest.json";
@@ -363,7 +358,7 @@ const RESPONSE_AFFINITY_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 const MAX_RESPONSE_AFFINITY_BINDINGS: usize = 4096;
 const PREPARED_ACCOUNT_CACHE_TTL_MS: i64 = 30 * 1000;
 const STATE_RECENT_USAGE_EVENT_LIMIT: usize = 100;
-const DEFAULT_MODEL_PRICING_VERSION: u64 = 5;
+const DEFAULT_MODEL_PRICING_VERSION: u64 = 6;
 const MODEL_PRICING_REPRICE_BATCH_SIZE: i64 = 1_000;
 const MODEL_PRICING_REPRICE_PARALLEL_MIN_ROWS: usize = 2_000;
 const LOCAL_ACCESS_LOGS_DB_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -413,7 +408,7 @@ const CODEX_OFFICIAL_EMPTY_HEADERS: &[&str] = &[
     "thread-id",
     "x-codex-window-id",
 ];
-const ADDITIONAL_DEFAULT_CODEX_MODELS: &[&str] = &["gpt-5.5"];
+const ADDITIONAL_DEFAULT_CODEX_MODELS: &[&str] = &[];
 const CODEX_IMAGE_MODEL_ID: &str = "gpt-image-2.5";
 const LEGACY_CODEX_IMAGE_MODEL_ID: &str = "gpt-image-2";
 const CODEX_GPT_RESERVE_MODEL_ID: &str = "gpt-reserve";
@@ -430,9 +425,17 @@ const LOCAL_GATEWAY_VISIBLE_GPT_MODELS: &[(&str, &str)] = &[
     ("gpt-5.6-sol", "GPT-5.6 Sol"),
     ("gpt-5.6-terra", "GPT-5.6 Terra"),
     ("gpt-5.6-luna", "GPT-5.6 Luna"),
-    ("gpt-5.5", "GPT-5.5"),
 ];
-const DEFAULT_IMAGES_MAIN_MODEL: &str = "gpt-5.5";
+const DEFAULT_IMAGES_MAIN_MODEL: &str = "gpt-5.6-luna";
+
+fn effective_image_generation_main_model(model: Option<&str>) -> &str {
+    let model = model.map(str::trim).unwrap_or_default();
+    if model.is_empty() || model.eq_ignore_ascii_case("gpt-5.5") {
+        DEFAULT_IMAGES_MAIN_MODEL
+    } else {
+        model
+    }
+}
 const MAX_MODEL_PRICE_USD_PER_MILLION: f64 = 1_000_000.0;
 const CODEX_LOCAL_ACCESS_LONG_CONTEXT_THRESHOLD_TOKENS: u64 = 272_000;
 /// Long-context input multiplier (OpenAI above-272k rates).
@@ -663,6 +666,9 @@ struct GatewayRuntime {
     sidecar_monitor_task: Option<tokio::task::JoinHandle<()>>,
     sidecar_generation: Option<u64>,
     sidecar_child: Option<Child>,
+    native_handle: Option<crate::modules::codex_native_api::Handle>,
+    // Weak observation of the running scheduler; never keeps a stopped engine alive.
+    native_health_source: Option<std::sync::Weak<NativeHostBridge>>,
 }
 
 #[derive(Default)]
@@ -713,6 +719,7 @@ struct ProviderGatewayRuntime {
     actual_bind_host: Option<String>,
     task: Option<tokio::task::JoinHandle<()>>,
     sidecar_child: Option<Child>,
+    native_handle: Option<crate::modules::codex_native_api::Handle>,
     sidecar_dir: Option<PathBuf>,
     collection: Option<CodexLocalAccessCollection>,
     oauth_account_ids: Vec<String>,
@@ -1744,7 +1751,14 @@ fn preserve_runtime_collection_fields(
 ) {
     // Only the dedicated settings command changes this field after initial load.
     collection.request_payload_logging = current.request_payload_logging;
-    if collection.image_generation_model_catalog_revision <= current.image_generation_model_catalog_revision {
+    // Image main-model choices use their own field transaction, like the catalog.
+    // A delayed usage/settings snapshot must not restore the retired default.
+    collection.image_generation_main_model =
+        normalize_image_generation_main_model(current.image_generation_main_model.clone())
+            .unwrap_or(None);
+    if collection.image_generation_model_catalog_revision
+        <= current.image_generation_model_catalog_revision
+    {
         copy_image_model_catalog_fields(collection, current);
     }
     for api_key in &mut collection.api_keys {
@@ -1758,10 +1772,21 @@ fn sync_runtime_collection(
     runtime: &mut GatewayRuntime,
     mut collection: CodexLocalAccessCollection,
 ) {
+    collection.image_generation_main_model =
+        normalize_image_generation_main_model(collection.image_generation_main_model.clone())
+            .unwrap_or(None);
     if let Some(current) = runtime.collection.as_ref() {
         preserve_runtime_collection_fields(&mut collection, current);
+        collection.native_gateway_default_migrated |= current.native_gateway_default_migrated;
+        if current.gateway_mode != CodexLocalAccessGatewayMode::Legacy {
+            collection.gateway_mode = current.gateway_mode;
+        }
     }
     REQUEST_PAYLOAD_LOGGING_ENABLED.store(collection.request_payload_logging, Ordering::SeqCst);
+    if let Some(handle) = runtime.native_handle.as_ref() {
+        handle.set_cooling_disabled(collection.disable_cooling);
+        handle.set_session_affinity_enabled(collection.session_affinity);
+    }
     // Start the maintenance thread without waiting for SQLite/schema/body cleanup.
     let _ = request_diagnostics_writer();
     ensure_request_diagnostics_poller_started();
@@ -2359,11 +2384,7 @@ pub async fn run_official_wakeup_chat(
         "store": false,
         "stream": true,
     });
-    let body = serde_json::to_vec(&request_body)
-        .map_err(|e| format!("序列化 API 直连唤醒请求失败: {}", e))?;
-    let mut headers = HashMap::new();
-    headers.insert("accept".to_string(), "text/event-stream".to_string());
-    headers.insert("content-type".to_string(), "application/json".to_string());
+    let (body, mut headers) = direct_codex_request(request_body)?;
     for header in CODEX_OFFICIAL_EMPTY_HEADERS {
         headers
             .entry((*header).to_string())
@@ -2606,7 +2627,7 @@ fn local_gateway_visible_gpt_model_definitions() -> Vec<(String, String)> {
 
 /// API 服务对外展示的模型清单：官方推荐 GPT 集 + 客户端内部需要的隐藏模型。
 ///
-/// 5.5 之前的型号不再由内置清单自动加入；显式配置的供应商模型仍按其目录处理。
+/// 退役型号不再由内置清单自动加入；显式配置的供应商模型仍按其目录处理。
 fn api_service_supported_codex_model_ids() -> Vec<String> {
     if let Some(experimental) = api_service_experimental_model_catalog() {
         return experimental;

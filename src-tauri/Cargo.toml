@@ -14,6 +14,11 @@ crate-type = ["staticlib", "rlib"]
 tauri-build = { version = "2", features = [] }
 swift-rs = { version = "1.0.7", features = ["build"] }
 
+[dev-dependencies]
+hyper = { version = "1", features = ["server", "http2"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+tempfile = "3"
+
 [dependencies]
 tauri = { version = "2", features = ["macos-private-api", "tray-icon", "image-png", "unstable"] }
 # Reuse Tauri's web engine without its IPC bridge for untrusted generated HTML.
@@ -30,10 +35,13 @@ serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 serde_json = "1"
 toml_edit = "0.20"
-uuid = { version = "1.10", features = ["v4", "serde"] }
+uuid = { version = "1.10", features = ["v4", "v7", "serde"] }
+axum = { version = "0.8", features = ["ws", "multipart"] }
+multer = "3"
+zstd = "0.13"
 chrono = "0.4"
 dirs = "5.0"
-reqwest = { version = "0.12", features = ["json", "gzip", "brotli", "deflate", "zstd", "stream", "socks", "blocking"] }
+reqwest = { version = "0.12", features = ["json", "gzip", "brotli", "deflate", "zstd", "stream", "socks", "blocking", "multipart", "rustls-tls-native-roots"] }
 # Classify subscription TLS failures by type; macOS error Display may omit SSL/TLS.
 native-tls = "0.2"
 quick-xml = "0.40"

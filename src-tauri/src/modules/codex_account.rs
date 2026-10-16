@@ -5,6 +5,7 @@ include!("codex_account_provider.rs");
 include!("codex_account_model_vision.rs");
 include!("codex_account_grok_provider.rs");
 include!("codex_account_check.rs");
+include!("codex_account_model_retirement.rs");
 include!("codex_account_model_catalog.rs");
 include!("codex_account_context_management.rs");
 include!("codex_account_storage_locks.rs");

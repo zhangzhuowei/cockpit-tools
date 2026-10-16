@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/gin-gonic/gin"
+	codexmodels "github.com/router-for-me/CLIProxyAPI/v7/internal/client/codex/models"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/codex/historyprojection"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/home"
@@ -70,6 +71,13 @@ func RewriteCodexMultiAgentV2Input(ctx context.Context, headers http.Header, pay
 	if !codexMultiAgentV2Enabled(ctx, headers, cfg) {
 		return payload
 	}
+	return rewriteCodexAgentMessageInput(payload)
+}
+
+// RewriteCodexAgentMessagesForCompatibility adapts private message items for a
+// confirmed third-party endpoint, independently of optional client optimizations.
+func RewriteCodexAgentMessagesForCompatibility(payload []byte) []byte {
+	payload = removeCodexCollaborationMessageEncryption(payload, codexCollaborationMessageToolPaths(payload))
 	return rewriteCodexAgentMessageInput(payload)
 }
 
@@ -254,7 +262,7 @@ func loadCodexCatalogTemplates() (map[string]map[string]any, map[string]any, uin
 			continue
 		}
 		templates[modelID] = model
-		if modelID == "gpt-5.5" {
+		if modelID == "gpt-5.6-sol" {
 			defaultTemplate = model
 		}
 	}
@@ -401,7 +409,7 @@ func codexSpawnAgentModelsFromSources(availableModels []map[string]any, catalogJ
 			continue
 		}
 		templates[modelID] = model
-		if modelID == "gpt-5.5" {
+		if modelID == "gpt-5.6-sol" {
 			defaultTemplate = model
 		}
 	}
@@ -435,7 +443,7 @@ func codexSpawnAgentModelsFromTemplates(availableModels []map[string]any, templa
 			continue
 		}
 
-		profile := codexSpawnAgentModelFromMetadata(modelID, defaultTemplate)
+		profile := codexSpawnAgentModelFromMetadata(modelID, codexmodels.ConservativeFallbackTemplate(defaultTemplate))
 		profile.id = modelID
 		profile.description = mapString(availableModel, "description")
 		profile.displayName = mapString(availableModel, "display_name")

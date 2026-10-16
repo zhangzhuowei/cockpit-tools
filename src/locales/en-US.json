@@ -917,8 +917,8 @@
       },
       "modelRouting": {
         "title": "Third-party API routing",
-        "summary": "Unprefixed models use the current subscription; prefixed models such as cpa/gpt-5.5 are forwarded to a third-party API. Both depend on the local routing service.",
-        "rowSummary": "Unprefixed models use the current subscription; prefixed models such as cpa/gpt-5.5 are forwarded to a third-party API. Both depend on the local routing service.",
+        "summary": "Unprefixed models use the current subscription; prefixed models such as cpa/gpt-5.6-sol are forwarded to a third-party API. Both depend on the local routing service.",
+        "rowSummary": "Unprefixed models use the current subscription; prefixed models such as cpa/gpt-5.6-sol are forwarded to a third-party API. Both depend on the local routing service.",
         "confirmEnableTitle": "Enable third-party API routing?",
         "confirmEnableMessage": "Codex model requests will be routed through the local Cockpit Tools service. If the service is not running, both subscription and third-party models may be unavailable.\n\nEnable routing?",
         "confirmEnableAction": "Enable",
@@ -2131,6 +2131,9 @@
     "clearSelection": "Clear selection",
     "switched": "Switched to {{email}}",
     "switchFailed": "Switch failed: {{error}}",
+    "antigravitySwitchBusy": "An Antigravity account switch is in progress. Try again shortly.",
+    "antigravitySwitchPrepareTimeout": "Antigravity account preparation timed out. Please retry.",
+    "antigravitySwitchStateSaveFailed": "Client credentials switched, but saving local account state failed: {{error}}. Retry the switch.",
     "antigravityLegacyUnsupported": "Antigravity 2.0.0 and later is not supported here. Choose an Antigravity version below 2.0.0, or use Antigravity IDE.",
     "importSuccess": "Successfully imported {{count}} accounts",
     "importLocalSuccess": "Successfully imported account: {{email}}",
@@ -2588,6 +2591,8 @@
       "configRefreshing": "Checking instance configuration. Existing details remain available.",
       "configLoadTimeout": "Loading instance configuration timed out. Please retry.",
       "configChanged": "Instance configuration changed elsewhere. Reload it before saving or starting.",
+      "reloadConfig": "Reload",
+      "contextReloadHint": "Reload replaces unsaved settings. Review them again before applying.",
       "accessModeTitle": "Start mode",
       "prosLabel": "Pros:",
       "consLabel": "Cons:",
@@ -3058,14 +3063,6 @@
       "hideEntryEffectHide": "Hide the API service entry from the overview",
       "hideEntryEffectDisable": "Disable the current API service",
       "hideEntryEffectRestore": "You can turn it back on in Codex Settings or Quick Settings",
-      "riskNotice": {
-        "title": "Risk Notice",
-        "message": "Using regular official accounts for reverse proxying or relaying may be subject to strict restrictions by the official service. This use may also be identified as relaying and affect response quality (“reduced intelligence”). Use with caution, especially if you have many accounts.",
-        "remember": "I understand and do not show this again",
-        "acknowledge": "I Understand",
-        "continueStart": "Continue",
-        "continueSwitch": "Continue Switch"
-      },
       "statsRange": {
         "label": "Stats Range",
         "daily": "Day",
@@ -3257,6 +3254,18 @@
       "gatewayModeNewLabel": "API Service-New",
       "gatewayModeOldLabel": "API Service-Old",
       "gatewayModeSaveSuccess": "API service gateway mode updated",
+      "gatewayEngineNative": "Rust native",
+      "gatewayEngineSidecar": "Go (current)",
+      "gatewayEngineHint": "Rust is the default. The first upgrade switches to Rust; later choices are retained. Switching restarts API Service and may interrupt active requests; Codex windows stay open.",
+      "gatewayEngineSwitching": "Switching engine…",
+      "gatewayEngineSwitchFailed": "Could not switch engine: {{error}}",
+      "gatewayEngineReadbackFailed": "Could not confirm the current engine. Refresh before retrying: {{error}}",
+      "gatewayEngineReadbackTimeout": "Status refresh timed out",
+      "gatewayEngineRequestsBusy": "Requests are still running. Try again when they finish.",
+      "gatewayEngineOperationBusy": "Another service operation is in progress. Try again shortly.",
+      "gatewayEngineSwitchRestored": "Switching failed. The previous engine was restored.",
+      "gatewayEngineRestoreFailed": "Switching failed and the previous engine could not be restored. Check the service status before retrying.",
+      "gatewayEngineStopped": "The API service has stopped. Restart it before retrying.",
       "gatewayGuideTitle": "Switch gateways here",
       "gatewayGuideDesc": "The new gateway is the default. If you run into compatibility issues or client request errors, switch back to the old gateway here.",
       "gatewayGuideAction": "Got it",
@@ -3288,7 +3297,7 @@
       "imageGenerationMainModel": {
         "label": "Image main model",
         "notice": "Do not change the image main model during normal use.",
-        "hint": "Used only for the official image relay, not to select the image model. Update only if the official main model changes. Leave blank for gpt-5.5.",
+        "hint": "Used only for the official image relay, not to select the image model. Update only if the official main model changes. Leave blank for gpt-5.6-luna.",
         "invalid": "Enter a model ID without whitespace, up to 200 characters."
       },
       "requestDetail": {
@@ -3699,7 +3708,7 @@
       },
       "vision": {
         "providerDefault": "This provider supports image input by default",
-        "providerDefaultHint": "Models without an explicit setting use this default; GPT-5.5 and later support images by default. Disable individual models in the list. If the gateway finds no vision model, it omits images and continues with text.",
+        "providerDefaultHint": "Models without an explicit setting use this default; models such as GPT-5.6 Sol and GPT-5.6 Luna support images by default. Disable individual models in the list. If the gateway finds no vision model, it omits images and continues with text.",
         "modelsHint": "One model per line. Use this when only some models in the provider support pasted images.",
         "routingModelHint": "When the current model cannot read images, the gateway uses this model. Leave blank to use the only vision model, if available; otherwise images are omitted and text processing continues.",
         "allModels": "Images",
@@ -5311,7 +5320,7 @@
       "restoreEntry": "Restore relay",
       "restoringEntry": "Restoring…",
       "restoreEntryFailed": "Could not restore the desktop proxy relay. Please retry.",
-      "restoreEntryPortBusy": "The original proxy port is in use. Free the port and retry; the desktop cannot use a different port automatically.",
+      "restoreEntryPortBusy": "The original proxy port cannot be bound; it may be in use or reserved by the system. Free it and retry, or restart the client through Cockpit to allocate an available entry.",
       "restoreEntryNotRunning": "No running desktop using a recorded proxy relay owned by this Cockpit was found.",
       "restoreEntryBusy": "Proxy recovery is already in progress. Please try again shortly.",
       "restoreEntryTimeout": "Proxy recovery timed out. Please retry.",
@@ -5784,6 +5793,22 @@
         "gateway": "HTTP 504 indicates a gateway timeout. This record does not establish its cause; check the upstream error and request phase.",
         "threshold": "Effective threshold for this request: {{seconds}} seconds.",
         "settings": "Adjust timeout"
+      },
+      "identity": {
+        "title": "Session and account identity",
+        "client": "Client request",
+        "upstreamAttempt": "Upstream #{{sequence}}",
+        "notProvided": "Not provided",
+        "notCaptured": "Not captured",
+        "notSent": "No send attempt",
+        "hint": "Records identity headers and the selected account’s local profile at request time. Does not confirm upstream receipt. Independent of body recording; older requests are not backfilled.",
+        "copyHeader": "Copy {{header}}",
+        "profileTitle": "Account identity profile",
+        "profileInstallationId": "Installation ID",
+        "profileScope": "Scope",
+        "profileVersion": "Version",
+        "profileRevision": "Revision",
+        "profileHint": "Local selected-account snapshot; actual outbound headers are listed above."
       }
     },
     "experimentalModels": {
@@ -7465,6 +7490,8 @@
     },
     "quota": {
       "weekly": "Weekly usage",
+      "sharedPool": "Shared pool",
+      "monthly": "Monthly usage",
       "onDemand": "On-demand usage",
       "balance": "Balance and credits",
       "included": "Included usage",

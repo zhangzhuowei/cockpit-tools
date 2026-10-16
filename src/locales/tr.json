@@ -692,8 +692,8 @@
       "autoSyncThreadsDesc": "Kapalıyken çoklu instance oturumları ayrı kalır. Açıldığında, bir instance başlatılırken veya kapatılırken yerel oturum kayıtları yalnızca tüm Codex instance'ları durmuşsa otomatik birleştirilir.",
       "modelRouting": {
         "title": "Üçüncü taraf API yönlendirmesi",
-        "summary": "Ön eki olmayan modeller geçerli aboneliği kullanır; cpa/gpt-5.5 gibi ön ekli modeller üçüncü taraf bir API'ye iletilir. Her ikisi de yerel yönlendirme hizmetine bağlıdır.",
-        "rowSummary": "Ön eki olmayan modeller geçerli aboneliği kullanır; cpa/gpt-5.5 gibi ön ekli modeller üçüncü taraf bir API'ye iletilir. Her ikisi de yerel yönlendirme hizmetine bağlıdır.",
+        "summary": "Ön eki olmayan modeller geçerli aboneliği kullanır; cpa/gpt-5.6-sol gibi ön ekli modeller üçüncü taraf bir API'ye iletilir. Her ikisi de yerel yönlendirme hizmetine bağlıdır.",
+        "rowSummary": "Ön eki olmayan modeller geçerli aboneliği kullanır; cpa/gpt-5.6-sol gibi ön ekli modeller üçüncü taraf bir API'ye iletilir. Her ikisi de yerel yönlendirme hizmetine bağlıdır.",
         "confirmEnableTitle": "Üçüncü taraf API yönlendirmesi etkinleştirilsin mi?",
         "confirmEnableMessage": "Codex model istekleri yerel Cockpit Tools hizmeti üzerinden yönlendirilecektir. Hizmet çalışmıyorsa hem abonelik hem de üçüncü taraf modelleri kullanılamayabilir.\n\nYönlendirme etkinleştirilsin mi?",
         "confirmEnableAction": "Etkinleştir",
@@ -1911,6 +1911,9 @@
     "clearSelection": "Seçimi temizle",
     "switched": "{{email}} hesabına geçildi",
     "switchFailed": "Geçiş hatası: {{error}}",
+    "antigravitySwitchBusy": "Antigravity hesap değişimi sürüyor. Biraz sonra tekrar deneyin.",
+    "antigravitySwitchPrepareTimeout": "Antigravity hesap hazırlığı zaman aşımına uğradı. Lütfen tekrar deneyin.",
+    "antigravitySwitchStateSaveFailed": "İstemci kimlik bilgileri değiştirildi ancak yerel hesap durumu kaydedilemedi: {{error}}. Hesap değişimini tekrar deneyin.",
     "antigravityLegacyUnsupported": "Antigravity 2.0.0 ve sonrası burada desteklenmiyor. Antigravity 2.0.0 altı bir sürüm seçin veya Antigravity IDE'yi kullanın.",
     "importSuccess": "{{count}} hesap başarıyla içe aktarıldı",
     "importLocalSuccess": "Hesap başarıyla içe aktarıldı: {{email}}",
@@ -2368,6 +2371,8 @@
       "configRefreshing": "Örnek yapılandırması denetleniyor. Mevcut bilgiler kullanılabilir durumda.",
       "configLoadTimeout": "Örnek yapılandırması yüklenirken zaman aşımı oluştu. Lütfen yeniden deneyin.",
       "configChanged": "Örnek yapılandırması başka bir yerde değiştirildi. Kaydetmeden veya başlatmadan önce yeniden yükleyin.",
+      "reloadConfig": "Yeniden yükle",
+      "contextReloadHint": "Yeniden yükleme kaydedilmemiş ayarları değiştirir. Uygulamadan önce tekrar gözden geçirin.",
       "accessModeTitle": "Başlatma modu",
       "prosLabel": "Avantajlar:",
       "consLabel": "Dezavantajlar:",
@@ -2706,14 +2711,6 @@
       "hideEntryEffectHide": "API Hizmeti girişini genel görünümden gizle",
       "hideEntryEffectDisable": "Mevcut API hizmetini devre dışı bırak",
       "hideEntryEffectRestore": "Codex Ayarları veya Hızlı Ayarlar'dan yeniden açabilirsiniz",
-      "riskNotice": {
-        "title": "Risk Uyarısı",
-        "message": "Normal resmî hesapların ters proxy veya aktarma için kullanılması, resmî hizmetin katı kısıtlamalarına tabi olabilir. Bu kullanım ayrıca aktarma olarak algılanabilir ve yanıt kalitesini etkileyebilir (“zekâ düşüşü”). Özellikle çok sayıda hesabınız varsa dikkatli kullanın.",
-        "remember": "Anladım, bir daha gösterme",
-        "acknowledge": "Anladım",
-        "continueStart": "Devam",
-        "continueSwitch": "Devam"
-      },
       "statsRange": {
         "label": "İstatistik aralığı",
         "daily": "Gün",
@@ -2850,6 +2847,18 @@
       "gatewayModeNewLabel": "API Hizmeti-Yeni",
       "gatewayModeOldLabel": "API Hizmeti-Eski",
       "gatewayModeSaveSuccess": "API hizmeti gecit modu guncellendi",
+      "gatewayEngineNative": "Yerel Rust",
+      "gatewayEngineSidecar": "Go (mevcut)",
+      "gatewayEngineHint": "Varsayılan motor Rust olur. İlk güncellemede Rust’a geçilir; sonraki seçimler korunur. Geçiş API hizmetini yeniden başlatır ve etkin istekleri kesebilir; Codex pencereleri açık kalır.",
+      "gatewayEngineSwitching": "Motor değiştiriliyor…",
+      "gatewayEngineSwitchFailed": "Motor değiştirilemedi: {{error}}",
+      "gatewayEngineReadbackFailed": "Geçerli motor doğrulanamadı. Yeniden denemeden önce durumu yenileyin: {{error}}",
+      "gatewayEngineReadbackTimeout": "Durum yenileme zaman aşımına uğradı",
+      "gatewayEngineRequestsBusy": "İstekler hâlâ sürüyor. Tamamlandıklarında tekrar deneyin.",
+      "gatewayEngineOperationBusy": "Başka bir hizmet işlemi sürüyor. Kısa süre sonra tekrar deneyin.",
+      "gatewayEngineSwitchRestored": "Geçiş başarısız oldu. Önceki motor geri yüklendi.",
+      "gatewayEngineRestoreFailed": "Geçiş başarısız oldu ve önceki motor geri yüklenemedi. Tekrar denemeden önce hizmet durumunu kontrol edin.",
+      "gatewayEngineStopped": "API hizmeti durdu. Tekrar denemeden önce yeniden başlatın.",
       "gatewayGuideTitle": "Ağ geçidini burada değiştirin",
       "gatewayGuideDesc": "Varsayılan yeni ağ geçididir. Uyumluluk sorunu veya istemci isteği hatası yaşarsanız buradan eski ağ geçidine dönebilirsiniz.",
       "gatewayGuideAction": "Anladım",
@@ -2937,7 +2946,7 @@
       "imageGenerationMainModel": {
         "label": "Ana görsel modeli",
         "notice": "Normal kullanımda ana görsel modelini değiştirmeyin.",
-        "hint": "Yalnızca istekleri resmî görsel hizmetine iletir; görsel üreten modeli seçmez. Sadece resmî ana model değişirse elle güncelleyin. gpt-5.5 için boş bırakın.",
+        "hint": "Yalnızca istekleri resmî görsel hizmetine iletir; görsel üreten modeli seçmez. Sadece resmî ana model değişirse elle güncelleyin. gpt-5.6-luna için boş bırakın.",
         "invalid": "Boşluksuz, en fazla 200 karakterlik model kimliği girin."
       },
       "requestDetail": {
@@ -4009,7 +4018,7 @@
       },
       "vision": {
         "providerDefault": "Bu sağlayıcı varsayılan olarak görsel girişini destekler",
-        "providerDefaultHint": "Özel ayarı olmayan modeller bu varsayılanı kullanır; GPT-5.5 ve sonrası varsayılan olarak görselleri destekler. Modelleri listeden ayrı ayrı kapatabilirsiniz. Ağ geçidi görsel destekleyen bir model bulamazsa görselleri atlar ve metni işlemeye devam eder.",
+        "providerDefaultHint": "Özel ayarı olmayan modeller bu varsayılanı kullanır; GPT-5.6 Sol ve GPT-5.6 Luna gibi modeller varsayılan olarak görselleri destekler. Modelleri listeden ayrı ayrı kapatabilirsiniz. Ağ geçidi görsel destekleyen bir model bulamazsa görselleri atlar ve metni işlemeye devam eder.",
         "modelsHint": "Her satıra bir model yazın. Sağlayıcıdaki yalnızca bazı modeller yapıştırılan görselleri destekliyorsa kullanın.",
         "routingModelHint": "Geçerli model görselleri okuyamıyorsa ağ geçidi bu modeli kullanır. Boş bırakırsanız mevcut tek görsel model kullanılır; aksi halde görseller atlanır ve metin işlenmeye devam eder.",
         "allModels": "Görsel",
@@ -5091,7 +5100,7 @@
       "restoreEntry": "Aktarımı geri aç",
       "restoringEntry": "Geri açılıyor…",
       "restoreEntryFailed": "Masaüstü vekil aktarımı geri açılamadı. Yeniden deneyin.",
-      "restoreEntryPortBusy": "Önceki vekil bağlantı noktası kullanımda. Noktayı boşaltıp yeniden deneyin; masaüstü otomatik olarak başka bir bağlantı noktasına geçemez.",
+      "restoreEntryPortBusy": "Özgün proxy bağlantı noktası bağlanamıyor; kullanımda veya sistem tarafından ayrılmış olabilir. Serbest bırakıp tekrar deneyin ya da kullanılabilir bir giriş atamak için istemciyi Cockpit üzerinden yeniden başlatın.",
       "restoreEntryNotRunning": "Bu Cockpit örneğine ait kayıtlı vekil girişini kullanan çalışan bir masaüstü bulunamadı.",
       "restoreEntryBusy": "Vekil geri yükleniyor. Biraz sonra yeniden deneyin.",
       "restoreEntryTimeout": "Vekil geri yükleme zaman aşımına uğradı. Yeniden deneyin.",
@@ -5564,6 +5573,22 @@
         "gateway": "HTTP 504, ağ geçidi zaman aşımıdır. Bu kayıt nedeni doğrulamaz; üst sunucu hatasını ve istek aşamasını inceleyin.",
         "threshold": "Bu istekte uygulanan eşik: {{seconds}} saniye.",
         "settings": "Süreyi ayarla"
+      },
+      "identity": {
+        "title": "Oturum ve hesap kimliği",
+        "client": "İstemci isteği",
+        "upstreamAttempt": "Üst sunucu #{{sequence}}",
+        "notProvided": "Belirtilmedi",
+        "notCaptured": "Kaydedilmedi",
+        "notSent": "Gönderim denenmedi",
+        "hint": "İstek anındaki kimlik başlıklarını ve seçilen hesabın yerel profilini kaydeder. Üst sunucunun aldığını doğrulamaz. Gövde kaydından bağımsızdır; eski istekler tamamlanmaz.",
+        "copyHeader": "{{header}} kopyala",
+        "profileTitle": "Hesap kimlik profili",
+        "profileInstallationId": "Kurulum kimliği",
+        "profileScope": "Kapsam",
+        "profileVersion": "Sürüm",
+        "profileRevision": "Revizyon",
+        "profileHint": "Seçilen hesabın yerel anlık görüntüsüdür; kullanılan gerçek başlıklar yukarıdadır."
       }
     },
     "experimentalModels": {
@@ -7465,6 +7490,8 @@
     },
     "quota": {
       "weekly": "Haftalık kullanım",
+      "sharedPool": "Ortak kota",
+      "monthly": "Aylık kullanım",
       "onDemand": "İsteğe bağlı kullanım",
       "balance": "Bakiye ve krediler",
       "included": "Dahil kullanım",

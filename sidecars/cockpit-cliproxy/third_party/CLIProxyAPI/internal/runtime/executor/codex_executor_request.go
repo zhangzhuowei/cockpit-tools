@@ -78,7 +78,7 @@ func (e *CodexExecutor) PrepareRequest(req *http.Request, auth *cliproxyauth.Aut
 		attrs = auth.Attributes
 	}
 	util.ApplyCustomHeadersFromAttrs(req, attrs)
-	return nil
+	return helps.ApplyManagedIdentityRequest(req, auth)
 }
 
 // HttpRequest injects Codex credentials into the request and executes it.
@@ -98,11 +98,13 @@ func (e *CodexExecutor) HttpRequest(ctx context.Context, auth *cliproxyauth.Auth
 }
 
 type codexIdentityConfuseState struct {
-	enabled                bool
-	authID                 string
-	originalPromptCacheKey string
-	promptCacheKey         string
-	turnIDs                []codexIdentityReplacement
+	managedAuth             *cliproxyauth.Auth
+	managedSkipInstallation bool
+	enabled                 bool
+	authID                  string
+	originalPromptCacheKey  string
+	promptCacheKey          string
+	turnIDs                 []codexIdentityReplacement
 }
 
 type codexIdentityReplacement struct {
@@ -114,6 +116,10 @@ func (e *CodexExecutor) cacheHelper(ctx context.Context, from sdktranslator.Form
 	var headers http.Header
 	if len(headerSets) > 0 {
 		headers = headerSets[0]
+	}
+	if cliproxyexecutor.ContinuityActive(ctx) {
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(rawJSON))
+		return httpReq, rawJSON, codexIdentityConfuseState{}, err
 	}
 	var cache helps.CodexCache
 	if sourceFormatEqual(from, sdktranslator.FormatClaude) {
@@ -156,6 +162,18 @@ func (e *CodexExecutor) cacheHelper(ctx context.Context, from sdktranslator.Form
 	rawJSON = helps.SanitizeCodexInputItemIDs(rawJSON)
 	var identityState codexIdentityConfuseState
 	rawJSON, identityState = applyCodexIdentityConfuseBody(e.cfg, auth, userPayload, rawJSON)
+	if _, identityErr := helps.ManagedIdentityForAuth(auth); identityErr != nil {
+		return nil, nil, codexIdentityConfuseState{}, identityErr
+	}
+	identityState.managedAuth = auth
+	identityState.managedSkipInstallation = !helps.ManagedIdentityProtocolApplies(auth, url)
+	if !identityState.managedSkipInstallation {
+		var identityErr error
+		rawJSON, identityErr = helps.ApplyManagedIdentity(auth, nil, rawJSON)
+		if identityErr != nil {
+			return nil, nil, codexIdentityConfuseState{}, identityErr
+		}
+	}
 	if identityState.promptCacheKey != "" {
 		cache.ID = identityState.promptCacheKey
 	}
@@ -198,6 +216,15 @@ func applyCodexIdentityConfuseBody(cfg *config.Config, auth *cliproxyauth.Auth, 
 func applyCodexIdentityConfuseHeaders(headers http.Header, state *codexIdentityConfuseState) {
 	if headers == nil {
 		return
+	}
+	if state != nil && state.managedAuth != nil {
+		defer func() {
+			if state.managedSkipInstallation {
+				_ = helps.StripManagedStandaloneIdentityHeaders(state.managedAuth, headers)
+			} else {
+				_, _ = helps.ApplyManagedIdentity(state.managedAuth, headers, nil)
+			}
+		}()
 	}
 	if state == nil || !state.enabled {
 		return
@@ -441,126 +468,13 @@ func normalizeCodexInstructions(body []byte, model ...string) []byte {
 	return body
 }
 
-func codexCallItemRequiresID(itemType string) bool {
-	switch itemType {
-	case "function_call", "custom_tool_call", "tool_call", "mcp_tool_call":
-		return true
-	default:
-		return false
-	}
-}
-
-func codexCallOutputRequiresID(itemType string) bool {
-	switch itemType {
-	case "function_call_output", "custom_tool_call_output", "tool_call_output", "mcp_tool_call_output":
-		return true
-	default:
-		return false
-	}
-}
-
-func nextGeneratedCodexCallID(prefix string, index int, used map[string]struct{}) string {
-	base := fmt.Sprintf("%s_%d", prefix, index)
-	if _, exists := used[base]; !exists {
-		used[base] = struct{}{}
-		return base
-	}
-	for suffix := 1; ; suffix++ {
-		candidate := fmt.Sprintf("%s_%d", base, suffix)
-		if _, exists := used[candidate]; !exists {
-			used[candidate] = struct{}{}
-			return candidate
-		}
-	}
-}
-
-// NormalizeCodexCallIDs repairs historical tool replay items whose provider-specific
-// conversion omitted call_id. Strict Responses upstreams reject the whole request with
-// "missing field `call_id`" otherwise.
+// NormalizeCodexCallIDs repairs missing tool call IDs for Responses replay.
 func NormalizeCodexCallIDs(body []byte) []byte {
-	return normalizeCodexCallIDs(body)
+	return cliproxyexecutor.NormalizeResponsesCallIDs(body)
 }
 
 func normalizeCodexCallIDs(body []byte) []byte {
-	input := gjson.GetBytes(body, "input")
-	if !input.IsArray() {
-		return body
-	}
-	used := make(map[string]struct{})
-	for _, item := range input.Array() {
-		if callID := strings.TrimSpace(item.Get("call_id").String()); callID != "" {
-			used[callID] = struct{}{}
-		}
-	}
-	type pendingCall struct {
-		id   string
-		name string
-	}
-	pending := make([]pendingCall, 0)
-	dropInputIndices := make([]int, 0)
-	index := -1
-	input.ForEach(func(_, item gjson.Result) bool {
-		index++
-		itemType := strings.ToLower(strings.TrimSpace(item.Get("type").String()))
-		isCall := codexCallItemRequiresID(itemType)
-		isOutput := codexCallOutputRequiresID(itemType)
-		if !isCall && !isOutput {
-			return true
-		}
-		name := strings.TrimSpace(item.Get("name").String())
-		callID := strings.TrimSpace(item.Get("call_id").String())
-		if callID == "" {
-			if isCall {
-				callID = nextGeneratedCodexCallID("call_missing", index, used)
-			} else {
-				matched := -1
-				if name != "" {
-					for i, pendingCall := range pending {
-						if pendingCall.name == name {
-							matched = i
-							break
-						}
-					}
-				}
-				if matched < 0 && len(pending) > 0 {
-					matched = 0
-				}
-				if matched >= 0 {
-					callID = pending[matched].id
-					pending = append(pending[:matched], pending[matched+1:]...)
-				} else if codexCallOutputCanStandAlone(itemType, item) {
-					return true
-				} else {
-					dropInputIndices = append(dropInputIndices, index)
-					return true
-				}
-			}
-			body, _ = sjson.SetBytes(body, fmt.Sprintf("input.%d.call_id", index), callID)
-		}
-		if isCall {
-			pending = append(pending, pendingCall{id: callID, name: name})
-			return true
-		}
-		for i, pendingCall := range pending {
-			if pendingCall.id == callID {
-				pending = append(pending[:i], pending[i+1:]...)
-				break
-			}
-		}
-		return true
-	})
-	for index := len(dropInputIndices) - 1; index >= 0; index-- {
-		body, _ = sjson.DeleteBytes(body, fmt.Sprintf("input.%d", dropInputIndices[index]))
-	}
-	return body
-}
-
-func codexCallOutputCanStandAlone(itemType string, item gjson.Result) bool {
-	if itemType != "function_call_output" {
-		return false
-	}
-	name := item.Get("name")
-	return name.Type == gjson.String && strings.TrimSpace(name.String()) != ""
+	return cliproxyexecutor.NormalizeResponsesCallIDs(body)
 }
 
 var imageGenToolJSON = []byte(`{"type":"image_generation","output_format":"png"}`)

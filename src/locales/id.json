@@ -751,8 +751,8 @@
       "autoSyncThreadsDesc": "Saat mati, sesi multi-instance tetap terisolasi. Saat aktif, memulai atau menutup instance otomatis menggabungkan catatan sesi lokal hanya setelah semua instance Codex berhenti.",
       "modelRouting": {
         "title": "Perutean API pihak ketiga",
-        "summary": "Model tanpa awalan menggunakan langganan saat ini; model dengan awalan seperti cpa/gpt-5.5 diteruskan ke API pihak ketiga. Keduanya bergantung pada layanan perutean lokal.",
-        "rowSummary": "Model tanpa awalan menggunakan langganan saat ini; model dengan awalan seperti cpa/gpt-5.5 diteruskan ke API pihak ketiga. Keduanya bergantung pada layanan perutean lokal.",
+        "summary": "Model tanpa awalan menggunakan langganan saat ini; model dengan awalan seperti cpa/gpt-5.6-sol diteruskan ke API pihak ketiga. Keduanya bergantung pada layanan perutean lokal.",
+        "rowSummary": "Model tanpa awalan menggunakan langganan saat ini; model dengan awalan seperti cpa/gpt-5.6-sol diteruskan ke API pihak ketiga. Keduanya bergantung pada layanan perutean lokal.",
         "confirmEnableTitle": "Aktifkan perutean API pihak ketiga?",
         "confirmEnableMessage": "Permintaan model Codex akan dirutekan melalui layanan Cockpit Tools lokal. Jika layanan tidak berjalan, model langganan dan pihak ketiga mungkin tidak tersedia.\n\nAktifkan perutean?",
         "confirmEnableAction": "Aktifkan",
@@ -1958,6 +1958,9 @@
     "clearSelection": "Hapus pilihan",
     "switched": "Beralih ke {{email}}",
     "switchFailed": "Penggantian gagal: {{error}}",
+    "antigravitySwitchBusy": "Pergantian akun Antigravity sedang berlangsung. Coba lagi sebentar lagi.",
+    "antigravitySwitchPrepareTimeout": "Persiapan akun Antigravity kehabisan waktu. Silakan coba lagi.",
+    "antigravitySwitchStateSaveFailed": "Kredensial klien telah diganti, tetapi status akun lokal gagal disimpan: {{error}}. Coba ganti akun lagi.",
     "antigravityLegacyUnsupported": "Antigravity 2.0.0 dan yang lebih baru tidak didukung di sini. Pilih versi Antigravity di bawah 2.0.0, atau gunakan Antigravity IDE.",
     "importSuccess": "Berhasil mengimpor {{count}} akun",
     "importLocalSuccess": "Berhasil mengimpor akun: {{email}}",
@@ -2415,6 +2418,8 @@
       "configRefreshing": "Memeriksa konfigurasi instans. Detail yang ada tetap tersedia.",
       "configLoadTimeout": "Waktu pemuatan konfigurasi instans habis. Silakan coba lagi.",
       "configChanged": "Konfigurasi instans diubah di tempat lain. Muat ulang sebelum menyimpan atau memulai.",
+      "reloadConfig": "Muat ulang",
+      "contextReloadHint": "Memuat ulang mengganti pengaturan yang belum disimpan. Periksa lagi sebelum menerapkan.",
       "accessModeTitle": "Mode mulai",
       "prosLabel": "Keunggulan:",
       "consLabel": "Kekurangan:",
@@ -2756,14 +2761,6 @@
       "hideEntryEffectHide": "Sembunyikan entri Layanan API dari ringkasan",
       "hideEntryEffectDisable": "Nonaktifkan layanan API saat ini",
       "hideEntryEffectRestore": "Anda bisa menyalakannya lagi di Pengaturan Codex atau Pengaturan Cepat",
-      "riskNotice": {
-        "title": "Pemberitahuan Risiko",
-        "message": "Penggunaan akun resmi biasa melalui proksi balik atau penerusan dapat dikenai pembatasan ketat oleh layanan resmi. Penggunaan ini juga dapat terdeteksi sebagai penerusan dan memengaruhi kualitas jawaban («penurunan kecerdasan»). Gunakan dengan hati-hati, terutama jika Anda memiliki banyak akun.",
-        "remember": "Saya paham, jangan tampilkan lagi",
-        "acknowledge": "Saya paham",
-        "continueStart": "Lanjutkan",
-        "continueSwitch": "Lanjutkan"
-      },
       "statsRange": {
         "label": "Rentang statistik",
         "daily": "Hari",
@@ -2900,6 +2897,18 @@
       "gatewayModeNewLabel": "Layanan API-Baru",
       "gatewayModeOldLabel": "Layanan API-Lama",
       "gatewayModeSaveSuccess": "Mode gateway layanan API telah diperbarui",
+      "gatewayEngineNative": "Rust bawaan",
+      "gatewayEngineSidecar": "Go (lama)",
+      "gatewayEngineHint": "Rust adalah mesin bawaan. Peningkatan pertama beralih ke Rust; pilihan berikutnya tetap disimpan. Pergantian memulai ulang layanan API dan dapat mengganggu permintaan aktif; jendela Codex tetap terbuka.",
+      "gatewayEngineSwitching": "Mengganti mesin…",
+      "gatewayEngineSwitchFailed": "Gagal mengganti mesin: {{error}}",
+      "gatewayEngineReadbackFailed": "Mesin saat ini belum dapat dipastikan. Segarkan sebelum mencoba lagi: {{error}}",
+      "gatewayEngineReadbackTimeout": "Pembaruan status kehabisan waktu",
+      "gatewayEngineRequestsBusy": "Permintaan masih berjalan. Coba lagi setelah selesai.",
+      "gatewayEngineOperationBusy": "Operasi layanan lain sedang berjalan. Coba lagi sebentar.",
+      "gatewayEngineSwitchRestored": "Pergantian gagal. Mesin sebelumnya telah dipulihkan.",
+      "gatewayEngineRestoreFailed": "Pergantian gagal dan mesin sebelumnya tidak dapat dipulihkan. Periksa status layanan sebelum mencoba lagi.",
+      "gatewayEngineStopped": "Layanan API telah berhenti. Mulai ulang sebelum mencoba lagi.",
       "gatewayGuideTitle": "Ganti gateway di sini",
       "gatewayGuideDesc": "Gateway baru menjadi default. Jika ada masalah kompatibilitas atau error permintaan klien, kembali ke gateway lama dari sini.",
       "gatewayGuideAction": "Mengerti",
@@ -2987,7 +2996,7 @@
       "imageGenerationMainModel": {
         "label": "Model utama gambar",
         "notice": "Jangan ubah model utama gambar saat penggunaan biasa.",
-        "hint": "Hanya digunakan untuk meneruskan permintaan ke layanan gambar resmi, bukan memilih model pembuat gambar. Ubah manual hanya jika model utama resmi berubah. Kosongkan untuk memakai gpt-5.5.",
+        "hint": "Hanya digunakan untuk meneruskan permintaan ke layanan gambar resmi, bukan memilih model pembuat gambar. Ubah manual hanya jika model utama resmi berubah. Kosongkan untuk memakai gpt-5.6-luna.",
         "invalid": "Masukkan ID model tanpa spasi, maksimal 200 karakter."
       },
       "requestDetail": {
@@ -4056,7 +4065,7 @@
       },
       "vision": {
         "providerDefault": "Provider ini mendukung input gambar secara default",
-        "providerDefaultHint": "Model tanpa pengaturan khusus menggunakan nilai bawaan ini; GPT-5.5 dan versi lebih baru mendukung gambar secara bawaan. Nonaktifkan model tertentu dalam daftar. Jika gateway tidak menemukan model visual, gambar dilewati dan teks tetap diproses.",
+        "providerDefaultHint": "Model tanpa pengaturan khusus menggunakan nilai bawaan ini; model seperti GPT-5.6 Sol dan GPT-5.6 Luna mendukung gambar secara bawaan. Nonaktifkan model tertentu dalam daftar. Jika gateway tidak menemukan model visual, gambar dilewati dan teks tetap diproses.",
         "modelsHint": "Satu model per baris. Cocok jika hanya sebagian model provider mendukung gambar tempel.",
         "routingModelHint": "Jika model saat ini tidak dapat membaca gambar, gateway menggunakan model ini. Kosongkan untuk memakai satu-satunya model visual yang tersedia; jika tidak ada, gambar dilewati dan teks tetap diproses.",
         "allModels": "Gambar",
@@ -5138,7 +5147,7 @@
       "restoreEntry": "Pulihkan relai",
       "restoringEntry": "Memulihkan…",
       "restoreEntryFailed": "Relai proksi desktop tidak dapat dipulihkan. Coba lagi.",
-      "restoreEntryPortBusy": "Port proksi semula sedang digunakan. Bebaskan port lalu coba lagi; desktop tidak dapat memakai port lain secara otomatis.",
+      "restoreEntryPortBusy": "Port proksi semula tidak dapat diikat; mungkin sedang digunakan atau dicadangkan sistem. Bebaskan port lalu coba lagi, atau mulai ulang klien melalui Cockpit untuk menetapkan titik masuk yang tersedia.",
       "restoreEntryNotRunning": "Tidak ditemukan desktop aktif yang memakai pintu masuk proksi tercatat milik Cockpit ini.",
       "restoreEntryBusy": "Pemulihan proksi sedang berlangsung. Coba lagi sebentar.",
       "restoreEntryTimeout": "Pemulihan proksi kehabisan waktu. Coba lagi.",
@@ -5611,6 +5620,22 @@
         "gateway": "HTTP 504 menandakan batas waktu gateway habis. Catatan ini belum memastikan penyebabnya; periksa kesalahan hulu dan tahap permintaan.",
         "threshold": "Batas yang berlaku untuk permintaan ini: {{seconds}} detik.",
         "settings": "Atur batas waktu"
+      },
+      "identity": {
+        "title": "Identitas sesi dan akun",
+        "client": "Permintaan klien",
+        "upstreamAttempt": "Upaya #{{sequence}}",
+        "notProvided": "Tidak diberikan",
+        "notCaptured": "Belum direkam",
+        "notSent": "Belum ada upaya kirim",
+        "hint": "Mencatat header identitas dan profil lokal akun terpilih saat permintaan dibuat. Tidak memastikan penerimaan oleh penyedia. Terpisah dari pencatatan isi; permintaan lama tidak dilengkapi.",
+        "copyHeader": "Salin {{header}}",
+        "profileTitle": "Profil identitas akun",
+        "profileInstallationId": "ID instalasi",
+        "profileScope": "Cakupan",
+        "profileVersion": "Versi",
+        "profileRevision": "Revisi",
+        "profileHint": "Rekaman lokal akun terpilih; header yang benar-benar digunakan tercantum di atas."
       }
     },
     "experimentalModels": {
@@ -7465,6 +7490,8 @@
     },
     "quota": {
       "weekly": "Penggunaan mingguan",
+      "sharedPool": "Kuota bersama",
+      "monthly": "Pemakaian bulanan",
       "onDemand": "Penggunaan sesuai permintaan",
       "balance": "Saldo dan kredit",
       "included": "Penggunaan termasuk paket",

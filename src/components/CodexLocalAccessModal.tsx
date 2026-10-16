@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CodexGatewayModeControl, formatCodexGatewayModeError } from "./codex/CodexGatewayModeControl";
 import {
   Activity,
   Bug,
@@ -150,6 +151,7 @@ interface CodexLocalAccessModalProps {
   isOpen: boolean;
   mode: "panel" | "members";
   state: CodexLocalAccessState | null;
+  onStateChange: (state: CodexLocalAccessState) => void;
   addressKind: CodexLocalAccessAddressKind;
   addressOptions: Array<{ value: string; label: string }>;
   onAddressKindChange: (value: string) => void;
@@ -226,6 +228,7 @@ export function CodexLocalAccessModal({
   isOpen,
   mode,
   state,
+  onStateChange,
   addressKind,
   addressOptions,
   onAddressKindChange,
@@ -257,13 +260,15 @@ export function CodexLocalAccessModal({
   onRecoverAccounts,
   healthActionBusy,
   onStreamTestMessage,
-  saving,
+  saving: externalSaving,
   testing,
   starting,
   portCleanupBusy,
   sidecarRestarting,
 }: CodexLocalAccessModalProps) {
   const { t } = useTranslation();
+  const [gatewaySaving, setGatewaySaving] = useState(false);
+  const saving = externalSaving || gatewaySaving;
   const localAccessStatus = resolveCodexLocalAccessRuntimeStatus(state?.collection, state);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -2322,7 +2327,7 @@ export function CodexLocalAccessModal({
             {state?.lastError && !error && !actionBusy && (
               <div className="codex-local-access-inline-error codex-local-access-inline-error-with-action">
                 <CircleAlert size={14} />
-                <span>{state.lastError}</span>
+                <span>{formatCodexGatewayModeError(t, state.lastError)}</span>
                 {collection && (
                   <>
                     <button
@@ -2358,7 +2363,7 @@ export function CodexLocalAccessModal({
             {error && (
               <div className="codex-local-access-inline-error">
                 <CircleAlert size={14} />
-                <span>{error}</span>
+                <span>{formatCodexGatewayModeError(t, error)}</span>
               </div>
             )}
 
@@ -2531,6 +2536,9 @@ export function CodexLocalAccessModal({
                       {t("codex.localAccess.configTitle", "服务配置")}
                     </span>
                   </div>
+                  <CodexGatewayModeControl state={state} onState={onStateChange}
+                    disabled={actionBusy || sidecarRestarting} onError={setError}
+                    onNotice={setNotice} onSavingChange={setGatewaySaving} />
                   {collection ? (
                     <div className="codex-local-access-config-grid">
                       <div className="codex-local-access-config-card codex-local-access-config-card-base">

@@ -1,6 +1,6 @@
 // Codex 账号：模型识图默认规则。
 //
-// 未显式配置时的统一口径：`gpt-5.5` 及以上（含 5.5）默认支持图片输入。
+// 当前 GPT 系列默认支持图片输入；版本阈值兼容历史和自定义 API 模型。
 // 允许 `vendor/gpt-5.6-sol` 这类带命名空间前缀、以及 `-luna` / `-sol` 这类后缀的写法；
 // 其它模型（含 `gpt-5.4`、`gpt-5.3-codex`、`gpt-3.5`、`gpt-reserve`、`gpt-image-*` 与
 // 非 GPT 家族模型）不受影响，仍由账号与供应商的显式配置决定。
@@ -21,7 +21,7 @@ pub(crate) fn parse_gpt_model_version(model_id: &str) -> Option<(u32, u32)> {
     Some((major, minor))
 }
 
-/// `gpt-5.5` 及以上默认支持图片输入。
+/// 根据模型版本推断图片输入能力，兼容已有 API 供应商配置。
 pub(crate) fn model_defaults_to_vision_input(model_id: &str) -> bool {
     parse_gpt_model_version(model_id).is_some_and(|version| version >= (5, 5))
 }

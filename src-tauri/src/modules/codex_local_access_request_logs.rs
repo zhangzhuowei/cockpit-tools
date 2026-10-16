@@ -22,6 +22,7 @@ fn gateway_mode_to_db_value(gateway_mode: CodexLocalAccessGatewayMode) -> &'stat
     match gateway_mode {
         CodexLocalAccessGatewayMode::Legacy => "legacy",
         CodexLocalAccessGatewayMode::Sidecar => "sidecar",
+        CodexLocalAccessGatewayMode::Native => "native",
     }
 }
 
@@ -29,6 +30,7 @@ fn gateway_mode_from_db_value(value: &str) -> Option<CodexLocalAccessGatewayMode
     match value.trim() {
         "legacy" => Some(CodexLocalAccessGatewayMode::Legacy),
         "sidecar" => Some(CodexLocalAccessGatewayMode::Sidecar),
+        "native" => Some(CodexLocalAccessGatewayMode::Native),
         _ => None,
     }
 }
@@ -2072,7 +2074,7 @@ fn query_local_access_usage_events_blocking(
         params.push(SqlValue::Integer(end_at));
     }
     // 模型筛选同时匹配客户端请求模型与实际上游模型：
-    // 例如用 `cpa/gpt-5.5` 或 `glm-5.3` 都能命中同一条路由日志。
+    // 例如用 `cpa/gpt-5.6-sol` 或 `glm-5.3` 都能命中同一条路由日志。
     push_like_filter(
         &mut clauses,
         &mut params,

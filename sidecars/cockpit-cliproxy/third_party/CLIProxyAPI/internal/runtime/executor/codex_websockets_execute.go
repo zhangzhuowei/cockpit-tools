@@ -21,6 +21,9 @@ import (
 )
 
 func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (resp cliproxyexecutor.Response, err error) {
+	if continuityErr := cliproxyexecutor.ContinuityPreparationError(ctx); continuityErr != nil {
+		return resp, continuityErr
+	}
 	opts.Headers = codexRequestHeadersWithGinResponsesLite(ctx, opts.Headers)
 	if ctx == nil {
 		ctx = context.Background()
@@ -66,10 +69,12 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 		body = ensureImageGenerationTool(body, baseModel, auth, opts.Headers)
 	}
 	body, useFullResponses := normalizeCodexResponsesLiteRequest(body, opts.Headers, auth, true)
-	if !helps.APIKeyModelIsCompat(req) {
+	if !helps.APIKeyModelIsCompat(req) && !cliproxyexecutor.ContinuityActive(ctx) {
 		body = normalizeNonOfficialCodexReasoningItems(ctx, "codex websockets executor", body)
 	}
-	body = sanitizeOpenAIResponsesReasoningEncryptedContentWithCompat(ctx, "codex websockets executor", body, helps.APIKeyModelIsCompat(req))
+	if !cliproxyexecutor.ContinuityActive(ctx) {
+		body = sanitizeOpenAIResponsesReasoningEncryptedContentWithCompat(ctx, "codex websockets executor", body, helps.APIKeyModelIsCompat(req))
+	}
 	body = normalizeCodexWebsocketParallelToolCalls(body, opts.Headers)
 	body = helps.NormalizeCodexToolSchemas(body)
 	multiAgentV2Conflict := helps.HasCodexMultiAgentV2NamespaceConflict(body)
@@ -97,6 +102,16 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 	clientBody := body
 	var identityState codexIdentityConfuseState
 	upstreamBody, identityState := applyCodexIdentityConfuseBody(e.cfg, auth, originalPayloadSource, body)
+	if cliproxyexecutor.ContinuityActive(ctx) {
+		upstreamBody = body
+		identityState = codexIdentityConfuseState{}
+	} else {
+		upstreamBody, err = helps.ApplyManagedIdentity(auth, nil, upstreamBody)
+		if err != nil {
+			return resp, err
+		}
+		identityState.managedAuth = auth
+	}
 	reporter.SetTranslatedReasoningEffort(clientBody, to.String())
 	wsHeaders = applyCodexWebsocketHeaders(ctx, wsHeaders, auth, apiKey, e.cfg, opts.Headers)
 	// The Lite declaration shape must match the mode actually sent on the socket.
@@ -113,6 +128,18 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 	removeCodexResponsesLiteHeaderForFullResponse(wsHeaders, useFullResponses)
 	removeCodexResponsesLiteHeaderForAPIKey(wsHeaders, auth)
 	applyCodexIdentityConfuseHeaders(wsHeaders, &identityState)
+	continuityInput := bytes.Clone(upstreamBody)
+	continuityHeaders := wsHeaders.Clone()
+	continuityAttempt, boundHeaders, boundBody, errContinuity := helps.BindCodexContinuity(ctx, auth, wsHeaders, upstreamBody)
+	if errContinuity != nil {
+		return resp, errContinuity
+	}
+	wsHeaders, upstreamBody = boundHeaders, boundBody
+	defer func() {
+		if errFinish := continuityAttempt.Finish(ctx, err); errFinish != nil && err == nil {
+			err = errFinish
+		}
+	}()
 
 	var authID, authLabel, authType, authValue string
 	if auth != nil {
@@ -137,7 +164,7 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 		defer unlockSession()
 	}
 
-	wsReqBody := buildCodexWebsocketRequestBody(upstreamBody)
+	wsReqBody := buildCodexWebsocketRequestBody(upstreamBody, ctx)
 	wsReqLog := helps.UpstreamRequestLog{
 		URL:       wsURL,
 		Method:    "WEBSOCKET",
@@ -157,7 +184,8 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 	var errDial error
 	dialCtx := ctx
 	if cliproxyexecutor.RequiredUpstreamWebsocket(ctx) {
-		conn, closer = existingWebsocketSessionConn(sess, authID, wsURL, codexWebsocketProxyURL(e.cfg, auth))
+		identityKey, _ := helps.ManagedWebsocketKey(auth, codexWebsocketProxyURL(e.cfg, auth), wsURL, wsHeaders)
+		conn, closer = existingWebsocketSessionConn(sess, authID, wsURL, codexWebsocketProxyURL(e.cfg, auth), identityKey)
 		if conn == nil {
 			return resp, cliproxyexecutor.NewUpstreamWebsocketReplayRequiredError()
 		}
@@ -172,6 +200,9 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 		}
 		if respHS != nil && respHS.StatusCode == http.StatusUpgradeRequired {
 			if opts.ExecutionLifecycle == nil && !cliproxyexecutor.DownstreamWebsocket(ctx) {
+				if errFinish := continuityAttempt.Finish(ctx, errDial); errFinish != nil {
+					return resp, errFinish
+				}
 				return e.CodexExecutor.Execute(ctx, auth, req, opts)
 			}
 			if cliproxyexecutor.UpstreamAttempted(dialCtx) {
@@ -197,6 +228,13 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 		return resp, errBind
 	}
 	recordAPIWebsocketHandshake(ctx, e.cfg, respHS)
+	if respHS != nil {
+		if errObserve := continuityAttempt.Observe(ctx, respHS.Header, nil); errObserve != nil {
+			unlockSession()
+			closeWebsocketAfterBindFailure(sess, conn, closer)
+			return resp, errObserve
+		}
+	}
 	reporter.StartResponseTTFT()
 	if sess == nil {
 		logCodexWebsocketConnected(executionSessionID, authID, wsURL)
@@ -260,7 +298,19 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 				}
 				readCh = sess.activate(conn)
 				restoreMultiAgentV2 = !multiAgentV2Conflict && (optimizeMultiAgentV2 || sess.isMultiAgentV2Optimized(conn))
-				wsReqBodyRetry := buildCodexWebsocketRequestBody(upstreamBody)
+				if errFinish := continuityAttempt.Finish(ctx, errSend); errFinish != nil {
+					clearRetryActiveState(sess, previousConn, previousReadCh)
+					unlockSession()
+					return resp, errFinish
+				}
+				var retryBindErr error
+				continuityAttempt, wsHeaders, upstreamBody, retryBindErr = helps.BindCodexContinuity(ctx, auth, continuityHeaders, continuityInput)
+				if retryBindErr != nil {
+					clearRetryActiveState(sess, previousConn, previousReadCh)
+					unlockSession()
+					return resp, retryBindErr
+				}
+				wsReqBodyRetry := buildCodexWebsocketRequestBody(upstreamBody, ctx)
 				helps.RecordAPIWebsocketRequest(ctx, e.cfg, helps.UpstreamRequestLog{
 					URL:       wsURL,
 					Method:    "WEBSOCKET",
@@ -305,7 +355,10 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 	for {
 		msgType, payload, errRead := readCodexWebsocketMessage(ctx, sess, conn, readCh)
 		if errRead != nil {
-			mappedErr := mapCodexWebsocketReadError(errRead)
+			mappedErr := codexResponsesReadError(mapCodexWebsocketReadError(errRead))
+			if sess != nil {
+				defer sess.notifyUpstreamDisconnect(mappedErr)
+			}
 			helps.RecordAPIWebsocketError(ctx, e.cfg, "read", mappedErr)
 			return resp, mappedErr
 		}
@@ -327,6 +380,11 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 		}
 		if ctx.Err() != nil && !helps.CodexWebsocketFailureCandidate(payload) {
 			continue
+		}
+		if ctx.Err() == nil {
+			if errObserve := continuityAttempt.Observe(ctx, nil, payload); errObserve != nil {
+				return resp, errObserve
+			}
 		}
 		observeCodexTokenEvent(reporter, payload)
 		payload = applyCodexIdentityConfuseResponsePayload(payload, identityState)

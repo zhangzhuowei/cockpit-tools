@@ -480,11 +480,18 @@ fn normalize_macos_app_root_for_metadata(path: &Path) -> Option<PathBuf> {
 
 #[cfg(target_os = "macos")]
 fn read_macos_plist_string(path: &Path, key: &str) -> Option<String> {
-    let output = std::process::Command::new("plutil")
-        .arg("-p")
-        .arg(path)
-        .output()
-        .ok()?;
+    let mut command = std::process::Command::new("plutil");
+    command.arg("-p").arg(path);
+    let output = modules::process_timeout::output_with_timeout(
+        &mut command,
+        std::time::Duration::from_secs(5),
+    )
+    .map_err(|error| {
+        modules::logger::log_warn(&format!(
+            "[Antigravity] macOS version metadata probe failed: {error}"
+        ))
+    })
+    .ok()?;
     if !output.status.success() {
         return None;
     }
@@ -647,14 +654,13 @@ fn read_powershell_json_for_antigravity_exe(
     exe_path: &Path,
     script: &str,
 ) -> Option<serde_json::Value> {
-    let _spawn_guard = modules::app_lifecycle::acquire_process_spawn_guard("PowerShell").ok()?;
     let mut command = std::process::Command::new("powershell");
     {
         use std::os::windows::process::CommandExt;
         command.creation_flags(CREATE_NO_WINDOW);
     }
 
-    let output = command
+    command
         .args([
             "-NoProfile",
             "-NonInteractive",
@@ -663,9 +669,17 @@ fn read_powershell_json_for_antigravity_exe(
             "-Command",
             script,
         ])
-        .env("COCKPIT_ANTIGRAVITY_EXE_PATH", exe_path.as_os_str())
-        .output()
-        .ok()?;
+        .env("COCKPIT_ANTIGRAVITY_EXE_PATH", exe_path.as_os_str());
+    let output = modules::process_timeout::output_with_timeout(
+        &mut command,
+        std::time::Duration::from_secs(5),
+    )
+    .map_err(|error| {
+        modules::logger::log_warn(&format!(
+            "[Antigravity] Windows version metadata PowerShell probe failed: {error}"
+        ))
+    })
+    .ok()?;
     if !output.status.success() {
         modules::logger::log_warn(&format!(
             "[Antigravity] Windows version metadata PowerShell probe failed: status={}",

@@ -23,6 +23,7 @@ import (
 	"time"
 
 	internalregistry "github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/watcher/synthesizer"
 
@@ -274,6 +275,9 @@ func newSidecarRuntime(ctx context.Context, configPath string, cfg *config.Confi
 		WithAuthManager(authManager).
 		WithCoreAuthManager(manager).
 		WithHooks(cliproxy.Hooks{
+			OnAuthPrepared: func(auth *coreauth.Auth) error {
+				return bindGatewayIdentityForManifestAuth(m, auth)
+			},
 			OnAfterStart: func(service *cliproxy.Service) {
 				readyOnce.Do(func() {
 					readyCh <- initializeSidecarRuntimeAuths(runtimeCtx, service, cfg, m, manager, tokenAuths)
@@ -340,6 +344,9 @@ func registerConfigCodexAPIKeyAuths(ctx context.Context, service *cliproxy.Servi
 		}
 		if auth.Attributes == nil || strings.TrimSpace(auth.Attributes["api_key"]) == "" {
 			continue
+		}
+		if err := bindGatewayIdentityForManifestAuth(m, auth); err != nil {
+			return err
 		}
 		registered, err := service.UpsertRuntimeAuth(coreauth.WithSkipPersist(ctx), auth)
 		if err != nil {
@@ -515,6 +522,9 @@ func readManifestCodexTokenAuth(account *accountSpec, authDir, path string) (*co
 		auth.Attributes["excluded_models"] = strings.Join(excluded, ",")
 	}
 	coreauth.ApplyCustomHeadersFromMetadata(auth)
+	if err := bindGatewayIdentityAuth(auth, account); err != nil {
+		return nil, err
+	}
 	return auth, nil
 }
 
@@ -647,7 +657,7 @@ func linkManifestAccountForAuth(m *manifest, auth *coreauth.Auth) {
 		m.accountByAuthID = make(map[string]*accountSpec)
 	}
 	authID := strings.ToLower(strings.TrimSpace(auth.ID))
-	if _, exists := m.accountByAuthID[authID]; exists {
+	if _, exists := m.accountByAuthID[authID]; exists && !manifestUsesGatewayIdentity(m) {
 		return
 	}
 	if account := findManifestAccountForAuth(m, auth); account != nil {
@@ -662,6 +672,13 @@ func linkManifestAccountForAuth(m *manifest, auth *coreauth.Auth) {
 func findManifestAccountForAuth(m *manifest, auth *coreauth.Auth) *accountSpec {
 	if m == nil || auth == nil {
 		return nil
+	}
+	if manifestUsesGatewayIdentity(m) {
+		account, err := gatewayManifestAccountForAuth(m, auth)
+		if err != nil {
+			return nil
+		}
+		return account
 	}
 	for _, candidate := range []string{
 		strings.TrimSpace(auth.ID),
@@ -757,9 +774,11 @@ func manifestModelsForAuth(m *manifest, auth *coreauth.Auth) []*cliproxy.ModelIn
 	provider := strings.ToLower(strings.TrimSpace(auth.Provider))
 	if provider == "" || provider == "codex" {
 		models := manifestRegistryModels(m)
-		// Explicit image relay configuration only expands the internal scheduler
-		// catalog; client model visibility and key permissions stay unchanged.
-		if mainModel := strings.TrimSpace(m.ImageGenerationMainModel); mainModel != "" {
+		// OAuth image requests also need the default main model when the public
+		// catalog only contains third-party models. This only expands the internal
+		// scheduler catalog; client visibility and key permissions stay unchanged.
+		if strings.TrimSpace(m.ImageGenerationMainModel) != "" || auth.AuthKind() == coreauth.AuthKindOAuth {
+			mainModel := configuredImagesMainModel(m)
 			found := false
 			for _, model := range models {
 				if model != nil && strings.EqualFold(model.ID, mainModel) {
@@ -774,7 +793,7 @@ func manifestModelsForAuth(m *manifest, auth *coreauth.Auth) []*cliproxy.ModelIn
 		// 仅由第三方 provider（例如 xai/Grok）承接的模型不能注册到 Codex 账号上，
 		// 否则调度会把 grok 模型发给 ChatGPT 上游。
 		thirdPartyModels := xaiOnlyModelIDs(m)
-		if len(thirdPartyModels) == 0 {
+		if len(thirdPartyModels) == 0 && auth.AuthKind() != coreauth.AuthKindOAuth {
 			return models
 		}
 		filtered := make([]*cliproxy.ModelInfo, 0, len(models))
@@ -783,6 +802,9 @@ func manifestModelsForAuth(m *manifest, auth *coreauth.Auth) []*cliproxy.ModelIn
 				continue
 			}
 			if _, thirdParty := thirdPartyModels[strings.ToLower(strings.TrimSpace(model.ID))]; thirdParty {
+				continue
+			}
+			if auth.AuthKind() == coreauth.AuthKindOAuth && isRetiredChatGPTModel(m, model.ID) {
 				continue
 			}
 			filtered = append(filtered, model)
@@ -1041,6 +1063,9 @@ func (p *sidecarRoundTripperProvider) RoundTripperFor(auth *coreauth.Auth) http.
 	if p == nil || auth == nil {
 		return nil
 	}
+	if rt, managed := managedGatewayRoundTripper(auth); managed {
+		return rt
+	}
 	proxyURL := strings.TrimSpace(auth.ProxyURL)
 	if proxyURL == "" {
 		return nil
@@ -1096,6 +1121,14 @@ func initializeSidecarRuntimeAuths(
 		if auth == nil || !sidecarOAuthProviderSupported(auth.Provider) {
 			continue
 		}
+		if err := bindGatewayIdentityForManifestAuth(m, auth); err != nil {
+			return err
+		}
+		if auth.Attributes[helps.IdentityScopeAttribute] != "" {
+			if _, err := manager.Update(coreauth.WithSkipPersist(ctx), auth); err != nil {
+				return err
+			}
+		}
 		linkManifestAccountForAuth(m, auth)
 		registerManifestModelsForAuth(manager, m, auth)
 	}
@@ -1106,8 +1139,6 @@ func initializeSidecarRuntimeAuths(
 // StartRuntime deliberately does not run the SDK's full HTTP service/watcher.
 // Observe only the manifest's existing credential projections here, so Cockpit
 // token-authority refreshes and reauthorization become visible without a restart.
-// Managed installation IDs resolve through the live account identity store,
-// never through a stale manifest value after an acknowledged reset.
 // This does not hot-reload the manifest or enroll arbitrary new auth files.
 
 func readAuthFileWithRetry(path string) ([]byte, error) {

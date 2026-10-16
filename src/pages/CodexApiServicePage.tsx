@@ -74,9 +74,6 @@ import {
   summarizeCodexQuotaPool,
 } from "../utils/codexQuotaPool";
 import { filterCodexLocalAccessAccountIds } from "../utils/codexLocalAccessAccounts";
-import {
-  isCodexLocalAccessRiskNoticeDismissed,
-} from "../utils/codexLocalAccessRiskNotice";
 import { requestCodexOpenAddAccount } from "../utils/codexAddAccountRequest";
 import { scrollElementTo } from "../utils/reducedMotion";
 import { useCodexAccountOverviewMemberView } from "../hooks/useCodexAccountOverviewMemberView";
@@ -919,7 +916,7 @@ export function useCodexApiServicePageController() {
   const clientBaseUrlHost = collection?.clientBaseUrlHost ?? "localhost";
   const routingStrategy = collection?.routingStrategy ?? "auto";
   const modelIds = state?.modelIds ?? [];
-  const exampleModelId = modelIds[0] ?? "gpt-5.5";
+  const exampleModelId = modelIds[0] ?? "gpt-5.6-sol";
   const exampleApiKey = collection?.apiKey || "<api-key>";
   const compatibilityBaseUrls = useMemo(
     () => resolveCodexApiServiceCompatibilityBaseUrls(displayBaseUrl),
@@ -1655,21 +1652,6 @@ export function useCodexApiServicePageController() {
 
   const handleToggleEnabled = async (fromDialog = false) => {
     if (!collection) return false;
-    if (!collection.enabled) {
-      const confirmed = await confirmDialog(
-        t(
-          "codex.localAccess.riskNotice.desc",
-          "当前 Codex API 服务相关功能，本质上属于代理转发使用方式。继续使用即表示您已知悉相关情况，并愿意自行承担可能产生的风险。",
-        ),
-        {
-          title: t("codex.localAccess.riskNotice.title", "使用风险提示"),
-          kind: "warning",
-          okLabel: t("codex.localAccess.riskNotice.continueStart", "继续启动"),
-          cancelLabel: t("common.cancel", "取消"),
-        },
-      );
-      if (!confirmed) return false;
-    }
     return runAction(
       async () => {
         const next = await codexLocalAccessService.setCodexLocalAccessEnabled(
@@ -1729,25 +1711,6 @@ export function useCodexApiServicePageController() {
       );
       if (!confirmedEnableAndSwitch) return;
     }
-    if (!isCodexLocalAccessRiskNoticeDismissed()) {
-      const confirmedRisk = await confirmDialog(
-        t(
-          "codex.localAccess.riskNotice.desc",
-          "当前 Codex API 服务相关功能，本质上属于代理转发使用方式。继续使用即表示您已知悉相关情况，并愿意自行承担可能产生的风险。",
-        ),
-        {
-          title: t("codex.localAccess.riskNotice.title", "使用风险提示"),
-          kind: "warning",
-          okLabel: t(
-            "codex.localAccess.riskNotice.continueSwitch",
-            "继续切号",
-          ),
-          cancelLabel: t("common.cancel", "取消"),
-        },
-      );
-      if (!confirmedRisk) return;
-    }
-
     setActivating(true);
     setError("");
     setNotice("");

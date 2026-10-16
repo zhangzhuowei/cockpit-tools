@@ -70,7 +70,7 @@ func TestCodexSpawnAgentModelsFromSourcesIncludesModelMetadata(t *testing.T) {
 
 	catalog := []byte(`{"models":[
 		{"slug":"model-template","display_name":"Template","description":"Template model.","default_reasoning_level":"low","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"}],"service_tiers":[{"id":"priority"}],"priority":1},
-		{"slug":"gpt-5.5","display_name":"Default","description":"Default model.","default_reasoning_level":"medium","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"}],"service_tiers":[{"id":"priority"}],"priority":2}
+		{"slug":"gpt-5.6-sol","display_name":"Default","description":"Default model.","default_reasoning_level":"medium","supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"}],"service_tiers":[{"id":"priority"}],"priority":2}
 	]}`)
 	available := []map[string]any{
 		{"id": "custom-model", "display_name": "Custom", "description": "Registry description."},
@@ -1078,5 +1078,21 @@ func TestNormalizeCodexCollaborationArguments(t *testing.T) {
 	otherTool := []byte(`{"type":"function_call","name":"exec_command","arguments":"{\"timeout_ms\":180000.0}"}`)
 	if out := NormalizeCodexCollaborationArguments(otherTool); string(out) != string(otherTool) {
 		t.Fatalf("non-collaboration tool must stay unchanged: %s", out)
+	}
+}
+
+func TestUnknownSpawnAgentModelsKeepConservativeReasoning(t *testing.T) {
+	models := codexSpawnAgentModelsFromSources([]map[string]any{{"id": "vendor-unknown"}, {"id": "gpt-5.6-sol"}}, registry.GetCodexClientModelsJSON(), nil)
+	if len(models) != 2 {
+		t.Fatalf("spawn models = %d, want 2", len(models))
+	}
+	for _, model := range models {
+		if model.id == "vendor-unknown" {
+			if strings.Join(model.reasoningEfforts, ",") != "low,medium,high,xhigh" || model.defaultReasoningEffort != "medium" {
+				t.Fatalf("unknown inherited Sol reasoning: %+v", model)
+			}
+		} else if !strings.Contains(strings.Join(model.reasoningEfforts, ","), "ultra") || model.defaultReasoningEffort != "low" {
+			t.Fatalf("known Sol reasoning changed: %+v", model)
+		}
 	}
 }

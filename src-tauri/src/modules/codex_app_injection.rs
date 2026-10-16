@@ -812,7 +812,7 @@ struct InjectionBalanceLine {
     total_balance: f64,
 }
 
-/// API 服务账号池里的 Grok 平台账号额度（只含 GrokBuild），按产品合并成一行。
+/// API 服务账号池里的 Grok 共享额度或旧 GrokBuild 额度。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct InjectionGrokQuotaLine {
@@ -901,11 +901,14 @@ async fn fetch_deepseek_balance(
     }
 }
 
-/// API 服务账号池里的 Grok 账号额度汇总：只取 GrokBuild，多账号取最优剩余额度。
+/// API 服务账号池里的 Grok 额度汇总：共享池或旧 GrokBuild，多账号取最优剩余额度。
 ///
 /// 数据来自 Cockpit 本地保存的 Grok 平台账号额度（账号保活会定期刷新），
 /// 因此这里不发额外网络请求；池里没有 Grok 账号时返回空列表，弹框不显示该行。
-async fn api_service_grok_quota_lines() -> Vec<InjectionGrokQuotaLine> {
+#[path = "codex_app_injection_grok_quota.rs"]
+mod grok_quota;
+
+async fn api_service_grok_quota_lines(locale: &str) -> Vec<InjectionGrokQuotaLine> {
     let Ok(state) = codex_local_access::get_local_access_state().await else {
         return Vec::new();
     };
@@ -914,6 +917,7 @@ async fn api_service_grok_quota_lines() -> Vec<InjectionGrokQuotaLine> {
     };
     let mut grouped: std::collections::BTreeMap<String, (i64, i64)> =
         std::collections::BTreeMap::new();
+    let shared_label = i18n::translate(locale, "grok.quota.sharedPool", &[]);
     for account_id in collection.account_ids {
         let Some(account) = codex_account::load_account(&account_id) else {
             continue;
@@ -935,34 +939,8 @@ async fn api_service_grok_quota_lines() -> Vec<InjectionGrokQuotaLine> {
         let Some(quota) = grok_account.quota else {
             continue;
         };
-        for product in quota.products {
-            let normalized = product
-                .product
-                .chars()
-                .filter(|ch| ch.is_ascii_alphanumeric())
-                .collect::<String>()
-                .to_ascii_lowercase();
-            // 卡片只展示 GrokBuild（其余产品额度太杂，会把弹框撑长）。
-            if normalized != "grokbuild" {
-                continue;
-            }
-            let used = product.used;
-            let total = product.total;
-            let remaining = product.remaining;
-            let used_percent = product.usage_percent.or_else(|| {
-                match (used, total, remaining) {
-                    (Some(used), Some(total), _) if total > 0.0 => Some(used / total * 100.0),
-                    (_, Some(total), Some(remaining)) if total > 0.0 => {
-                        Some((total - remaining) / total * 100.0)
-                    }
-                    _ => None,
-                }
-            });
-            let Some(used_percent) = used_percent.filter(|value| value.is_finite()) else {
-                continue;
-            };
-            let remaining_percent = (100.0 - used_percent).round().clamp(0.0, 100.0) as i64;
-            let entry = grouped.entry(product.product).or_insert((0, remaining_percent));
+        for (product, remaining_percent) in grok_quota::quota_lines(&quota, &shared_label) {
+            let entry = grouped.entry(product).or_insert((0, remaining_percent));
             entry.0 += 1;
             entry.1 = entry.1.max(remaining_percent);
         }
@@ -3742,7 +3720,7 @@ async fn run_injection_loop(
                 api_service_balance_lines = lines;
             }
             // Grok 额度取自本地账号快照，无网络请求，随余额刷新节拍一起更新。
-            api_service_grok_lines = api_service_grok_quota_lines().await;
+            api_service_grok_lines = api_service_grok_quota_lines(&locale).await;
             last_api_service_balance_at = Instant::now();
         }
         let gateway = read_profile_gateway_config(&profile_dir);

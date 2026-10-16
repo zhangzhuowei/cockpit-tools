@@ -8,7 +8,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [Unreleased]
+## [1.3.69] - 2026-10-16
+
+### Added
+
+- **Rust native API service**: Added Rust as the default API engine for new installations and the first upgrade, with Go still available as an option.
+- **Grok and Cursor**: Display server-provided subscription values. Grok supports 4.7 model capabilities and pricing, and both API engines support client tool discovery, follow-up conversations and sub-agents, normalize search and reasoning responses, and refresh compatible request versions in the background. Grok recognizes The X Subscription shared allowance and actual reset period while retaining legacy plans; purchased credits and product usage shares are not treated as separate allowances. New authorizations include workspace permissions supported by the official CLI.
+- **Antigravity desktop switching**: WebSocket requests can explicitly target desktop credentials without launching the client, or request a restart. Requests without a target retain the existing IDE behavior.
+
+### Changed
+
+- Platforms appear independently by default in the top navigation, except that Codex API Service remains grouped with Codex. Other untouched built-in groups are expanded while customized groups and layout choices are retained; grouping remains available in Top Layout.
+- Removed the reverse-proxy risk warning and its confirmation step from API service actions.
+
+- **Go API service**: Improved stability, account switching, conversation continuation and error handling.
+- Updated built-in Codex models and defaults, removing GPT-5.5.
+
+### Fixed
+
+- Windows default-instance launches use the same custom `CODEX_HOME` as account switching, preventing startup with another directory's account.
+- Grok device authorization uses the issuer's verification URL when no complete link is returned. Missing data-sharing preferences default to opting out, matching the official CLI, while explicit preferences remain unchanged. Usage below 100% no longer appears exhausted after rounding.
+- Codex context settings show configuration conflicts and a reload action inside the active dialog. Failures retain the draft; successful reloads update the cancellation baseline.
+- Codex launch-preview Model Management keeps the dialog and action buttons stable when menus open, with scrolling inside the model list.
+- Codex desktop proxy entries try dispersed candidates when consecutive ports are unavailable, preserve account port ownership, and explain recovery failures without silently changing a running client's port.
 
 ## [1.3.68] - 2026-10-13
 

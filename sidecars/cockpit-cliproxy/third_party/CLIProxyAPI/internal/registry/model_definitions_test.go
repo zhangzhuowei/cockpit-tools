@@ -253,7 +253,7 @@ func TestCodexCatalogsDoNotRestoreRetiredModels(t *testing.T) {
 			}
 		}
 	}
-	models := WithCodexBuiltins([]*ModelInfo{{ID: "gpt-5.4"}, {ID: "gpt-4.1"}, {ID: "gpt-6.1-sol"}, {ID: "custom-model"}})
+	models := WithCodexBuiltins([]*ModelInfo{{ID: "gpt-5.5"}, {ID: "gpt-5.4"}, {ID: "gpt-4.1"}, {ID: "gpt-6.1-sol"}, {ID: "custom-model"}})
 	found := false
 	for _, model := range models {
 		if isRetiredCodexModelID(model.ID) {

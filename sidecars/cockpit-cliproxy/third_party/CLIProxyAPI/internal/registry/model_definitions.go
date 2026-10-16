@@ -163,7 +163,7 @@ func isRetiredCodexModelID(modelID string) bool {
 			return false
 		}
 	}
-	return major < 5 || major == 5 && minor < 5
+	return major < 5 || major == 5 && minor < 6
 }
 
 // withCodexPaidBuiltins keeps paid Codex model availability stable when the
@@ -185,10 +185,10 @@ func withCodexPaidBuiltins(models []*ModelInfo) []*ModelInfo {
 	return prioritizeModelInfoByID(models, codexBuiltinGPT61SolModelID)
 }
 
-// WithXAIBuiltins injects hard-coded xAI image/video model definitions that should
+// WithXAIBuiltins injects hard-coded xAI model definitions that should
 // not depend on remote models.json updates.
 func WithXAIBuiltins(models []*ModelInfo) []*ModelInfo {
-	return upsertModelInfos(models, xaiBuiltinImageModelInfo(), xaiBuiltinImageQualityModelInfo(), xaiBuiltinImage20ModelInfo(), xaiBuiltinVideoModelInfo(), xaiBuiltinVideo15ModelInfo(), xaiBuiltinVideo15PreviewModelInfo())
+	return upsertModelInfos(models, xaiBuiltinGrok47ModelInfo(), xaiBuiltinImageModelInfo(), xaiBuiltinImageQualityModelInfo(), xaiBuiltinImage20ModelInfo(), xaiBuiltinVideoModelInfo(), xaiBuiltinVideo15ModelInfo(), xaiBuiltinVideo15PreviewModelInfo())
 }
 
 func normalizeAntigravityCapabilityModelID(modelID string) string {

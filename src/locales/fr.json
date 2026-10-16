@@ -692,8 +692,8 @@
       "autoSyncThreadsDesc": "Désactivé, les sessions des instances restent isolées. Activé, le lancement ou la fermeture d'une instance fusionne automatiquement les sessions locales, uniquement lorsque toutes les instances Codex sont arrêtées.",
       "modelRouting": {
         "title": "Routage d'API tierce",
-        "summary": "Les modèles sans préfixe utilisent l'abonnement actuel ; les modèles avec préfixe tels que cpa/gpt-5.5 sont transférés vers une API tierce. Les deux dépendent du service de routage local.",
-        "rowSummary": "Les modèles sans préfixe utilisent l'abonnement actuel ; les modèles avec préfixe tels que cpa/gpt-5.5 sont transférés vers une API tierce. Les deux dépendent du service de routage local.",
+        "summary": "Les modèles sans préfixe utilisent l'abonnement actuel ; les modèles avec préfixe tels que cpa/gpt-5.6-sol sont transférés vers une API tierce. Les deux dépendent du service de routage local.",
+        "rowSummary": "Les modèles sans préfixe utilisent l'abonnement actuel ; les modèles avec préfixe tels que cpa/gpt-5.6-sol sont transférés vers une API tierce. Les deux dépendent du service de routage local.",
         "confirmEnableTitle": "Activer le routage d'API tierce ?",
         "confirmEnableMessage": "Les requêtes de modèles Codex seront acheminées via le service local Cockpit Tools. Si le service n'est pas en cours d'exécution, les modèles d'abonnement et tiers peuvent être indisponibles.\n\nActiver le routage ?",
         "confirmEnableAction": "Activer",
@@ -1911,6 +1911,9 @@
     "clearSelection": "Effacer sélection",
     "switched": "Basculé vers {{email}}",
     "switchFailed": "Échec du basculement : {{error}}",
+    "antigravitySwitchBusy": "Un changement de compte Antigravity est en cours. Réessayez dans un instant.",
+    "antigravitySwitchPrepareTimeout": "La préparation du compte Antigravity a expiré. Réessayez.",
+    "antigravitySwitchStateSaveFailed": "Les identifiants du client ont changé, mais l’état local du compte n’a pas pu être enregistré : {{error}}. Réessayez le changement.",
     "antigravityLegacyUnsupported": "Antigravity 2.0.0 et versions ultérieures ne sont pas pris en charge ici. Choisissez une version d’Antigravity antérieure à 2.0.0 ou utilisez Antigravity IDE.",
     "importSuccess": "{{count}} comptes importés avec succès",
     "importLocalSuccess": "Compte importé avec succès : {{email}}",
@@ -2368,6 +2371,8 @@
       "configRefreshing": "Vérification de la configuration de l’instance. Les données actuelles restent disponibles.",
       "configLoadTimeout": "Le chargement de la configuration de l’instance a expiré. Réessayez.",
       "configChanged": "La configuration de l’instance a été modifiée ailleurs. Rechargez-la avant d’enregistrer ou de démarrer.",
+      "reloadConfig": "Recharger",
+      "contextReloadHint": "Le rechargement remplace les réglages non enregistrés. Vérifiez-les avant de les appliquer.",
       "accessModeTitle": "Mode de démarrage",
       "prosLabel": "Avantages :",
       "consLabel": "Inconvénients :",
@@ -2706,14 +2711,6 @@
       "hideEntryEffectHide": "Masquer l'entrée du service API dans la vue d'ensemble",
       "hideEntryEffectDisable": "Désactiver le service API actuel",
       "hideEntryEffectRestore": "Vous pourrez le réactiver dans les réglages Codex ou les réglages rapides",
-      "riskNotice": {
-        "title": "Avis de risque",
-        "message": "L’utilisation de comptes officiels ordinaires via un proxy inverse ou un relais peut faire l’objet de restrictions strictes du service officiel. Elle peut aussi être détectée comme un relais et affecter la qualité des réponses (« intelligence réduite »). À utiliser avec prudence, surtout si vous avez de nombreux comptes.",
-        "remember": "J'ai compris, ne plus afficher",
-        "acknowledge": "J'ai compris",
-        "continueStart": "Continuer",
-        "continueSwitch": "Continuer"
-      },
       "statsRange": {
         "label": "Période",
         "daily": "Jour",
@@ -2850,6 +2847,18 @@
       "gatewayModeNewLabel": "Service API-Nouveau",
       "gatewayModeOldLabel": "Service API-Ancien",
       "gatewayModeSaveSuccess": "Le mode de passerelle du service API a ete mis a jour",
+      "gatewayEngineNative": "Rust natif",
+      "gatewayEngineSidecar": "Go (actuel)",
+      "gatewayEngineHint": "Rust est le moteur par défaut. La première mise à niveau passe à Rust ; vos choix ultérieurs sont conservés. Le changement redémarre le service API et peut interrompre les requêtes actives ; les fenêtres Codex restent ouvertes.",
+      "gatewayEngineSwitching": "Changement de moteur…",
+      "gatewayEngineSwitchFailed": "Échec du changement de moteur : {{error}}",
+      "gatewayEngineReadbackFailed": "Impossible de confirmer le moteur actuel. Actualisez avant de réessayer : {{error}}",
+      "gatewayEngineReadbackTimeout": "Délai de lecture de l’état dépassé",
+      "gatewayEngineRequestsBusy": "Des requêtes sont en cours. Réessayez une fois terminées.",
+      "gatewayEngineOperationBusy": "Une autre opération du service est en cours. Réessayez dans un instant.",
+      "gatewayEngineSwitchRestored": "Le changement a échoué. Le moteur précédent a été rétabli.",
+      "gatewayEngineRestoreFailed": "Le changement et le rétablissement du moteur ont échoué. Vérifiez l’état du service avant de réessayer.",
+      "gatewayEngineStopped": "Le service API est arrêté. Redémarrez-le avant de réessayer.",
       "gatewayGuideTitle": "Changez de passerelle ici",
       "gatewayGuideDesc": "La nouvelle passerelle est le choix par défaut. En cas de problème de compatibilité ou d'erreur côté client, revenez ici à l'ancienne passerelle.",
       "gatewayGuideAction": "Compris",
@@ -2937,7 +2946,7 @@
       "imageGenerationMainModel": {
         "label": "Modèle principal image",
         "notice": "Ne modifiez pas le modèle principal en usage courant.",
-        "hint": "Il sert uniquement au relais vers le service officiel, pas au choix du modèle qui génère les images. Modifiez-le seulement si le modèle principal officiel change. Laissez vide pour gpt-5.5.",
+        "hint": "Il sert uniquement au relais vers le service officiel, pas au choix du modèle qui génère les images. Modifiez-le seulement si le modèle principal officiel change. Laissez vide pour gpt-5.6-luna.",
         "invalid": "Saisissez un ID de modèle sans espaces, de 200 caractères maximum."
       },
       "requestDetail": {
@@ -4009,7 +4018,7 @@
       },
       "vision": {
         "providerDefault": "Ce fournisseur prend en charge les images par défaut",
-        "providerDefaultHint": "Les modèles sans réglage explicite utilisent cette valeur ; GPT-5.5 et les versions suivantes acceptent les images par défaut. Désactivez chaque modèle dans la liste. Si la passerelle ne trouve aucun modèle visuel, elle omet les images et poursuit avec le texte.",
+        "providerDefaultHint": "Les modèles sans réglage explicite utilisent cette valeur ; les modèles tels que GPT-5.6 Sol et GPT-5.6 Luna acceptent les images par défaut. Désactivez chaque modèle dans la liste. Si la passerelle ne trouve aucun modèle visuel, elle omet les images et poursuit avec le texte.",
         "modelsHint": "Un modèle par ligne. Utile quand seuls certains modèles du fournisseur acceptent les images collées.",
         "routingModelHint": "Si le modèle actuel ne lit pas les images, la passerelle utilise ce modèle. Laissez vide pour utiliser le seul modèle visuel disponible ; sinon, les images sont omises et le texte est traité.",
         "allModels": "Images​",
@@ -5091,7 +5100,7 @@
       "restoreEntry": "Rétablir le relais",
       "restoringEntry": "Rétablissement…",
       "restoreEntryFailed": "Impossible de rétablir le relais proxy du bureau. Réessayez.",
-      "restoreEntryPortBusy": "Le port proxy initial est occupé. Libérez-le puis réessayez ; l’application de bureau ne peut pas changer de port automatiquement.",
+      "restoreEntryPortBusy": "Impossible de lier le port proxy initial ; il est peut-être utilisé ou réservé par le système. Libérez-le et réessayez, ou redémarrez le client via Cockpit pour attribuer un point d’entrée disponible.",
       "restoreEntryNotRunning": "Aucune application de bureau en cours utilisant une entrée proxy enregistrée de cette instance Cockpit n’a été trouvée.",
       "restoreEntryBusy": "Le rétablissement du proxy est déjà en cours. Réessayez dans un instant.",
       "restoreEntryTimeout": "Le rétablissement du proxy a expiré. Réessayez.",
@@ -5564,6 +5573,22 @@
         "gateway": "HTTP 504 indique un délai de passerelle dépassé. Ce journal ne précise pas la cause ; consulter l’erreur en amont et la phase de requête.",
         "threshold": "Seuil appliqué à cette requête : {{seconds}} secondes.",
         "settings": "Régler le délai"
+      },
+      "identity": {
+        "title": "Identité de session et de compte",
+        "client": "Requête cliente",
+        "upstreamAttempt": "Envoi #{{sequence}}",
+        "notProvided": "Non fourni",
+        "notCaptured": "Non enregistré",
+        "notSent": "Aucun envoi tenté",
+        "hint": "Enregistre les en-têtes d’identité et le profil local du compte choisi au moment de la requête, sans confirmer leur réception en amont. Indépendant de l’enregistrement du contenu ; aucun ajout aux anciennes requêtes.",
+        "copyHeader": "Copier {{header}}",
+        "profileTitle": "Profil d’identité du compte",
+        "profileInstallationId": "ID d’installation",
+        "profileScope": "Portée",
+        "profileVersion": "Version du profil",
+        "profileRevision": "Révision",
+        "profileHint": "Instantané local du compte choisi ; les en-têtes réellement utilisés figurent ci-dessus."
       }
     },
     "experimentalModels": {
@@ -7465,6 +7490,8 @@
     },
     "quota": {
       "weekly": "Utilisation hebdomadaire",
+      "sharedPool": "Quota partagé",
+      "monthly": "Usage mensuel",
       "onDemand": "Utilisation à la demande",
       "balance": "Solde et crédits",
       "included": "Utilisation incluse",

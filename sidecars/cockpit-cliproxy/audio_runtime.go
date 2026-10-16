@@ -212,7 +212,19 @@ func (s *relayServer) forwardProviderAudio(c *gin.Context, gateway *providerGate
 	}
 	copyProviderGatewayDiagnosticHeaders(req.Header, c.Request.Header)
 	observeDirectGatewayRequest(req.Context(), key.account, model, req.Header, nil)
-	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	identityAuth, err := s.directGatewayIdentity(key.account, gateway.APIKey, gateway.BaseURL, false)
+	if err != nil {
+		release()
+		return nil, false, err
+	}
+	client, err := applyDirectGatewayIdentity(req, identityAuth)
+	if err != nil {
+		release()
+		return nil, false, err
+	}
+	if client == nil {
+		client = &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		release()

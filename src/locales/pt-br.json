@@ -692,8 +692,8 @@
       "autoSyncThreadsDesc": "Desativado mantém as sessões de múltiplas instâncias isoladas. Ao ativar, iniciar ou fechar uma instância mescla automaticamente os registros locais de sessão somente depois que todas as instâncias Codex estiverem paradas.",
       "modelRouting": {
         "title": "Roteamento de API de terceiros",
-        "summary": "Modelos sem prefixo usam a assinatura atual; modelos com prefixo como cpa/gpt-5.5 são encaminhados para uma API de terceiros. Ambos dependem do serviço de roteamento local.",
-        "rowSummary": "Modelos sem prefixo usam a assinatura atual; modelos com prefixo como cpa/gpt-5.5 são encaminhados para uma API de terceiros. Ambos dependem do serviço de roteamento local.",
+        "summary": "Modelos sem prefixo usam a assinatura atual; modelos com prefixo como cpa/gpt-5.6-sol são encaminhados para uma API de terceiros. Ambos dependem do serviço de roteamento local.",
+        "rowSummary": "Modelos sem prefixo usam a assinatura atual; modelos com prefixo como cpa/gpt-5.6-sol são encaminhados para uma API de terceiros. Ambos dependem do serviço de roteamento local.",
         "confirmEnableTitle": "Ativar roteamento de API de terceiros?",
         "confirmEnableMessage": "As solicitações de modelos do Codex serão roteadas através do serviço local Cockpit Tools. Se o serviço não estiver em execução, tanto os modelos de assinatura quanto os de terceiros poderão ficar indisponíveis.\n\nAtivar roteamento?",
         "confirmEnableAction": "Ativar",
@@ -1911,6 +1911,9 @@
     "clearSelection": "Limpar seleção",
     "switched": "Trocado para {{email}}",
     "switchFailed": "Falha ao trocar: {{error}}",
+    "antigravitySwitchBusy": "Uma troca de conta do Antigravity está em andamento. Tente novamente em instantes.",
+    "antigravitySwitchPrepareTimeout": "A preparação da conta do Antigravity excedeu o tempo limite. Tente novamente.",
+    "antigravitySwitchStateSaveFailed": "As credenciais do cliente foram trocadas, mas não foi possível salvar o estado local da conta: {{error}}. Tente trocar novamente.",
     "antigravityLegacyUnsupported": "Antigravity 2.0.0 e versões posteriores não são compatíveis aqui. Escolha uma versão do Antigravity anterior a 2.0.0 ou use Antigravity IDE.",
     "importSuccess": "Importadas com sucesso {{count}} contas",
     "importLocalSuccess": "Conta importada com sucesso: {{email}}",
@@ -2368,6 +2371,8 @@
       "configRefreshing": "Verificando a configuração da instância. Os dados atuais continuam disponíveis.",
       "configLoadTimeout": "O carregamento da configuração da instância excedeu o tempo limite. Tente novamente.",
       "configChanged": "A configuração da instância foi alterada em outro lugar. Recarregue antes de salvar ou iniciar.",
+      "reloadConfig": "Recarregar",
+      "contextReloadHint": "A recarga substitui as configurações não salvas. Revise-as antes de aplicar.",
       "accessModeTitle": "Modo de inicialização",
       "prosLabel": "Vantagens:",
       "consLabel": "Desvantagens:",
@@ -2706,14 +2711,6 @@
       "hideEntryEffectHide": "Ocultar a entrada do serviço de API na visão geral",
       "hideEntryEffectDisable": "Desativar o serviço de API atual",
       "hideEntryEffectRestore": "Você poderá ativá-la novamente nas Configurações do Codex ou nas Configurações rápidas",
-      "riskNotice": {
-        "title": "Aviso de risco",
-        "message": "O uso de contas oficiais comuns por proxy reverso ou retransmissão pode estar sujeito a restrições rigorosas do serviço oficial. Esse uso também pode ser detectado como retransmissão e afetar a qualidade das respostas (“inteligência reduzida”). Use com cautela, especialmente se você tiver muitas contas.",
-        "remember": "Estou ciente, não mostrar novamente",
-        "acknowledge": "Estou ciente",
-        "continueStart": "Continuar",
-        "continueSwitch": "Continuar"
-      },
       "statsRange": {
         "label": "Período",
         "daily": "Dia",
@@ -2850,6 +2847,18 @@
       "gatewayModeNewLabel": "Servico API-Novo",
       "gatewayModeOldLabel": "Servico API-Antigo",
       "gatewayModeSaveSuccess": "O modo de gateway do servico de API foi atualizado",
+      "gatewayEngineNative": "Rust nativo",
+      "gatewayEngineSidecar": "Go (atual)",
+      "gatewayEngineHint": "Rust é o mecanismo padrão. A primeira atualização muda para Rust; as escolhas posteriores são mantidas. A troca reinicia o serviço de API e pode interromper solicitações ativas; as janelas do Codex permanecem abertas.",
+      "gatewayEngineSwitching": "Trocando mecanismo…",
+      "gatewayEngineSwitchFailed": "Falha ao trocar o mecanismo: {{error}}",
+      "gatewayEngineReadbackFailed": "Não foi possível confirmar o mecanismo atual. Atualize antes de tentar novamente: {{error}}",
+      "gatewayEngineReadbackTimeout": "Tempo esgotado ao atualizar o estado",
+      "gatewayEngineRequestsBusy": "Há solicitações em andamento. Tente novamente quando terminarem.",
+      "gatewayEngineOperationBusy": "Outra operação do serviço está em andamento. Tente novamente em instantes.",
+      "gatewayEngineSwitchRestored": "A troca falhou. O mecanismo anterior foi restaurado.",
+      "gatewayEngineRestoreFailed": "A troca falhou e não foi possível restaurar o mecanismo anterior. Verifique o estado do serviço antes de tentar novamente.",
+      "gatewayEngineStopped": "O serviço API parou. Reinicie-o antes de tentar novamente.",
       "gatewayGuideTitle": "Troque o gateway aqui",
       "gatewayGuideDesc": "O gateway novo é o padrão. Se houver problemas de compatibilidade ou erros de requisição do cliente, volte aqui para o gateway antigo.",
       "gatewayGuideAction": "Entendi",
@@ -2937,7 +2946,7 @@
       "imageGenerationMainModel": {
         "label": "Modelo base de imagem",
         "notice": "Não altere o modelo base de imagem durante o uso normal.",
-        "hint": "Serve apenas para encaminhar pedidos ao serviço oficial, não para escolher o modelo que gera imagens. Altere apenas se o modelo base oficial mudar. Deixe vazio para usar gpt-5.5.",
+        "hint": "Serve apenas para encaminhar pedidos ao serviço oficial, não para escolher o modelo que gera imagens. Altere apenas se o modelo base oficial mudar. Deixe vazio para usar gpt-5.6-luna.",
         "invalid": "Informe um ID de modelo sem espaços, com até 200 caracteres."
       },
       "requestDetail": {
@@ -4009,7 +4018,7 @@
       },
       "vision": {
         "providerDefault": "Este provedor aceita imagens por padrão",
-        "providerDefaultHint": "Modelos sem configuração explícita usam este padrão; GPT-5.5 e posteriores aceitam imagens por padrão. Desative modelos individuais na lista. Se o gateway não encontrar um modelo visual, omite as imagens e continua com o texto.",
+        "providerDefaultHint": "Modelos sem configuração explícita usam este padrão; modelos como GPT-5.6 Sol e GPT-5.6 Luna aceitam imagens por padrão. Desative modelos individuais na lista. Se o gateway não encontrar um modelo visual, omite as imagens e continua com o texto.",
         "modelsHint": "Um modelo por linha. Use quando apenas alguns modelos do provedor aceitam imagens coladas.",
         "routingModelHint": "Quando o modelo atual não lê imagens, o gateway usa este modelo. Deixe em branco para usar o único modelo visual disponível; caso contrário, as imagens são omitidas e o texto continua sendo processado.",
         "allModels": "Imagens",
@@ -5091,7 +5100,7 @@
       "restoreEntry": "Restaurar conexão",
       "restoringEntry": "Restaurando…",
       "restoreEntryFailed": "Não foi possível restaurar o encaminhamento proxy do desktop. Tente novamente.",
-      "restoreEntryPortBusy": "A porta proxy original está em uso. Libere-a e tente novamente; o desktop não pode usar outra porta automaticamente.",
+      "restoreEntryPortBusy": "Não é possível vincular a porta original do proxy; ela pode estar em uso ou reservada pelo sistema. Libere-a e tente novamente, ou reinicie o cliente pelo Cockpit para atribuir uma entrada disponível.",
       "restoreEntryNotRunning": "Nenhum desktop em execução usa uma entrada proxy registrada desta instância do Cockpit.",
       "restoreEntryBusy": "A restauração do proxy já está em andamento. Tente novamente em instantes.",
       "restoreEntryTimeout": "A restauração do proxy excedeu o tempo limite. Tente novamente.",
@@ -5564,6 +5573,22 @@
         "gateway": "HTTP 504 indica que o tempo de espera do gateway acabou. O registro não confirma a causa; verifique o erro upstream e a fase da solicitação.",
         "threshold": "Limite aplicado a esta solicitação: {{seconds}} segundos.",
         "settings": "Ajustar tempo"
+      },
+      "identity": {
+        "title": "Identidade da sessão e conta",
+        "client": "Solicitação do cliente",
+        "upstreamAttempt": "Envio #{{sequence}}",
+        "notProvided": "Não informado",
+        "notCaptured": "Não registrado",
+        "notSent": "Nenhuma tentativa de envio",
+        "hint": "Registra os cabeçalhos de identidade e o perfil local da conta selecionada no momento da solicitação. Não confirma o recebimento pelo provedor. Independe do registro do conteúdo; solicitações antigas não são complementadas.",
+        "copyHeader": "Copiar {{header}}",
+        "profileTitle": "Perfil de identidade",
+        "profileInstallationId": "ID de instalação",
+        "profileScope": "Escopo",
+        "profileVersion": "Versão",
+        "profileRevision": "Revisão",
+        "profileHint": "Retrato local da conta selecionada; os cabeçalhos realmente usados estão acima."
       }
     },
     "experimentalModels": {
@@ -7465,6 +7490,8 @@
     },
     "quota": {
       "weekly": "Uso semanal",
+      "sharedPool": "Cota compartilhada",
+      "monthly": "Uso mensal",
       "onDemand": "Uso sob demanda",
       "balance": "Saldo e créditos",
       "included": "Uso incluído",

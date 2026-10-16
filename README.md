@@ -98,7 +98,9 @@
 - **专属支持**：专为 Codex 优化的账号管理体验
 - **配额展示**：清晰展示 Hourly 和 Weekly 配额状态
 - **计划识别**：自动识别账号 Plan 类型 (Basic, Plus, Team 等)
-- **API 服务**：本地 Codex API 服务由内置 CLIProxyAPI sidecar 驱动，Cockpit Tools 负责账号同步、配置投影、状态与用量统计；Base URL、API Key 与用户操作方式保持不变。
+- **API 服务**：新安装及首次升级默认使用「Rust 原生」，之后保留用户的选择，可在 API 服务页面或快捷面板切回内置 Go CLIProxyAPI sidecar。Rust 在宿主内实现 Responses 的 HTTP/SSE/WebSocket 与 compact，以及 Chat Completions、Claude、Gemini、Ollama 兼容接口，两引擎共用账号池、代理和配置。Go 继续负责协议转换、自动重试和上游传输，由 Go 管理的本地无界面辅助进程复用 Rust 会话内核，持久实例网关不依赖主窗口存活。对于 Codex 账号请求，Go 与 Rust 在同一网关范围内共享 Session、Thread、子 Agent 和上游状态的账号归属及历史；不同 profile 的实例网关保持隔离。切换引擎保留 Base URL 和 API Key，但会重启服务并可能中断活动请求。
+- **请求身份对照**：Go 与 Rust 的请求记录「详情」可对照客户端原始 `Session-Id`、`Thread-Id`，以及每次上游尝试使用的请求头、账号和传输方式。关闭或清除正文快照仍保留这些本地诊断信息；客户端未提供与历史未采集分别显示，不按当前配置补填旧记录。这些头值不代表上游已接收请求。
+- **自动续接上下文**：Go 的 Codex 账号请求与 Rust 默认自动尝试续接历史对话，支持切换引擎和账号，缺少本地归属记录不再单独阻断请求。调用方、账号池权限及 profile 隔离继续生效。完整 Responses 历史原样保留，包括 reasoning、compaction、工具与子 Agent 密文及 `item.id`／`call_id`；不解密、不丢弃，也不以摘要替代。完整自包含 `input` 可在授权目标账号建立新的上游 Session／Thread，保留客户端 Thread；增量请求继续使用有效上游状态、完整检查点或 WebSocket 历史，缺失上下文或上游明确拒绝时仍可能失败并保留原历史。两引擎在转发完整官方 Agent 通信工具调用前登记消息密文归属；缺少记录的历史通信密文也自动尝试续接，新的续接归属仅在有效完整响应后保存。两引擎共用本地 `codex_native_api/identity.sqlite` 明文／密文历史缓存，实例网关使用各 profile 隔离目录内的 `native-identity.sqlite`，独立于正文诊断／快照开关。缓存上限为每个检查点 8 MiB、总计 64 MiB 和 128 个检查点，淘汰不删除会话或密文归属。重放可能增加输入 token，上游对跨账号密文的接受情况仍待真实请求验证。失败不覆盖已成功代次，已成功代次在切换引擎和重启后保留；新的上游对话不改变目标账号身份。
 - **语音反代**：支持 Codex backend 实时语音路由与 `/transcribe` 转写入口，并提供 `/v1/audio/transcriptions`、`/v1/audio/translations`、`/v1/audio/speech` 及无 `/v1` 的别名。OAuth 转写使用 ChatGPT backend：兼容入口支持 `file`、`language` 和 JSON／纯文本返回，`model` 仅作为兼容字段，实际模型由 backend 决定；字幕时间戳、流式转写及其他音频操作需使用支持相应接口的 API Key 供应商。原生 `/transcribe` 请求保留原有 multipart 参数，供应商侧未指定模型时使用 `gpt-4o-mini-transcribe`。请求上限为 26 MiB，超时为 2 分钟，音频内容不写入请求快照。只处理实际发送到本地网关的请求；客户端仍直连官方转写服务或自行限制麦克风时，不会因设置模型供应商而自动改走本地网关。
 
 > ![Codex Accounts](docs/images/codex_list.png)
@@ -242,7 +244,7 @@ Grok CLI 默认实例通常直接沿用官方 `~/.grok` 目录，启动时不设
 - **账号导入**：支持本机导入与 JSON 导入
 - **配额视图**：展示套餐原始值、美元消耗/总额度与重置时间
 - **批量管理**：支持标签、筛选、导出与批量删除/刷新
-- **Trae 套件**：支持 Trae、TRAE SOLO、Trae CN、TRAE SOLO CN 默认客户端的本机导入与切号注入，默认归入 Trae 分组
+- **Trae 套件**：支持 Trae、TRAE SOLO、Trae CN、TRAE SOLO CN 默认客户端的本机导入与切号注入，默认独立展示，可在顶部布局中手动分组
 - **切号注入**：支持切号后按各客户端真实落盘规则写回并启动目标客户端
 
 #### 11.1 Trae 应用多开
@@ -306,6 +308,21 @@ Grok CLI 默认实例通常直接沿用官方 `~/.grok` 目录，启动时不设
   1. 不使用插件联动时，可关闭 WebSocket 服务。
   2. 不要把用户目录直接打包分享；备份前注意脱敏 token 文件。
   3. 在公共或共用电脑上，使用后删除账号并退出应用。
+
+### WebSocket 账号切换 API
+
+`request.switch_account` 支持明确选择 Antigravity 客户端。未传 `runtime_target`，或传 `"antigravity_ide"`，保持原有 IDE 切号流程及现有启动/无感双通道设置；不会读取前端选择的客户端。
+
+切换 Antigravity 桌面版及使用同一系统凭据的 `agy` CLI，可发送：
+
+```json
+{"type":"request.switch_account","payload":{"account_id":"<account-id>","request_id":"x","runtime_target":"antigravity","launch_on_switch":false}}
+```
+
+- `runtime_target: "antigravity"`：复用桌面版切号认证规则；2.0 及以上版本写入系统凭据，旧版写入本地 SQLite 登录状态。只有真实凭据写入成功后才更新当前账号、默认实例绑定并通知切号结果。
+- `launch_on_switch`：仅用于 `"antigravity"`，默认 `false`；不关闭或启动客户端，已运行桌面版可能需下次启动才使用新账号。显式传 `true` 才执行与桌面版 UI 相同的关闭、写入、重启流程。IDE 请求不要传此字段，继续使用现有设置。
+- `request_id`：可选，传入后返回对应的 `response.success` 或 `response.error`。不支持的目标、凭据写入失败或并发桌面切号会返回错误，不报告成功；凭据已切换但启动失败会明确报告启动错误。无效目标返回 `WS_SWITCH_TARGET_INVALID`，在 IDE 请求中传启动策略返回 `WS_SWITCH_LAUNCH_POLICY_INVALID`；并发桌面切号返回 `ANTIGRAVITY_SWITCH_BUSY`，账号准备超时返回 `ANTIGRAVITY_SWITCH_PREPARATION_TIMEOUT`。
+- `ANTIGRAVITY_SWITCH_STATE_SAVE_FAILED` 表示客户端凭据已切换，但 Tools 当前账号状态保存失败，请重试切号。默认实例绑定更新保留原有尽力保存行为，失败会记录日志。
 
 ## 设置项说明（小白版）
 

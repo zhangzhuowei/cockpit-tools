@@ -393,7 +393,7 @@ func TestThirdPartyModelsDeclareMultiAgentV2InCodexCatalog(t *testing.T) {
 	enabled := &config.Config{}
 	enabled.Codex.OptimizeMultiAgentV2 = true
 
-	response := buildCodexClientModelsResponse([]string{"grok-4.6", "gpt-5.5"}, &apiKeySpec{}, nil, m)
+	response := buildCodexClientModelsResponse([]string{"grok-4.6", "gpt-5.6-sol"}, &apiKeySpec{}, nil, m)
 	applyThirdPartyMultiAgentV2Catalog(response, &apiKeySpec{}, m, enabled)
 	models, ok := response["models"].([]map[string]any)
 	if !ok {
@@ -406,18 +406,18 @@ func TestThirdPartyModelsDeclareMultiAgentV2InCodexCatalog(t *testing.T) {
 	if got := stringFromAny(grok["multi_agent_version"]); got != "v2" {
 		t.Fatalf("grok-4.6 multi_agent_version = %q, want v2", got)
 	}
-	if official := findCodexClientModelForTest(models, "gpt-5.5"); official != nil {
-		if got := stringFromAny(official["multi_agent_version"]); got != "" {
+	if official := findCodexClientModelForTest(models, "gpt-5.6-sol"); official != nil {
+		if got := stringFromAny(official["multi_agent_version"]); got != "v2" {
 			t.Fatalf("official model multi_agent_version = %q, want its own declaration", got)
 		}
 	}
 
 	// 供应商网关模式下该 Key 的模型全部走第三方上游，同样声明 v2。
 	gatewaySpec := &apiKeySpec{ProviderGateway: &providerGatewaySpec{UpstreamModel: "deepseek-v4-flash"}}
-	gatewayResponse := buildCodexClientModelsResponse([]string{"gpt-5.5"}, gatewaySpec, nil, nil)
+	gatewayResponse := buildCodexClientModelsResponse([]string{"gpt-5.6-sol"}, gatewaySpec, nil, nil)
 	applyThirdPartyMultiAgentV2Catalog(gatewayResponse, gatewaySpec, nil, enabled)
 	gatewayModels, _ := gatewayResponse["models"].([]map[string]any)
-	gatewayModel := findCodexClientModelForTest(gatewayModels, "gpt-5.5")
+	gatewayModel := findCodexClientModelForTest(gatewayModels, "gpt-5.6-sol")
 	if gatewayModel == nil || stringFromAny(gatewayModel["multi_agent_version"]) != "v2" {
 		t.Fatalf("provider-gateway model multi_agent_version = %#v, want v2", gatewayModel)
 	}
@@ -1459,7 +1459,7 @@ func TestTargetAccountHeaderRequiresInternalAPIKey(t *testing.T) {
 	external := &apiKeySpec{ID: "client", Key: "client-key", Enabled: true}
 	policy := &requestPolicy{
 		manifest: &manifest{
-			ModelIDs: []string{"gpt-5.5"},
+			ModelIDs: []string{"gpt-5.6-sol"},
 			APIKeys:  []apiKeySpec{*internal, *external},
 			apiKeyByValue: map[string]*apiKeySpec{
 				internal.Key: internal,
@@ -1478,7 +1478,7 @@ func TestTargetAccountHeaderRequiresInternalAPIKey(t *testing.T) {
 	})
 
 	for _, key := range []string{internal.Key, external.Key} {
-		request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.5"}`))
+		request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.6-sol"}`))
 		request.Header.Set("Authorization", "Bearer "+key)
 		request.Header.Set("Content-Type", "application/json")
 		request.Header.Set(targetAccountIDHeaderName, "target-account")
@@ -3559,7 +3559,7 @@ func TestMixedRoutingCatalogPreservesGPTCapabilities(t *testing.T) {
 }
 
 func TestVisibleModelsForMixedRoutingIncludesNamespacedProviderModels(t *testing.T) {
-	m := &manifest{ModelIDs: []string{"gpt-5.5"}}
+	m := &manifest{ModelIDs: []string{"gpt-5.6-sol"}}
 	spec := &apiKeySpec{ModelRouting: &modelRoutingSpec{
 		DefaultRoute:  "oauth",
 		FailurePolicy: "strict",
@@ -3573,7 +3573,7 @@ func TestVisibleModelsForMixedRoutingIncludesNamespacedProviderModels(t *testing
 	}}
 
 	got := visibleModelsForAPIKey(m, spec)
-	want := []string{"gpt-5.5", "gpt-reserve", "cpa/gpt-5.5", "cpa/grok-4.6"}
+	want := []string{"gpt-5.6-sol", "gpt-reserve", "cpa/gpt-5.5", "cpa/grok-4.6"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("visible models = %#v, want %#v", got, want)
 	}

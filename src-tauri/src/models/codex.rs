@@ -192,6 +192,9 @@ pub struct CodexAccount {
     pub api_provider_name: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub api_model_catalog: Vec<String>,
+    /// Last applied Grok default catalog revision; prevents restoring user-deleted models.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grok_model_catalog_version: Option<u32>,
     /// 供应商目录里按模型覆盖的 `context_window`。未填写时走官方值或全局兜底。
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub api_model_context_windows: HashMap<String, i64>,
@@ -647,6 +650,7 @@ impl CodexAccount {
             api_provider_id: None,
             api_provider_name: None,
             api_model_catalog: Vec::new(),
+            grok_model_catalog_version: None,
             api_model_context_windows: HashMap::new(),
             api_model_mappings: Vec::new(),
             api_sync_model_catalog_to_codex: false,

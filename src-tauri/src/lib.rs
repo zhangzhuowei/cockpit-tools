@@ -1,3 +1,7 @@
+// HTTP/2 transport and credential-refresh futures need the same trait-checking
+// depth in Windows production builds as in the test harness.
+#![recursion_limit = "256"]
+
 mod commands;
 pub mod error;
 mod models;
@@ -321,6 +325,9 @@ fn summarize_deep_link_args(args: &[String]) -> Vec<String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    if let Some(code) = modules::codex_continuity_worker::try_run() {
+        std::process::exit(code);
+    }
     logger::init_logger();
     modules::diagnostics::install_panic_hook();
     modules::diagnostics::start_frontend_ready_watchdog();
@@ -1648,14 +1655,47 @@ pub fn run() {
                     modules::logger::log_info("[Window] 主窗口已销毁，应用继续在托盘运行");
                 } else {
                     let first_shutdown = modules::app_lifecycle::begin_shutdown();
+                    let wait_for_native =
+                        first_shutdown && modules::codex_local_access::native_api_running();
+                    if wait_for_native {
+                        api.prevent_exit();
+                        // An async timeout cannot preempt a synchronous filesystem/process probe.
+                        let watchdog_app = app_handle.clone();
+                        if let Err(error) = std::thread::Builder::new()
+                            .name("native-api-exit-watchdog".into())
+                            .spawn(move || {
+                                std::thread::sleep(std::time::Duration::from_secs(20));
+                                watchdog_app.exit(0);
+                            })
+                        {
+                            modules::logger::log_warn(&format!(
+                                "Unable to start API exit watchdog: {error}"
+                            ));
+                            app_handle.exit(0);
+                        }
+                    }
                     if first_shutdown {
                         commands::codex_instance::restore_mixed_model_profiles_for_app_exit();
                     }
                     modules::codex_app_injection::stop_all();
                     modules::codex_proxy_engine::shutdown_all();
-                    tauri::async_runtime::spawn(async {
-                        modules::codex_local_access::shutdown_local_access_gateway_for_app_exit()
-                            .await;
+                    let app_to_exit = app_handle.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if tokio::time::timeout(
+                            std::time::Duration::from_secs(20),
+                            modules::codex_local_access::shutdown_local_access_gateway_for_app_exit(
+                            ),
+                        )
+                        .await
+                        .is_err()
+                        {
+                            modules::logger::log_warn(
+                                "API service shutdown exceeded the exit deadline",
+                            );
+                        }
+                        if wait_for_native {
+                            app_to_exit.exit(0);
+                        }
                     });
                 }
             }

@@ -14,6 +14,8 @@ import { SingleSelectDropdown } from '../SingleSelectDropdown';
 import { CodexRequestTimeoutHint } from './CodexRequestTimeoutHint';
 import type { RequestTimeoutField } from '../../utils/codexRequestDiagnostics';
 import { CodexOutputSpeed } from './CodexOutputSpeed';
+import { CodexRequestIdentityHeaders } from './CodexRequestIdentityHeaders';
+import './CodexRequestIdentityHeaders.css';
 import './CodexRequestDiagnostics.css';
 
 export function CodexRequestDetailModal({ event, accountDisplayNames = new Map(), maskAccountText, onOpenTimeoutSettings, onClose }: {
@@ -30,6 +32,7 @@ export function CodexRequestDetailModal({ event, accountDisplayNames = new Map()
   const [detail, setDetail] = useState<CodexLocalAccessRequestDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [errorScrollKey, setErrorScrollKey] = useState(0);
   const [selectedPayload, setSelectedPayload] = useState('0');
   const [showHeaders, setShowHeaders] = useState(false);
   const [notice, setNotice] = useState('');
@@ -43,7 +46,7 @@ export function CodexRequestDetailModal({ event, accountDisplayNames = new Map()
       const value = await getCodexLocalAccessRequestDetail(event.requestId);
       if (active.current && version.current === requestVersion) { setDetail(value); setSelectedPayload('0'); setShowHeaders(false); }
     } catch (cause) {
-      if (active.current && version.current === requestVersion) setError(formatRequestDiagnosticError(cause, t));
+      if (active.current && version.current === requestVersion) { setError(formatRequestDiagnosticError(cause, t)); setErrorScrollKey((value) => value + 1); }
     } finally {
       if (active.current && version.current === requestVersion) setLoading(false);
     }
@@ -61,7 +64,7 @@ export function CodexRequestDetailModal({ event, accountDisplayNames = new Map()
       await navigator.clipboard.writeText(value);
       if (active.current && version.current === currentVersion) setNotice(t('common.success'));
     } catch (cause) {
-      if (active.current && version.current === currentVersion) setError(formatRequestDiagnosticError(cause, t));
+      if (active.current && version.current === currentVersion) { setError(formatRequestDiagnosticError(cause, t)); setErrorScrollKey((value) => value + 1); }
     }
   };
   const payload = detail?.payloads[Number(selectedPayload)];
@@ -98,6 +101,7 @@ export function CodexRequestDetailModal({ event, accountDisplayNames = new Map()
         {loading && <p className="codex-request-diagnostics-hint" role="status">{t('common.loading')}</p>}
         {!loading && !detail && !error && <p>{t('codex.requestDiagnostics.unavailable')}</p>}
         {detail && <>
+          <CodexRequestIdentityHeaders detail={detail} t={t} accountDisplayNames={accountDisplayNames} maskAccountText={maskAccountText} onCopy={copy} />
           <section className="codex-request-detail-section" aria-labelledby="codex-request-attempts-title">
             <h4 id="codex-request-attempts-title"><Route size={16} aria-hidden="true" />{t('codex.requestDiagnostics.attempts')}<span className="codex-request-section-count">{detail.attempts.length}</span></h4>
             {detail.attempts.length === 0 ? <p className="codex-request-diagnostics-hint">{t('codex.requestDiagnostics.noAttempts')}</p> : <ol className="codex-request-attempts">
@@ -147,7 +151,7 @@ export function CodexRequestDetailModal({ event, accountDisplayNames = new Map()
             </div>}
           </section>
         </>}
-        <ModalErrorMessage message={error} position="bottom" />
+        <ModalErrorMessage message={error} position="bottom" scrollKey={errorScrollKey} />
         {notice && <p className="codex-request-detail-notice" role="status">{notice}</p>}
       </div>
       <div className="modal-footer">

@@ -24,6 +24,9 @@ import (
 
 func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (result *cliproxyexecutor.StreamResult, err error) {
 	ctx = helps.EnsureSessionContext(ctx, opts, req.Payload)
+	if continuityErr := cliproxyexecutor.ContinuityPreparationError(ctx); continuityErr != nil {
+		return nil, continuityErr
+	}
 	opts.Headers = codexRequestHeadersWithGinResponsesLite(ctx, opts.Headers)
 	liteHeaderValue := ""
 	if opts.Headers != nil {
@@ -65,7 +68,9 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 	requestPath := helps.PayloadRequestPath(opts)
 	body = helps.ApplyPayloadConfigWithRequest(e.cfg, baseModel, to.String(), from.String(), "", body, originalTranslated, requestedModel, requestPath, opts.Headers)
 	body = helps.ApplyServiceTierDefault(ctx, body, originalTranslated)
-	body, _ = sjson.DeleteBytes(body, "previous_response_id")
+	if !cliproxyexecutor.ContinuityActive(ctx) {
+		body, _ = sjson.DeleteBytes(body, "previous_response_id")
+	}
 	body, _ = sjson.DeleteBytes(body, "generate")
 	body, _ = sjson.DeleteBytes(body, "prompt_cache_retention")
 	body, _ = sjson.DeleteBytes(body, "safety_identifier")
@@ -79,10 +84,12 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 	if e.cfg == nil || e.cfg.DisableImageGeneration == config.DisableImageGenerationOff {
 		body = ensureImageGenerationTool(body, baseModel, auth, opts.Headers)
 	}
-	if !helps.APIKeyModelIsCompat(req) {
+	if !helps.APIKeyModelIsCompat(req) && !cliproxyexecutor.ContinuityActive(ctx) {
 		body = normalizeNonOfficialCodexReasoningItems(ctx, "codex executor", body)
 	}
-	body = sanitizeOpenAIResponsesReasoningEncryptedContentWithCompat(ctx, "codex executor", body, helps.APIKeyModelIsCompat(req))
+	if !cliproxyexecutor.ContinuityActive(ctx) {
+		body = sanitizeOpenAIResponsesReasoningEncryptedContentWithCompat(ctx, "codex executor", body, helps.APIKeyModelIsCompat(req))
+	}
 	body = normalizeCodexParallelToolCalls(body, opts.Headers)
 	body = helps.NormalizeCodexToolSchemas(body)
 	body, useFullResponses := normalizeCodexResponsesLiteRequest(body, opts.Headers, auth, true)
@@ -137,7 +144,12 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 		authLabel = auth.Label
 		authType, authValue = auth.AccountInfo()
 	}
-	recovery := helps.NewCodexHTTPEncryptedRecovery(auth, helps.APIKeyModelIsCompat(req), httpReq, upstreamBody)
+	continuityAttempt, continuityBody, errContinuity := helps.BindContinuityHTTPRequest(ctx, auth, httpReq, upstreamBody)
+	if errContinuity != nil {
+		return nil, errContinuity
+	}
+	upstreamBody = continuityBody
+	recovery := helps.NewCodexHTTPEncryptedRecovery(auth, helps.APIKeyModelIsCompat(req) || cliproxyexecutor.ContinuityActive(ctx), httpReq, upstreamBody)
 	upstreamBody, err = recovery.PrepareRequest(httpReq, upstreamBody)
 	if err != nil {
 		return nil, err
@@ -161,6 +173,10 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 	httpResp, upstreamBody, err := recovery.Do(ctx, e.cfg, httpClient, httpReq, upstreamBody, func(status int, errorBody []byte) error {
 		return clearCodexReasoningReplayOnInvalidSignature(ctx, replayScope, status, errorBody)
 	})
+	if httpResp != nil && httpResp.Request == nil {
+		httpResp.Request = httpReq
+	}
+	err = helps.ObserveContinuityHTTPResponse(ctx, continuityAttempt, httpResp, err)
 	if err != nil {
 		helps.RecordAPIResponseError(ctx, e.cfg, err)
 		return nil, err
@@ -316,14 +332,15 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 				if ctx.Err() != nil {
 					return nil, ctx.Err()
 				}
-				helps.RecordAPIResponseError(ctx, e.cfg, errScan)
-				reporter.PublishFailure(ctx, errScan)
-				return nil, errScan
+				streamErr := newCodexIncompleteStreamError(errScan)
+				helps.RecordAPIResponseError(ctx, e.cfg, streamErr)
+				reporter.PublishFailure(ctx, streamErr)
+				return nil, streamErr
 			}
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
-			streamErr := newCodexIncompleteStreamError()
+			streamErr := newCodexIncompleteStreamError(nil)
 			helps.RecordAPIResponseError(ctx, e.cfg, streamErr)
 			reporter.PublishFailure(ctx, streamErr)
 			return nil, streamErr
@@ -439,13 +456,10 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 				return
 			}
 		}
-		if errScan := scanner.Err(); errScan != nil {
-			if ctx.Err() != nil {
-				return
-			}
-			helps.RecordAPIResponseError(ctx, e.cfg, errScan)
+		if ctx.Err() != nil {
+			return
 		}
-		streamErr := newCodexIncompleteStreamError()
+		streamErr := newCodexIncompleteStreamError(scanner.Err())
 		helps.RecordAPIResponseError(ctx, e.cfg, streamErr)
 		reporter.PublishFailure(ctx, streamErr)
 		select {

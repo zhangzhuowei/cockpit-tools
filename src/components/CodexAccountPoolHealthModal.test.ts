@@ -462,3 +462,26 @@ test("copy errors remain inside the diagnostic dialog and legacy IDs are optiona
   app.update({ accountPoolHealth: [pool()] });
   assert.equal(buttons(app.tree, en.common.copy).length, 0);
 });
+
+
+test("native model cooldown displays upstream reason and disappears when scheduler recovers", () => {
+  const app = render({ accountPoolHealth: [], accountHealth: [health("deepseek", {
+    cooldowns: [{ modelId: "gpt-6.1-sol", nextRetryAt: Date.now() + 60_000, remainingMs: 60_000, reason: "transient_upstream" }],
+  })] });
+  const content = text(app.tree);
+  assert.ok(content.includes("gpt-6.1-sol"));
+  assert.ok(content.includes(labels.upstreamDetail));
+  assert.ok(!content.includes(labels.noIssues));
+  app.update({ accountHealth: [health("deepseek", { available: true, schedulerAvailable: true, schedulerReason: null, cooldowns: [] })] });
+  assert.equal(rows(app.tree).length, 0);
+  assert.ok(text(app.tree).includes(labels.noIssues));
+});
+
+
+test("a busy native health snapshot shows loading without an account recovery action", () => {
+  const app = render({ accountPoolHealth: [], accountHealth: [health("deepseek", {
+    available: false, schedulerAvailable: null, schedulerReason: "state_refreshing", cooldowns: [],
+  })] });
+  assert.ok(text(app.tree).includes(en.common.loading));
+  assertNoRecovery(app.tree);
+});

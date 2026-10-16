@@ -37,7 +37,7 @@ const (
 	codexLegacyImageToolModel    = "gpt-image-2"
 	codexGPTImage25FlareModel    = "gpt-image-2.5-flare"
 	codexGPTImage25SunburstModel = "gpt-image-2.5-sunburst"
-	codexOpenAIImagesMainModel   = "gpt-5.5"
+	codexOpenAIImagesMainModel   = "gpt-5.6-luna"
 )
 
 type codexOpenAIImagePreparedRequest struct {

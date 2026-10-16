@@ -57,7 +57,7 @@ const defaultStreamKeepAliveSeconds = 15
 const quotaReserveMaxSnapshotAge = 3 * time.Minute
 const codexAutoReviewModel = "codex-auto-review"
 const codexReserveModel = "gpt-reserve"
-const defaultImagesMainModel = "gpt-5.5"
+const defaultImagesMainModel = "gpt-5.6-luna"
 const defaultImagesToolModel = "gpt-image-2.5"
 
 // codexClientCompactionHash 是下发给 Codex 客户端的统一压缩格式哈希（comp_hash）。
@@ -98,6 +98,7 @@ type accountModelRule struct {
 }
 
 type manifest struct {
+	Continuity                 *continuityServiceSpec       `json:"continuity,omitempty"`
 	GatewayErrorMessages       map[string]map[string]string `json:"gatewayErrorMessages,omitempty"`
 	ProxyRouteObservers        []proxyRouteObserverSpec     `json:"proxyRouteObservers,omitempty"`
 	Locale                     string                       `json:"locale"`
@@ -132,6 +133,7 @@ type manifest struct {
 	originalIndexByID             map[string]int
 	quotaCooldowns                *quotaCooldownStateStore
 	authManager                   *coreauth.Manager
+	continuityClient              *continuityClient
 	requestPayloadLoggingOverride atomic.Pointer[bool]
 }
 
@@ -371,10 +373,12 @@ type providerGatewayModelCapability struct {
 }
 
 type accountSpec struct {
-	ID       string `json:"id"`
-	Email    string `json:"email"`
-	AuthID   string `json:"authId,omitempty"`
-	AuthKind string `json:"authKind,omitempty"`
+	ID                string          `json:"id"`
+	ContinuityOwnerID string          `json:"continuityOwnerId,omitempty"`
+	GatewayIdentity   json.RawMessage `json:"gatewayIdentity,omitempty"`
+	Email             string          `json:"email"`
+	AuthID            string          `json:"authId,omitempty"`
+	AuthKind          string          `json:"authKind,omitempty"`
 	// Provider 是该 OAuth 账号的上游 provider（缺省 codex）。非 codex 时只允许
 	// sidecar 已支持并注册执行器的 provider（目前为 xai/Grok）。
 	Provider string `json:"provider,omitempty"`
@@ -382,8 +386,11 @@ type accountSpec struct {
 	ModelIDs                []string              `json:"modelIds,omitempty"`
 	PlanType                string                `json:"planType,omitempty"`
 	AccessTokenOnly         bool                  `json:"accessTokenOnly,omitempty"`
+	ChatGPTUserID           string                `json:"chatgptUserId,omitempty"`
 	ChatGPTAccountID        string                `json:"chatgptAccountId,omitempty"`
 	UpstreamAPIKey          string                `json:"upstreamApiKey,omitempty"`
+	UpstreamBaseURL         string                `json:"upstreamBaseUrl,omitempty"`
+	UpstreamProxyURL        string                `json:"upstreamProxyUrl,omitempty"`
 	ImageGenerationUpstream *imageAPIUpstreamSpec `json:"imageGenerationUpstream,omitempty"`
 	PlanRank                *int                  `json:"planRank,omitempty"`
 	RemainingQuota          *int                  `json:"remainingQuota,omitempty"`
@@ -944,7 +951,11 @@ func (t *requestUsageTracker) finalize(requestID string, input usageFinalizeInpu
 	}
 	if finalHTTPFailed {
 		payload.Success = false
-		if strings.TrimSpace(payload.ErrorCategory) == "" {
+		if input.status == clientClosedRequestStatus {
+			// Earlier failed attempts do not change the final downstream cause.
+			payload.ErrorCategory = "client_canceled"
+			payload.ErrorMessage = strings.TrimSpace(input.errorMessage)
+		} else if strings.TrimSpace(payload.ErrorCategory) == "" {
 			payload.ErrorCategory = errorCategory(input.status, input.errorMessage, false)
 		}
 		if strings.TrimSpace(payload.ErrorMessage) == "" {
@@ -991,6 +1002,9 @@ func loadManifest(path string) (*manifest, error) {
 	}
 	var m manifest
 	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, err
+	}
+	if err := validateGatewayIdentityManifest(&m); err != nil {
 		return nil, err
 	}
 	m.apiKeyByValue = make(map[string]*apiKeySpec)
@@ -1112,6 +1126,10 @@ func loadManifest(path string) (*manifest, error) {
 	if m.ImageGenerationModel == "" {
 		m.ImageGenerationModel = defaultImagesToolModel
 	}
+	m.ImageGenerationMainModel = strings.TrimSpace(m.ImageGenerationMainModel)
+	if m.ImageGenerationMainModel != "" {
+		m.ImageGenerationMainModel = configuredImagesMainModel(&m)
+	}
 	m.ExcludedModels = normalizeStringList(m.ExcludedModels)
 	for index := range m.AccountModelRules {
 		m.AccountModelRules[index].AccountID = strings.TrimSpace(m.AccountModelRules[index].AccountID)
@@ -1132,7 +1150,7 @@ func configuredImagesToolModel(m *manifest) string {
 
 func configuredImagesMainModel(m *manifest) string {
 	if m != nil {
-		if model := strings.TrimSpace(m.ImageGenerationMainModel); model != "" {
+		if model := strings.TrimSpace(m.ImageGenerationMainModel); model != "" && !strings.EqualFold(model, "gpt-5.5") {
 			return model
 		}
 	}
@@ -1372,6 +1390,7 @@ func (p *requestPolicy) middleware() gin.HandlerFunc {
 			c.Set(ginUserAPIKeyKey, spec.Key)
 			ctx := context.WithValue(c.Request.Context(), clientAPIKeyContextKey, spec)
 			ctx = context.WithValue(ctx, requestKindContextKey, requestKind)
+			ctx = withRequestContinuity(ctx, p.manifest, c.Request.Header, diagnosticTransport(c.Request) == "websocket")
 			if clientInstanceID != "" {
 				ctx = withClientInstanceID(ctx, clientInstanceID)
 			}
@@ -1539,7 +1558,7 @@ func (p *requestPolicy) emitRequestCompleted(c *gin.Context, requestID string, s
 	if p == nil || p.emitter == nil || c == nil || c.Request == nil {
 		return
 	}
-	status := c.Writer.Status()
+	status, completionError := requestCompletionStatus(c, requestID, p.tracker)
 	latencyMS := time.Since(startedAt).Milliseconds()
 	completedAtMS := time.Now().UnixMilli()
 	p.emitter.emit(requestDiagnosticPayload{
@@ -1556,7 +1575,7 @@ func (p *requestPolicy) emitRequestCompleted(c *gin.Context, requestID string, s
 		LatencyMS:     latencyMS,
 		CompletedAtMS: completedAtMS,
 		Aborted:       c.IsAborted(),
-		ErrorMessage:  strings.TrimSpace(c.Errors.String()),
+		ErrorMessage:  strings.TrimSpace(completionError),
 	})
 	if p.tracker == nil || !shouldEmitRequestDiagnostic(c.Request) {
 		return
@@ -1584,7 +1603,7 @@ func (p *requestPolicy) emitRequestCompleted(c *gin.Context, requestID string, s
 		status:              status,
 		latencyMS:           latencyMS,
 		completedAtMS:       completedAtMS,
-		errorMessage:        strings.TrimSpace(c.Errors.String()),
+		errorMessage:        strings.TrimSpace(completionError),
 		suppressOutputSpeed: c.Request.Context().Err() != nil,
 	}); ok {
 		p.tokenLimiter.addUsage(spec, effectiveUsageTotalTokens(payload.Usage))
@@ -2487,6 +2506,7 @@ func visibleModelsForAPIKey(m *manifest, spec *apiKeySpec) []string {
 	if automatic {
 		baseModels = append([]string(nil), spec.ModelRouting.NativeModels...)
 	}
+	baseModels = activeChatGPTModels(m, baseModels)
 	hasReserve := automatic
 	for _, model := range baseModels {
 		if isCodexReserveModel(model) {

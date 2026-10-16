@@ -92,11 +92,12 @@ impl Default for CodexLocalAccessImageGenerationMode {
 pub enum CodexLocalAccessGatewayMode {
     Legacy,
     Sidecar,
+    Native,
 }
 
 impl Default for CodexLocalAccessGatewayMode {
     fn default() -> Self {
-        Self::Sidecar
+        Self::Native
     }
 }
 
@@ -550,6 +551,9 @@ pub struct CodexLocalAccessCollection {
     pub image_generation_account_models: HashMap<String, String>,
     #[serde(default)]
     pub gateway_mode: CodexLocalAccessGatewayMode,
+    /// Marks the one-time switch to the native default. Later user choices survive upgrades.
+    #[serde(default)]
+    pub native_gateway_default_migrated: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub upstream_proxy_url: Option<String>,
     #[serde(default)]
@@ -779,7 +783,7 @@ pub struct CodexLocalAccessUsageEvent {
     pub proxy_route: Option<CodexLocalAccessProxyRoute>,
     #[serde(default)]
     pub model_id: String,
-    /// 客户端请求的模型（保留路由命名空间前缀，如 `cpa/gpt-5.5`）。
+    /// 客户端请求的模型（保留路由命名空间前缀，如 `cpa/gpt-5.6-sol`）。
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub requested_model: String,
     /// 实际发送给上游的模型（账号映射与路由改写之后）。
@@ -923,6 +927,20 @@ pub struct CodexLocalAccessUsageEventPage {
 pub struct CodexLocalAccessRequestAttempt {
     pub sequence: u32,
     #[serde(default)]
+    pub upstream_identity_metadata_captured: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upstream_installation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upstream_chatgpt_account_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_identity: Option<crate::modules::codex_api_identity::InstallationProfile>,
+    #[serde(default)]
+    pub upstream_identity_captured: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upstream_session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upstream_thread_id: Option<String>,
+    #[serde(default)]
     pub account_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account_email: Option<String>,
@@ -973,6 +991,18 @@ pub struct CodexLocalAccessRequestPayload {
 #[serde(rename_all = "camelCase")]
 pub struct CodexLocalAccessRequestDetail {
     pub request_id: String,
+    #[serde(default)]
+    pub client_identity_metadata_captured: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_installation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_chatgpt_account_id: Option<String>,
+    #[serde(default)]
+    pub client_identity_captured: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_thread_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub first_response_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -917,8 +917,8 @@
       },
       "modelRouting": {
         "title": "第三方 API 路由",
-        "summary": "普通模型使用当前订阅；带前缀模型（如 cpa/gpt-5.5）转发到第三方 API。两者都依赖本地分流服务。",
-        "rowSummary": "普通模型使用当前订阅；带前缀模型（如 cpa/gpt-5.5）转发到第三方 API。两者都依赖本地分流服务。",
+        "summary": "普通模型使用当前订阅；带前缀模型（如 cpa/gpt-5.6-sol）转发到第三方 API。两者都依赖本地分流服务。",
+        "rowSummary": "普通模型使用当前订阅；带前缀模型（如 cpa/gpt-5.6-sol）转发到第三方 API。两者都依赖本地分流服务。",
         "confirmEnableTitle": "开启第三方 API 路由？",
         "confirmEnableMessage": "开启后，Codex 的模型请求将通过 Cockpit Tools 本地服务分流。服务未运行时，官方订阅和第三方模型都可能无法使用。\n\n确认开启吗？",
         "confirmEnableAction": "确认开启",
@@ -2131,6 +2131,9 @@
     "clearSelection": "取消选择",
     "switched": "已切换至 {{email}}",
     "switchFailed": "切换失败：{{error}}",
+    "antigravitySwitchBusy": "Antigravity 账号正在切换，请稍后重试。",
+    "antigravitySwitchPrepareTimeout": "Antigravity 账号准备超时，请重试。",
+    "antigravitySwitchStateSaveFailed": "客户端凭据已切换，但保存本地账号状态失败：{{error}}。请重试切号。",
     "antigravityLegacyUnsupported": "暂不支持 Antigravity 2.0.0 及以上版本，请选择小于Antigravity 2.0.0版本或者使用Antigravity IDE",
     "importSuccess": "成功导入 {{count}} 个账号",
     "importLocalSuccess": "成功导入账号: {{email}}",
@@ -2588,6 +2591,8 @@
       "configRefreshing": "正在核对实例配置，已有内容仍可查看。",
       "configLoadTimeout": "读取实例配置超时，请重试。",
       "configChanged": "实例配置已在其他位置更改。请重新载入后再保存或启动。",
+      "reloadConfig": "重新载入",
+      "contextReloadHint": "重新载入会替换未保存的设置，请重新确认后再应用。",
       "accessModeTitle": "启动方式",
       "prosLabel": "优点：",
       "consLabel": "缺点：",
@@ -3058,14 +3063,6 @@
       "hideEntryEffectHide": "隐藏总览中的 API 服务入口",
       "hideEntryEffectDisable": "停用当前 API 服务",
       "hideEntryEffectRestore": "可在 Codex 设置或快捷设置中重新开启",
-      "riskNotice": {
-        "title": "使用风险提示",
-        "message": "普通官方账号用于反代/中转可能受到官方严格限制，也可能被识别为中转并影响回答质量（“降智”）。账号较多时请谨慎使用。",
-        "remember": "我已知晓，不再提示",
-        "acknowledge": "我已知晓",
-        "continueStart": "继续启动",
-        "continueSwitch": "继续切号"
-      },
       "statsRange": {
         "label": "统计范围",
         "daily": "日",
@@ -3257,6 +3254,18 @@
       "gatewayModeNewLabel": "API 服务-新",
       "gatewayModeOldLabel": "API 服务-旧",
       "gatewayModeSaveSuccess": "API 服务网关模式已更新",
+      "gatewayEngineNative": "Rust 原生",
+      "gatewayEngineSidecar": "Go 现有",
+      "gatewayEngineHint": "默认使用 Rust，首次升级自动切换，之后保留你的选择。切换会重启 API 服务，可能中断活动请求；Codex 窗口保持打开。",
+      "gatewayEngineSwitching": "正在切换引擎…",
+      "gatewayEngineSwitchFailed": "切换引擎失败：{{error}}",
+      "gatewayEngineReadbackFailed": "未能确认当前引擎，请先刷新再重试：{{error}}",
+      "gatewayEngineReadbackTimeout": "刷新状态超时",
+      "gatewayEngineRequestsBusy": "仍有请求进行中，请在完成后重试。",
+      "gatewayEngineOperationBusy": "服务正在执行其他操作，请稍后重试。",
+      "gatewayEngineSwitchRestored": "切换失败，已恢复原引擎。",
+      "gatewayEngineRestoreFailed": "切换失败，且未能恢复原引擎。请检查服务状态后重试。",
+      "gatewayEngineStopped": "API 服务已停止，请重启后重试。",
       "gatewayGuideTitle": "这里可以切换网关",
       "gatewayGuideDesc": "默认使用新网关。如果遇到兼容性问题或客户端请求异常，可以在这里切换到旧网关。",
       "gatewayGuideAction": "我知道了",
@@ -3288,7 +3297,7 @@
       "imageGenerationMainModel": {
         "label": "生图主模型",
         "notice": "日常请勿修改生图主模型。",
-        "hint": "此项仅用于官方生图接口的底层转发，不用于切换出图模型。仅当官方调整主模型时手动更新；留空沿用 gpt-5.5。",
+        "hint": "此项仅用于官方生图接口的底层转发，不用于切换出图模型。仅当官方调整主模型时手动更新；留空沿用 gpt-5.6-luna。",
         "invalid": "请输入不含空白的模型 ID，最长 200 字符。"
       },
       "requestDetail": {
@@ -3699,7 +3708,7 @@
       },
       "vision": {
         "providerDefault": "该供应商默认支持图片输入",
-        "providerDefaultHint": "未单独设置的模型使用此默认值，GPT-5.5 及更新模型默认支持图片。可在模型列表中单独关闭。网关无法匹配视觉模型时会省略图片并继续处理文本。",
+        "providerDefaultHint": "未单独设置的模型使用此默认值，GPT-5.6 Sol、GPT-5.6 Luna 等模型默认支持图片。可在模型列表中单独关闭。网关无法匹配视觉模型时会省略图片并继续处理文本。",
         "modelsHint": "每行一个模型名。适合同一供应商里只有部分视觉模型支持粘贴图片的情况。",
         "routingModelHint": "当前模型不支持图片时，网关会改用该模型；留空时自动使用唯一视觉模型，否则省略图片并继续处理文本。",
         "allModels": "图片输入",
@@ -5311,7 +5320,7 @@
       "restoreEntry": "恢复转接",
       "restoringEntry": "恢复中…",
       "restoreEntryFailed": "桌面代理转接恢复失败，请重试。",
-      "restoreEntryPortBusy": "原代理端口已被占用，请释放端口后重试；桌面端无法自动改用其他端口。",
+      "restoreEntryPortBusy": "原代理端口无法绑定，可能被占用或由系统保留。可释放端口后重试，或通过 Cockpit 重启客户端以重新分配入口。",
       "restoreEntryNotRunning": "未找到仍在运行且使用当前 Cockpit 已记录代理入口的桌面端。",
       "restoreEntryBusy": "代理正在恢复，请稍后重试。",
       "restoreEntryTimeout": "代理恢复超时，请重试。",
@@ -5784,6 +5793,22 @@
         "gateway": "HTTP 504 表示网关等待超时；当前记录不足以确定原因，请查看上游错误和请求阶段。",
         "threshold": "本次生效阈值：{{seconds}} 秒。",
         "settings": "调整超时"
+      },
+      "identity": {
+        "title": "会话与账号身份",
+        "client": "客户端",
+        "upstreamAttempt": "上游 #{{sequence}}",
+        "notProvided": "未提供",
+        "notCaptured": "未采集",
+        "notSent": "未进入发送阶段",
+        "hint": "记录请求当时的客户端与上游身份请求头，以及所选账号的本地身份档案；不代表上游已接收。与正文记录开关无关，历史不会补录。",
+        "copyHeader": "复制 {{header}}",
+        "profileTitle": "账号身份档案",
+        "profileInstallationId": "安装 ID",
+        "profileScope": "身份范围",
+        "profileVersion": "版本",
+        "profileRevision": "代次",
+        "profileHint": "所选账号的本地快照；实际使用的请求头列在上方。"
       }
     },
     "experimentalModels": {
@@ -7465,6 +7490,8 @@
     },
     "quota": {
       "weekly": "每周用量",
+      "sharedPool": "共享额度",
+      "monthly": "每月用量",
       "onDemand": "按量用量",
       "balance": "余额与积分",
       "included": "套餐用量",

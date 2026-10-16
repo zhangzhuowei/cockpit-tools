@@ -341,6 +341,29 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
     }
 
     #[test]
+    fn typed_upstream_stream_failures_keep_their_category_and_are_not_client_cancellations() {
+        for (status, category, message) in [
+            (502, "upstream_stream_error", "unexpected EOF during chunk size line"),
+            (502, "upstream_stream_error", "connection reset by peer"),
+            (502, "incomplete_upstream_stream", "stream closed before response.completed"),
+            (408, "request_timeout", "read deadline exceeded"),
+            (504, "upstream_stream_timeout", "error decoding response body: timed out"),
+        ] {
+            let event: SidecarUsageEvent = serde_json::from_value(json!({
+                "success": false, "status": status, "errorCategory": category, "errorMessage": message,
+            })).unwrap();
+            assert!(!sidecar_usage_event_is_client_canceled(&event), "{category}: {message}");
+            assert_eq!(normalized_sidecar_error_category(&event).as_deref(), Some(category));
+            if status == 502 { assert!(!sidecar_usage_event_should_auto_restart(&event)); }
+        }
+        let canceled: SidecarUsageEvent = serde_json::from_value(json!({
+            "success": false, "status": 499, "errorCategory": "client_canceled", "errorMessage": "write tcp: broken pipe",
+        })).unwrap();
+        assert!(sidecar_usage_event_is_client_canceled(&canceled));
+        assert_eq!(normalized_sidecar_error_category(&canceled).as_deref(), Some("client_canceled"));
+    }
+
+    #[test]
     fn sidecar_timeout_event_requests_automatic_restart() {
         let event: SidecarUsageEvent = serde_json::from_value(json!({
             "success": false,
@@ -1110,7 +1133,7 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
             None,
             supported_codex_model_ids(),
         );
-        assert!(restricted.iter().any(|model| model == "gpt-5.5"));
+        assert!(!restricted.iter().any(|model| model == "gpt-5.5"));
         assert!(!restricted.iter().any(|model| model.starts_with("gpt-5.6-")));
     }
 
@@ -1207,7 +1230,7 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
             method: "POST".to_string(),
             target: "/v1/chat/completions".to_string(),
             headers: HashMap::new(),
-            body: br#"{"model":"GPT-5.5","stream":true,"messages":[{"role":"user","content":"hello"}]}"#
+            body: br#"{"model":"GPT-5.6-SOL","stream":true,"messages":[{"role":"user","content":"hello"}]}"#
                 .to_vec(),
         };
 
@@ -1217,7 +1240,7 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
             serde_json::from_slice(&prepared.body).expect("mapped body should be json");
         assert_eq!(
             mapped_body.get("model").and_then(Value::as_str),
-            Some("gpt-5.5")
+            Some("gpt-5.6-sol")
         );
         assert!(mapped_body.get("input").is_some());
         assert_eq!(mapped_body.get("store"), Some(&Value::Bool(false)));
@@ -1230,7 +1253,7 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
             mapped_body
                 .get("parallel_tool_calls")
                 .and_then(Value::as_bool),
-            Some(true)
+            Some(false)
         );
         assert_eq!(
             mapped_body
@@ -1248,7 +1271,7 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
                 original_request_body: _,
             } => {
                 assert!(stream);
-                assert_eq!(requested_model, "gpt-5.5");
+                assert_eq!(requested_model, "gpt-5.6-sol");
             }
             _ => panic!("expected chat completions adapter"),
         }
@@ -1531,7 +1554,7 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
             serde_json::from_slice(&prepared.body).expect("mapped body should be json");
         assert_eq!(
             mapped_body.get("model").and_then(Value::as_str),
-            Some("gpt-5.5")
+            Some("gpt-5.6-luna")
         );
         assert_eq!(
             mapped_body
@@ -3291,7 +3314,6 @@ data: {"error":{"code":"server_error","type":"upstream","message":"stream aborte
                 "gpt-5.6-sol",
                 "gpt-5.6-terra",
                 "gpt-5.6-luna",
-                "gpt-5.5",
             ]
         );
     }

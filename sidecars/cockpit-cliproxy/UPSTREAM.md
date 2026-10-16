@@ -66,7 +66,7 @@ until the corresponding translator and thinking APIs are synchronized together.
   Unicode property regexes are removed from tool schemas, `$CPA-SESSION-ID`
   custom headers resolve from the canonical request session, and the
   `gpt-image-2.5-flare` / `gpt-image-2.5-sunburst` image variants are accepted.
-  Cockpit keeps `gpt-5.5` and `gpt-image-2.5` as its local image defaults.
+  Cockpit keeps `gpt-5.6-luna` and `gpt-image-2.5` as its local image defaults.
 - Synchronized the xAI (Grok) chat path with the reference tree: the HTTP chat
   executor, auth helpers and the exported `util.InlineLocalRefs` now match
   `CLIProxyAPI` HEAD (`xai_executor.go`, `xai_executor_request.go`,
@@ -81,12 +81,41 @@ until the corresponding translator and thinking APIs are synchronized together.
   `/responses/compact`.
   The bundled `internal/auth/xai/pkce.go` was removed because the reference tree
   dropped PKCE types for the device-code flow.
-  Known divergence: `xai_websockets_executor.go` stays at the bundled revision —
-  the reference implementation depends on the newer Codex WebSocket session
-  layer (`codex_websockets_connection.go` / `codex_websockets_execute.go`) that is
-  outside this synchronization scope. Cockpit does not route Grok models over
-  Responses WebSocket (the catalog clears `prefer_websockets` for them), so the
-  HTTP chat path is authoritative.
+  Later WebSocket and request-compatibility updates are recorded below; the
+  bundled dependency remains v7 rather than importing the entire v8 runtime.
+
+## Grok protocol alignment (2026-10-16)
+
+Reference: `origin/main` at `5be2cdab0869cbaa3d401891f740aebf7e15aa99`.
+Read the pinned tree with `git show`; an older local checkout is not the reference.
+
+- Go refreshes the advertised Grok protocol version from the public npm registry
+  in the background with a supported fallback, a minimum of 1.0.13, bounded
+  requests, and lifecycle cancellation. Invalid or obsolete header overrides
+  cannot downgrade requests. Rust uses the same validation and bounded cached
+  lookup via the selected transport, without depending on an installed CLI.
+- Both paths normalize unsupported web-search fields, forced hosted searches,
+  client functions named web_search, and Responses tool schemas. Rust also
+  normalizes xAI reasoning text events and status-specific OAuth/quota errors.
+- Grok agent-message input adaptation is independent of the optional client
+  optimization switch. Completed plaintext collaboration calls carry explicit
+  `encrypted_function_args: []`; existing encrypted evidence remains intact.
+  Rust also supports inline compaction controls and the official integer-valued
+  tool schema fields, without rounding large IDs or modifying custom tool text.
+- Compact controls lower their tool history before dropping unsupported fields.
+  A valid compact state replaces its old prefix only on the upstream wire; the
+  local source history remains available. Rust uses CPA's encrypted-state shape
+  checks and does not assign ownership to state omitted from the outgoing request.
+  Shape validation does not establish provider provenance or decryptability.
+- Go applies payload overrides at the final upstream boundary, restores sparse
+  apply_patch events without losing buffered arguments, and rejects truncated
+  calls. WebSocket control writes do not wait for data writes; re-registering an
+  executor sharing the same session store preserves its active connections.
+- Cockpit retains client tool-search execution, account-scoped identities and
+  history, automatic continuation, bounded state, and non-destructive replay.
+  These are intentional local capabilities, not deletions to match CPA's tool
+  filtering. Independent TTS additions and CPA's internal v8 runtime abstractions
+  are not imported as part of this Responses compatibility update.
 
 ## Portable agent messages and terminal events
 

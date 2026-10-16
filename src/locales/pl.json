@@ -692,8 +692,8 @@
       "autoSyncThreadsDesc": "Wyłączone utrzymuje izolację sesji wielu instancji. Po włączeniu uruchomienie lub zamknięcie instancji automatycznie scala lokalne rekordy sesji tylko wtedy, gdy wszystkie instancje Codex są zatrzymane.",
       "modelRouting": {
         "title": "Routing API innych firm",
-        "summary": "Modele bez prefiksu korzystają z bieżącej subskrypcji; modele z prefiksem, takie jak cpa/gpt-5.5, są przekazywane do zewnętrznego API. Oba zależą od lokalnej usługi routingu.",
-        "rowSummary": "Modele bez prefiksu korzystają z bieżącej subskrypcji; modele z prefiksem, takie jak cpa/gpt-5.5, są przekazywane do zewnętrznego API. Oba zależą od lokalnej usługi routingu.",
+        "summary": "Modele bez prefiksu korzystają z bieżącej subskrypcji; modele z prefiksem, takie jak cpa/gpt-5.6-sol, są przekazywane do zewnętrznego API. Oba zależą od lokalnej usługi routingu.",
+        "rowSummary": "Modele bez prefiksu korzystają z bieżącej subskrypcji; modele z prefiksem, takie jak cpa/gpt-5.6-sol, są przekazywane do zewnętrznego API. Oba zależą od lokalnej usługi routingu.",
         "confirmEnableTitle": "Włączyć routing API innych firm?",
         "confirmEnableMessage": "Żądania modeli Codex będą kierowane przez lokalną usługę Cockpit Tools. Jeśli usługa nie działa, zarówno modele subskrypcyjne, jak i zewnętrzne mogą być niedostępne.\n\nWłączyć routing?",
         "confirmEnableAction": "Włącz",
@@ -1911,6 +1911,9 @@
     "clearSelection": "Wyczyść wybór",
     "switched": "Przełączono na {{email}}",
     "switchFailed": "Błąd przełączania: {{error}}",
+    "antigravitySwitchBusy": "Trwa przełączanie konta Antigravity. Spróbuj ponownie za chwilę.",
+    "antigravitySwitchPrepareTimeout": "Upłynął limit czasu przygotowania konta Antigravity. Spróbuj ponownie.",
+    "antigravitySwitchStateSaveFailed": "Dane logowania klienta zostały zmienione, ale nie udało się zapisać lokalnego stanu konta: {{error}}. Ponów przełączenie.",
     "antigravityLegacyUnsupported": "Antigravity 2.0.0 i nowsze nie są tutaj obsługiwane. Wybierz wersję Antigravity starszą niż 2.0.0 albo użyj Antigravity IDE.",
     "importSuccess": "Pomyślnie zaimportowano {{count}} kont",
     "importLocalSuccess": "Pomyślnie zaimportowano konto: {{email}}",
@@ -2368,6 +2371,8 @@
       "configRefreshing": "Sprawdzanie konfiguracji instancji. Dotychczasowe dane pozostają dostępne.",
       "configLoadTimeout": "Przekroczono czas wczytywania konfiguracji instancji. Spróbuj ponownie.",
       "configChanged": "Konfiguracja instancji została zmieniona w innym miejscu. Wczytaj ją ponownie przed zapisem lub uruchomieniem.",
+      "reloadConfig": "Wczytaj ponownie",
+      "contextReloadHint": "Ponowne wczytanie zastąpi niezapisane ustawienia. Sprawdź je przed zastosowaniem.",
       "accessModeTitle": "Tryb uruchamiania",
       "prosLabel": "Zalety:",
       "consLabel": "Wady:",
@@ -2706,14 +2711,6 @@
       "hideEntryEffectHide": "Ukryj wpis usługi API w przeglądzie",
       "hideEntryEffectDisable": "Wyłącz bieżącą usługę API",
       "hideEntryEffectRestore": "Możesz go ponownie włączyć w ustawieniach Codex lub w szybkich ustawieniach",
-      "riskNotice": {
-        "title": "Informacja o ryzyku",
-        "message": "Korzystanie ze zwykłych oficjalnych kont przez odwrotne proxy lub do przekazywania żądań może podlegać surowym ograniczeniom ze strony oficjalnej usługi. Takie użycie może też zostać rozpoznane jako pośredniczenie i wpłynąć na jakość odpowiedzi („obniżenie inteligencji”). Korzystaj ostrożnie, zwłaszcza jeśli masz wiele kont.",
-        "remember": "Rozumiem, nie pokazuj ponownie",
-        "acknowledge": "Rozumiem",
-        "continueStart": "Dalej",
-        "continueSwitch": "Przełącz"
-      },
       "statsRange": {
         "label": "Zakres statystyk",
         "daily": "Dzień",
@@ -2850,6 +2847,18 @@
       "gatewayModeNewLabel": "Usluga API-Nowa",
       "gatewayModeOldLabel": "Usluga API-Stara",
       "gatewayModeSaveSuccess": "Zaktualizowano tryb bramy uslugi API",
+      "gatewayEngineNative": "Rust natywny",
+      "gatewayEngineSidecar": "Go (obecny)",
+      "gatewayEngineHint": "Rust jest silnikiem domyślnym. Pierwsza aktualizacja przełącza na Rust; późniejsze wybory są zachowywane. Przełączenie uruchamia ponownie usługę API i może przerwać aktywne żądania; okna Codex pozostają otwarte.",
+      "gatewayEngineSwitching": "Zmiana silnika…",
+      "gatewayEngineSwitchFailed": "Nie udało się zmienić silnika: {{error}}",
+      "gatewayEngineReadbackFailed": "Nie można potwierdzić bieżącego silnika. Odśwież stan przed ponowieniem: {{error}}",
+      "gatewayEngineReadbackTimeout": "Przekroczono czas odświeżania stanu",
+      "gatewayEngineRequestsBusy": "Żądania są nadal przetwarzane. Spróbuj ponownie po ich zakończeniu.",
+      "gatewayEngineOperationBusy": "Trwa inna operacja usługi. Spróbuj ponownie za chwilę.",
+      "gatewayEngineSwitchRestored": "Zmiana nie powiodła się. Przywrócono poprzedni silnik.",
+      "gatewayEngineRestoreFailed": "Zmiana i przywrócenie silnika nie powiodły się. Sprawdź stan usługi przed ponowieniem.",
+      "gatewayEngineStopped": "Usługa API została zatrzymana. Uruchom ją ponownie przed kolejną próbą.",
       "gatewayGuideTitle": "Tutaj zmienisz brame",
       "gatewayGuideDesc": "Domyślna jest nowa brama. Przy problemach ze zgodnością lub błędach żądań klienta możesz tutaj wrócić do starej bramy.",
       "gatewayGuideAction": "Rozumiem",
@@ -2937,7 +2946,7 @@
       "imageGenerationMainModel": {
         "label": "Główny model obrazów",
         "notice": "Nie zmieniaj głównego modelu obrazów podczas zwykłego użycia.",
-        "hint": "Służy tylko do przekazywania żądań do oficjalnej usługi, nie do wyboru modelu generującego obrazy. Zmień go ręcznie tylko po zmianie oficjalnego modelu głównego. Puste pole użyje gpt-5.5.",
+        "hint": "Służy tylko do przekazywania żądań do oficjalnej usługi, nie do wyboru modelu generującego obrazy. Zmień go ręcznie tylko po zmianie oficjalnego modelu głównego. Puste pole użyje gpt-5.6-luna.",
         "invalid": "Wpisz ID modelu bez spacji, do 200 znaków."
       },
       "requestDetail": {
@@ -4009,7 +4018,7 @@
       },
       "vision": {
         "providerDefault": "Ten dostawca domyślnie obsługuje obrazy",
-        "providerDefaultHint": "Modele bez osobnego ustawienia używają tej wartości; GPT-5.5 i nowsze domyślnie obsługują obrazy. Poszczególne modele można wyłączyć na liście. Jeśli brama nie znajdzie modelu wizyjnego, pomija obrazy i przetwarza dalej tekst.",
+        "providerDefaultHint": "Modele bez osobnego ustawienia używają tej wartości; modele takie jak GPT-5.6 Sol i GPT-5.6 Luna domyślnie obsługują obrazy. Poszczególne modele można wyłączyć na liście. Jeśli brama nie znajdzie modelu wizyjnego, pomija obrazy i przetwarza dalej tekst.",
         "modelsHint": "Jeden model w wierszu. Użyj, gdy tylko część modeli dostawcy obsługuje wklejone obrazy.",
         "routingModelHint": "Gdy bieżący model nie czyta obrazów, brama używa tego modelu. Puste pole wybiera jedyny dostępny model wizyjny; w przeciwnym razie obrazy są pomijane, a tekst nadal przetwarzany.",
         "allModels": "Obrazy",
@@ -5091,7 +5100,7 @@
       "restoreEntry": "Przywróć przekaźnik",
       "restoringEntry": "Przywracanie…",
       "restoreEntryFailed": "Nie udało się przywrócić przekaźnika proxy aplikacji. Spróbuj ponownie.",
-      "restoreEntryPortBusy": "Pierwotny port proxy jest zajęty. Zwolnij go i spróbuj ponownie; aplikacja nie może automatycznie użyć innego portu.",
+      "restoreEntryPortBusy": "Nie można powiązać pierwotnego portu proxy; może być zajęty lub zarezerwowany przez system. Zwolnij go i spróbuj ponownie albo uruchom klienta ponownie przez Cockpit, aby przydzielić dostępny punkt wejścia.",
       "restoreEntryNotRunning": "Nie znaleziono uruchomionej aplikacji korzystającej z zapisanego wejścia proxy tej instancji Cockpit.",
       "restoreEntryBusy": "Przywracanie proxy już trwa. Spróbuj ponownie za chwilę.",
       "restoreEntryTimeout": "Upłynął limit czasu przywracania proxy. Spróbuj ponownie.",
@@ -5564,6 +5573,22 @@
         "gateway": "HTTP 504 oznacza przekroczenie czasu bramy. Ten zapis nie określa przyczyny; sprawdź błąd serwera i etap żądania.",
         "threshold": "Próg zastosowany do tego żądania: {{seconds}} sekund.",
         "settings": "Zmień limit"
+      },
+      "identity": {
+        "title": "Tożsamość sesji i konta",
+        "client": "Żądanie klienta",
+        "upstreamAttempt": "Próba #{{sequence}}",
+        "notProvided": "Nie podano",
+        "notCaptured": "Nie zapisano",
+        "notSent": "Brak próby wysłania",
+        "hint": "Zapisuje nagłówki tożsamości i lokalny profil wybranego konta z chwili żądania. Nie potwierdza odbioru przez serwer. Niezależne od zapisu treści; starsze żądania nie są uzupełniane.",
+        "copyHeader": "Kopiuj {{header}}",
+        "profileTitle": "Profil tożsamości konta",
+        "profileInstallationId": "ID instalacji",
+        "profileScope": "Zakres",
+        "profileVersion": "Wersja",
+        "profileRevision": "Rewizja",
+        "profileHint": "Lokalny stan wybranego konta; faktycznie użyte nagłówki znajdują się powyżej."
       }
     },
     "experimentalModels": {
@@ -7465,6 +7490,8 @@
     },
     "quota": {
       "weekly": "Użycie tygodniowe",
+      "sharedPool": "Wspólny limit",
+      "monthly": "Użycie miesięczne",
       "onDemand": "Użycie na żądanie",
       "balance": "Saldo i kredyty",
       "included": "Użycie w pakiecie",

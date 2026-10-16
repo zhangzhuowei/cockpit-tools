@@ -692,8 +692,8 @@
       "autoSyncThreadsDesc": "끄면 다중 인스턴스 세션이 분리됩니다. 켜면 모든 Codex 인스턴스가 중지된 뒤에만 인스턴스 시작 또는 종료 시 로컬 세션 기록을 자동 병합합니다.",
       "modelRouting": {
         "title": "타사 API 라우팅",
-        "summary": "접두사가 없는 모델은 현재 구독을 사용하고, cpa/gpt-5.5와 같은 접두사가 있는 모델은 타사 API로 전달됩니다. 둘 다 로컬 라우팅 서비스에 의존합니다.",
-        "rowSummary": "접두사가 없는 모델은 현재 구독을 사용하고, cpa/gpt-5.5와 같은 접두사가 있는 모델은 타사 API로 전달됩니다. 둘 다 로컬 라우팅 서비스에 의존합니다.",
+        "summary": "접두사가 없는 모델은 현재 구독을 사용하고, cpa/gpt-5.6-sol와 같은 접두사가 있는 모델은 타사 API로 전달됩니다. 둘 다 로컬 라우팅 서비스에 의존합니다.",
+        "rowSummary": "접두사가 없는 모델은 현재 구독을 사용하고, cpa/gpt-5.6-sol와 같은 접두사가 있는 모델은 타사 API로 전달됩니다. 둘 다 로컬 라우팅 서비스에 의존합니다.",
         "confirmEnableTitle": "타사 API 라우팅을 활성화하시겠습니까?",
         "confirmEnableMessage": "Codex 모델 요청은 로컬 Cockpit Tools 서비스를 통해 라우팅됩니다. 서비스가 실행 중이지 않으면 구독 및 타사 모델을 모두 사용할 수 없습니다.\n\n라우팅을 활성화하시겠습니까?",
         "confirmEnableAction": "활성화",
@@ -1911,6 +1911,9 @@
     "clearSelection": "선택 해제",
     "switched": "{{email}} 계정으로 전환되었습니다",
     "switchFailed": "전환 실패: {{error}}",
+    "antigravitySwitchBusy": "Antigravity 계정을 전환 중입니다. 잠시 후 다시 시도하세요.",
+    "antigravitySwitchPrepareTimeout": "Antigravity 계정 준비 시간이 초과되었습니다. 다시 시도하세요.",
+    "antigravitySwitchStateSaveFailed": "클라이언트 인증 정보는 전환되었지만 로컬 계정 상태를 저장하지 못했습니다: {{error}}. 계정 전환을 다시 시도하세요.",
     "antigravityLegacyUnsupported": "여기서는 Antigravity 2.0.0 이상을 지원하지 않습니다. Antigravity 2.0.0 미만 버전을 선택하거나 Antigravity IDE를 사용하세요.",
     "importSuccess": "{{count}}개 계정을 성공적으로 가져왔습니다",
     "importLocalSuccess": "계정을 가져왔습니다: {{email}}",
@@ -2368,6 +2371,8 @@
       "configRefreshing": "인스턴스 설정을 확인 중입니다. 기존 내용은 계속 볼 수 있습니다.",
       "configLoadTimeout": "인스턴스 설정 불러오기 시간이 초과되었습니다. 다시 시도하세요.",
       "configChanged": "다른 곳에서 인스턴스 설정이 변경되었습니다. 저장하거나 시작하기 전에 다시 불러오세요.",
+      "reloadConfig": "다시 불러오기",
+      "contextReloadHint": "다시 불러오면 저장하지 않은 설정이 바뀝니다. 적용 전에 다시 확인하세요.",
       "accessModeTitle": "시작 방식",
       "prosLabel": "장점:",
       "consLabel": "단점:",
@@ -2706,14 +2711,6 @@
       "hideEntryEffectHide": "개요에서 API 서비스 항목 숨기기",
       "hideEntryEffectDisable": "현재 API 서비스 비활성화",
       "hideEntryEffectRestore": "Codex 설정이나 빠른 설정에서 다시 켤 수 있습니다",
-      "riskNotice": {
-        "title": "위험 안내",
-        "message": "일반 공식 계정을 리버스 프록시나 중계에 사용하면 공식 서비스의 엄격한 제한을 받을 수 있습니다. 중계로 감지되어 답변 품질에 영향(“지능 저하”)이 생길 가능성도 있습니다. 특히 계정이 많은 경우 신중하게 사용하세요.",
-        "remember": "이해했으며 다시 표시하지 않기",
-        "acknowledge": "이해했습니다",
-        "continueStart": "계속",
-        "continueSwitch": "전환 계속"
-      },
       "statsRange": {
         "label": "통계 범위",
         "daily": "일",
@@ -2850,6 +2847,18 @@
       "gatewayModeNewLabel": "API 서비스-신규",
       "gatewayModeOldLabel": "API 서비스-기존",
       "gatewayModeSaveSuccess": "API 서비스 게이트웨이 모드가 업데이트되었습니다",
+      "gatewayEngineNative": "Rust 네이티브",
+      "gatewayEngineSidecar": "Go (기존)",
+      "gatewayEngineHint": "기본 엔진은 Rust입니다. 최초 업그레이드 시 Rust로 전환되며 이후 선택은 유지됩니다. 전환하면 API 서비스가 재시작되어 진행 중인 요청이 중단될 수 있습니다. Codex 창은 열린 상태로 유지됩니다.",
+      "gatewayEngineSwitching": "엔진 전환 중…",
+      "gatewayEngineSwitchFailed": "엔진 전환 실패: {{error}}",
+      "gatewayEngineReadbackFailed": "현재 엔진을 확인할 수 없습니다. 새로고침 후 다시 시도하세요: {{error}}",
+      "gatewayEngineReadbackTimeout": "상태 새로고침 시간 초과",
+      "gatewayEngineRequestsBusy": "진행 중인 요청이 있습니다. 완료 후 다시 시도하세요.",
+      "gatewayEngineOperationBusy": "다른 서비스 작업이 진행 중입니다. 잠시 후 다시 시도하세요.",
+      "gatewayEngineSwitchRestored": "전환에 실패하여 이전 엔진을 복원했습니다.",
+      "gatewayEngineRestoreFailed": "전환에 실패했고 이전 엔진도 복원하지 못했습니다. 서비스 상태를 확인한 후 다시 시도하세요.",
+      "gatewayEngineStopped": "API 서비스가 중지되었습니다. 재시작 후 다시 시도하세요.",
       "gatewayGuideTitle": "여기서 게이트웨이 전환",
       "gatewayGuideDesc": "기본값은 새 게이트웨이입니다. 호환성 문제나 클라이언트 요청 오류가 있으면 여기서 기존 게이트웨이로 전환할 수 있습니다.",
       "gatewayGuideAction": "알겠습니다",
@@ -2937,7 +2946,7 @@
       "imageGenerationMainModel": {
         "label": "이미지 주 모델",
         "notice": "일반 사용 시 이미지 주 모델을 변경하지 마세요.",
-        "hint": "공식 이미지 서비스로 요청을 전달하는 용도이며, 이미지 생성 모델을 선택하는 설정이 아닙니다. 공식 주 모델이 바뀐 경우에만 수동으로 수정하세요. 비워 두면 gpt-5.5를 사용합니다.",
+        "hint": "공식 이미지 서비스로 요청을 전달하는 용도이며, 이미지 생성 모델을 선택하는 설정이 아닙니다. 공식 주 모델이 바뀐 경우에만 수동으로 수정하세요. 비워 두면 gpt-5.6-luna를 사용합니다.",
         "invalid": "공백 없이 200자 이하의 모델 ID를 입력하세요."
       },
       "requestDetail": {
@@ -4009,7 +4018,7 @@
       },
       "vision": {
         "providerDefault": "이 공급자는 기본적으로 이미지 입력을 지원합니다",
-        "providerDefaultHint": "개별 설정이 없는 모델은 이 기본값을 사용하며 GPT-5.5 이상은 기본적으로 이미지를 지원합니다. 목록에서 모델별로 끌 수 있습니다. 게이트웨이가 이미지 지원 모델을 찾지 못하면 이미지를 생략하고 텍스트 처리를 계속합니다.",
+        "providerDefaultHint": "개별 설정이 없는 모델은 이 기본값을 사용하며 GPT-5.6 Sol, GPT-5.6 Luna 등의 모델은 기본적으로 이미지를 지원합니다. 목록에서 모델별로 끌 수 있습니다. 게이트웨이가 이미지 지원 모델을 찾지 못하면 이미지를 생략하고 텍스트 처리를 계속합니다.",
         "modelsHint": "한 줄에 모델 하나씩 입력하세요. 공급자 안 일부 모델만 붙여넣은 이미지를 지원할 때 사용합니다.",
         "routingModelHint": "현재 모델이 이미지를 읽지 못하면 게이트웨이가 이 모델을 사용합니다. 비워 두면 유일한 이미지 지원 모델을 자동 사용하며, 없으면 이미지를 생략하고 텍스트 처리를 계속합니다.",
         "allModels": "이미지",
@@ -5091,7 +5100,7 @@
       "restoreEntry": "중계 복구",
       "restoringEntry": "복구 중…",
       "restoreEntryFailed": "데스크톱 프록시 중계를 복구하지 못했습니다. 다시 시도하세요.",
-      "restoreEntryPortBusy": "기존 프록시 포트를 사용 중입니다. 포트를 비운 뒤 다시 시도하세요. 데스크톱은 다른 포트로 자동 전환할 수 없습니다.",
+      "restoreEntryPortBusy": "기존 프록시 포트에 바인딩할 수 없습니다. 사용 중이거나 시스템이 예약했을 수 있습니다. 포트를 해제한 뒤 재시도하거나 Cockpit에서 클라이언트를 다시 시작하여 사용 가능한 진입점을 할당하세요.",
       "restoreEntryNotRunning": "이 Cockpit에 기록된 프록시 진입점을 사용하는 실행 중인 데스크톱을 찾지 못했습니다.",
       "restoreEntryBusy": "프록시를 복구하고 있습니다. 잠시 후 다시 시도하세요.",
       "restoreEntryTimeout": "프록시 복구 시간이 초과되었습니다. 다시 시도하세요.",
@@ -5564,6 +5573,22 @@
         "gateway": "HTTP 504는 게이트웨이 시간 초과를 뜻합니다. 이 기록만으로 원인을 확인할 수 없으므로 상위 서버 오류와 요청 단계를 확인하세요.",
         "threshold": "이 요청에 적용된 제한: {{seconds}}초.",
         "settings": "시간 제한 설정"
+      },
+      "identity": {
+        "title": "세션 및 계정 식별 정보",
+        "client": "클라이언트 요청",
+        "upstreamAttempt": "상위 #{{sequence}}",
+        "notProvided": "미제공",
+        "notCaptured": "미수집",
+        "notSent": "전송 시도 없음",
+        "hint": "요청 당시 클라이언트와 업스트림의 식별 헤더 및 선택한 계정의 로컬 식별 정보를 기록합니다. 업스트림 수신을 보장하지 않습니다. 본문 기록 설정과 무관하며 이전 기록은 보완하지 않습니다.",
+        "copyHeader": "{{header}} 복사",
+        "profileTitle": "계정 식별 프로필",
+        "profileInstallationId": "설치 ID",
+        "profileScope": "식별 범위",
+        "profileVersion": "버전",
+        "profileRevision": "개정 번호",
+        "profileHint": "선택한 계정의 로컬 스냅샷입니다. 실제 전송 헤더는 위에 표시됩니다."
       }
     },
     "experimentalModels": {
@@ -7465,6 +7490,8 @@
     },
     "quota": {
       "weekly": "주간 사용량",
+      "sharedPool": "공유 한도",
+      "monthly": "월간 사용량",
       "onDemand": "종량제 사용량",
       "balance": "잔액 및 크레딧",
       "included": "포함 사용량",

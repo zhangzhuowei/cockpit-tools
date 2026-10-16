@@ -926,6 +926,7 @@ fn load_account_with_summary(
         let cleared_bound_oauth_gateway = clear_bound_oauth_local_gateway_flag(&mut account);
         let migrated_apikey_fun = migrate_apikey_fun_account(&mut account);
         let migrated_deepseek = enforce_deepseek_responses_account(&mut account);
+        let migrated_grok_catalog = upgrade_grok_default_model_catalog(&mut account);
         let migrated_websocket = normalize_api_key_websocket_capability(&mut account);
         let cleared_retired_app_server_preflight =
             clear_retired_app_server_preflight_reauth(&mut account);
@@ -935,6 +936,7 @@ fn load_account_with_summary(
         if needs_rotation
             || migrated_apikey_fun
             || migrated_deepseek
+            || migrated_grok_catalog
             || migrated_websocket
             || cleared_retired_app_server_preflight
             || cleared_bound_oauth_gateway
@@ -963,6 +965,7 @@ fn load_account_with_summary(
         .ok_or_else(|| format!("账号详情缺少可识别凭据 ({})", path.display()))?;
     let _ = migrate_apikey_fun_account(&mut account);
     let _ = enforce_deepseek_responses_account(&mut account);
+    let _ = upgrade_grok_default_model_catalog(&mut account);
     let _ = clear_bound_oauth_local_gateway_flag(&mut account);
     let _ = clear_retired_app_server_preflight_reauth(&mut account);
     if !validate_loaded_account_tombstone(&account)? {

@@ -38,7 +38,7 @@ export function buildProviderModelVisionCapabilities(
 
 /**
  * 模型识图默认规则（与 Rust 侧 `codex_account::model_defaults_to_vision_input` 同一口径）：
- * `gpt-5.5` 及以上（含 5.5）默认支持图片输入；其它模型不受影响。
+ * 当前 GPT 型号默认支持图片输入，并保留旧版 API 型号的能力识别；其它模型不受影响。
  * 兼容 `openai/gpt-5.6-sol` 这类命名空间前缀与 `-luna` / `-sol` 这类后缀。
  */
 export function providerModelDefaultsToVisionInput(modelId: string): boolean {
