@@ -227,7 +227,7 @@ func TestGatewayIdentityInitialRuntimeLoadIsProjected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeSidecarRuntimeAuths(context.Background(), service, cfg, m, manager); err != nil {
+	if err := initializeSidecarRuntimeAuths(context.Background(), service, cfg, m, manager, nil); err != nil {
 		t.Fatal(err)
 	}
 	current, _ := manager.GetByID("stored")
@@ -237,7 +237,7 @@ func TestGatewayIdentityInitialRuntimeLoadIsProjected(t *testing.T) {
 	if _, err := manager.Register(context.Background(), &coreauth.Auth{ID: "unknown", Provider: "codex", Attributes: map[string]string{"api_key": "other"}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeSidecarRuntimeAuths(context.Background(), service, cfg, m, manager); err == nil {
+	if err := initializeSidecarRuntimeAuths(context.Background(), service, cfg, m, manager, nil); err == nil {
 		t.Fatal("unbound initial auth accepted")
 	}
 }

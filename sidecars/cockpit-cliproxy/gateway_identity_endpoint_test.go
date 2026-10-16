@@ -49,7 +49,7 @@ func TestGatewayIdentitySameKeyEndpointsRegisterAndKeepCallerScope(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := initializeSidecarRuntimeAuths(context.Background(), service, cfg, m, manager); err != nil {
+	if err := initializeSidecarRuntimeAuths(context.Background(), service, cfg, m, manager, nil); err != nil {
 		t.Fatal("same-key endpoints failed startup registration", err)
 	}
 	auths := manager.List()
