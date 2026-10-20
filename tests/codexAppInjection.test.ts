@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import { runInNewContext } from 'node:vm';
 
 const source = readFileSync(new URL('../src-tauri/src/modules/codex_app_injection.rs', import.meta.url), 'utf8');
+const badgeLayoutSource = readFileSync(new URL('../src-tauri/src/modules/codex_app_injection_layout.js', import.meta.url), 'utf8');
 type ScriptKind = 'injection_script' | 'deepseek_balance_injection_script';
 const values: Record<string, unknown> = {
   provider: 'Provider', weekly: 50, five_hour: 75, account_count_value: 2,
@@ -35,6 +36,7 @@ function script(kind: ScriptKind) {
   return source.slice(start + 3, end).replace(/\{\{|\}\}|\{([a-z_]+)\}/g, (token, key: string | undefined) => {
     if (token === '{{') return '{';
     if (token === '}}') return '}';
+    if (key === 'badge_layout') return badgeLayoutSource;
     assert.ok(key && Object.hasOwn(values, key), `unhandled template argument ${key}`);
     return JSON.stringify(values[key!]);
   });
@@ -51,6 +53,10 @@ class Element {
   rect = { left: 100, top: 900, width: 80, height: 24 };
 
   setAttribute(key: string, value: string) { this.attributes[key] = value; }
+  hasAttribute(key: string) { return Object.hasOwn(this.attributes, key); }
+  get childNodes() {
+    return this.textContent ? [{ nodeType: 3, textContent: this.textContent }] : this.children;
+  }
   appendChild(node: Element) {
     node.remove();
     node.parentElement = this;
@@ -63,8 +69,10 @@ class Element {
   contains(node: Element): boolean { return node === this || this.children.some((child) => child.contains(node)); }
   matches(selector: string) {
     return selector.split(',').some((part) => {
-      const match = /^\[([^=*\]]+)(?:(\*?=)"([^"]*)"( i)?)?\]$/.exec(part.trim());
-      assert.ok(match, `unsupported mock selector ${part}`);
+      const token = part.trim();
+      if (token === '*') return true;
+      const match = /^\[([^=*\]]+)(?:(\*?=)"([^"]*)"( i)?)?\]$/.exec(token);
+      if (!match) return false;
       let value = this.attributes[match[1]];
       if (!match[2]) return value !== undefined;
       if (value === undefined) return false;
@@ -74,6 +82,9 @@ class Element {
     });
   }
   querySelectorAll(selector: string): Element[] {
+    if (selector.trim() === '*') {
+      return this.children.flatMap((child) => [child, ...child.querySelectorAll('*')]);
+    }
     return this.children.flatMap((child) => [...(child.matches(selector) ? [child] : []), ...child.querySelectorAll(selector)]);
   }
   querySelector(selector: string) { return this.querySelectorAll(selector)[0] ?? null; }
@@ -81,11 +92,13 @@ class Element {
     return this.matches(selector) ? this : this.parentElement?.closest(selector) ?? null;
   }
   getClientRects() {
-    if (this.hidden || this.parentElement?.getClientRects().length === 0) return [];
+    if (this.hidden || this.style.display === 'none' || this.parentElement?.getClientRects().length === 0) return [];
     return [this.rect];
   }
   getBoundingClientRect() {
-    return this.getClientRects().length ? this.rect : { left: 0, top: 0, width: 0, height: 0 };
+    const box = this.getClientRects()[0];
+    if (!box) return { left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0 };
+    return { ...box, right: box.left + box.width, bottom: box.top + box.height };
   }
 }
 
@@ -136,11 +149,16 @@ function harness(kind: ScriptKind, composers: ReturnType<typeof composer>[]) {
   }
   class MutationObserver { observe() {} disconnect() {} }
   const window: Record<string, any> = {
-    ResizeObserver, setInterval: () => 1, clearInterval() {}, addEventListener() {}, removeEventListener() {},
+    ResizeObserver, innerWidth: 1200, innerHeight: 2000,
+    setInterval: () => 1, clearInterval() {}, addEventListener() {}, removeEventListener() {},
   };
   let now = Date.now();
   class Clock extends Date { static now() { return now; } }
-  const context = { document, window, Date: Clock, ResizeObserver, MutationObserver, requestAnimationFrame: (fn: () => void) => fn() };
+  const getComputedStyle = (node: Element) => ({
+    display: node.hidden || node.style.display === 'none' ? 'none' : (node.style.display || 'block'),
+    visibility: node.style.visibility || 'visible',
+  });
+  const context = { document, window, Date: Clock, ResizeObserver, MutationObserver, getComputedStyle, requestAnimationFrame: (fn: () => void) => fn() };
   const namespace = kind === 'injection_script' ? '__cockpitCodexInjection' : '__cockpitDeepSeekBalance';
   const marker = kind === 'injection_script' ? 'quota-footer' : 'deepseek-balance';
   return {
@@ -160,7 +178,7 @@ test('quota badge reads the visible GPT composer rather than a retained hidden D
   assert.equal(h.host().style.left, '515px');
   assert.match(h.host().innerHTML, /5h 75%/);
   assert.doesNotMatch(h.host().innerHTML, /Balance/);
-  assert.deepEqual(h.root().layoutObserver.targets, [active.footer, active.permissions]);
+  assert.deepEqual(h.root().layoutObserver.targets, [active.footer, active.permissions, active.trigger]);
 });
 
 test('quota badge reads visible DeepSeek and updates the model, badge, and observers on conversation change', () => {
@@ -175,7 +193,7 @@ test('quota badge reads visible DeepSeek and updates the model, badge, and obser
   assert.match(h.host().innerHTML, /Build 90%/);
   assert.doesNotMatch(h.host().innerHTML, /Balance/);
   assert.equal(h.host().style.top, '512px');
-  assert.deepEqual(h.root().layoutObserver.targets, [next.footer, next.permissions]);
+  assert.deepEqual(h.root().layoutObserver.targets, [next.footer, next.permissions, next.trigger]);
 });
 
 test('only a visible picker dropdown can supply a model when the current trigger is a placeholder', () => {
