@@ -66,7 +66,10 @@ impl Host for FixtureHost {
                 })
                 .ok_or_else(|| ServiceError::new(503, "no_available_account", "Pool exhausted"))?;
             Ok(Route {
+                continuity_account_id: None,
                 installation_profile: None,
+                official_authorization_revision: None,
+                official_registration_id: None,
                 transport_identity: None,
                 account_id: index.to_string(),
                 owner_id: format!("owner-{index}"),
@@ -77,6 +80,7 @@ impl Host for FixtureHost {
                 proxy_url: None,
                 proxy_route: None,
                 chatgpt: false,
+                chatgpt_plan: false,
                 wire_api: WireApi::Responses,
                 compact_endpoint: None,
                 websocket_endpoint: None,

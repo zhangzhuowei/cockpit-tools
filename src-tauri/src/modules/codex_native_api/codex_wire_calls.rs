@@ -36,6 +36,16 @@ pub(super) fn normalize(body: &mut Value) {
             retained.push(item);
             continue;
         }
+        if super::super::responses_host_results::is_host_result(&item)
+            && item["call_id"]
+                .as_str()
+                .is_none_or(|id| id.trim().is_empty())
+        {
+            // Never borrow an unrelated call ID for a host-injected result.
+            // Keep malformed IDs intact too: identity validation must reject them.
+            retained.push(item);
+            continue;
+        }
         let name = item["name"].as_str().unwrap_or("").trim().to_owned();
         let mut id = item["call_id"].as_str().unwrap_or("").trim().to_owned();
         if id.is_empty() {

@@ -935,6 +935,9 @@ fn build_account_health_snapshot(runtime: &GatewayRuntime) -> Vec<CodexLocalAcce
             }
             let image_generation_status = if collection.image_generation_mode
                 == CodexLocalAccessImageGenerationMode::Disabled
+                || account_id.starts_with(codex_account::CHATGPT_PLAN_ACCOUNT_PREFIX)
+                || collection.image_generation_account_policies.get(account_id)
+                    == Some(&CodexLocalAccessImageGenerationPolicy::Disabled)
             {
                 CodexLocalAccessImageGenerationStatus::Disabled
             } else {
@@ -1035,6 +1038,7 @@ struct RequestStatsMeta<'a> {
     error_message: Option<&'a str>,
     service_tier: Option<&'a str>,
     requested_service_tier: Option<&'a str>,
+    authorization_route: Option<&'a str>,
     response_service_tier: Option<&'a str>,
     reasoning_effort: Option<&'a str>,
     /// 客户端请求模型（含路由命名空间）；未提供时按上游模型展示。
@@ -1165,6 +1169,7 @@ async fn record_request_stats_with_meta(
             estimated_cost_usd,
             meta.proxy_route,
         );
+        event.authorization_route = meta.authorization_route.map(str::to_owned);
         event.requested_service_tier = recorded_service_tier_value(meta.requested_service_tier);
         event.response_service_tier = recorded_service_tier_value(meta.response_service_tier);
         event.output_generation_ms = meta.output_generation_ms;
@@ -1172,6 +1177,7 @@ async fn record_request_stats_with_meta(
         if let Some(recent) = runtime.stats.events.last_mut() {
             recent.first_response_ms = event.first_response_ms;
             recent.output_generation_ms = event.output_generation_ms;
+            recent.authorization_route = event.authorization_route.clone();
             recent.requested_service_tier = event.requested_service_tier.clone();
             recent.response_service_tier = event.response_service_tier.clone();
         }
@@ -1275,6 +1281,7 @@ fn build_state_snapshot_inner(
 
     let (recovering, recovery_attempt) = gateway_key_recovery_snapshot();
     CodexLocalAccessState {
+        service_members: collection.as_ref().map(service_member_snapshot).unwrap_or_default(),
         collection,
         recovering: service_enabled && recovering,
         recovery_attempt,
@@ -1351,6 +1358,33 @@ async fn snapshot_state_without_gateway_reload() -> Result<CodexLocalAccessState
 
 pub async fn get_local_access_state() -> Result<CodexLocalAccessState, String> {
     snapshot_state().await
+}
+
+/// Read plan activation without starting a listener or refreshing any account.
+pub(crate) async fn chatgpt_plan_pool_snapshot() -> Result<(CodexLocalAccessGatewayMode, Vec<String>), String> {
+    ensure_runtime_loaded_without_start().await?;
+    let runtime = gateway_runtime().lock().await;
+    Ok(runtime.collection.as_ref().map(|c| (c.gateway_mode, c.account_ids.clone()))
+        .unwrap_or((CodexLocalAccessGatewayMode::Native, Vec::new())))
+}
+
+#[cfg(test)]
+pub(crate) async fn with_chatgpt_plan_test_runtime<F, Fut, T>(operation: F) -> T
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = T>,
+{
+    // Tests run serially; preserve any state established by preceding fixtures.
+    let previous = {
+        let mut runtime = gateway_runtime().lock().await;
+        assert!(!runtime.running && runtime.native_handle.is_none() && runtime.sidecar_child.is_none());
+        std::mem::take(&mut *runtime)
+    };
+    let result = operation().await;
+    let mut runtime = gateway_runtime().lock().await;
+    assert!(!runtime.running && runtime.native_handle.is_none() && runtime.sidecar_child.is_none());
+    *runtime = previous;
+    result
 }
 
 /// Read the saved owner without starting a gateway or classifying authentication state.
@@ -1444,9 +1478,17 @@ fn new_empty_local_access_collection() -> Result<CodexLocalAccessCollection, Str
         image_generation_model_catalog_revision: 0,
         image_generation_main_model: None,
         image_generation_account_policies: HashMap::new(),
+        chatgpt_plan_codex_image_policies: HashMap::new(),
+        chatgpt_plan_service_revision: 0,
+        paused_account_ids: Vec::new(),
+        official_account_source_ids: HashMap::new(),
+            official_account_bindings: HashMap::new(),
+        service_account_identity_fingerprints: HashMap::new(),
         image_generation_account_ids: Vec::new(),
         image_generation_account_models: HashMap::new(),
         gateway_mode: CodexLocalAccessGatewayMode::default(),
+        capability_fallback: Default::default(),
+        multi_agent: Default::default(),
         native_gateway_default_migrated: true,
         upstream_proxy_url: None,
         routing_strategy: CodexLocalAccessRoutingStrategy::default(),

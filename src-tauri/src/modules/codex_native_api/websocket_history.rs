@@ -4,11 +4,12 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, VecDeque};
 
 const MAX_CALLS: usize = 512;
+// Only the auxiliary call LRU is bounded; the one current anchor stays complete.
 const MAX_CACHE_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Default)]
 pub(super) struct History {
-    scope: Option<(String, Option<String>, Option<String>)>,
+    scope: Option<ReplayOwner>,
     checkpoint: Option<Checkpoint>,
     prewarm: Option<(String, Value)>,
     calls: BTreeMap<String, Value>,
@@ -16,7 +17,6 @@ pub(super) struct History {
     call_bytes: usize,
     output: BTreeMap<usize, Value>,
     output_bytes: usize,
-    output_overflow: bool,
     output_invalid_for_rebuild: bool,
 }
 struct Checkpoint {
@@ -28,7 +28,7 @@ struct Checkpoint {
     owner: ReplayOwner,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub(super) struct ReplayOwner {
     pub account: String,
     owner: String,
@@ -39,7 +39,7 @@ pub(super) struct ReplayOwner {
 impl ReplayOwner {
     fn from_prepared(prepared: &Prepared) -> Self {
         Self {
-            account: prepared.route.account_id.clone(),
+            account: prepared.route.continuity_id().to_owned(),
             owner: prepared.route.owner_id.clone(),
             caller: prepared.caller.id.clone(),
             session: mapped_header(prepared, "session-id"),
@@ -47,7 +47,7 @@ impl ReplayOwner {
         }
     }
     pub fn matches(&self, prepared: &Prepared) -> bool {
-        self.account == prepared.route.account_id
+        self.account == prepared.route.continuity_id()
             && self.owner == prepared.route.owner_id
             && self.caller == prepared.caller.id
             && self.session == mapped_header(prepared, "session-id")
@@ -94,13 +94,6 @@ impl History {
         previous.extend(checkpoint.output.iter().cloned());
         body["input"] = Value::Array(extend_input(&previous, input));
         body.as_object_mut().unwrap().remove("previous_response_id");
-        if body.to_string().len() > MAX_CACHE_BYTES {
-            return Err(ServiceError::new(
-                413,
-                "request_too_large",
-                "Expanded partial input exceeds the connection history limit",
-            ));
-        }
         Ok((body, Some(checkpoint.owner.clone())))
     }
 
@@ -128,13 +121,6 @@ impl History {
         let mut full = body.clone();
         full["input"] = Value::Array(input);
         full.as_object_mut().unwrap().remove("previous_response_id");
-        if full.to_string().len() > MAX_CACHE_BYTES {
-            return Err(ServiceError::new(
-                413,
-                "request_too_large",
-                "Complete WebSocket history exceeds the replay limit",
-            ));
-        }
         Ok(Some(full))
     }
 
@@ -161,19 +147,7 @@ impl History {
     }
 
     pub fn begin(&mut self, prepared: &Prepared) {
-        self.begin_scope(
-            prepared.route.owner_id.clone(),
-            prepared
-                .headers
-                .get("session-id")
-                .and_then(|v| v.to_str().ok())
-                .map(str::to_owned),
-            prepared
-                .headers
-                .get("thread-id")
-                .and_then(|v| v.to_str().ok())
-                .map(str::to_owned),
-        );
+        self.begin_scope(ReplayOwner::from_prepared(prepared));
         if let Some(input) = prepared
             .replay_body()
             .get("input")
@@ -185,8 +159,7 @@ impl History {
         }
     }
 
-    fn begin_scope(&mut self, owner: String, session: Option<String>, thread: Option<String>) {
-        let scope = (owner, session, thread);
+    fn begin_scope(&mut self, scope: ReplayOwner) {
         if self.scope.as_ref() != Some(&scope) {
             self.checkpoint = None;
             self.calls.clear();
@@ -196,7 +169,6 @@ impl History {
         }
         self.output.clear();
         self.output_bytes = 0;
-        self.output_overflow = false;
         self.output_invalid_for_rebuild = false;
     }
 
@@ -213,6 +185,13 @@ impl History {
     }
 
     pub fn replay(&mut self, prepared: &Prepared) -> Result<Value, ServiceError> {
+        if self
+            .scope
+            .as_ref()
+            .is_some_and(|scope| !scope.matches(prepared))
+        {
+            self.begin(prepared);
+        }
         let mut body = prepared.replay_body().clone();
         let input = self.logical_input(&body);
         if let Some(input) = input {
@@ -239,13 +218,6 @@ impl History {
             .cloned()
             .ok_or_else(invalid_input)?;
         body["input"] = Value::Array(self.repair_tools(&input)?);
-        if body.to_string().len() > MAX_CACHE_BYTES {
-            return Err(ServiceError::new(
-                413,
-                "request_too_large",
-                "Expanded WebSocket input exceeds the request size limit",
-            ));
-        }
         body.as_object_mut().unwrap().remove("generate");
         Ok(body)
     }
@@ -266,6 +238,18 @@ impl History {
     }
 
     pub fn observe(&mut self, prepared: &Prepared, event: &Value) {
+        // A late terminal from an interrupted request cannot replace its local
+        // anchor or promote partial output into cross-account replay evidence.
+        if matches!(
+            event["type"].as_str(),
+            Some("response.completed" | "response.done")
+        ) && self.checkpoint.as_ref().is_some_and(|checkpoint| {
+            checkpoint.connection_local
+                && event.pointer("/response/id").and_then(Value::as_str)
+                    == Some(checkpoint.id.as_str())
+        }) {
+            return;
+        }
         if super::super::events::response_terminal_kind(event)
             .is_some_and(|kind| !matches!(kind, "response.completed" | "response.done"))
             || event.get("error").is_some_and(|error| !error.is_null())
@@ -301,12 +285,8 @@ impl History {
                     .output_bytes
                     .saturating_sub(previous)
                     .saturating_add(bytes);
-                if size <= MAX_CACHE_BYTES {
-                    self.output.insert(index, item.clone());
-                    self.output_bytes = size;
-                } else {
-                    self.output_overflow = true;
-                }
+                self.output.insert(index, item.clone());
+                self.output_bytes = size;
             }
         }
         if !matches!(
@@ -386,12 +366,9 @@ impl History {
         for item in &output {
             self.remember_call(item);
         }
-        let size = input
-            .iter()
-            .chain(output.iter())
-            .map(|v| v.to_string().len())
-            .sum::<usize>();
-        self.checkpoint = (size <= MAX_CACHE_BYTES && !self.output_overflow).then(|| Checkpoint {
+        // Retain one full current anchor. The auxiliary call cache has its own
+        // LRU budget and must not truncate conversation or interruption state.
+        self.checkpoint = Some(Checkpoint {
             id: id.into(),
             input,
             output,
@@ -437,14 +414,6 @@ impl History {
     }
 
     pub fn interrupted(&mut self, prepared: &Prepared, id: &str) -> Result<Value, ServiceError> {
-        if self.output_overflow {
-            self.checkpoint = None;
-            return Err(ServiceError::new(
-                502,
-                "upstream_history_too_large",
-                "Interrupted output exceeds the connection history limit",
-            ));
-        }
         let output: Vec<_> = self
             .output
             .values()
@@ -468,9 +437,6 @@ impl History {
             return;
         };
         let bytes = item.to_string().len();
-        if bytes > MAX_CACHE_BYTES {
-            return;
-        }
         if let Some(old) = self.calls.remove(id) {
             self.call_bytes = self.call_bytes.saturating_sub(old.to_string().len());
             self.order.retain(|old| old != id);
@@ -478,7 +444,12 @@ impl History {
         self.calls.insert(id.into(), item.clone());
         self.order.push_back(id.into());
         self.call_bytes += bytes;
-        while self.calls.len() > MAX_CALLS || self.call_bytes > MAX_CACHE_BYTES {
+        // A single complete call may exceed the auxiliary budget; never discard
+        // its arguments solely for that reason. Full current history also stays
+        // available when later calls evict this entry from the LRU.
+        while self.calls.len() > MAX_CALLS
+            || (self.calls.len() > 1 && self.call_bytes > MAX_CACHE_BYTES)
+        {
             let Some(old) = self.order.pop_front() else {
                 break;
             };
@@ -489,14 +460,35 @@ impl History {
     }
 
     fn repair_tools(&self, input: &[Value]) -> Result<Vec<Value>, ServiceError> {
-        let mut seen = BTreeMap::<String, Value>::new();
+        // Index borrowed references once. Prefer complete current input/output
+        // and checkpoint calls over the bounded auxiliary LRU, without copying
+        // large arguments into an additional repair cache.
+        let previous = self
+            .checkpoint
+            .iter()
+            .flat_map(|checkpoint| checkpoint.input.iter().chain(checkpoint.output.iter()));
+        let mut available = BTreeMap::new();
+        for item in self
+            .calls
+            .values()
+            .chain(previous)
+            .chain(self.output.values())
+            .chain(input.iter())
+        {
+            if super::super::output_items::complete_tool_call(item) {
+                if let Some(id) = item["call_id"].as_str() {
+                    available.insert(id, item);
+                }
+            }
+        }
+        let mut seen = BTreeMap::<&str, &Value>::new();
         let mut result = Vec::new();
         for item in input {
             match item["type"].as_str() {
                 Some("function_call" | "custom_tool_call") => {
                     if let Some(id) = item["call_id"].as_str() {
                         if let Some(previous) = seen.get(id) {
-                            if previous != item {
+                            if *previous != item {
                                 return Err(ServiceError::new(
                                     409,
                                     "conflicting_tool_call",
@@ -505,15 +497,15 @@ impl History {
                             }
                             continue;
                         }
-                        seen.insert(id.into(), item.clone());
+                        seen.insert(id, item);
                     }
                 }
                 Some("function_call_output" | "custom_tool_call_output") => {
                     if let Some(id) = item["call_id"].as_str() {
                         if !seen.contains_key(id) {
-                            if let Some(call) = self.calls.get(id) {
-                                result.push(call.clone());
-                                seen.insert(id.into(), call.clone());
+                            if let Some(call) = available.get(id) {
+                                result.push((*call).clone());
+                                seen.insert(id, *call);
                             }
                         }
                     }

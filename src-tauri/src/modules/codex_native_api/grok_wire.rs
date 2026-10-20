@@ -18,6 +18,10 @@ pub(super) mod compaction;
 mod dispatcher;
 #[path = "grok_encrypted.rs"]
 mod encrypted;
+
+pub(super) fn known_signature_provider(raw: &str, gpt: fn(&str) -> bool) -> bool {
+    encrypted::known_signature_provider(raw, gpt)
+}
 #[path = "grok_history.rs"]
 mod history;
 #[path = "grok_request_compat.rs"]

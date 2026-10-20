@@ -157,6 +157,29 @@ test('native service failures use localized messages and retain backend diagnost
   }
 });
 
+test('plan membership blocks another engine with a localized remedy and preserves the running native service', async () => {
+  const h = harness('native');
+  const current = { running: true, collection: { gatewayMode: 'native', enabled: true } };
+  h.props.state = current;
+  h.select().onChange('sidecar');
+  assert.equal(h.changes.length, 1);
+  h.changes[0].task.reject(Error('CHATGPT_PLAN_NATIVE_REQUIRED'));
+  await settlePromises();
+  assert.equal(h.props.state, current);
+  assert.match(h.error(), /chatgptPlan\.error\.nativeSwitch/);
+  assert.equal(h.error().includes('CHATGPT_PLAN_NATIVE_REQUIRED'), false);
+  h.reads[0].resolve(current);
+  await settlePromises();
+  assert.equal(h.select().value, 'native');
+  assert.equal(h.props.state.running, true);
+  assert.equal(h.props.state.collection.enabled, true);
+  assert.equal(Boolean(h.select().disabled), false);
+  assert.equal(h.notices.some((notice) => notice === 'codex.localAccess.gatewayModeSaveSuccess'), false);
+  assert.deepEqual(h.busy, [true, false]);
+  assert.equal(h.hook.exports.formatCodexGatewayModeError((key: string) => key, 'CHATGPT_PLAN_NATIVE_REQUIRED: hidden upstream detail'), 'chatgptPlan.error.nativeSwitch');
+  h.hook.unmount();
+});
+
 test('gateway settings retain only engine selection and the restart notice without extra service reads', () => {
   for (const mode of ['native', 'sidecar', 'legacy']) {
     const h = harness(mode);

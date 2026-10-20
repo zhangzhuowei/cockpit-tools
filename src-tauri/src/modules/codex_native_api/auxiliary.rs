@@ -80,7 +80,7 @@ async fn handle_tracked(
     let mut stop = state.stop.clone();
     let bytes = tokio::select! {
         _=stop.wait()=>return Err(stopping_error()),
-        result=tokio::time::timeout_at(audio_deadline.unwrap_or_else(|| Instant::now() + state.options.request_timeout),to_bytes(request.into_body(),if is_audio(&path) {state.options.max_upload_bytes.min(26 * 1024 * 1024)} else {state.options.max_body_bytes}))=>result.map_err(|_|ServiceError::new(408,"request_body_timeout","Request body timed out"))?.map_err(|_|ServiceError::new(413,"request_too_large","Request body exceeds its limit"))?,
+        result=tokio::time::timeout_at(audio_deadline.unwrap_or_else(|| Instant::now() + state.options.request_timeout),to_bytes(request.into_body(),if is_audio(&path) {state.options.max_upload_bytes.min(26 * 1024 * 1024)} else {state.options.max_body_bytes}))=>result.map_err(|_|ServiceError::new(408,"request_body_timeout","Request body timed out"))?.map_err(super::request_body::read_error)?,
     };
     let bytes = super::http::decode_body_with_limit(
         &state,
@@ -617,6 +617,7 @@ async fn websocket_tracked(
                 .expect("WebSocket request tracker is present");
             Ok(ws
                 .max_message_size(state.options.max_body_bytes)
+                .max_frame_size(state.options.max_body_bytes)
                 .on_upgrade(move |socket| {
                     relay(
                         state, route, auth, model, connection, socket, upstream.0, tracker,
@@ -805,10 +806,19 @@ async fn select(
         image_input: false,
         excluded_account_ids: Vec::new(),
         requires_permit: !has_call_permit,
+        required_capabilities: Vec::new(),
+        capability_fallback_from: None,
         auxiliary: Some(operation.into()),
     };
     let route = super::execution::route(state, &auth.caller, request).await?;
-    if preferred.is_some_and(|id| route.account_id != id)
+    if route.chatgpt_plan {
+        return Err(ServiceError::new(
+            400,
+            "subscription_sharing_unsupported_capability",
+            "ChatGPT plan accounts support HTTP Responses inference only",
+        ));
+    }
+    if preferred.is_some_and(|id| route.continuity_id() != id)
         || auth
             .owner_id
             .as_ref()
@@ -831,7 +841,7 @@ async fn rewrite(
 ) -> Result<HeaderMap, ServiceError> {
     let store = state.identity.clone();
     let caller = auth.caller.id.clone();
-    let account = route.account_id.clone();
+    let account = route.continuity_id().to_owned();
     let owner = route.owner_id.clone();
     let mut headers = auth_headers(incoming, route)?;
     let mut data = body.clone();
@@ -878,7 +888,10 @@ async fn send_until(
     })?;
     tracker.begin_attempt("http");
     tracker.upstream_headers(request.headers());
-    tokio::select! {_=stop.wait()=>Err(stopping_error()),r=tokio::time::timeout_at(deadline,client.execute(request))=>r.map_err(|_|ServiceError::new(504,"upstream_timeout","Upstream request timed out"))?.map_err(|_|ServiceError::new(502,"upstream_unavailable","Unable to connect to upstream"))}
+    tracker.check_quota_before_send()?;
+    let response = tokio::select! {_=stop.wait()=>Err(stopping_error()),r=tokio::time::timeout_at(deadline,client.execute(request))=>r.map_err(|_|ServiceError::new(504,"upstream_timeout","Upstream request timed out"))?.map_err(|_|ServiceError::new(502,"upstream_unavailable","Unable to connect to upstream"))}?;
+    tracker.quota_headers(response.headers());
+    Ok(response)
 }
 async fn read(state: &AppState, response: reqwest::Response) -> Result<Vec<u8>, ServiceError> {
     read_until(state, response, None).await

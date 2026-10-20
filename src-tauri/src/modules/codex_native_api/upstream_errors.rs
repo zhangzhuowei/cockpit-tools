@@ -336,6 +336,8 @@ pub(super) fn chat_failure(value: &Value, fallback: u16) -> Option<ServiceError>
                 401
             }
             "account_deactivated" | "account_suspended" => 403,
+            code if super::chatgpt_plan_wire::error_status(code).is_some() =>
+                super::chatgpt_plan_wire::error_status(code).unwrap(),
             _ => {
                 // Opening probes use zero to distinguish an absent upstream
                 // status from the normal reporting fallback of 502.

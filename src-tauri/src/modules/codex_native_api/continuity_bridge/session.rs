@@ -188,7 +188,17 @@ impl Core {
         let mut registry = self.registry.lock().map_err(lock_error)?;
         let old = ticket.reserved.load(Ordering::Relaxed);
         let total = registry.bytes.saturating_sub(old).saturating_add(bytes);
-        if total > MAX_RESERVED_BYTES {
+        // Keep the shared budget for concurrent requests, but do not turn its
+        // conservative copy accounting into a limit on one idle conversation.
+        // Completed tombstones never compete with an exclusive large ticket;
+        // shrinking a reservation must always be able to release capacity.
+        if bytes > old
+            && total > MAX_RESERVED_BYTES
+            && registry
+                .tickets
+                .values()
+                .any(|other| other.id != ticket.id && !other.finished.load(Ordering::Acquire))
+        {
             return Err(ServiceError::new(
                 503,
                 "continuity_capacity",
@@ -272,7 +282,7 @@ impl Core {
                     .filter(|ticket| !ticket.finished.load(Ordering::Acquire))
                     .count();
                 if active >= MAX_TICKETS
-                    || registry.bytes.saturating_add(reserved) > MAX_RESERVED_BYTES
+                    || (active > 0 && registry.bytes.saturating_add(reserved) > MAX_RESERVED_BYTES)
                 {
                     drop(registry);
                     drop(retired);
@@ -291,7 +301,7 @@ impl Core {
                     finished: AtomicBool::new(false),
                     data: Mutex::new(None),
                 });
-                registry.bytes += reserved;
+                registry.bytes = registry.bytes.saturating_add(reserved);
                 registry.tickets.insert(ticket.id.clone(), ticket.clone());
                 registry.requests.insert(key, ticket.clone());
                 drop(registry);
@@ -942,3 +952,7 @@ fn validate_source(source: &PrepareResponse, request: &BindRequest) -> Result<()
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "capacity_tests.rs"]
+mod capacity_tests;

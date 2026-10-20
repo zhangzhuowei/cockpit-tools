@@ -9,6 +9,7 @@ const values: Record<string, unknown> = {
   provider: 'Provider', weekly: 50, five_hour: 75, account_count_value: 2,
   available_account_count_value: 2, abnormal_account_count_value: 0, cooldown_account_count_value: 0,
   plans: [], grok_lines_value: [], grok_badge_percent: 90, grok_badge_product: 'GrokBuild',
+  official_label: '官',
   badge_kind_value: 'codex', fallback_model_value: 'gpt-5.4',
   account_pool_label: 'Accounts', weekly_label: 'Week', five_hour_label: '5h',
   account_pool_title: 'Account pool', quota_empty_label: 'No quota', available_text: 'Available',
@@ -242,3 +243,21 @@ for (const kind of ['injection_script', 'deepseek_balance_injection_script'] as 
     }
   });
 }
+
+
+test('composer account status keeps uppercase plan rows and distinguishes official access without a quota', () => {
+  const previous = { plans: values.plans, account_count_value: values.account_count_value };
+  values.plans = [{ plan: 'TEAM', count: 2, fiveHourRemainingPercent: 200, weeklyRemainingPercent: 200 }, { plan: 'PLUS', official: true, count: 1 }];
+  values.account_count_value = 3;
+  try {
+    const h = harness('injection_script', [composer('gpt-6-luna')]);
+    h.evaluate();
+    assert.match(h.host().innerHTML, /Accounts 3/);
+    h.root().quotaDetailsOpen = true; h.root().render();
+    const details = h.body.querySelector('[data-cockpit-quota-details]')!;
+    assert.match(details.innerHTML, /TEAM/);
+    assert.match(details.innerHTML, /PLUS 官/);
+    assert.match(details.innerHTML, /No quota/);
+    assert.doesNotMatch(details.innerHTML, /API_KEY/);
+  } finally { Object.assign(values, previous); }
+});

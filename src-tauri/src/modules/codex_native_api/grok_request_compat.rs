@@ -3,8 +3,7 @@ use super::{invalid, text, ServiceError};
 use serde_json::{json, Value};
 use std::collections::HashSet;
 
-#[path = "grok_integer_schema.rs"]
-mod integer_schema;
+use super::super::multi_agent_compat::integer_fields as integer_schema;
 
 pub(super) fn normalize_search_aliases(body: &mut Value) {
     fn normalize(tool: &mut Value) {

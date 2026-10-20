@@ -47,6 +47,8 @@ fn request(session: &str, thread: &str, parent: Option<&str>) -> native_contract
         excluded_account_ids: vec![],
         requires_permit: true,
         auxiliary: None,
+        required_capabilities: Vec::new(),
+        capability_fallback_from: None,
     }
 }
 async fn selected(
@@ -90,6 +92,10 @@ fn report(
     message: Option<&str>,
 ) -> native_contract::RequestReport {
     native_contract::RequestReport {
+        official_access_fingerprint: None,
+        official_authorization_revision: None,
+        official_registration_id: None,
+        official_authorization_error: None,
         operation: "responses",
         caller: caller("caller-a"),
         account_id: account.into(),

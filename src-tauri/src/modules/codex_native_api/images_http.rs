@@ -390,7 +390,7 @@ impl Execution {
                     .to_responses(main_model, &self.selected.image_model)?;
                 let store = self.state.identity.clone();
                 let caller = self.caller.id.clone();
-                let account = self.selected.route.account_id.clone();
+                let account = self.selected.route.continuity_id().to_owned();
                 let owner = self.selected.route.owner_id.clone();
                 let budget = self.budget.clone();
                 let (new_headers, body, binding) = budget
@@ -467,6 +467,7 @@ impl Execution {
             let (client, built) = outgoing.build_split();
             if let Ok(request) = &built {
                 self.tracker.upstream_headers(request.headers());
+                self.tracker.check_quota_before_send()?;
             }
             let outgoing = async move { client.execute(built?).await };
             let result = tokio::select! {
@@ -525,9 +526,12 @@ impl Execution {
                         deadline,
                     )
                     .await?;
+                    self.renew_transport_after_tls(&error).await?;
                     continue;
                 }
             };
+            self.tracker.upstream_http_version(response.version());
+            self.tracker.quota_headers(response.headers());
             if oauth && response.status().is_success() {
                 // The shared probe stops at the first business event or its
                 // 250ms hold limit. Only errors returned inside that fence may
@@ -559,6 +563,7 @@ impl Execution {
                                     deadline,
                                 )
                                 .await?;
+                                self.renew_transport_after_tls(&error).await?;
                                 continue;
                             }
                             return Err(error);
@@ -612,7 +617,7 @@ impl Execution {
                 self.selected.route.permit = None;
                 let mut route_request = self.route_request.clone();
                 route_request.force_refresh = true;
-                route_request.preferred_account_id = Some(self.selected.route.account_id.clone());
+                route_request.preferred_account_id = Some(self.selected.route.continuity_id().to_owned());
                 self.budget = self.budget.renew_open();
                 let refreshed_route = self
                     .budget
@@ -712,7 +717,7 @@ impl Execution {
                     let mut stop = self.state.stop.clone();
                     tokio::select! {
                         _=stop.wait()=>return Err(stopping_error()),
-                        result=tokio::time::timeout_at(deadline,self.state.host.route_failed_with_context(&self.selected.route.account_id,&self.selected.image_model,if model_unavailable { 404 } else { response.status().as_u16() },retry_after,credential_scope,failure_message.as_deref()))=>result.map_err(|_|super::super::retry::total_timeout())?,
+                        result=tokio::time::timeout_at(deadline,self.state.host.route_failed_attempt(&self.selected.route,&self.selected.image_model,if model_unavailable { 404 } else { response.status().as_u16() },retry_after,credential_scope,failure_message.as_deref()))=>result.map_err(|_|super::super::retry::total_timeout())?,
                     }
                 }
                 if self
@@ -742,6 +747,36 @@ impl Execution {
         }
     }
 
+    async fn renew_transport_after_tls(&mut self, error: &ServiceError) -> Result<(), ServiceError> {
+        if error.transport_failure != Some(super::super::contract::TransportFailureKind::TlsDecrypt) {
+            return Ok(());
+        }
+        self.tracker.release_route();
+        self.selected.route.permit = None;
+        let mut request = self.route_request.clone();
+        request.force_refresh = false;
+        request.preferred_account_id = Some(self.selected.route.continuity_id().to_owned());
+        self.budget = self.budget.renew_open();
+        let selected = self.budget.run(super::super::execution::within(
+            &self.state, self.state.host.image_route(&self.caller, request),
+        )).await?;
+        if selected.route.account_id != self.selected.route.account_id
+            || selected.route.owner_id != self.selected.route.owner_id
+            || selected.image_model != self.selected.image_model
+            || selected.main_model != self.selected.main_model
+            || selected.route.model != self.selected.route.model
+            || selected.route.wire_api != self.selected.route.wire_api
+            || selected.route.base_url != self.selected.route.base_url
+            || selected.route.chatgpt != self.selected.route.chatgpt
+            || selected.route.chatgpt_plan != self.selected.route.chatgpt_plan
+        {
+            return Err(ServiceError::new(409, "refresh_owner_changed", "Transport recovery cannot change the image source or model"));
+        }
+        self.selected = selected;
+        self.record_route();
+        Ok(())
+    }
+
     async fn alternate_source(
         &mut self,
         upstream_failure: Option<(u16, Option<std::time::Duration>, bool, Option<&str>)>,
@@ -757,7 +792,7 @@ impl Execution {
             let mut stop = self.state.stop.clone();
             tokio::select! {
                 _=stop.wait()=>return Err(stopping_error()),
-                result=tokio::time::timeout_at(deadline,self.state.host.route_failed_with_context(&old,&self.selected.image_model,status,retry_after,credential_scope,message))=>{result.map_err(|_|super::super::retry::total_timeout())?;}
+                result=tokio::time::timeout_at(deadline,self.state.host.route_failed_attempt(&self.selected.route,&self.selected.image_model,status,retry_after,credential_scope,message))=>{result.map_err(|_|super::super::retry::total_timeout())?;}
             }
         }
         self.tracker.release_route();
@@ -844,6 +879,8 @@ impl Execution {
             image_input: false,
             excluded_account_ids: vec![],
             requires_permit: true,
+            required_capabilities: Vec::new(),
+            capability_fallback_from: None,
             auxiliary: Some(
                 if self.request.operation == ImageOperation::Edit {
                     "images.edits"
@@ -1605,6 +1642,7 @@ impl OAuthStream {
             None => self.decoder.finish()?,
         };
         for mut event in events {
+            self.execution.tracker.quota_event(&event);
             self.progress.event(&event);
             if let Some(usage) = super::result::image_usage(event.get("response").unwrap_or(&event))
             {

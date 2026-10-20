@@ -28,6 +28,8 @@ use super::{contract::*, start, Handle, Options};
 
 #[path = "http_parity_tests.rs"]
 mod http_parity_tests;
+#[path = "request_size_tests.rs"]
+mod request_size_tests;
 #[path = "thinking_suffix_tests.rs"]
 mod thinking_suffix_tests;
 
@@ -66,7 +68,7 @@ impl Host for TestHost {
     fn prepare_body<'a>(
         &'a self,
         _: &'a Caller,
-        _: &'a str,
+        _: &'a Route,
         _: &'a HeaderMap,
         mut body: Value,
         _: bool,
@@ -119,7 +121,10 @@ impl Host for TestHost {
                 HeaderValue::from_static("Bearer upstream-test-key"),
             );
             Ok(Route {
+                continuity_account_id: None,
                 installation_profile: None,
+                official_authorization_revision: None,
+                official_registration_id: None,
                 transport_identity: None,
                 account_id: if self.route_by_model.load(Ordering::SeqCst) {
                     format!("account-{}", request.model)
@@ -157,6 +162,7 @@ impl Host for TestHost {
                 proxy_url: self.proxy_url.lock().unwrap().clone(),
                 proxy_route: None,
                 chatgpt: self.chatgpt,
+                chatgpt_plan: false,
                 wire_api: WireApi::Responses,
                 compact_endpoint: None,
                 websocket_endpoint: None,
@@ -1193,7 +1199,7 @@ async fn websocket_http_bridge_keeps_selected_model_policy_and_explicit_tier() {
         HeaderValue::from_static("Bearer local-test-key"),
     );
     let (mut socket, _) = tokio_tungstenite::connect_async(request).await.unwrap();
-    for tier in [None, Some("flex")] {
+    for tier in [None, Some("flex"), Some("ultrafast")] {
         let mut request = body(true);
         request["type"] = json!("response.create");
         if let Some(tier) = tier {
@@ -1212,7 +1218,7 @@ async fn websocket_http_bridge_keeps_selected_model_policy_and_explicit_tier() {
         }
     }
     let requests = seen.lock().unwrap();
-    assert_eq!(requests.len(), 2);
+    assert_eq!(requests.len(), 3);
     for request in requests.iter() {
         assert_eq!(request["model"], "mapped-model");
         assert_eq!(request["max_output_tokens"], 7);
@@ -1223,6 +1229,7 @@ async fn websocket_http_bridge_keeps_selected_model_policy_and_explicit_tier() {
     }
     assert_eq!(requests[0]["service_tier"], "priority");
     assert_eq!(requests[1]["service_tier"], "flex");
+    assert_eq!(requests[2]["service_tier"], "ultrafast");
     drop(requests);
     let _ = socket.close(None).await;
     service.shutdown(Duration::from_secs(2)).await.unwrap();

@@ -342,3 +342,7 @@ pub(crate) fn chat_to_response_with_context(
 #[cfg(test)]
 #[path = "protocol_parity22_tests.rs"]
 mod parity22_tests;
+
+#[cfg(test)]
+#[path = "chat_plaintext_tests.rs"]
+mod plaintext_tests;

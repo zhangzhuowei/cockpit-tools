@@ -183,7 +183,7 @@ pub(super) async fn probe(
     policy: &ExecutionPolicy,
     deadline: tokio::time::Instant,
 ) -> Result<reqwest::Response, ServiceError> {
-    probe_inner(state, response, policy, deadline, false, false).await
+    probe_inner(state, response, policy, deadline, false, false, false).await
 }
 
 pub(super) async fn probe_chat(
@@ -192,7 +192,7 @@ pub(super) async fn probe_chat(
     policy: &ExecutionPolicy,
     deadline: tokio::time::Instant,
 ) -> Result<reqwest::Response, ServiceError> {
-    probe_inner(state, response, policy, deadline, true, false).await
+    probe_inner(state, response, policy, deadline, true, false, false).await
 }
 
 pub(super) async fn probe_provider(
@@ -201,8 +201,9 @@ pub(super) async fn probe_provider(
     policy: &ExecutionPolicy,
     deadline: tokio::time::Instant,
     grok: bool,
+    capability_fallback: bool,
 ) -> Result<reqwest::Response, ServiceError> {
-    probe_inner(state, response, policy, deadline, false, grok).await
+    probe_inner(state, response, policy, deadline, false, grok, capability_fallback).await
 }
 
 async fn probe_inner(
@@ -212,6 +213,7 @@ async fn probe_inner(
     deadline: tokio::time::Instant,
     chat: bool,
     grok: bool,
+    capability_fallback: bool,
 ) -> Result<reqwest::Response, ServiceError> {
     let status = response.status();
     let version = response.version();
@@ -313,6 +315,15 @@ async fn probe_inner(
                     continue;
                 }
                 let Some(event) = frame.value else { continue };
+                // Only buffered pre-output events reach this point. Reuse the
+                // same strict schema-rejection gate as HTTP errors and sockets;
+                // normal parameter faults and generated output stay untouched.
+                if capability_fallback
+                    && super::capabilities::pre_execution_rejection(400, &event)
+                {
+                    reject = Some((400, event));
+                    break 'read;
+                }
                 if let Some(failure) = grok
                     .then(|| super::grok_errors::rejection(&event))
                     .flatten()

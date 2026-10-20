@@ -1,8 +1,8 @@
-.codex-request-payload-setting { min-width: 0; padding: 12px 0; }
 .codex-request-payload-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
 .codex-request-payload-row > strong { font-size: 13px; }
-.codex-request-payload-row .single-select-dropdown { width: 140px; max-width: 100%; }
+.codex-request-payload-row .single-select-dropdown { width: 128px; max-width: 100%; }
 .codex-request-diagnostics-hint { color: var(--text-secondary); font-size: 12px; line-height: 1.6; margin: 8px 0; overflow-wrap: anywhere; }
+.codex-request-error-evidence > p, .codex-request-error-evidence > code { overflow-wrap: anywhere; white-space: pre-wrap; }
 .codex-request-payload-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; }
 /* Request details use a compact summary and separate diagnostic sections. */
 .codex-request-detail-overlay { z-index: 12040; padding: 16px; overflow-y: auto; align-items: safe center; }

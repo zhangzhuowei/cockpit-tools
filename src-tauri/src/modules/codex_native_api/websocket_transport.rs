@@ -27,6 +27,11 @@ pub(super) async fn passthrough(
     caller: &Caller,
     prepared: &Prepared,
 ) -> Result<bool, ServiceError> {
+    // Public plan credentials use stateless HTTP/SSE even when the caller uses
+    // a socket. Keep the connection's authenticated history in this gateway.
+    if prepared.route.chatgpt_plan {
+        return Ok(false);
+    }
     if super::super::grok_errors::applies(&prepared.route)
         && (super::super::grok_wire::compaction::triggered(&prepared.body)
             || prepared
@@ -149,6 +154,7 @@ pub(super) async fn open_with_retries(
         open_response_stream(state, prepared, false, true, tracker, policy, deadline).await?;
     if !response.status.is_success() {
         let status = response.status.as_u16();
+        tracker.quota_headers(&response.headers);
         let retry_after = super::super::events::retry_after_headers(&response.headers);
         let bytes = collect_bytes(state, response.bytes, policy, deadline).await?;
         let body: Value = serde_json::from_slice(&bytes)

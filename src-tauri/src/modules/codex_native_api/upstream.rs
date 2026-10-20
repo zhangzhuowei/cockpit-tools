@@ -24,6 +24,8 @@ pub(super) async fn canonical_stream(
     route: &Route,
     compact: bool,
     grok_context: Option<super::grok_wire::Context>,
+    plan_tools_context: Option<super::chatgpt_plan_tools::Context>,
+    multi_agent_context: super::multi_agent_compat::Context,
     request_body: &Value,
     idle_timeout: Duration,
 ) -> Result<CanonicalStream, ServiceError> {
@@ -33,7 +35,11 @@ pub(super) async fn canonical_stream(
     } else {
         super::chat_upstream::ToolContext::default()
     };
-    let convert = response.status().is_success() && (chat || grok_context.is_some());
+    let convert = response.status().is_success()
+        && (chat
+            || grok_context.is_some()
+            || plan_tools_context.is_some()
+            || multi_agent_context.is_active());
     let CanonicalStream {
         bytes: mut upstream,
         is_sse,
@@ -77,26 +83,42 @@ pub(super) async fn canonical_stream(
                 None => break,
             }
         }
-        let value: Value = serde_json::from_slice(&data).map_err(|_| {
+        let mut value: Value = serde_json::from_slice(&data).map_err(|_| {
             ServiceError::new(
                 502,
                 "invalid_chat_upstream_response",
                 "Upstream returned invalid JSON",
             )
         })?;
-        let canonical = if chat {
+        multi_agent_context.restore(&mut value);
+        let mut canonical = if chat {
             super::chat_upstream::chat_to_response_with_context(
                 &value,
                 &route.model,
                 &chat_context,
             )?
-        } else {
-            super::grok_wire::restore_event(&mut grok_context.unwrap_or_default(), value)?
+        } else if let Some(mut context) = plan_tools_context.clone() {
+            super::chatgpt_plan_tools::restore_event(&mut context, value)?
+                .pop()
+                .ok_or_else(|| {
+                    ServiceError::new(
+                        502,
+                        "invalid_upstream_response",
+                        "Upstream returned no response",
+                    )
+                })?
+        } else if let Some(mut context) = grok_context {
+            super::grok_wire::restore_event(&mut context, value)?
                 .pop()
                 .ok_or_else(|| {
                     ServiceError::new(502, "invalid_grok_response", "Grok returned no response")
                 })?
+        } else {
+            value
         };
+        // Adapters can restore echoed tool declarations from their own wire
+        // context. Keep the client-facing namespace canonical there as well.
+        multi_agent_context.restore(&mut canonical);
         if !compact
             && super::grok_errors::applies(route)
             && super::grok_wire::compaction::triggered(request_body)
@@ -121,18 +143,23 @@ pub(super) async fn canonical_stream(
             bytes: stream::once(async move { Ok(Bytes::from(canonical.to_string())) }).boxed(),
         });
     }
-    let state = ChatStream::new(
+    let mut state = ChatStream::new(
         upstream,
         if chat {
             Transform::Chat(super::chat_upstream::ResponsesStreamAdapter::with_context(
                 route.model.clone(),
                 chat_context,
             ))
+        } else if let Some(context) = plan_tools_context {
+            Transform::Plan(context)
+        } else if let Some(context) = grok_context {
+            Transform::Grok(context)
         } else {
-            Transform::Grok(grok_context.unwrap_or_default())
+            Transform::Responses
         },
         state.options.max_event_bytes,
     );
+    state.multi_agent_context = multi_agent_context;
     let bytes = stream::unfold(state, |mut state| async move {
         loop {
             if let Some(item) = state.pending.pop_front() {
@@ -162,7 +189,7 @@ pub(super) async fn canonical_stream(
                             let Some(event) = frame.value else {
                                 continue;
                             };
-                            match state.adapter.push(&event) {
+                            match state.push(event) {
                                 Ok(events) => enqueue(&mut state.pending, events),
                                 Err(error) => {
                                     failure = Some(error);
@@ -193,7 +220,7 @@ pub(super) async fn canonical_stream(
                 Some(Err(error)) => Err(transport_failure(
                     502,
                     "upstream_stream_error",
-                    "Chat upstream disconnected",
+                    "Upstream response stream disconnected",
                     &error,
                 )),
                 None => {
@@ -218,7 +245,7 @@ pub(super) async fn canonical_stream(
                                 let Some(event) = frame.value else {
                                     continue;
                                 };
-                                match state.adapter.push(&event) {
+                                match state.push(event) {
                                     Ok(events) => enqueue(&mut state.pending, events),
                                     Err(error) => {
                                         result = Err(error);
@@ -247,7 +274,7 @@ pub(super) async fn canonical_stream(
                 } else {
                     state
                         .pending
-                        .push_back(Err(std::io::Error::other(error.message)));
+                        .push_back(Err(std::io::Error::other(error)));
                 }
             }
         }
@@ -366,6 +393,7 @@ struct ChatStream {
     source: ByteStream,
     decoder: SseDecoder,
     adapter: Transform,
+    multi_agent_context: super::multi_agent_compat::Context,
     pending: VecDeque<Result<Bytes, std::io::Error>>,
     finished: bool,
 }
@@ -377,33 +405,46 @@ impl ChatStream {
             // Preserve output evidence until the HTTP/WS delivery collector.
             decoder: SseDecoder::without_output_repair(limit),
             adapter,
+            multi_agent_context: Default::default(),
             pending: VecDeque::new(),
             finished: false,
         }
     }
+    fn push(&mut self, mut event: Value) -> Result<Vec<Value>, ServiceError> {
+        self.multi_agent_context.restore(&mut event);
+        let mut events = self.adapter.push(&event)?;
+        for event in &mut events {
+            self.multi_agent_context.restore(event);
+        }
+        Ok(events)
+    }
 }
 
 enum Transform {
+    Responses,
     Chat(super::chat_upstream::ResponsesStreamAdapter),
     Grok(super::grok_wire::Context),
+    Plan(super::chatgpt_plan_tools::Context),
 }
 impl Transform {
     fn push(&mut self, value: &Value) -> Result<Vec<Value>, ServiceError> {
         match self {
+            Self::Responses => Ok(vec![value.clone()]),
             Self::Chat(adapter) => adapter.push(value),
             Self::Grok(context) => super::grok_wire::restore_event(context, value.clone()),
+            Self::Plan(context) => super::chatgpt_plan_tools::restore_event(context, value.clone()),
         }
     }
     fn finish(&mut self) -> Result<Vec<Value>, ServiceError> {
         match self {
             Self::Chat(adapter) => adapter.finish(),
-            Self::Grok(_) => Ok(Vec::new()),
+            Self::Grok(_) | Self::Plan(_) | Self::Responses => Ok(Vec::new()),
         }
     }
     fn finish_done(&mut self) -> Result<Vec<Value>, ServiceError> {
         match self {
             Self::Chat(adapter) => adapter.finish_done(),
-            Self::Grok(_) => Ok(Vec::new()),
+            Self::Grok(_) | Self::Plan(_) | Self::Responses => Ok(Vec::new()),
         }
     }
 }

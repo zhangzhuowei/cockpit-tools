@@ -33,6 +33,7 @@ const DELIVERIES: [Delivery; 4] = [
 #[derive(Clone, Copy, Debug)]
 enum Repair {
     Empty,
+    MissingOutput,
     Unindexed,
     ConflictingTool,
     MissingId,
@@ -54,6 +55,9 @@ fn raw_events(id: &str, repair: Repair) -> Vec<Value> {
     let mut terminal = json!({"id":id,"status":"completed","output":output,"extension":true,"usage":{"input_tokens":4,"output_tokens":3}});
     match repair {
         Repair::Empty | Repair::Unindexed => terminal["output"] = json!([]),
+        Repair::MissingOutput => {
+            terminal.as_object_mut().unwrap().remove("output");
+        }
         Repair::ConflictingTool => {
             terminal["output"][2] = json!({"type":"function_call","id":"observed-tool","call_id":"observed-call","name":"shell","arguments":"{\"different\":true}","status":"completed"})
         }
@@ -225,7 +229,6 @@ fn assert_cipher_owner(fixture: &Fixture, cipher: &str, account: &str) {
 async fn output_evidence_repaired_root_cannot_become_portable_after_restart_or_reconnect() {
     for delivery in DELIVERIES {
         for repair in [
-            Repair::Empty,
             Repair::Unindexed,
             Repair::ConflictingTool,
             Repair::MissingId,
@@ -295,7 +298,6 @@ async fn output_evidence_repaired_root_cannot_become_portable_after_restart_or_r
 async fn output_evidence_repaired_candidate_cannot_activate_a_new_generation() {
     for delivery in DELIVERIES {
         for repair in [
-            Repair::Empty,
             Repair::Unindexed,
             Repair::ConflictingTool,
             Repair::MissingId,
@@ -350,44 +352,87 @@ async fn output_evidence_repaired_candidate_cannot_activate_a_new_generation() {
 #[tokio::test]
 async fn output_evidence_complete_terminal_still_rebuilds_after_restart_with_fresh_identity() {
     for delivery in DELIVERIES {
-        let mut fixture = Fixture::new(
+        // A sparse terminal backed by complete indexed upstream done items is
+        // equivalent to the same explicit terminal output, without public repair.
+        for repair in [Repair::None, Repair::Empty, Repair::MissingOutput] {
+            let mut fixture = Fixture::new(
+                true,
+                vec![Step::RawEvents(raw_events("a-complete", repair))],
+                vec![Step::Complete("b-complete", None)],
+            )
+            .await;
+            let root = body(vec![message("user", "first")], None, delivery.streaming());
+            assert_eq!(
+                completed_turn(&fixture, delivery, &root).await["output"],
+                json!(observed_output())
+            );
+            let before = replay_state(&fixture);
+            assert_eq!(before.checkpoints, 1);
+            assert_eq!(before.portable, 1);
+            assert_eq!(before.active.as_ref().unwrap().0, "a");
+            restart(&mut fixture).await;
+            assert_eq!(replay_state(&fixture), before);
+            fixture.host.removed_a.store(true, Ordering::SeqCst);
+            let continuation = body(delta(), Some("a-complete"), delivery.streaming());
+            assert_eq!(
+                completed_turn(&fixture, delivery, &continuation).await["id"],
+                "b-complete"
+            );
+            let sent = fixture.sent();
+            assert_eq!(
+                sent.iter()
+                    .map(|sent| sent.account.as_str())
+                    .collect::<Vec<_>>(),
+                vec!["a", "b"]
+            );
+            let mut expected = root["input"].as_array().unwrap().clone();
+            expected.extend(observed_output());
+            expected.extend(delta());
+            assert_fresh(&sent[0], &sent[1], json!(expected));
+            fixture.assert_owner("a-complete", "a");
+            fixture.assert_owner("b-complete", "b");
+            assert_cipher_owner(&fixture, "observed-a-cipher", "a");
+            assert_eq!(fixture.active().unwrap().0, "b");
+            fixture.finish().await;
+        }
+    }
+}
+
+#[tokio::test]
+async fn output_evidence_complete_done_can_activate_a_sparse_cross_account_candidate() {
+    for delivery in DELIVERIES {
+        let fixture = Fixture::new(
             true,
-            vec![Step::RawEvents(raw_events("a-complete", Repair::None))],
-            vec![Step::Complete("b-complete", None)],
+            vec![Step::Complete("a-root", None)],
+            vec![Step::RawEvents(raw_events("b-sparse", Repair::Empty))],
         )
         .await;
-        let root = body(vec![message("user", "first")], None, delivery.streaming());
-        assert_eq!(
-            completed_turn(&fixture, delivery, &root).await["output"],
-            json!(observed_output())
-        );
-        let before = replay_state(&fixture);
-        assert_eq!(before.checkpoints, 1);
-        assert_eq!(before.portable, 1);
-        assert_eq!(before.active.as_ref().unwrap().0, "a");
-        restart(&mut fixture).await;
-        assert_eq!(replay_state(&fixture), before);
+        completed_turn(
+            &fixture,
+            delivery,
+            &body(vec![message("user", "first")], None, delivery.streaming()),
+        )
+        .await;
+        assert_eq!(fixture.active().unwrap().0, "a");
         fixture.host.removed_a.store(true, Ordering::SeqCst);
-        let continuation = body(delta(), Some("a-complete"), delivery.streaming());
-        assert_eq!(
-            completed_turn(&fixture, delivery, &continuation).await["id"],
-            "b-complete"
-        );
-        let sent = fixture.sent();
-        assert_eq!(
-            sent.iter()
-                .map(|sent| sent.account.as_str())
-                .collect::<Vec<_>>(),
-            vec!["a", "b"]
-        );
-        let mut expected = root["input"].as_array().unwrap().clone();
-        expected.extend(observed_output());
-        expected.extend(delta());
-        assert_fresh(&sent[0], &sent[1], json!(expected));
-        fixture.assert_owner("a-complete", "a");
-        fixture.assert_owner("b-complete", "b");
-        assert_cipher_owner(&fixture, "observed-a-cipher", "a");
-        assert_eq!(fixture.active().unwrap().0, "b");
+        let response = completed_turn(
+            &fixture,
+            delivery,
+            &body(
+                vec![message("user", "second")],
+                Some("a-root"),
+                delivery.streaming(),
+            ),
+        )
+        .await;
+        assert_eq!(response["output"], json!(observed_output()));
+        let after = replay_state(&fixture);
+        assert_eq!(after.checkpoints, 2);
+        assert_eq!(after.portable, 2);
+        assert_eq!(after.active.as_ref().unwrap().0, "b");
+        fixture.assert_owner("a-root", "a");
+        fixture.assert_owner("b-sparse", "b");
+        assert_cipher_owner(&fixture, "observed-a-cipher", "b");
         fixture.finish().await;
     }
 }
@@ -395,58 +440,69 @@ async fn output_evidence_complete_terminal_still_rebuilds_after_restart_with_fre
 #[tokio::test]
 async fn output_evidence_repair_does_not_adopt_unknown_input_or_invent_a_missing_checkpoint() {
     for delivery in DELIVERIES {
-        let mut fixture = Fixture::new(
-            true,
-            vec![Step::RawEvents(raw_events("a-recovered", Repair::Empty))],
-            vec![Step::Complete("unexpected-b", None)],
-        )
-        .await;
-        let legacy = json!({"type":"reasoning","encrypted_content":"authorized-legacy-cipher"});
-        let request = body(vec![legacy], None, delivery.streaming());
-        assert_eq!(
-            completed_turn(&fixture, delivery, &request).await["output"],
-            json!(observed_output())
-        );
-        assert_no_replay_state(&fixture);
-        let sent = fixture.sent();
-        assert_eq!(sent.len(), 1);
-        assert_eq!(sent[0].account, "a");
-        assert_eq!(sent[0].body["input"], request["input"]);
-        assert!(sent[0].body.get("previous_response_id").is_none());
-        assert_ne!(identity(&sent[0]).1, json!("client-thread"));
-        fixture.assert_owner("a-recovered", "a");
-        let digest = format!(
-            "{:x}",
-            <sha2::Sha256 as sha2::Digest>::digest(b"authorized-legacy-cipher")
-        );
-        let count: i64 = Connection::open(fixture.path())
-            .unwrap()
-            .query_row(
-                "SELECT COUNT(*) FROM native_opaque_v1 WHERE kind='encrypted' AND digest=?1",
-                [digest],
-                |row| row.get(0),
+        for repair in [Repair::Empty, Repair::Unindexed] {
+            let mut fixture = Fixture::new(
+                true,
+                vec![Step::RawEvents(raw_events("a-recovered", repair))],
+                vec![Step::Complete("unexpected-b", None)],
             )
-            .unwrap();
-        assert_eq!(count, 0);
-        assert_cipher_owner(&fixture, "observed-a-cipher", "a");
-        restart(&mut fixture).await;
-        let unauthorized = body(
-            vec![message("user", "delta without its checkpoint")],
-            Some("never-authorized-response"),
-            delivery.streaming(),
-        );
-        let error = rejected_turn(&fixture, delivery, &unauthorized).await;
-        // The unknown response is rejected before inspecting its unknown cipher.
-        assert_eq!(
-            error["error"]["code"], "previous_response_not_found",
-            "{delivery:?}: {error}"
-        );
-        assert_eq!(
-            fixture.sent().len(),
-            1,
-            "a missing checkpoint must not authorize an incomplete replay"
-        );
-        assert_no_replay_state(&fixture);
-        fixture.finish().await;
+            .await;
+            let legacy = json!({"type":"reasoning","encrypted_content":"authorized-legacy-cipher"});
+            let request = body(vec![legacy], None, delivery.streaming());
+            assert_eq!(
+                completed_turn(&fixture, delivery, &request).await["output"],
+                json!(observed_output())
+            );
+            let complete = matches!(repair, Repair::Empty);
+            if complete {
+                // Complete upstream done evidence admits the original full input;
+                // unindexed presentation repair still cannot claim its provenance.
+                assert_eq!(replay_state(&fixture).checkpoints, 1);
+                assert_eq!(replay_state(&fixture).portable, 1);
+            } else {
+                assert_no_replay_state(&fixture);
+            }
+            let before = replay_state(&fixture);
+            let sent = fixture.sent();
+            assert_eq!(sent.len(), 1);
+            assert_eq!(sent[0].account, "a");
+            assert_eq!(sent[0].body["input"], request["input"]);
+            assert!(sent[0].body.get("previous_response_id").is_none());
+            assert_ne!(identity(&sent[0]).1, json!("client-thread"));
+            fixture.assert_owner("a-recovered", "a");
+            let digest = format!(
+                "{:x}",
+                <sha2::Sha256 as sha2::Digest>::digest(b"authorized-legacy-cipher")
+            );
+            let count: i64 = Connection::open(fixture.path())
+                .unwrap()
+                .query_row(
+                    "SELECT COUNT(*) FROM native_opaque_v1 WHERE kind='encrypted' AND digest=?1",
+                    [digest],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, i64::from(complete));
+            assert_cipher_owner(&fixture, "observed-a-cipher", "a");
+            restart(&mut fixture).await;
+            let unauthorized = body(
+                vec![message("user", "delta without its checkpoint")],
+                Some("never-authorized-response"),
+                delivery.streaming(),
+            );
+            let error = rejected_turn(&fixture, delivery, &unauthorized).await;
+            // The unknown response is rejected before inspecting its unknown cipher.
+            assert_eq!(
+                error["error"]["code"], "previous_response_not_found",
+                "{delivery:?}: {error}"
+            );
+            assert_eq!(
+                fixture.sent().len(),
+                1,
+                "a missing checkpoint must not authorize an incomplete replay"
+            );
+            assert_eq!(replay_state(&fixture), before);
+            fixture.finish().await;
+        }
     }
 }

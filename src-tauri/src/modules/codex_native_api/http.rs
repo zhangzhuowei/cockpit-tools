@@ -73,10 +73,16 @@ pub(super) async fn read_request(
             _ = stop.wait() => return Err(stopping_error()),
             result = tokio::time::timeout(state.options.request_timeout, to_bytes(body, state.options.max_body_bytes)) =>
                 result.map_err(|_| ServiceError::new(408, "request_body_timeout", "Timed out reading request body"))?
-                    .map_err(|_| ServiceError::new(413, "request_too_large", "Request body exceeds the configured size limit"))?,
+                    .map_err(super::request_body::read_error)?,
         };
         let bytes = decode_body(state, bytes, &parts.headers).await?;
-        let body: Value = serde_json::from_slice(&bytes).map_err(|_| ServiceError::new(400,"invalid_json","Request body must be a JSON object"))?;
+        let small = bytes.len() <= 64 * 1024;
+        let parse = move || {
+            serde_json::from_slice(&bytes).map_err(|_| ServiceError::new(400,"invalid_json","Request body must be a JSON object"))
+        };
+        let body: Value = if small { parse()? } else {
+            super::blocking::run(state.stop.clone(), state.options.request_timeout, parse).await?
+        };
         if !body.is_object() { return Err(ServiceError::new(400,"invalid_json","Request body must be a JSON object")); }
         Ok((caller,body))
     }.await;
@@ -319,7 +325,7 @@ pub(super) async fn decode_body_with_limit(
                 };
                 let mut output = Vec::new();
                 reader
-                    .take(limit as u64 + 1)
+                    .take((limit as u64).saturating_add(1))
                     .read_to_end(&mut output)
                     .map_err(|_| {
                         ServiceError::new(
@@ -409,6 +415,12 @@ async fn forward_with_policy(
             return Err(error);
         }
     };
+    if prepared.route.chatgpt_plan && status.is_success() && !is_sse {
+        let error = ServiceError::new(502, "incomplete_upstream_stream",
+            "ChatGPT plan inference requires a Responses event stream");
+        tracker.fail(&error).await;
+        return Err(error);
+    }
     if status.is_success()
         && (is_sse || (!compact && prepared.route.wire_api == super::contract::WireApi::Chat))
     {
@@ -694,12 +706,13 @@ pub(super) async fn open_response_stream(
         let response = super::retry::send(state, prepared, tracker, compact, policy).await?;
         let status = response.status();
         let headers = response.headers().clone();
+        tracker.quota_headers(&headers);
         tracker.set_retry_after(retry_after_headers(&headers));
         mapping::observe_headers(state, prepared, &headers).await?;
         let mut stop = state.stop.clone();
         let mut upstream = tokio::select! {
             _ = stop.wait() => Err(stopping_error()),
-            result = tokio::time::timeout_at(deadline, super::upstream::canonical_stream(state, response, &prepared.route, compact, prepared.grok_context.clone(), &prepared.body, policy.idle_timeout)) => result.map_err(|_| super::retry::total_timeout()).and_then(|value| value),
+            result = tokio::time::timeout_at(deadline, super::upstream::canonical_stream(state, response, &prepared.route, compact, prepared.grok_context.clone(), prepared.plan_tools_context.clone(), prepared.multi_agent_context.clone(), &prepared.body, policy.idle_timeout)) => result.map_err(|_| super::retry::total_timeout()).and_then(|value| value),
         }?;
         if upstream.is_sse && status.is_success() && client_stream {
             match prefetch(state, upstream.bytes, policy, deadline).await {
@@ -718,6 +731,7 @@ pub(super) async fn open_response_stream(
                         deadline,
                     )
                     .await?;
+                    super::retry::renew_transport_after_tls(state, prepared, tracker, &error).await?;
                     prepared.execution = prepared.execution.renew_open();
                     continue;
                 }
@@ -754,6 +768,9 @@ impl StreamingResponse {
         let mut bytes = Vec::new();
         for frame in frames {
             if let Some(event) = frame.value {
+                if self.prepared.route.chatgpt_plan {
+                    super::chatgpt_plan_wire::validate_event(frame.identity_event.as_ref().unwrap_or(&event))?;
+                }
                 let event_sequence = event
                     .get("sequence_number")
                     .and_then(Value::as_u64)
@@ -775,6 +792,7 @@ impl StreamingResponse {
                     frame.identity_event.as_ref().unwrap_or(&event),
                 )
                 .await?;
+                self.tracker.quota_event(&event);
                 self.observation.observe(&event);
                 self.tracker
                     .response_tier(self.observation.service_tier.as_deref());
@@ -909,6 +927,9 @@ async fn collect_sse(
                 }
                 for frame in decoder.push_frames(&chunk)? {
                     let Some(event) = frame.value else { continue };
+                    if prepared.route.chatgpt_plan {
+                        super::chatgpt_plan_wire::validate_event(frame.identity_event.as_ref().unwrap_or(&event))?;
+                    }
                     if frame.identity_event.is_some() {
                         prepared.binding.abort_rebuild();
                     }
@@ -918,6 +939,7 @@ async fn collect_sse(
                         frame.identity_event.as_ref().unwrap_or(&event),
                     )
                     .await?;
+                    tracker.quota_event(&event);
                     observation.observe(&event);
                     if observation.terminal && observation.response.is_none() {
                         observation.response =
@@ -939,6 +961,9 @@ async fn collect_sse(
             None => {
                 for frame in decoder.finish_frames()? {
                     let Some(event) = frame.value else { continue };
+                    if prepared.route.chatgpt_plan {
+                        super::chatgpt_plan_wire::validate_event(frame.identity_event.as_ref().unwrap_or(&event))?;
+                    }
                     if frame.identity_event.is_some() {
                         prepared.binding.abort_rebuild();
                     }
@@ -948,6 +973,7 @@ async fn collect_sse(
                         frame.identity_event.as_ref().unwrap_or(&event),
                     )
                     .await?;
+                    tracker.quota_event(&event);
                     observation.observe(&event);
                     if observation.terminal && observation.response.is_none() {
                         observation.response =

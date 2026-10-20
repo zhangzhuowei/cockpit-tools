@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/codex/collaboration"
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
@@ -63,6 +64,8 @@ type codexWebsocketSession struct {
 	identityKey               string
 	authID                    string
 	multiAgentV2OptimizedConn *websocket.Conn
+	plaintextPolicyConn       *websocket.Conn
+	plaintextPolicy           collaboration.PlaintextPolicy
 	lifecycleBindMu           sync.Mutex
 	lifecycle                 cliproxyexecutor.ExecutionLifecycle
 	lifecycleModel            string
@@ -299,6 +302,25 @@ func (s *codexWebsocketSession) isMultiAgentV2Optimized(conn *websocket.Conn) bo
 	return s.conn == conn && s.multiAgentV2OptimizedConn == conn
 }
 
+// Update only after a successful send. Incremental requests inherit declarations
+// solely from this same live connection, never from namespace optimization state.
+func (s *codexWebsocketSession) plaintextPolicyForSentRequest(conn *websocket.Conn, request []byte, optimizedNamespace ...bool) collaboration.PlaintextPolicy {
+	policy := collaboration.PlaintextPolicyForRequest(request, optimizedNamespace...)
+	if s == nil || conn == nil {
+		return policy
+	}
+	s.connMu.Lock()
+	defer s.connMu.Unlock()
+	if s.conn != conn {
+		return policy
+	}
+	if gjson.GetBytes(request, "previous_response_id").String() != "" && s.plaintextPolicyConn == conn {
+		policy = policy.InheritContinuation(s.plaintextPolicy)
+	}
+	s.plaintextPolicyConn, s.plaintextPolicy = conn, policy
+	return policy
+}
+
 // sendTerminalWebsocketRead reports whether it invalidated a full channel's connection before waiting.
 func sendTerminalWebsocketRead(ch chan<- codexWebsocketRead, done <-chan struct{}, event codexWebsocketRead, invalidate func()) bool {
 	select {
@@ -408,6 +430,8 @@ func (s *codexWebsocketSession) detachConnection(conn *websocket.Conn, lifecycle
 		s.conn = nil
 		s.connCloser = nil
 		s.multiAgentV2OptimizedConn = nil
+		s.plaintextPolicyConn = nil
+		s.plaintextPolicy = collaboration.PlaintextPolicy{}
 		if s.readerConn == conn {
 			s.readerConn = nil
 		}
@@ -493,6 +517,8 @@ func detachMismatchedWebsocketSessionConn(sess *codexWebsocketSession, authID st
 	sess.conn = nil
 	sess.connCloser = nil
 	sess.multiAgentV2OptimizedConn = nil
+	sess.plaintextPolicyConn = nil
+	sess.plaintextPolicy = collaboration.PlaintextPolicy{}
 	if sess.readerConn == conn {
 		sess.readerConn = nil
 	}
@@ -658,6 +684,8 @@ func (e *CodexWebsocketsExecutor) ensureUpstreamConn(ctx context.Context, auth *
 	sess.conn = conn
 	sess.connCloser = closer
 	sess.multiAgentV2OptimizedConn = nil
+	sess.plaintextPolicyConn = nil
+	sess.plaintextPolicy = collaboration.PlaintextPolicy{}
 	sess.wsURL = wsURL
 	sess.proxyURL = proxyURL
 	sess.identityKey = identityKey
@@ -787,6 +815,8 @@ func (e *CodexWebsocketsExecutor) invalidateUpstreamConnWithNotify(sess *codexWe
 	sess.conn = nil
 	sess.connCloser = nil
 	sess.multiAgentV2OptimizedConn = nil
+	sess.plaintextPolicyConn = nil
+	sess.plaintextPolicy = collaboration.PlaintextPolicy{}
 	if sess.readerConn == conn {
 		sess.readerConn = nil
 	}
@@ -879,6 +909,8 @@ func closeCodexWebsocketSession(sess *codexWebsocketSession, reason string) {
 	sess.conn = nil
 	sess.connCloser = nil
 	sess.multiAgentV2OptimizedConn = nil
+	sess.plaintextPolicyConn = nil
+	sess.plaintextPolicy = collaboration.PlaintextPolicy{}
 	if sess.readerConn == conn {
 		sess.readerConn = nil
 	}

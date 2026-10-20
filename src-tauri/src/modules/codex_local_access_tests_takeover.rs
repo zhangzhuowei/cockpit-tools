@@ -1,5 +1,30 @@
 // Codex Local Access 测试：Takeover reconciliation, gateway configuration and remaining integration cases。
 // 测试与生产实现共享 super 作用域，验证真实网关、持久化和请求协议行为。
+    #[test]
+    fn managed_voice_gateway_config_respects_voice_overrides() {
+        let config = r#"
+model_provider = "codex_local_access"
+experimental_realtime_ws_base_url = "http://127.0.0.1:8317/v1"
+[model_providers.codex_local_access]
+base_url = "http://127.0.0.1:8317/v1"
+experimental_bearer_token = "agt_codex_test"
+"#;
+        let cases = [
+            ("managed gateway", config.to_string(), true),
+            ("localhost gateway", config.replace("127.0.0.1", "localhost"), true),
+            ("account login", "model_provider = \"openai\"".to_string(), false),
+            ("custom creation URL", format!("experimental_realtime_webrtc_call_base_url = \"https://voice.example.test\"\n{config}"), false),
+            ("custom WS URL", config.replacen("http://127.0.0.1:8317/v1", "https://voice.example.test/v1", 1), false),
+            ("missing WS URL", config.replace("experimental_realtime_ws_base_url = \"http://127.0.0.1:8317/v1\"", ""), false),
+            ("nonlocal gateway", config.replace("127.0.0.1", "voice.example.test"), false),
+            ("unmanaged key", config.replace("agt_codex_test", "external-test-key"), false),
+            ("invalid config", "not valid TOML".to_string(), false),
+        ];
+        for (name, config_text, expected) in cases {
+            assert_eq!(super::has_managed_voice_gateway_config(&config_text), expected, "{name}");
+        }
+    }
+
     fn realtime_mixed_test_collection() -> CodexLocalAccessCollection {
         let mut collection = test_local_access_collection(Vec::new());
         collection.api_key = "mixed-realtime-test-key".to_string();

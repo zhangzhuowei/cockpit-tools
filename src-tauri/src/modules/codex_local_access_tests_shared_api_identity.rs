@@ -198,17 +198,25 @@ fn shared_api_installation_global_write_through_keeps_profile_and_preserves_auth
         assert_eq!(written["access_token"], access);
     }
     let original = std::fs::read(&path).unwrap();
+    // Installation stores legitimately contain multiple accounts. Fault
+    // injection must target this account, not assign one UNIQUE value to every
+    // row (which fails before exercising the auth-preservation path).
+    let mut other = account.clone();
+    other.id = format!("unrelated-installation-{}", uuid::Uuid::new_v4());
+    let other_profile = crate::modules::codex_api_identity::resolve(&other).unwrap();
     let store = crate::modules::account::get_data_dir()
         .unwrap()
         .join("codex_api_account_identity.sqlite");
-    rusqlite::Connection::open(store)
+    let affected = rusqlite::Connection::open(store)
         .unwrap()
         .execute(
-            "UPDATE account_installation_v1 SET installation_id='invalid-installation'",
-            [],
+            "UPDATE account_installation_v1 SET installation_id='invalid-installation' WHERE installation_id=?1",
+            [&profile.installation_id],
         )
         .unwrap();
+    assert_eq!(affected, 1);
     account.tokens.access_token = "must-not-replace-auth-on-failure".into();
     assert!(super::sync_sidecar_auth_file_for_account_with_task_source(&account, false).is_err());
     assert_eq!(std::fs::read(&path).unwrap(), original);
+    assert_eq!(crate::modules::codex_api_identity::resolve(&other).unwrap(), other_profile);
 }

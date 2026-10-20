@@ -85,6 +85,213 @@ fn consecutive_data_chunks_missing_delimiters_remain_distinct_events() {
 }
 
 #[test]
+fn data_only_object_lines_missing_blank_separators_are_chunk_independent() {
+    for newline in ["\n", "\r\n"] {
+        let expected = vec![
+            json!({"type":"response.created","response":{"id":"r","status":"in_progress"}}),
+            json!({"type":"response.output_text.delta","delta":"中文 data: kept"}),
+            completion(),
+        ];
+        let wire = expected
+            .iter()
+            .map(|value| format!("data: {value}{newline}"))
+            .collect::<String>()
+            .into_bytes();
+        // Cover every possible TCP split, including field prefixes, UTF-8,
+        // escaped JSON and CRLF, plus a fully coalesced transport chunk.
+        for split in 0..=wire.len() {
+            let mut decoder = SseDecoder::new(4096);
+            let mut frames = decoder.push_frames(&wire[..split]).unwrap_or_else(|error| {
+                panic!("newline={newline:?} split={split} first chunk: {error:?}")
+            });
+            frames.extend(decoder.push_frames(&wire[split..]).unwrap_or_else(|error| {
+                panic!("newline={newline:?} split={split} second chunk: {error:?}")
+            }));
+            frames.extend(decoder.finish_frames().unwrap_or_else(|error| {
+                panic!("newline={newline:?} split={split} finish: {error:?}")
+            }));
+            assert_eq!(
+                frames
+                    .iter()
+                    .filter_map(|frame| frame.value.clone())
+                    .collect::<Vec<_>>(),
+                expected,
+                "split={split}"
+            );
+            let delivered = frames
+                .into_iter()
+                .flat_map(|frame| frame.bytes.to_vec())
+                .collect::<Vec<_>>();
+            let mut standard_reader = SseDecoder::new(4096);
+            assert_eq!(standard_reader.push(&delivered).unwrap(), expected);
+        }
+        let mut decoder = SseDecoder::new(4096);
+        let mut output = Vec::new();
+        for byte in &wire {
+            output.extend(decoder.push(std::slice::from_ref(byte)).unwrap());
+        }
+        output.extend(decoder.finish().unwrap());
+        assert_eq!(output, expected);
+    }
+}
+
+#[test]
+fn early_event_header_flush_resets_independent_data_scanner_for_following_events() {
+    let mut decoder = SseDecoder::new(4096);
+    let created = json!({"type":"response.created","response":{"id":"r","status":"in_progress"}});
+    let first = decoder
+        .push_frames(format!("event: response.created\ndata: {created}").as_bytes())
+        .unwrap();
+    assert_eq!(first.len(), 1);
+    assert_eq!(first[0].value, Some(created));
+    assert!(!decoder.data_lines.disabled);
+    assert_eq!(decoder.data_lines.scan_from, 0);
+    let delta = json!({"type":"response.output_text.delta","delta":"kept after header"});
+    let following = format!("data: {delta}\ndata: {}\n", completion());
+    let mut frames = decoder.push_frames(following.as_bytes()).unwrap();
+    frames.extend(decoder.finish_frames().unwrap());
+    assert_eq!(
+        frames
+            .iter()
+            .filter_map(|frame| frame.value.clone())
+            .collect::<Vec<_>>(),
+        vec![delta, completion()]
+    );
+    assert!(decoder.terminal);
+    assert!(decoder.finish_frames().unwrap().is_empty());
+}
+
+#[test]
+fn explicit_done_data_line_is_chunk_independent_and_never_invents_completion() {
+    for newline in ["\n", "\r\n"] {
+        for event in [
+            completion(),
+            json!({"type":"response.output_text.delta","delta":"partial only"}),
+        ] {
+            let wire = format!("data: {event}{newline}data: [DONE]{newline}{newline}").into_bytes();
+            for split in 0..=wire.len() {
+                let mut decoder = SseDecoder::new(4096);
+                let mut frames = decoder.push_frames(&wire[..split]).unwrap();
+                frames.extend(decoder.push_frames(&wire[split..]).unwrap());
+                frames.extend(decoder.finish_frames().unwrap());
+                let values = frames
+                    .iter()
+                    .filter_map(|frame| frame.value.clone())
+                    .collect::<Vec<_>>();
+                assert_eq!(values, vec![event.clone()], "split={split}");
+                let mut observation = ResponseObservation::default();
+                for value in values {
+                    observation.observe(&value);
+                }
+                assert_eq!(observation.succeeded, event["type"] == "response.completed");
+                if event["type"] != "response.completed" {
+                    assert!(decoder.done);
+                    assert!(!observation.terminal);
+                    assert!(observation.response.is_none());
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn multiline_json_and_event_metadata_are_not_split_into_fake_events() {
+    let wire = concat!(
+        ": comment\nid: 9\nretry: 50\nevent: response.created\n",
+        "data: {\"type\":\"response.created\",\n",
+        ": inside data field\n",
+        "data: \"response\":{\"id\":\"r\",\"status\":\"in_progress\"}}\n\n",
+    );
+    let expected = json!({"type":"response.created","response":{"id":"r","status":"in_progress"}});
+    for split in 0..=wire.len() {
+        let mut decoder = SseDecoder::new(4096);
+        let mut frames = decoder
+            .push_frames(&wire.as_bytes()[..split])
+            .unwrap_or_else(|error| panic!("split={split} first chunk: {error:?}"));
+        frames.extend(
+            decoder
+                .push_frames(&wire.as_bytes()[split..])
+                .unwrap_or_else(|error| panic!("split={split} second chunk: {error:?}")),
+        );
+        assert_eq!(
+            frames
+                .iter()
+                .filter_map(|frame| frame.value.clone())
+                .collect::<Vec<_>>(),
+            vec![expected.clone()],
+            "split={split}"
+        );
+        let wire_bytes = frames
+            .iter()
+            .flat_map(|frame| frame.bytes.iter().copied())
+            .collect::<Vec<_>>();
+        let delivered = std::str::from_utf8(&wire_bytes).unwrap();
+        for preserved in [
+            ": comment\n",
+            "id: 9\n",
+            "retry: 50\n",
+            ": inside data field\n",
+        ] {
+            assert!(delivered.contains(preserved), "split={split}");
+        }
+    }
+}
+
+#[test]
+fn independent_data_scanner_visits_large_fragmented_lines_once() {
+    let large = json!({"type":"response.output_text.delta","delta":"x".repeat(256*1024)});
+    let wire = format!("data: {large}\ndata: {}\n", completion()).into_bytes();
+    let mut scanner = IndependentDataLines::default();
+    let mut expected = None;
+    for end in (31..wire.len())
+        .step_by(31)
+        .chain(std::iter::once(wire.len()))
+    {
+        expected = scanner.boundary(&wire[..end], false);
+    }
+    assert!(expected.is_some());
+    assert_eq!(scanner.scanned_bytes, wire.len());
+    assert_eq!(scanner.parsed_lines, 2);
+}
+
+#[test]
+fn independent_data_events_keep_individual_limits_with_bounded_lookahead() {
+    let values = [
+        json!({"type":"response.output_text.delta","delta":"a".repeat(200)}),
+        json!({"type":"response.output_text.delta","delta":"b".repeat(200)}),
+        completion(),
+    ];
+    let wire = values
+        .iter()
+        .map(|value| format!("data: {value}\n"))
+        .collect::<String>();
+    let mut decoder = SseDecoder::new(300);
+    let mut output = decoder.push(wire.as_bytes()).unwrap();
+    output.extend(decoder.finish().unwrap());
+    assert_eq!(output, values);
+}
+
+#[test]
+fn independent_data_repair_never_hides_invalid_or_oversized_data_lines() {
+    for wire in [
+        format!("data: {{invalid}}\ndata: {}\n\n", completion()),
+        format!("data: []\ndata: {}\n\n", completion()),
+        format!(
+            "data: {{\"extension\":1}}\ndata: {{\"large\":\"{}\"}}\n\n",
+            "x".repeat(1024)
+        ),
+    ] {
+        let mut decoder = SseDecoder::new(512);
+        let error = decoder.push_frames(wire.as_bytes()).unwrap_err();
+        assert!(matches!(
+            error.code,
+            "invalid_upstream_event" | "upstream_event_too_large"
+        ));
+        assert!(!decoder.terminal);
+    }
+}
+
+#[test]
 fn many_small_events_in_one_transport_chunk_respect_per_event_limit() {
     let bytes = b"data: {\"extension\":1}\n\n".repeat(20);
     let mut decoder = SseDecoder::new(32);

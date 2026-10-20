@@ -250,6 +250,17 @@ test("suppressed failures leave an empty state without recovery actions", () => 
   assertNoRecovery(tree);
 });
 
+test("paused service members cannot be resumed by bulk health recovery", () => {
+  const app = render({
+    accountIds: ['paused', 'active'], accounts: [account('paused'), account('active')],
+    pausedAccountIds: ['paused'], accountHealth: [health('paused'), health('active')],
+    accountPoolHealth: [pool({ accountStatuses: [member('paused'), member('active')] })],
+  });
+  buttons(app.tree, labels.recoverAll)[0].props.onClick();
+  assert.deepEqual(app.recovered, [['active']]);
+  assert.deepEqual(app.reauthorized, []);
+});
+
 test("credential failures retain reauthorization in both account and member diagnostics", () => {
   for (const patch of [
     { accountHealth: [health("deepseek", { schedulerReason: "unauthorized" })] },

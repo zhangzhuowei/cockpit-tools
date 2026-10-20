@@ -222,7 +222,9 @@ async fn run(
                 _ = tokio::time::sleep_until(reused_hold_deadline), if probe_reused && !reused_handshake.is_empty() => {
                     probe_reused = false;
                     let mut events = Vec::new();
-                    for (event, text) in std::mem::take(&mut reused_handshake) {
+                    for (mut event, text) in std::mem::take(&mut reused_handshake) {
+                        if !upstream_http { prepared.multi_agent_context.restore(&mut event); }
+                        let text = event.to_string();
                         if let Some(context) = prepared.grok_context.as_mut().filter(|_| !upstream_http) {
                             events.extend(super::grok_wire::restore_event(context, event)?.into_iter().map(|event| { let text = event.to_string(); (event, text) }));
                         } else { events.push((event, text)); }
@@ -265,10 +267,9 @@ async fn run(
                             timed_client_until(&state, active.then_some(turn_deadline), client_sink.send(Message::Text(error_event(&error).to_string().into()))).await?;
                         },
                         Some(Ok(Message::Text(text))) => {
-                            let body: Value = match serde_json::from_str(text.as_str()) {
+                            let body: Value = match super::request_body::websocket_json(&state, text.clone()).await {
                                 Ok(body) => body,
-                                Err(_) => {
-                                    let error = ServiceError::new(400, "invalid_json", "WebSocket message must be JSON");
+                                Err(error) => {
                                     timed_client_until(&state, active.then_some(turn_deadline), client_sink.send(Message::Text(error_event(&error).to_string().into()))).await?;
                                     continue;
                                 }
@@ -302,6 +303,7 @@ async fn run(
                                     if interrupted_owner.as_ref().is_some_and(|owner| !owner.matches(&next)) {
                                         return Err(ServiceError::new(409, "continuation_owner_mismatch", "Partial HTTP history cannot move to a different account, owner or thread"));
                                     }
+                                    let previous_multi_agent_context = prepared.multi_agent_context.clone();
                                     let reconnect = upstream_http || websocket_route_changed(&prepared, &next) || !transport_bridge::passthrough(&state, &caller, &next).await?;
                                     prepared = next;
                                     tracker.routed(&caller, &prepared.route, &requested_model);
@@ -329,11 +331,19 @@ async fn run(
                                     } else {
                                         let mut wire_headers = prepared.headers.clone();
                                         let wire_body = prepare_ws_body(&mut prepared, &mut wire_headers)?;
+                                        if !super::multi_agent_compat::has_namespace_conflict(&prepared.body) {
+                                            prepared.multi_agent_context.optimized_namespace |= previous_multi_agent_context.optimized_namespace;
+                                        }
+                                        if wire_body.get("previous_response_id").and_then(Value::as_str).is_some_and(|id| !id.trim().is_empty()) {
+                                            prepared.multi_agent_context.inherit_plaintext(&previous_multi_agent_context);
+                                        }
                                         tracker.begin_attempt("websocket");
+        tracker.capability_fallback(prepared.capability_fallback.clone());
                                         if let Some(identity) = &connection_identity { tracker.upstream_identity(identity.clone()); }
                                         tracker.payload("upstream_request", "websocket", &wire_headers, &wire_body.to_string());
                                         let sink = upstream_sink.as_mut().ok_or_else(|| ServiceError::new(500, "websocket_transport_unavailable", "Upstream transport is unavailable"))?;
                                         history.begin(&prepared);
+                                        tracker.check_quota_before_send()?;
                                         timed_until(&state, Some(turn_deadline), sink.send(UpstreamMessage::Text(wire_body.to_string().into()))).await?;
                                     }
                                 }
@@ -398,6 +408,20 @@ async fn run(
                                 return Err(error);
                             }
                             if probe_reused {
+                                if prepared.capability_fallback_enabled && super::capabilities::pre_execution_rejection(400, &event) {
+                                    tracker.attempt_result(400, false, Some("unsupported_capability"));
+                                    if mapping::retry_capability(&state, &mut prepared).await? {
+                                        tracker.routed(&caller, &prepared.route, &requested_model);
+                                        tracker.track_rebuild(prepared.binding.rebuild_abort_handle());
+                                        if let Some(sink) = &mut upstream_sink { let _ = tokio::time::timeout(std::time::Duration::from_secs(1), sink.close()).await; }
+                                        let opened = while_split_connected(&state, &mut client_sink, &mut client_stream, &mut pending_messages, turn_deadline,
+                                            transport_bridge::open(&state, &caller, &mut prepared, &mut tracker, &policy, turn_deadline, &mut history)).await?;
+                                        upstream_sink = opened.sink; upstream_stream = opened.stream;
+                                        upstream_http = opened.http; upstream_local = opened.local; connection_identity = opened.identity;
+                                        probe_reused = false; reused_handshake.clear();
+                                        continue;
+                                    }
+                                }
                                 if let Some((error, wait)) = super::grok_errors::applies(&prepared.route).then(|| super::grok_errors::rejection(&event)).flatten().or_else(|| super::bootstrap::rejection(&event))
                                     .and_then(|_| first_event_rejection(&UpstreamMessage::Text(text.clone()), super::grok_errors::applies(&prepared.route))) {
                                     tracker.attempt_error(&error);
@@ -431,8 +455,10 @@ async fn run(
                             tracker.first_response();
                             tracker.payload("upstream_response", "websocket", &HeaderMap::new(), text.as_str());
                             let mut events = Vec::new();
-                            for (event, text) in std::mem::take(&mut reused_handshake).into_iter().chain(std::iter::once((event, text.to_string()))) {
-                                if let Some(context) = prepared.grok_context.as_mut().filter(|_| !upstream_http) {
+                            for (mut event, text) in std::mem::take(&mut reused_handshake).into_iter().chain(std::iter::once((event, text.to_string()))) {
+                                if !upstream_http { prepared.multi_agent_context.restore(&mut event); }
+                        let text = event.to_string();
+                        if let Some(context) = prepared.grok_context.as_mut().filter(|_| !upstream_http) {
                                     events.extend(super::grok_wire::restore_event(context, event)?.into_iter().map(|event| { let text = event.to_string(); (event, text) }));
                                 } else { events.push((event, text)); }
                             }
@@ -446,8 +472,10 @@ async fn run(
                                 let original = (!upstream_local && matches!(event["type"].as_str(),
                                     Some("response.completed" | "response.done" | "response.incomplete")))
                                     .then(|| event.clone());
+                                let identity_restored = !upstream_local && output_items.can_restore_identity(&event);
                                 let output_changed = !upstream_local && output_items.observe(&mut event)?;
-                                if output_changed {
+                                let presentation_only = output_changed && !identity_restored;
+                                if presentation_only {
                                     // Repair the client transcript without treating a missing or
                                     // contradictory terminal as proof for cross-account replay.
                                     history.invalidate_rebuild_proof();
@@ -457,7 +485,7 @@ async fn run(
                                 if output_changed || usage_changed { text = event.to_string(); }
                                 if !upstream_local {
                                     mapping::observe_event(&state, &prepared,
-                                        original.as_ref().filter(|_| output_changed).unwrap_or(&event)).await?;
+                                        original.as_ref().filter(|_| presentation_only).unwrap_or(&event)).await?;
                                     history.observe(&prepared, &event);
                                 }
                                 if event.get("type").and_then(Value::as_str) == Some("response.created") {
@@ -466,6 +494,7 @@ async fn run(
                                 let partial_checkpoint = if upstream_http && !upstream_local {
                                     history.incomplete_anchor(&prepared, &event)
                                 } else { None };
+                                tracker.quota_event(&event);
                                 observation.observe(&event);
                                 tracker.capture_response_error(observation.error_message.as_deref(), observation.credential_scope);
                                 tracker.capture_request_fault(observation.request_scoped);
@@ -538,7 +567,7 @@ async fn while_connected<T>(
                 Some(Ok(Message::Pong(_))) => {},
                 None | Some(Err(_)) | Some(Ok(Message::Close(_))) => return Err(ServiceError::new(499, "client_disconnected", "Client WebSocket disconnected")),
                 Some(Ok(Message::Text(text))) => {
-                    if let Some(error) = opening_control(text.as_str(), pending) {
+                    if let Some(error) = opening_control(state, text, pending).await {
                         timed_client_until(state, Some(deadline), socket.send(Message::Text(error_event(&error).to_string().into()))).await?;
                     }
                 },
@@ -578,6 +607,8 @@ fn websocket_transport_changed(
         _ => true,
     };
     previous.account_id != next.account_id
+        || previous.continuity_id() != next.continuity_id()
+        || previous.official_registration_id != next.official_registration_id
         || previous.owner_id != next.owner_id
         || previous.transport_identity != next.transport_identity
         || previous.installation_profile != next.installation_profile
@@ -651,7 +682,7 @@ async fn while_split_connected<T>(
                 Some(Ok(Message::Pong(_))) => {},
                 None | Some(Err(_)) | Some(Ok(Message::Close(_))) => return Err(ServiceError::new(499, "client_disconnected", "Client WebSocket disconnected")),
                 Some(Ok(Message::Text(text))) => {
-                    if let Some(error) = opening_control(text.as_str(), pending) {
+                    if let Some(error) = opening_control(state, text, pending).await {
                         timed_client_until(state, Some(deadline), sink.send(Message::Text(error_event(&error).to_string().into()))).await?;
                     }
                 },
@@ -709,6 +740,7 @@ async fn open_response(
             ));
         }
         tracker.begin_attempt("websocket");
+        tracker.capability_fallback(prepared.capability_fallback.clone());
         let mut headers = prepared.headers.clone();
         let wire_body = prepare_ws_body(prepared, &mut headers)?;
         let endpoint = prepared.route.websocket_endpoint.as_ref();
@@ -726,6 +758,7 @@ async fn open_response(
         let wire_headers = headers.clone();
         let upstream_identity = super::diagnostics::capture_header_identity(&headers);
         tracker.upstream_identity(upstream_identity.clone());
+        tracker.check_quota_before_send()?;
         let connected = super::transport::connect_websocket(
             &prepared.route,
             &url,
@@ -773,6 +806,7 @@ async fn open_response(
                 return Err(error);
             }
         };
+        tracker.quota_headers(&response_headers);
         mapping::observe_headers(state, prepared, &response_headers).await?;
         tracker.payload(
             "upstream_request",
@@ -781,6 +815,7 @@ async fn open_response(
             &wire_body.to_string(),
         );
         let initial = async {
+            tracker.check_quota_before_send()?;
             timed_until(state, Some(deadline), upstream.send(UpstreamMessage::Text(wire_body.to_string().into()))).await?;
             let initial_deadline = (tokio::time::Instant::now() + policy.websocket_initial_timeout).min(deadline);
             let mut buffered = Vec::new();
@@ -812,6 +847,7 @@ async fn open_response(
                     Some(Ok(UpstreamMessage::Pong(_))) | Some(Ok(UpstreamMessage::Frame(_))) => {},
                     Some(Ok(UpstreamMessage::Binary(_))) => return Err(ServiceError::new(502, "invalid_upstream_event", "Upstream Responses WebSocket returned a binary message")),
                     Some(Ok(UpstreamMessage::Close(Some(frame)))) if u16::from(frame.code) == 1009 => return Err(message_too_big_error(&frame.reason)),
+                    Some(Err(error)) => return Err(initial_frame_error(&error)),
                     _ => return Err(ServiceError::new(502, "incomplete_upstream_stream", "Upstream closed before its first response event")),
                 }
             }
@@ -819,6 +855,34 @@ async fn open_response(
         match initial {
             Ok(initial) => {
                 let last = initial.last().expect("opening always buffers a message");
+                let capability_rejection = prepared.capability_fallback_enabled
+                    && initial.iter().enumerate().all(|(index, message)| {
+                        let UpstreamMessage::Text(text) = message else {
+                            return false;
+                        };
+                        let Ok(event) = serde_json::from_str::<Value>(text.as_str()) else {
+                            return false;
+                        };
+                        if index + 1 == initial.len() {
+                            super::capabilities::pre_execution_rejection(400, &event)
+                        } else {
+                            super::bootstrap::handshake(&event)
+                        }
+                    });
+                if capability_rejection {
+                    tracker.attempt_result(400, false, Some("unsupported_capability"));
+                    if mapping::retry_capability(state, prepared).await? {
+                        tracker.routed(&prepared.caller, &prepared.route, &prepared.request.model);
+                        tracker.track_rebuild(prepared.binding.rebuild_abort_handle());
+                        // Re-open through the shared HTTP bridge so a replacement
+                        // need not support the source's authenticated socket.
+                        return Err(ServiceError::new(
+                            426,
+                            "websocket_upstream_rejected",
+                            "The replacement account will use HTTP Responses",
+                        ));
+                    }
+                }
                 let retryable = initial.len() == 1
                     || match last {
                         UpstreamMessage::Text(text) => serde_json::from_str::<Value>(text.as_str())
@@ -1003,6 +1067,7 @@ async fn retry_opening_failure(
     };
     if let Some((delay, maximum)) = backoff {
         super::retry::delay(state, delay, maximum, deadline).await?;
+        super::retry::renew_transport_after_tls(state, prepared, tracker, error).await?;
         return Ok(true);
     }
     if matches!(kind, OpeningFailure::Status)
@@ -1015,7 +1080,7 @@ async fn retry_opening_failure(
         let mut stop = state.stop.clone();
         tokio::select! {
             _ = stop.wait() => return Err(stopping_error()),
-            result = tokio::time::timeout_at(deadline, state.host.route_failed_with_context(&prepared.route.account_id, &prepared.route.model, if model_unavailable { 404 } else { error.status }, wait, error.credential_scope, Some(&error.message))) => result.map_err(|_| super::retry::total_timeout())?,
+            result = tokio::time::timeout_at(deadline, state.host.route_failed_attempt(&prepared.route, &prepared.route.model, if model_unavailable { 404 } else { error.status }, wait, error.credential_scope, Some(&error.message))) => result.map_err(|_| super::retry::total_timeout())?,
         }
     }
     // Authentication failures and throttling must never spend network retries.
@@ -1136,10 +1201,21 @@ fn prepare_ws_body(
     prepared: &mut Prepared,
     headers: &mut HeaderMap,
 ) -> Result<Value, ServiceError> {
+    if prepared.route.chatgpt_plan {
+        return Err(ServiceError::new(
+            400,
+            "subscription_sharing_unsupported_capability",
+            "ChatGPT plan accounts support HTTP Responses inference only",
+        ));
+    }
     let mut body = prepared.body.clone();
     if prepared.route.chatgpt {
         body["store"] = Value::Bool(false);
         body["stream"] = Value::Bool(true);
+    }
+    super::multi_agent_transport::sanitize_reasoning(prepared, &mut body);
+    if super::grok_errors::applies(&prepared.route) {
+        super::multi_agent_transport::prepare(prepared, &mut body)?;
     }
     prepared.grok_context = if super::grok_errors::applies(&prepared.route) {
         let (wire_body, context) = super::grok_wire::prepare(body)?;
@@ -1154,6 +1230,14 @@ fn prepare_ws_body(
         &mut body,
         prepared.route.chatgpt && !prepared.route.headers.contains_key("x-xai-token-auth"),
     )?;
+    if !super::grok_errors::applies(&prepared.route) {
+        super::multi_agent_transport::prepare(prepared, &mut body)?;
+    }
+    let codex_backend = prepared.route.chatgpt && !super::grok_errors::applies(&prepared.route);
+    if codex_backend { super::codex_cpa_wire::sanitize_input_ids(&mut body); }
+    super::codex_wire::finalize_routing_hint(headers, &body, codex_backend, &prepared.route.headers)?;
+    prepared.multi_agent_context.capture_final(&body);
+    prepared.binding.retain_transmitted_input_blobs(&body);
     Ok(body)
 }
 
@@ -1182,7 +1266,11 @@ fn enqueue_request(pending: &mut VecDeque<String>, text: &str) -> Option<Service
     const MAX_PENDING: usize = 8;
     const MAX_PENDING_BYTES: usize = 32 * 1024 * 1024;
     let bytes = pending.iter().map(String::len).sum::<usize>();
-    if pending.len() >= MAX_PENDING || bytes.saturating_add(text.len()) > MAX_PENDING_BYTES {
+    // Bound pipelining without treating one valid large conversation as a
+    // request-size violation. Further creates wait until it leaves the queue.
+    if pending.len() >= MAX_PENDING
+        || (!pending.is_empty() && bytes.saturating_add(text.len()) > MAX_PENDING_BYTES)
+    {
         return Some(ServiceError::new(
             409,
             "websocket_queue_full",
@@ -1192,15 +1280,15 @@ fn enqueue_request(pending: &mut VecDeque<String>, text: &str) -> Option<Service
     pending.push_back(text.to_owned());
     None
 }
-fn opening_control(text: &str, pending: &mut VecDeque<String>) -> Option<ServiceError> {
-    match serde_json::from_str::<Value>(text) {
-        Err(_) => Some(ServiceError::new(
-            400,
-            "invalid_json",
-            "WebSocket message must be JSON",
-        )),
+async fn opening_control(
+    state: &AppState,
+    text: axum::extract::ws::Utf8Bytes,
+    pending: &mut VecDeque<String>,
+) -> Option<ServiceError> {
+    match super::request_body::websocket_json(state, text.clone()).await {
+        Err(error) => Some(error),
         Ok(body) => match body.get("type").and_then(Value::as_str) {
-            Some("response.create" | "response.append") => enqueue_request(pending, text),
+            Some("response.create" | "response.append") => enqueue_request(pending, text.as_str()),
             Some("response.interrupt") => Some(ServiceError::new(
                 409,
                 "unknown_interrupt_response",
@@ -1229,9 +1317,7 @@ async fn first_create(
         };
         match next {
             Some(Ok(Message::Text(text))) => {
-                let parsed = serde_json::from_str(text.as_str()).map_err(|_| {
-                    ServiceError::new(400, "invalid_json", "WebSocket message must be JSON")
-                });
+                let parsed = super::request_body::websocket_json(state, text).await;
                 match parsed.and_then(|body| protocol::normalize_create(body, None, None)) {
                     Ok(body) => return Ok(body),
                     Err(error) if error.status == 400 => {
@@ -1279,6 +1365,15 @@ async fn timed<T, E: std::error::Error + 'static>(
     future: impl std::future::Future<Output = Result<T, E>>,
 ) -> Result<T, ServiceError> {
     timed_until(state, None, future).await
+}
+
+fn initial_frame_error(error: &tokio_tungstenite::tungstenite::Error) -> ServiceError {
+    super::diagnostics::transport_failure(
+        502,
+        "incomplete_upstream_stream",
+        "Upstream closed before its first response event",
+        error,
+    )
 }
 
 async fn timed_client_until<T, E: std::error::Error + 'static>(
@@ -1478,13 +1573,14 @@ mod control_queue_tests {
             assert!(body.get("model").is_none());
             assert!(body.get("previous_response_id").is_none());
         }
+        let large = "x".repeat(32 * 1024 * 1024 + 1);
+        assert!(enqueue_request(&mut queue, &large).is_none());
+        assert_eq!(queue.front(), Some(&large));
         assert_eq!(
-            enqueue_request(&mut queue, &"x".repeat(32 * 1024 * 1024 + 1))
-                .unwrap()
-                .code,
+            enqueue_request(&mut queue, "{}").unwrap().code,
             "websocket_queue_full"
         );
-        assert!(queue.is_empty());
+        assert_eq!(queue.len(), 1);
     }
 }
 
@@ -1552,3 +1648,7 @@ async fn prepare_next_turn(
 #[cfg(test)]
 #[path = "websocket_transport_identity_tests.rs"]
 mod transport_identity_tests;
+
+#[cfg(test)]
+#[path = "websocket_tls_error_tests.rs"]
+mod tls_error_tests;

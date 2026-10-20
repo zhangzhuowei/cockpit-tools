@@ -11,6 +11,14 @@ use base64::{
 };
 use serde_json::Value;
 
+#[path = "codex_cpa_wire_foreign.rs"]
+mod cpa_foreign;
+
+/// Shared transport-shape probes; no plaintext, provenance or replay grant is inferred.
+pub(super) fn known_signature_provider(raw: &str, gpt: fn(&str) -> bool) -> bool {
+    cpa_foreign::known_signature_provider(raw, gpt)
+}
+
 const MAX_ENCODED_BYTES: usize = 8 * 1024 * 1024;
 const MIN_DECODED_BYTES: usize = 32;
 const MIN_ENTROPY_RATIO: f64 = 0.85;

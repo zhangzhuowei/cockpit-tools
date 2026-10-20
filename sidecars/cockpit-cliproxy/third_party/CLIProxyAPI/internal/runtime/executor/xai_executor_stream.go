@@ -65,7 +65,7 @@ func (e *XAIExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Auth
 		}
 		helps.AppendAPIResponseChunk(ctx, e.cfg, data)
 		helps.LogWithRequestID(ctx).Debugf("request error, error status: %d, error message: %s", httpResp.StatusCode, helps.SummarizeErrorBody(httpResp.Header.Get("Content-Type"), data))
-		return nil, xaiStatusErr(httpResp.StatusCode, data)
+		return nil, cliproxyexecutor.UpstreamRequestRejected(xaiStatusErr(httpResp.StatusCode, data))
 	}
 
 	out := make(chan cliproxyexecutor.StreamChunk)

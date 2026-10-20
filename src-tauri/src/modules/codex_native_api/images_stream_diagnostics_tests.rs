@@ -67,7 +67,10 @@ impl Host for ImageReadHost {
                 route: Route {
                     account_id: "image-read-account".into(),
                     owner_id: "image-read-owner".into(),
+                    continuity_account_id: None,
                     installation_profile: None,
+                    official_authorization_revision: None,
+                    official_registration_id: None,
                     transport_identity: None,
                     base_url: self.base_url.clone(),
                     model: "image-main-fixture".into(),
@@ -76,6 +79,7 @@ impl Host for ImageReadHost {
                     proxy_url: None,
                     proxy_route: None,
                     chatgpt: true,
+                    chatgpt_plan: false,
                     wire_api: WireApi::Responses,
                     compact_endpoint: None,
                     websocket_endpoint: None,

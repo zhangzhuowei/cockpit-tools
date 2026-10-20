@@ -194,7 +194,9 @@ fn disabled_checkpoint_capture_and_missing_or_unknown_checkpoint_keep_owner_pins
     root(&store);
     Connection::open(&path)
         .unwrap()
-        .execute("DELETE FROM native_rebuild_checkpoints_v1", [])
+        .execute_batch(
+            "DELETE FROM native_rebuild_checkpoints_v1; DELETE FROM native_rebuild_history_v1;",
+        )
         .unwrap();
     let (context, candidate) = plan(
         &store,
@@ -417,7 +419,7 @@ fn plaintext_tools_require_ordered_complete_pairs_and_checkpoint_delta_can_finis
 }
 
 #[test]
-fn truncated_history_external_conversation_and_size_limit_decline_without_losing_owner() {
+fn truncated_history_declines_but_large_requests_keep_owner_and_cache_budget() {
     let (_temp, path, store) = fixture();
     root(&store);
     let truncated = continuation(
@@ -441,7 +443,11 @@ fn truncated_history_external_conversation_and_size_limit_decline_without_losing
         vec![message("user", &"x".repeat(MAX_CHECKPOINT_BYTES))],
     );
     let (context, candidate) = plan(&store, &oversized, true);
-    assert!(candidate.is_none());
+    let candidate = candidate.expect("cache size must not cap an in-memory replay request");
+    assert_eq!(
+        candidate.body["input"].as_array().unwrap().last().unwrap(),
+        &oversized["input"][0]
+    );
     assert_eq!(context.state_account_id.as_deref(), Some("a"));
     let prepared = prepare(
         &store,
@@ -463,7 +469,7 @@ fn truncated_history_external_conversation_and_size_limit_decline_without_losing
         true
     )
     .1
-    .is_none());
+    .is_some());
 }
 
 #[test]
@@ -849,7 +855,10 @@ fn checkpoint_eviction_only_removes_optional_cache_not_old_response_owner_or_gen
     original["client_metadata"]["session_id"] = json!("thread-000");
     original["client_metadata"]["thread_id"] = json!("thread-000");
     let (context, candidate) = plan(&store, &original, true);
-    assert!(candidate.is_none());
+    assert!(
+        candidate.is_some(),
+        "cache eviction must not erase accepted history"
+    );
     assert_eq!(context.state_account_id.as_deref(), Some("a"));
     assert_eq!(context.generation.as_deref(), Some(evidence.2.as_str()));
     let mut headers = HeaderMap::new();
@@ -899,7 +908,10 @@ fn checkpoint_total_byte_budget_evicts_optional_history_without_erasing_ownershi
     original["client_metadata"]["session_id"] = json!("large-thread-0");
     original["client_metadata"]["thread_id"] = json!("large-thread-0");
     let (context, candidate) = plan(&store, &original, true);
-    assert!(candidate.is_none());
+    assert!(
+        candidate.is_some(),
+        "durable replay survives the hot-cache byte budget"
+    );
     assert_eq!(context.state_account_id.as_deref(), Some("a"));
     assert_eq!(original["previous_response_id"], "large-response-0");
 }
@@ -1154,3 +1166,5 @@ fn conflicting_duplicate_output_index_cannot_replace_delivered_manifest() {
         }
     }
 }
+
+include!("identity_checkpoint_tests.rs");

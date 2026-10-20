@@ -325,7 +325,7 @@ func (s *relayServer) handleProviderGatewayRequest(c *gin.Context, gateway *prov
 		// 输入项；第三方上游不认识这些私有形态，这里按 CLIProxyAPI 的既有优化
 		// 逻辑改写请求，响应出口再还原 collaboration namespace。
 		body, multiAgentV2Optimized = helps.OptimizeCodexMultiAgentV2Request(relayContext(c), c.Request.Header, body, s.cfg)
-		body = helps.RewriteCodexMultiAgentV2Input(relayContext(c), c.Request.Header, body, s.cfg)
+		body = helps.RewriteCodexPortableGatewayInput(relayContext(c), c.Request.Header, body, s.cfg)
 		// DeepSeek 等严格 Responses 上游按字段反序列化整个 input。历史里缺 call_id
 		// 时整包 422，不会进入后面的工具顺序修复。补 ID 必须在重排之前，
 		// 否则缺 ID 的调用项会让重排直接放弃。

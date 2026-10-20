@@ -74,6 +74,7 @@ pub(super) struct RequestTracker {
     busy: bool,
     report: Option<RequestReport>,
     installation_profile: Option<crate::modules::codex_api_identity::InstallationProfile>,
+    transport_identity: Option<String>,
     diagnostics: Option<DiagnosticContext>,
     capture_payloads: bool,
     operation: &'static str,
@@ -82,6 +83,8 @@ pub(super) struct RequestTracker {
     capacity: Option<Arc<tokio::sync::Semaphore>>,
     route_permit: Option<Arc<dyn Send + Sync>>,
     rebuild_abort: Option<Arc<AtomicBool>>,
+    quota_account: Option<String>,
+    quota_started: Instant,
 }
 
 const DOWNSTREAM_OUTCOME_TIMEOUT: Duration = Duration::from_secs(3600);
@@ -149,6 +152,7 @@ impl RequestTracker {
             busy: true,
             report: None,
             installation_profile: None,
+            transport_identity: None,
             diagnostics: None,
             capture_payloads: false,
             operation: "text",
@@ -157,6 +161,8 @@ impl RequestTracker {
             capacity,
             route_permit: None,
             rebuild_abort: None,
+            quota_account: None,
+            quota_started: Instant::now(),
         }
     }
 
@@ -266,6 +272,10 @@ impl RequestTracker {
         }
         if self.report.is_none() {
             self.report = Some(RequestReport {
+                official_access_fingerprint: None,
+                official_authorization_revision: None,
+                official_registration_id: None,
+                official_authorization_error: None,
                 operation: self.operation,
                 diagnostics: None,
                 caller: caller.clone(),
@@ -297,6 +307,7 @@ impl RequestTracker {
         if let Some(report) = &mut self.report {
             report.credential_scope = false;
             report.error_message = None;
+            report.official_authorization_error = None;
         }
         let Some(context) = &mut self.diagnostics else {
             return;
@@ -323,6 +334,28 @@ impl RequestTracker {
         self.upstream_identity(super::diagnostics::capture_header_identity(headers));
     }
 
+    pub(super) fn quota_headers(&self, headers: &axum::http::HeaderMap) {
+        if let (Some(account_id), Some(snapshot)) = (&self.quota_account,
+            super::rate_limits::QuotaSnapshot::from_headers(headers)) {
+            self.host.observe_rate_limits(account_id, snapshot, self.quota_started);
+        }
+    }
+
+    pub(super) fn check_quota_before_send(&self) -> Result<(), ServiceError> {
+        if let Some(account_id) = &self.quota_account {
+            self.host.check_quota_before_send(account_id)?;
+            self.host.quota_request_started(account_id);
+        }
+        Ok(())
+    }
+
+    pub(super) fn quota_event(&self, event: &serde_json::Value) {
+        if let (Some(account_id), Some(snapshot)) = (&self.quota_account,
+            super::rate_limits::QuotaSnapshot::from_event(event)) {
+            self.host.observe_rate_limits(account_id, snapshot, self.quota_started);
+        }
+    }
+
     pub(super) fn upstream_identity(&mut self, identity: super::diagnostics::HeaderIdentity) {
         let Some(context) = &mut self.diagnostics else {
             return;
@@ -341,6 +374,21 @@ impl RequestTracker {
             attempt.upstream_identity_metadata_captured = identity.metadata_captured;
             attempt.upstream_installation_id = identity.installation;
             attempt.upstream_chatgpt_account_id = identity.account;
+        }
+    }
+
+    pub(super) fn capability_fallback(
+        &mut self,
+        trace: Option<super::diagnostics::CapabilityFallbackTrace>,
+    ) {
+        if let Some(attempt) = self
+            .diagnostics
+            .as_mut()
+            .and_then(|v| v.attempts.last_mut())
+        {
+            if attempt.status.is_none() {
+                attempt.capability_fallback = trace;
+            }
         }
     }
 
@@ -368,6 +416,14 @@ impl RequestTracker {
     }
 
     pub(super) fn attempt_error(&mut self, error: &ServiceError) {
+        if let Some(details) = error.response_error.as_ref() {
+            self.capture_official_authorization_error(error.status, details);
+        }
+        let retired = if error.transport_failure == Some(super::contract::TransportFailureKind::TlsDecrypt) {
+            self.transport_identity.as_deref().map(|identity| self.host.invalidate_transport(identity))
+        } else {
+            None
+        };
         self.capture_request_fault(error.code == super::upstream_errors::REQUEST_SCOPED);
         self.attempt_result(error.status, false, Some(error.code));
         self.capture_response_error(Some(&error.message), error.credential_scope);
@@ -378,6 +434,14 @@ impl RequestTracker {
             }
             context.failure_phase = Some(phase.to_owned());
             if let Some(attempt) = context.attempts.last_mut() {
+                if error.transport_failure.is_some() {
+                    attempt.transport_error = Some("tls_decrypt".into());
+                    // Repeated reporting of the same failure must preserve a
+                    // successful invalidation rather than overwrite it as false.
+                    if let Some(retired) = retired {
+                        attempt.transport_pool_retired = Some(attempt.transport_pool_retired.unwrap_or(false) || retired);
+                    }
+                }
                 attempt.error_message =
                     Some(super::diagnostics::sanitize_error_text(&error.message));
                 attempt.failure_phase = Some(phase.to_owned());
@@ -406,9 +470,16 @@ impl RequestTracker {
     }
 
     pub(super) fn capture_upstream_error(&mut self, status: u16, value: &serde_json::Value) {
+        self.capture_official_authorization_error(status, value);
         let (message, scope) = super::diagnostics::upstream_error_metadata_status(status, value);
         self.capture_response_error(message.as_deref(), scope);
         self.capture_request_fault(super::upstream_errors::request_fault(status, value));
+    }
+
+    fn capture_official_authorization_error(&mut self, status: u16, value: &serde_json::Value) {
+        if let Some(report) = self.report.as_mut().filter(|report| report.official_authorization_revision.is_some()) {
+            report.official_authorization_error = Some(crate::modules::chatgpt_plan::inference_error(status, value));
+        }
     }
 
     fn finish_diagnostic(
@@ -481,12 +552,16 @@ impl RequestTracker {
     }
 
     pub(super) fn routed(&mut self, caller: &Caller, route: &Route, model: &str) {
+        self.transport_identity = route.transport_identity.clone();
+        self.quota_account = (route.chatgpt && !route.chatgpt_plan).then(|| route.account_id.clone());
+        self.quota_started = Instant::now();
         self.capture_request_fault(false);
         self.installation_profile = route.installation_profile.clone();
         self.route_permit = route.permit.clone();
         if let Some(context) = &mut self.diagnostics {
             context.proxy_route = route.proxy_route.clone();
             context.attempts.push(DiagnosticAttempt {
+                authorization_route: Some(if route.chatgpt_plan { "official" } else { "local_gateway" }.into()),
                 sequence: context.attempts.len() as u32 + 1,
                 account_identity: route.installation_profile.clone(),
                 account_id: route.account_id.clone(),
@@ -497,6 +572,12 @@ impl RequestTracker {
             });
         }
         self.report = Some(RequestReport {
+            official_authorization_revision: route.official_authorization_revision.clone(),
+            official_registration_id: route.official_registration_id.clone(),
+            official_authorization_error: None,
+            official_access_fingerprint: route.chatgpt_plan.then(|| route.headers.get("authorization")
+                .and_then(|value| value.to_str().ok()).and_then(|value| value.strip_prefix("Bearer "))
+                .map(crate::modules::chatgpt_plan::token_fingerprint)).flatten(),
             operation: self.operation,
             diagnostics: None,
             caller: caller.clone(),
@@ -527,6 +608,12 @@ impl RequestTracker {
                 .pointer("/reasoning/effort")
                 .and_then(serde_json::Value::as_str)
                 .map(str::to_string);
+        }
+    }
+
+    pub(super) fn upstream_http_version(&mut self, version: reqwest::Version) {
+        if let Some(attempt) = self.diagnostics.as_mut().and_then(|context| context.attempts.last_mut()) {
+            attempt.upstream_http_version = Some(format!("{version:?}"));
         }
     }
 

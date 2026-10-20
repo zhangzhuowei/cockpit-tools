@@ -990,7 +990,7 @@ dependencies = [
 
 [[package]]
 name = "cockpit-tools"
-version = "1.3.70"
+version = "1.3.71"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -1007,6 +1007,7 @@ dependencies = [
  "fs2",
  "futures",
  "futures-util",
+ "http-body-util",
  "hyper",
  "hyper-util",
  "junction",
@@ -1015,6 +1016,7 @@ dependencies = [
  "libc",
  "mac-notification-sys",
  "md5",
+ "mime",
  "minisign-verify",
  "multer",
  "native-tls",

@@ -90,6 +90,9 @@ fn native_automatic_vision_routes_use_actual_upstream_model_and_fail_closed_on_a
 
 #[tokio::test]
 async fn native_automatic_vision_selection_applies_target_acl_and_cooldown_before_credentials() {
+    let _env = crate::modules::test_support::env_lock()
+        .lock().unwrap_or_else(|error| error.into_inner());
+    let _data = super::native_capability_integration_tests::NativeInstallationTestData::new();
     let mut collection = native_test_collection();
     collection.account_ids = vec!["pool-a".into()];
     collection.max_retry_interval_ms = 0;
@@ -253,6 +256,9 @@ fn native_automatic_catalog_hides_retired_gpt_names_but_keeps_request_routing() 
 
 #[tokio::test]
 async fn native_automatic_third_party_names_skip_oauth_pool_and_preserve_native_fallback_models() {
+    let _env = crate::modules::test_support::env_lock()
+        .lock().unwrap_or_else(|error| error.into_inner());
+    let _data = super::native_capability_integration_tests::NativeInstallationTestData::new();
     let mut collection = native_test_collection();
     collection.session_affinity = false;
     let account = native_automatic_fixture();
@@ -339,7 +345,8 @@ fn native_official_quota_reset_reopens_elapsed_windows_but_keeps_other_windows_a
     reserved.bound_oauth_quota_reserve = Some(CodexLocalAccessQuotaReserve {
         hourly_percent: 10,
         weekly_percent: 10,
-    });
+        strict: false, safety_margin_percent: 3,
+});
     assert!(!native_quota_allows(&reserved, &account));
 }
 

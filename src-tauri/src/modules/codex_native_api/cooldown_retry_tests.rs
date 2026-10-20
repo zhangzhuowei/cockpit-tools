@@ -139,7 +139,10 @@ impl Host for CooldownHost {
             let second = request.excluded_account_ids.iter().any(|id| id == "a");
             let account = if second { "b" } else { "a" };
             Ok(Route {
+                continuity_account_id: None,
                 installation_profile: None,
+                official_authorization_revision: None,
+                official_registration_id: None,
                 transport_identity: None,
                 account_id: account.into(),
                 owner_id: format!("owner-{account}"),
@@ -150,6 +153,7 @@ impl Host for CooldownHost {
                 proxy_url: None,
                 proxy_route: None,
                 chatgpt: self.oauth,
+                chatgpt_plan: false,
                 wire_api: WireApi::Responses,
                 compact_endpoint: None,
                 websocket_endpoint: None,
@@ -401,6 +405,10 @@ async fn http_retry_wait_retries_one_round_with_same_opaque_owner_and_respects_m
             .execute("DELETE FROM native_rebuild_checkpoints_v1", [])
             .unwrap();
         assert_eq!(evicted, 1);
+        rusqlite::Connection::open(temp.path().join("identity.sqlite"))
+            .unwrap()
+            .execute("DELETE FROM native_rebuild_history_v1", [])
+            .unwrap();
         let started = tokio::time::Instant::now();
         let response = client
             .post(&url)

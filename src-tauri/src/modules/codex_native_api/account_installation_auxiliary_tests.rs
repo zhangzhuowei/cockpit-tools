@@ -135,6 +135,8 @@ async fn account_installation_chat_and_grok_keep_their_protocol_and_business_fie
         image_input: false,
         excluded_account_ids: vec![],
         requires_permit: false,
+        required_capabilities: Vec::new(),
+        capability_fallback_from: None,
         auxiliary: None,
     };
     let caller = Caller {

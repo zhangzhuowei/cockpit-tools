@@ -72,13 +72,13 @@
     }
 
     #[test]
-    fn removed_ultrafast_is_not_injected_but_explicit_requests_are_preserved() {
+    fn ultrafast_default_is_injected_without_overriding_explicit_requests() {
         let mut request = json!({"model": "gpt-5.6-sol"});
         super::apply_default_service_tier_if_missing(&mut request, Some("ultrafast"));
-        assert!(request.get("service_tier").is_none());
+        assert_eq!(request["service_tier"], "ultrafast");
 
         super::apply_default_service_tier_if_missing(&mut request, Some("priority"));
-        assert_eq!(request["service_tier"], "priority");
+        assert_eq!(request["service_tier"], "ultrafast");
 
         let mut explicit = json!({"service_tier": "ultrafast"});
         super::apply_default_service_tier_if_missing(&mut explicit, Some("priority"));
@@ -88,7 +88,7 @@
     #[test]
     fn restored_fast_default_reaches_responses_compact_and_chat_without_overriding_client() {
         for path in ["/v1/responses", "/v1/responses/compact", "/v1/chat/completions"] {
-            for configured_tier in [None, Some("priority")] {
+            for configured_tier in [None, Some("priority"), Some("ultrafast")] {
                 for explicit in [None, Some("default"), Some("standard"), Some("fast"), Some("priority"), Some("flex"), Some("auto"), Some("ultrafast")] {
                     let mut body = if path.contains("chat") {
                         json!({"model":"custom-model", "messages":[{"role":"user", "content":"fixture"}]})

@@ -94,7 +94,7 @@ func (e *CodexExecutor) HttpRequest(ctx context.Context, auth *cliproxyauth.Auth
 		return nil, err
 	}
 	httpClient := helps.NewUtlsHTTPClient(ctx, e.cfg, auth, 0)
-	return httpClient.Do(httpReq)
+	return helps.DoGuardedUpstreamHTTP(ctx, auth, httpClient, httpReq)
 }
 
 type codexIdentityConfuseState struct {
@@ -328,14 +328,34 @@ func applyCodexHeaders(r *http.Request, auth *cliproxyauth.Auth, token string, s
 	applyCodexHeadersFromSources(r, auth, token, stream, cfg, ginHeaders)
 }
 
-// applyCodexRoutingHint mirrors the native Codex client hint used by the
-// ChatGPT backend. It is derived after request translation so the tier cannot
-// become stale. API-key passthrough requests intentionally do not receive it.
-func applyCodexRoutingHint(headers http.Header, auth *cliproxyauth.Auth, model string, upstreamBody []byte) {
-	if headers == nil || codexAuthUsesAPIKey(auth) {
+const codexRoutingHintHeader = "X-Codex-Routing-Hint"
+
+// applyCodexRoutingHint sends the routing hint native Codex attaches to every
+// ChatGPT-backend Responses request: "model=<slug>" plus ";tier=<service_tier>"
+// when the body requests a tier (openai/codex rust-v0.155.0,
+// codex-rs/core/src/client.rs build_routing_hint_header). Without it, a
+// translated request carries service_tier=priority only in the body. Whether
+// the backend needs the header to grant priority is undocumented.
+//
+// The model is the resolved model written to the upstream body, while the tier
+// is read from the final body so payload rules cannot make the hint stale. A
+// hint forwarded by a native client names its original model and is replaced.
+// Operator configuration keeps precedence: when an auth "header:" rule for the
+// hint resolves to a value (static, or a "$Header" reference the request
+// carries), that value is sent, and callers apply models.json override_header
+// afterwards. A rule that resolves to nothing falls back to the derived hint.
+// API-key requests are not touched, matching native Codex, which sends no hint
+// to API-key providers.
+func applyCodexRoutingHint(ctx context.Context, headers http.Header, auth *cliproxyauth.Auth, baseModel string, upstreamBody []byte, clientHeaders http.Header) {
+	if headers == nil || codexAuthUsesAPIKey(auth) || codexUseSIWC(auth) {
 		return
 	}
-	model = strings.TrimSpace(model)
+	deleteHeaderCaseInsensitive(headers, codexRoutingHintHeader)
+	if operatorHint := codexOperatorHeaderValue(ctx, auth, clientHeaders, codexRoutingHintHeader); operatorHint != "" {
+		headers.Set(codexRoutingHintHeader, operatorHint)
+		return
+	}
+	model := strings.TrimSpace(baseModel)
 	if model == "" {
 		return
 	}
@@ -345,7 +365,22 @@ func applyCodexRoutingHint(headers http.Header, auth *cliproxyauth.Auth, model s
 			hint += ";tier=" + value
 		}
 	}
-	headers.Set("X-Codex-Routing-Hint", hint)
+	headers.Set(codexRoutingHintHeader, hint)
+}
+
+// codexOperatorHeaderValue returns the value the auth's "header:" rules
+// resolve to for name, using the same resolver that applied them to the
+// request, so dynamic references that resolve to nothing report "".
+func codexOperatorHeaderValue(ctx context.Context, auth *cliproxyauth.Auth, clientHeaders http.Header, name string) string {
+	if auth == nil || len(auth.Attributes) == 0 {
+		return ""
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	resolved := (&http.Request{Header: http.Header{}}).WithContext(ctx)
+	util.ApplyCustomHeadersFromAttrs(resolved, auth.Attributes, clientHeaders)
+	return strings.TrimSpace(resolved.Header.Get(name))
 }
 
 // applyModelHeaderOverrides forces models.json config.override_header onto upstream headers.
@@ -455,15 +490,15 @@ func applyCodexCloakingHeaders(headers http.Header, cfg *config.Config, isAPIKey
 	headers.Set("Originator", codexOriginator)
 }
 
-func normalizeCodexInstructions(body []byte, model ...string) []byte {
+func normalizeCodexInstructions(body []byte, nativeRequest ...bool) []byte {
+	// Preserve the host's legacy ID repair independently of CPA's instruction policy.
 	body = normalizeCodexCallIDs(body)
+	if len(nativeRequest) > 0 && nativeRequest[0] {
+		return body
+	}
 	instructions := gjson.GetBytes(body, "instructions")
-	if !instructions.Exists() || instructions.Type == gjson.Null || strings.TrimSpace(instructions.String()) == "" {
-		value := ""
-		if len(model) > 0 {
-			value = registry.CodexClientModelBaseInstructions(model[0])
-		}
-		body, _ = sjson.SetBytes(body, "instructions", value)
+	if !instructions.Exists() || instructions.Type == gjson.Null {
+		body, _ = sjson.SetBytes(body, "instructions", "")
 	}
 	return body
 }

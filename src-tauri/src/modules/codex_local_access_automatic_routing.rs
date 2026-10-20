@@ -70,14 +70,30 @@ fn automatic_api_service_account_model_slots(account: &CodexAccount) -> Vec<(Str
         .collect()
 }
 
-/// 账号是否走 provider 路由（而不是原生账号池）。
+/// 账号是否需要 provider 路由，而不是使用原生账号池。
 ///
-/// Chat 协议账号一直如此；另外与 DeepSeek 网关模式一致，具备逐模型识图能力的账号也走
-/// provider 路由，这样才能把带图片的请求自动转到识图模型。
-fn automatic_api_service_provider_route_eligible(account: &CodexAccount) -> bool {
-    account.is_api_key_auth()
-        && (provider_gateway_wire_api_for_account(account) == "chat_completions"
-            || !account.api_model_vision_support.is_empty())
+/// Chat Completions 账号需要 Gateway 做协议转换。Responses 账号只有在显式配置的图片
+/// 转模型目标能够匹配候选上游模型，或命中官方 DeepSeek 的既有自动转模型规则时，
+/// 才需要 Gateway；模型图片能力表本身不参与这项判断。
+fn automatic_api_service_provider_route_eligible(
+    account: &CodexAccount,
+    upstream_models: &[String],
+) -> bool {
+    if !account.is_api_key_auth() {
+        return false;
+    }
+    if provider_gateway_wire_api_for_account(account) == "chat_completions" {
+        return true;
+    }
+    if account
+        .api_vision_routing_model
+        .as_deref()
+        .is_some_and(|model| !model.trim().is_empty())
+    {
+        return automatic_api_service_vision_routing_model(account, upstream_models).is_some();
+    }
+    is_official_deepseek_account(account)
+        && automatic_api_service_vision_routing_model(account, upstream_models).is_some()
 }
 
 /// 账号在自动路由里是否存在「图片自动转到识图模型」的兜底模型。
@@ -113,7 +129,7 @@ fn automatic_api_service_vision_routing_model(
     vision_model.cloned()
 }
 
-/// 单个模型的识图能力：用户显式开关优先，其次按 GPT 系列模型能力默认值，最后取官方 DeepSeek 默认值。
+/// 单个模型的识图能力：用户显式开关优先，其次取 models.json 的图片输入声明，最后取官方 DeepSeek 默认值。
 fn automatic_api_service_account_model_vision(account: &CodexAccount, model: &str) -> bool {
     let key = model.trim();
     if let Some(value) = account
@@ -379,9 +395,15 @@ fn automatic_api_service_model_routing_value(
             continue;
         };
         let models = automatic_api_service_route_models(collection, account, &fallback);
+        let upstream_models = normalize_model_rule_list(
+            models
+                .iter()
+                .filter_map(|model| model["upstreamModel"].as_str().map(str::to_string))
+                .collect(),
+        );
         // Grok 供应商账号没有上游 API Key：模型直接以原生名称暴露，请求由 sidecar
         // 的 Grok(xAI) 执行器用绑定的 Grok 平台账号凭据发出。
-        if !automatic_api_service_provider_route_eligible(account)
+        if !automatic_api_service_provider_route_eligible(account, &upstream_models)
             || codex_account::is_grok_upstream_provider(account)
         {
             for model in models {
@@ -403,12 +425,7 @@ fn automatic_api_service_model_routing_value(
         };
         gateway.base_url = base_url;
         // Explicit mappings can contain upstream names absent from the discovered catalog.
-        gateway.upstream_models = normalize_model_rule_list(
-            models
-                .iter()
-                .filter_map(|model| model["upstreamModel"].as_str().map(str::to_string))
-                .collect(),
-        );
+        gateway.upstream_models = upstream_models;
         gateway.upstream_model = gateway.upstream_models.first().cloned().unwrap_or_default();
         // 与 DeepSeek 网关模式一致：带图片的文本模型请求自动转到识图模型。
         gateway.vision_routing_model =
@@ -496,8 +513,9 @@ fn automatic_api_service_account_model_entries(
         .iter()
         .map(|(_, upstream)| upstream.clone())
         .collect::<Vec<_>>();
-    // provider 路由账号：只要存在识图兜底模型，客户端就可以对任意模型发图片（与 DeepSeek 网关模式一致）。
-    let routed_vision = automatic_api_service_provider_route_eligible(account)
+    // 已进入 provider 路由且存在识图兜底模型时，客户端可对该路由暴露的任意模型发图片；
+    // 这里描述图片能力，不决定账号是否进入 provider 路由。
+    let routed_vision = automatic_api_service_provider_route_eligible(account, &upstream_models)
         && automatic_api_service_vision_routing_model(account, &upstream_models).is_some();
     automatic_api_service_route_models(collection, account, &[])
         .into_iter()

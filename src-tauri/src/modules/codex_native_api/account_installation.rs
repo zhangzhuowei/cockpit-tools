@@ -11,7 +11,10 @@ pub(super) fn apply(
 ) -> Result<(), ServiceError> {
     // Chat and xAI have their own wire contracts. Their transports are still
     // account-scoped, but they must not acquire unsupported Codex JSON fields.
-    if route.wire_api != WireApi::Responses || route.headers.contains_key("x-xai-token-auth") {
+    if route.chatgpt_plan
+        || route.wire_api != WireApi::Responses
+        || route.headers.contains_key("x-xai-token-auth")
+    {
         return Ok(());
     }
     if let Some(profile) = &route.installation_profile {

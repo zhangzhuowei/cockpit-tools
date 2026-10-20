@@ -10,8 +10,9 @@ use std::{
 };
 
 use axum::{
-    extract::{rejection::JsonRejection, DefaultBodyLimit, State},
-    http::{HeaderMap, StatusCode},
+    body::to_bytes,
+    extract::{DefaultBodyLimit, Request, State},
+    http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::post,
     Json, Router,
@@ -131,9 +132,9 @@ pub fn start(config: Config) -> Result<Arc<Handle>, String> {
         .route("/v1/continuity/observe", post(observe))
         .route("/v1/continuity/finish", post(finish))
         .route("/v1/continuity/release", post(release))
-        // Go accepts raw events up to 50 MiB. The control envelope also carries
-        // headers and JSON structure; it must not introduce a smaller wire cap.
-        .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
+        // Prepare/bind carry full conversation history, so the local control
+        // envelope must not add a request-size cap. State budgets remain separate.
+        .layer(DefaultBodyLimit::disable())
         .with_state(state);
     let (stop, mut stopping) = watch::channel(false);
     let task = runtime.spawn(async move {
@@ -188,30 +189,49 @@ fn authorized(headers: &HeaderMap, token: &str) -> bool {
 
 async fn dispatch<T, R, F>(
     state: Arc<StateData>,
-    headers: HeaderMap,
-    payload: Result<Json<T>, JsonRejection>,
+    request: Request,
     operation: F,
-) -> Result<Json<R>, ApiError>
+) -> Result<Response, ApiError>
 where
-    T: Send + 'static,
-    R: Send + 'static,
+    T: serde::de::DeserializeOwned + Send + 'static,
+    R: Serialize + Send + 'static,
     F: FnOnce(&Core, T) -> Result<R, ServiceError> + Send + 'static,
 {
-    if !authorized(&headers, &state.token) {
+    // Validate the private caller before polling any part of an unlimited body.
+    if !authorized(request.headers(), &state.token) {
         return Err(ApiError(ServiceError::new(
             401,
             "invalid_continuity_token",
             "Continuity authorization is required",
         )));
     }
-    let Json(payload) = payload.map_err(|rejection| {
-        ApiError(ServiceError::new(
-            rejection.status().as_u16(),
+    let json = request
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<mime::Mime>().ok())
+        .is_some_and(|value| {
+            value.type_() == mime::APPLICATION
+                && (value.subtype() == mime::JSON || value.suffix() == Some(mime::JSON))
+        });
+    if !json {
+        return Err(ApiError(ServiceError::new(
+            415,
             "invalid_continuity_payload",
-            "Invalid continuity JSON payload",
-        ))
-    })?;
+            "Continuity requests require a JSON content type",
+        )));
+    }
     let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    let payload = tokio::time::timeout_at(deadline, to_bytes(request.into_body(), usize::MAX))
+        .await
+        .map_err(|_| {
+            ApiError(ServiceError::new(
+                408,
+                "request_body_timeout",
+                "Continuity request body timed out",
+            ))
+        })?
+        .map_err(|error| ApiError(super::request_body::read_error(error)))?;
     let permit = tokio::time::timeout_at(deadline, state.workers.clone().acquire_owned())
         .await
         .map_err(|_| {
@@ -233,7 +253,22 @@ where
     // deadline expires. A retry uses the same idempotency/sequence identity.
     let worker = tokio::task::spawn_blocking(move || {
         let _permit = permit;
-        operation(&core, payload)
+        let request: T = serde_json::from_slice(&payload).map_err(|error| {
+            ServiceError::new(
+                if error.is_data() { 422 } else { 400 },
+                "invalid_continuity_payload",
+                "Invalid continuity JSON payload",
+            )
+        })?;
+        drop(payload);
+        let response = operation(&core, request)?;
+        serde_json::to_vec(&response).map_err(|_| {
+            ServiceError::new(
+                500,
+                "continuity_invalid_response",
+                "Continuity response could not be encoded",
+            )
+        })
     });
     tokio::time::timeout_at(deadline, worker)
         .await
@@ -251,45 +286,37 @@ where
                 "Continuity state worker failed",
             ))
         })?
-        .map(Json)
+        .map(|body| ([(header::CONTENT_TYPE, "application/json")], body).into_response())
         .map_err(ApiError)
 }
 
 async fn prepare(
     State(state): State<Arc<StateData>>,
-    headers: HeaderMap,
-    payload: Result<Json<protocol::PrepareRequest>, JsonRejection>,
-) -> Result<Json<protocol::PrepareResponse>, ApiError> {
-    dispatch(state, headers, payload, Core::prepare).await
+    request: Request,
+) -> Result<Response, ApiError> {
+    dispatch(state, request, Core::prepare).await
 }
-async fn bind(
-    State(state): State<Arc<StateData>>,
-    headers: HeaderMap,
-    payload: Result<Json<protocol::BindRequest>, JsonRejection>,
-) -> Result<Json<protocol::BindResponse>, ApiError> {
-    dispatch(state, headers, payload, Core::bind).await
+async fn bind(State(state): State<Arc<StateData>>, request: Request) -> Result<Response, ApiError> {
+    dispatch(state, request, Core::bind).await
 }
 async fn observe(
     State(state): State<Arc<StateData>>,
-    headers: HeaderMap,
-    payload: Result<Json<protocol::ObserveRequest>, JsonRejection>,
-) -> Result<Json<protocol::ObserveResponse>, ApiError> {
-    dispatch(state, headers, payload, Core::observe).await
+    request: Request,
+) -> Result<Response, ApiError> {
+    dispatch(state, request, Core::observe).await
 }
 async fn finish(
     State(state): State<Arc<StateData>>,
-    headers: HeaderMap,
-    payload: Result<Json<protocol::FinishRequest>, JsonRejection>,
-) -> Result<Json<protocol::FinishResponse>, ApiError> {
-    dispatch(state, headers, payload, Core::finish).await
+    request: Request,
+) -> Result<Response, ApiError> {
+    dispatch(state, request, Core::finish).await
 }
 
 async fn release(
     State(state): State<Arc<StateData>>,
-    headers: HeaderMap,
-    payload: Result<Json<protocol::ReleaseRequest>, JsonRejection>,
-) -> Result<Json<protocol::ReleaseResponse>, ApiError> {
-    dispatch(state, headers, payload, Core::release).await
+    request: Request,
+) -> Result<Response, ApiError> {
+    dispatch(state, request, Core::release).await
 }
 
 #[cfg(test)]

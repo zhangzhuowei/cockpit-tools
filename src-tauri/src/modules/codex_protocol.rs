@@ -1306,6 +1306,14 @@ fn remove_unsupported_responses_fields(obj: &mut Map<String, Value>) -> bool {
 mod tests {
     use super::*;
 
+    fn model_template_for_test(slug: &str) -> Value {
+        let catalog: Value = serde_json::from_str(CODEX_CLIENT_MODEL_TEMPLATES_JSON)
+            .expect("model templates JSON should be valid");
+        catalog["models"].as_array().expect("template models should be an array")
+            .iter().find(|model| model["slug"].as_str() == Some(slug))
+            .unwrap_or_else(|| panic!("missing model template: {slug}")).clone()
+    }
+
     #[test]
     fn deepseek_multi_agent_catalog_is_scoped_and_preserves_identity() {
         for slug in [
@@ -2172,6 +2180,7 @@ mod tests {
                 .iter()
                 .find(|model| model.get("slug").and_then(Value::as_str) == Some(slug))
                 .expect("5.6 model should exist");
+            let template = model_template_for_test(slug);
             let efforts = model
                 .get("supported_reasoning_levels")
                 .and_then(Value::as_array)
@@ -2197,11 +2206,11 @@ mod tests {
             );
             assert_eq!(
                 model.get("context_window").and_then(Value::as_i64),
-                Some(272_000)
+                Some(template["context_window"].as_i64().expect("template context window"))
             );
             assert_eq!(
                 model.get("max_context_window").and_then(Value::as_i64),
-                Some(921_000)
+                Some(template["max_context_window"].as_i64().expect("template maximum context window"))
             );
             assert_eq!(
                 model.get("tool_mode").and_then(Value::as_str),
@@ -2242,6 +2251,7 @@ mod tests {
     #[test]
     fn gpt_6_astra_preserves_official_catalog_limits_and_reasoning_levels() {
         let response = build_codex_client_models_response(&["gpt-6-astra".to_string()]);
+        let template = model_template_for_test("gpt-6-astra");
         let model = response
             .pointer("/models/0")
             .expect("Astra model should be present");
@@ -2251,18 +2261,16 @@ mod tests {
         );
         assert_eq!(
             model.get("context_window").and_then(Value::as_i64),
-            Some(256_000)
+            Some(template["context_window"].as_i64().expect("template context window"))
         );
         assert_eq!(
             model.get("max_context_window").and_then(Value::as_i64),
-            Some(256_000)
+            Some(template["max_context_window"].as_i64().expect("template maximum context window"))
         );
-        // 统一口径：上下文窗口必须带 90% 的压缩阈值。
+        // 上下文窗口和压缩阈值沿用模板中已声明的数值。
         assert_eq!(
-            model
-                .get("auto_compact_token_limit")
-                .and_then(Value::as_i64),
-            Some(230_400)
+            model.get("auto_compact_token_limit").and_then(Value::as_i64),
+            Some(template["auto_compact_token_limit"].as_i64().expect("template compact limit"))
         );
         assert_eq!(
             model.get("max_completion_tokens").and_then(Value::as_i64),
@@ -2300,12 +2308,13 @@ mod tests {
     #[test]
     fn gpt_6_1_sol_preserves_catalog_capabilities() {
         let catalog = build_codex_client_models_response(&["gpt-6.1-sol".into()]);
+        let template = model_template_for_test("gpt-6.1-sol");
         let model = &catalog["models"][0];
         assert_eq!(model["slug"], "gpt-6.1-sol");
         assert_eq!(model["display_name"], "GPT-6.1 Sol");
-        assert_eq!(model["context_window"], 272000);
-        assert_eq!(model["max_context_window"], 872000);
-        assert_eq!(model["auto_compact_token_limit"], 244800);
+        assert_eq!(model["context_window"], template["context_window"].as_i64().expect("template context window"));
+        assert_eq!(model["max_context_window"], template["max_context_window"].as_i64().expect("template maximum context window"));
+        assert_eq!(model["auto_compact_token_limit"], template["auto_compact_token_limit"].as_i64().expect("template compact limit"));
         assert_eq!(model["default_reasoning_level"], "low");
         assert_eq!(model["input_modalities"], json!(["text", "image"]));
         assert!(model["supported_reasoning_levels"]
@@ -2325,6 +2334,7 @@ mod tests {
             let model = response
                 .pointer("/models/0")
                 .expect("GPT-6 model should be present");
+            let template = model_template_for_test(slug);
             assert_eq!(
                 model.get("display_name").and_then(Value::as_str),
                 Some(official_name)
@@ -2336,18 +2346,16 @@ mod tests {
             );
             assert_eq!(
                 model.get("context_window").and_then(Value::as_i64),
-                Some(256_000)
+                Some(template["context_window"].as_i64().expect("template context window"))
             );
             assert_eq!(
                 model.get("max_context_window").and_then(Value::as_i64),
-                Some(256_000)
+                Some(template["max_context_window"].as_i64().expect("template maximum context window"))
             );
-            // 统一口径：上下文窗口必须带 90% 的压缩阈值。
+            // 上下文窗口和压缩阈值沿用模板中已声明的数值。
             assert_eq!(
-                model
-                    .get("auto_compact_token_limit")
-                    .and_then(Value::as_i64),
-                Some(230_400),
+                model.get("auto_compact_token_limit").and_then(Value::as_i64),
+                Some(template["auto_compact_token_limit"].as_i64().expect("template compact limit")),
                 "{slug}"
             );
             let efforts = model
@@ -2527,5 +2535,16 @@ mod tests {
                 .map(Vec::len),
             Some(0)
         );
+    }
+
+    #[test]
+    fn official_ultrafast_catalog_only_advertises_supported_models() {
+        let catalog = build_codex_client_models_response(&managed_codex_model_ids());
+        for slug in ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol"] {
+            let model = catalog["models"].as_array().unwrap().iter().find(|model| model["slug"] == slug).unwrap();
+            let expected = matches!(slug, "gpt-6.1-sol" | "gpt-6-astra");
+            assert_eq!(model["service_tiers"].as_array().unwrap().iter().any(|tier| tier["id"] == "ultrafast"), expected, "{slug}");
+            assert_eq!(model["additional_speed_tiers"].as_array().unwrap().iter().any(|tier| tier == "ultrafast"), expected, "{slug}");
+        }
     }
 }

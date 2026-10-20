@@ -27,6 +27,7 @@ use super::{
 
 #[derive(Clone, Debug)]
 pub struct Options {
+    /// usize::MAX leaves conversation request sizes unrestricted by the gateway.
     pub max_body_bytes: usize,
     pub max_upload_bytes: usize,
     pub max_response_bytes: usize,
@@ -40,7 +41,7 @@ pub struct Options {
 impl Default for Options {
     fn default() -> Self {
         Self {
-            max_body_bytes: 16 * 1024 * 1024,
+            max_body_bytes: usize::MAX,
             max_upload_bytes: 64 * 1024 * 1024,
             max_response_bytes: 32 * 1024 * 1024,
             max_event_bytes: 8 * 1024 * 1024,

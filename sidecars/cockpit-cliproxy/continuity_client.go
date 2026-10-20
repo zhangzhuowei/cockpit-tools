@@ -64,9 +64,6 @@ func (c *continuityClient) call(ctx context.Context, method string, input, outpu
 		return continuityControlError{status: 400, code: "continuity_invalid_request", message: "Continuity request could not be encoded"}
 	}
 	encoded := buffer.Bytes()
-	if len(encoded) > 64<<20 {
-		return continuityControlError{status: 413, code: "continuity_request_too_large", message: "Continuity request exceeds its size limit"}
-	}
 	// Control operations use stable request/attempt/sequence IDs. Retry only a
 	// lost local transport response; never create a second upstream attempt.
 	for attempt := 0; attempt < 2; attempt++ {
@@ -83,13 +80,13 @@ func (c *continuityClient) call(ctx context.Context, method string, input, outpu
 			}
 			return continuityControlError{status: 503, code: "continuity_unavailable", message: "The local continuity worker is unavailable"}
 		}
-		body, errRead := io.ReadAll(io.LimitReader(response.Body, (64<<20)+1))
+		body, errRead := io.ReadAll(response.Body)
 		_ = response.Body.Close()
 		if errRead != nil && attempt == 0 && ctx.Err() == nil {
 			continue
 		}
-		if errRead != nil || len(body) > 64<<20 {
-			return continuityControlError{status: 503, code: "continuity_invalid_response", message: "The local continuity response is incomplete or too large"}
+		if errRead != nil {
+			return continuityControlError{status: 503, code: "continuity_invalid_response", message: "The local continuity response is incomplete"}
 		}
 		if response.StatusCode < 200 || response.StatusCode >= 300 {
 			var envelope struct {

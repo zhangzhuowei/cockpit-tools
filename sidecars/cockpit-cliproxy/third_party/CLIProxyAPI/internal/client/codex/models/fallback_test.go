@@ -1,8 +1,18 @@
 package models
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
+)
 
 func TestUnknownModelsKeepConservativeCapabilitiesWithoutChangingSol(t *testing.T) {
+	// The shipped catalog owns context limits; fallback construction must
+	// preserve the current known-model limit rather than a retired snapshot.
+	template, ok := registry.GetCodexModelContextTemplate("gpt-5.6-sol")
+	if !ok || template.MaxContextWindow <= 0 {
+		t.Fatal("known Sol context template is unavailable")
+	}
 	for _, enabled := range []bool{false, true} {
 		response := BuildResponse([]map[string]any{
 			{"id": "vendor-unknown"},
@@ -27,8 +37,8 @@ func TestUnknownModelsKeepConservativeCapabilitiesWithoutChangingSol(t *testing.
 			t.Fatal("explicit thinking capabilities were overwritten")
 		}
 		sol := byID["gpt-5.6-sol"]
-		if sol["multi_agent_version"] != "v2" || sol["minimal_client_version"] != "0.144.0" || sol["use_responses_lite"] != true || intModelValue(sol, "max_context_window") != 921000 {
-			t.Fatalf("known Sol template capabilities changed: %#v", sol)
+		if sol["multi_agent_version"] != "v2" || sol["minimal_client_version"] != "0.144.0" || sol["use_responses_lite"] != true || intModelValue(sol, "max_context_window") != template.MaxContextWindow {
+			t.Fatalf("known Sol capabilities changed: multi_agent=%v version=%v lite=%v context=%d (catalog=%d)", sol["multi_agent_version"], sol["minimal_client_version"], sol["use_responses_lite"], intModelValue(sol, "max_context_window"), template.MaxContextWindow)
 		}
 	}
 }

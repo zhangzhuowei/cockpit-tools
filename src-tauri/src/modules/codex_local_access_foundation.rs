@@ -358,7 +358,7 @@ const RESPONSE_AFFINITY_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 const MAX_RESPONSE_AFFINITY_BINDINGS: usize = 4096;
 const PREPARED_ACCOUNT_CACHE_TTL_MS: i64 = 30 * 1000;
 const STATE_RECENT_USAGE_EVENT_LIMIT: usize = 100;
-const DEFAULT_MODEL_PRICING_VERSION: u64 = 6;
+const DEFAULT_MODEL_PRICING_VERSION: u64 = 7;
 const MODEL_PRICING_REPRICE_BATCH_SIZE: i64 = 1_000;
 const MODEL_PRICING_REPRICE_PARALLEL_MIN_ROWS: usize = 2_000;
 const LOCAL_ACCESS_LOGS_DB_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -371,8 +371,8 @@ const BOUND_OAUTH_QUOTA_RESERVE_MIN_PERCENT: i32 = 1;
 const BOUND_OAUTH_QUOTA_RESERVE_MAX_PERCENT: i32 = 100;
 const BOUND_OAUTH_QUOTA_RESERVE_MAX_SNAPSHOT_AGE_SECONDS: i64 = 3 * 60;
 const BOUND_OAUTH_QUOTA_RESERVE_REFRESH_INTERVAL: Duration = Duration::from_secs(60);
-const BOUND_OAUTH_QUOTA_RESERVE_MONITOR_TICK: Duration = Duration::from_secs(5);
-const BOUND_OAUTH_QUOTA_RESERVE_REQUEST_REFRESH_MIN_INTERVAL: Duration = Duration::from_secs(30);
+const BOUND_OAUTH_QUOTA_RESERVE_MONITOR_TICK: Duration = Duration::from_secs(1);
+const BOUND_OAUTH_QUOTA_RESERVE_REQUEST_REFRESH_MIN_INTERVAL: Duration = Duration::from_secs(2);
 const GATEWAY_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 const GATEWAY_PORT_RELEASE_TIMEOUT: Duration = Duration::from_secs(5);
 const GATEWAY_PORT_RELEASE_POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -628,6 +628,8 @@ mod model_provider_chat_test_cancellation_tests {
 
 #[derive(Default)]
 struct BoundOauthQuotaRefreshControl {
+    failures: u32,
+    retry_at: Option<Instant>,
     in_flight: bool,
     last_account_id: Option<String>,
     last_started_at: Option<Instant>,
@@ -1751,6 +1753,10 @@ fn preserve_runtime_collection_fields(
 ) {
     // Only the dedicated settings command changes this field after initial load.
     collection.request_payload_logging = current.request_payload_logging;
+    collection.capability_fallback = current.capability_fallback.clone();
+    collection.multi_agent = current.multi_agent.clone();
+    prune_multi_agent_references(collection);
+    prune_capability_fallback_references(collection);
     // Image main-model choices use their own field transaction, like the catalog.
     // A delayed usage/settings snapshot must not restore the retired default.
     collection.image_generation_main_model =
@@ -1772,6 +1778,13 @@ fn sync_runtime_collection(
     runtime: &mut GatewayRuntime,
     mut collection: CodexLocalAccessCollection,
 ) {
+    if runtime.collection.as_ref().is_some_and(|current| {
+        collection.chatgpt_plan_service_revision < current.chatgpt_plan_service_revision
+    }) {
+        // A writer may have persisted before the authorization transaction but
+        // reached runtime publication afterwards. Keep the committed membership.
+        return;
+    }
     collection.image_generation_main_model =
         normalize_image_generation_main_model(collection.image_generation_main_model.clone())
             .unwrap_or(None);
@@ -1782,6 +1795,7 @@ fn sync_runtime_collection(
             collection.gateway_mode = current.gateway_mode;
         }
     }
+    sync_quota_reserve_policy(&collection);
     REQUEST_PAYLOAD_LOGGING_ENABLED.store(collection.request_payload_logging, Ordering::SeqCst);
     if let Some(handle) = runtime.native_handle.as_ref() {
         handle.set_cooling_disabled(collection.disable_cooling);
@@ -1833,7 +1847,7 @@ fn validate_bound_oauth_quota_reserve(
     reserve: Option<CodexLocalAccessQuotaReserve>,
     has_bound_oauth_account: bool,
 ) -> Result<Option<CodexLocalAccessQuotaReserve>, String> {
-    let Some(reserve) = reserve else {
+    let Some(mut reserve) = reserve else {
         return Ok(None);
     };
     if !has_bound_oauth_account {
@@ -1849,6 +1863,10 @@ fn validate_bound_oauth_quota_reserve(
     {
         return Err("周 OAuth 保留额度必须在 1% 到 100% 之间".to_string());
     }
+    if !(1..=20).contains(&reserve.safety_margin_percent) {
+        return Err("OAUTH_QUOTA_INVALID_MARGIN".to_string());
+    }
+    reserve.strict = true;
     Ok(Some(reserve))
 }
 
@@ -1862,6 +1880,8 @@ fn normalize_bound_oauth_quota_reserve(
         return *reserve != original;
     }
     if let Some(reserve) = reserve.as_mut() {
+        reserve.strict = true;
+        reserve.safety_margin_percent = reserve.safety_margin_percent.clamp(1, 20);
         reserve.hourly_percent = reserve.hourly_percent.clamp(
             BOUND_OAUTH_QUOTA_RESERVE_MIN_PERCENT,
             BOUND_OAUTH_QUOTA_RESERVE_MAX_PERCENT,
@@ -1902,108 +1922,17 @@ fn fresh_quota_for_bound_oauth_reserve(
     account.quota.as_ref()
 }
 
-fn quota_reserve_window_blocks(
-    window_present: Option<bool>,
-    remaining_percent: Option<i32>,
-    threshold_percent: i32,
-) -> bool {
-    if window_present == Some(false) {
-        return false;
-    }
-    remaining_percent
-        .map(|remaining| remaining <= threshold_percent)
-        .unwrap_or(true)
-}
-
 fn bound_oauth_quota_reserve_blocks_account(
     reserve: &CodexLocalAccessQuotaReserve,
     account: Option<&CodexAccount>,
 ) -> bool {
-    let Some(account) = account else {
-        return true;
-    };
-    let Some(quota) = fresh_quota_for_bound_oauth_reserve(account) else {
-        return true;
-    };
-
-    quota_reserve_window_blocks(
-        quota.hourly_window_present,
-        valid_quota_remaining_percent(quota.hourly_percentage),
-        reserve.hourly_percent,
-    ) || quota_reserve_window_blocks(
-        quota.weekly_window_present,
-        valid_quota_remaining_percent(quota.weekly_percentage),
-        reserve.weekly_percent,
-    )
+    account.is_none_or(|account| !quota_reserve_allows(reserve, account))
 }
 
 fn quota_reserve_warning_threshold(reserve_percent: i32) -> i32 {
     20.max(reserve_percent.saturating_add(5)).min(100)
 }
 
-fn build_quota_reserve_status(
-    collection: &CodexLocalAccessCollection,
-) -> Option<CodexLocalAccessQuotaReserveStatus> {
-    let reserve = collection.bound_oauth_quota_reserve.as_ref()?;
-    let account_id = normalize_optional_account_ref(collection.bound_oauth_account_id.as_deref())?;
-    let account = codex_account::load_account(&account_id);
-    let snapshot_updated_at = account.as_ref().and_then(|item| item.usage_updated_at);
-    let quota = account
-        .as_ref()
-        .and_then(fresh_quota_for_bound_oauth_reserve);
-    let blocked = bound_oauth_quota_reserve_blocks_account(reserve, account.as_ref());
-
-    let mut effective: Option<(&str, i32, i32)> = None;
-    if let Some(quota) = quota {
-        let candidates = [
-            (
-                "hourly",
-                quota.hourly_window_present,
-                valid_quota_remaining_percent(quota.hourly_percentage),
-                reserve.hourly_percent,
-            ),
-            (
-                "weekly",
-                quota.weekly_window_present,
-                valid_quota_remaining_percent(quota.weekly_percentage),
-                reserve.weekly_percent,
-            ),
-        ];
-        for (window, present, remaining, reserve_percent) in candidates {
-            if present == Some(false) {
-                continue;
-            }
-            let Some(remaining) = remaining else {
-                continue;
-            };
-            if remaining > quota_reserve_warning_threshold(reserve_percent) {
-                continue;
-            }
-            let replace = effective
-                .map(|(current_window, current_remaining, _)| {
-                    remaining < current_remaining
-                        || (remaining == current_remaining
-                            && window == "weekly"
-                            && current_window != "weekly")
-                })
-                .unwrap_or(true);
-            if replace {
-                effective = Some((window, remaining, reserve_percent));
-            }
-        }
-    }
-
-    Some(CodexLocalAccessQuotaReserveStatus {
-        account_id,
-        snapshot_updated_at,
-        snapshot_fresh: quota.is_some(),
-        blocked,
-        warning: effective.is_some(),
-        effective_window: effective.map(|item| item.0.to_string()),
-        effective_remaining_percent: effective.map(|item| item.1),
-        effective_reserve_percent: effective.map(|item| item.2),
-    })
-}
 
 fn apply_bound_oauth_quota_reserve(
     collection: &CodexLocalAccessCollection,
@@ -2334,14 +2263,21 @@ pub struct CodexOfficialWakeupChatResult {
     pub duration_ms: u64,
 }
 
-/// API 直连唤醒：宿主带上所选账号凭据直接请求官方上游，不需要 Codex CLI，
-/// 也不经过本地 API 服务进程。
+/// API 直连唤醒：优先使用所选账号绑定的独立官方授权，未绑定时使用原 Codex 凭据。
+/// 不需要 Codex CLI，也不经过本地 API 服务进程。
 pub async fn run_official_wakeup_chat(
     account_id: &str,
     model: Option<&str>,
     reasoning_effort: Option<&str>,
     prompt: &str,
 ) -> Result<CodexOfficialWakeupChatResult, String> {
+    let prompt = prompt.trim();
+    if prompt.is_empty() {
+        return Err("唤醒提示词不能为空".to_string());
+    }
+    if let Some(authorization) = prepare_official_background_authorization(account_id).await? {
+        return run_bound_official_wakeup(authorization, model, reasoning_effort, prompt).await;
+    }
     let account = prepare_direct_codex_account(account_id).await?;
     if account.is_api_key_auth() {
         return Err("Codex API 直连唤醒仅支持 OAuth / Agent Identity 账号。".to_string());
@@ -2355,11 +2291,6 @@ pub async fn run_official_wakeup_chat(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or("medium");
-    let prompt = prompt.trim();
-    if prompt.is_empty() {
-        return Err("唤醒提示词不能为空".to_string());
-    }
-
     let request_body = json!({
         "model": model,
         "input": [

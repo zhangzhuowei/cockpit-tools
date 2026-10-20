@@ -713,7 +713,7 @@ fn large_canonical_bodies_do_not_hit_an_artificial_twenty_one_megabyte_budget_li
     let mut large = request("large-body");
     large.body["input"][0]["content"] = Value::String("x".repeat(24 * 1024 * 1024));
     let prepared = core.prepare(large).unwrap();
-    assert!(!prepared.self_contained);
+    assert!(prepared.self_contained, "complete input is not limited by checkpoint cache admission");
     let mapped = core
         .bind(binding(&prepared, "large-a", "account-a"))
         .unwrap();

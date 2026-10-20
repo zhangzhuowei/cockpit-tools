@@ -1,4 +1,4 @@
-//! Short protocol names only; tool arguments, results and opaque history are
+//! Reversible legal protocol names only; tool arguments, results and opaque history are
 //! never searched/replaced. IDs keep matching a result to its original call.
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -23,14 +23,17 @@ pub(super) fn map(body: &mut Value) -> BTreeMap<String, String> {
     collect_choice(body.get("tool_choice"), &mut originals);
     let mut used = originals
         .iter()
-        .filter(|name| name.len() <= 64)
+        .filter(|name| name.len() <= 64 && legal_name(name))
         .cloned()
         .collect::<BTreeSet<_>>();
     let mut forward = BTreeMap::new();
     let mut reverse = BTreeMap::new();
     for original in originals {
-        let alias = if original.len() <= 64 {
+        let sanitized = sanitize_name(&original);
+        let alias = if original.len() <= 64 && legal_name(&original) {
             original.clone()
+        } else if sanitized.len() <= 64 && !used.contains(&sanitized) {
+            sanitized
         } else {
             let hash = format!("{:x}", Sha256::digest(original.as_bytes()));
             let mut sequence = 0;
@@ -40,7 +43,7 @@ pub(super) fn map(body: &mut Value) -> BTreeMap<String, String> {
                 } else {
                     format!("_{}_{}", &hash[..12], sequence)
                 };
-                let candidate = format!("{}{}", prefix(&original, 64 - suffix.len()), suffix);
+                let candidate = format!("{}{}", prefix(&sanitized, 64 - suffix.len()), suffix);
                 if !used.contains(&candidate) {
                     break candidate;
                 }
@@ -70,6 +73,23 @@ pub(super) fn map(body: &mut Value) -> BTreeMap<String, String> {
     }
     reverse
 }
+fn legal_name(name: &str) -> bool {
+    name.bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+}
+
+fn sanitize_name(name: &str) -> String {
+    name.chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '_' | '-') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 fn prefix(value: &str, limit: usize) -> &str {
     let mut end = value.len().min(limit);
     while !value.is_char_boundary(end) {

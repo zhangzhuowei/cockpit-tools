@@ -150,7 +150,10 @@ impl Host for IdentityHost {
             let mut headers = HeaderMap::new();
             headers.insert("x-test-account", account.parse().unwrap());
             Ok(Route {
+                continuity_account_id: None,
                 installation_profile: Some(test_profile(account)),
+                official_authorization_revision: None,
+                official_registration_id: None,
                 transport_identity: None,
                 account_id: account.into(),
                 owner_id: format!("owner-{account}"),
@@ -161,6 +164,7 @@ impl Host for IdentityHost {
                 proxy_url: None,
                 proxy_route: None,
                 chatgpt: self.oauth.load(Ordering::SeqCst),
+                chatgpt_plan: false,
                 wire_api: self.wire,
                 compact_endpoint: None,
                 websocket_endpoint: None,
@@ -191,6 +195,8 @@ impl Host for IdentityHost {
                         image_input: false,
                         excluded_account_ids: request.excluded_account_ids,
                         requires_permit: true,
+                        required_capabilities: Vec::new(),
+                        capability_fallback_from: None,
                         auxiliary: Some("images.generations".into()),
                     },
                 )

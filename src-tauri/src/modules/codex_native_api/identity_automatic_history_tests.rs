@@ -1,6 +1,9 @@
 use super::*;
 use serde_json::json;
 
+#[path = "identity_host_results_tests.rs"]
+mod host_results;
+
 fn fixture() -> (tempfile::TempDir, IdentityStore) {
     let temp = tempfile::tempdir().unwrap();
     let store = IdentityStore::open(temp.path().join("identity.sqlite")).unwrap();
@@ -70,6 +73,66 @@ fn prepare(
 }
 fn complete(store: &IdentityStore, binding: &Binding, response: &str) {
     store.observe_event(binding, &json!({"type":"response.completed","response":{"id":response,"status":"completed","output":[{"role":"assistant","content":"answer"}]}})).unwrap();
+}
+
+#[test]
+fn complete_legacy_shell_and_handled_argument_errors_are_replayable_without_changing_history() {
+    for (call, output) in [
+        (
+            json!({"type":"local_shell_call","id":"legacy-shell","call_id":"legacy-call","status":"completed","action":{"type":"exec","command":["echo","ok"]}}),
+            json!({"type":"function_call_output","call_id":"legacy-call","output":"ok"}),
+        ),
+        (
+            json!({"type":"function_call","name":"spawn_agent","namespace":"collaboration","call_id":"legacy-call","arguments":"{\"message\":"}),
+            json!({"type":"function_call_output","call_id":"legacy-call","output":"Error parsing function arguments: EOF while parsing an object"}),
+        ),
+    ] {
+        let (_temp, store) = fixture();
+        let mut original = history();
+        let input = original["input"].as_array_mut().unwrap();
+        input.insert(1, call.clone());
+        input.insert(2, output.clone());
+        let saved = original.clone();
+        let (binding, headers_a, sent) =
+            prepare(&store, "caller", &HeaderMap::new(), &original, "a");
+        assert_eq!(sent["input"], original["input"]);
+        complete(&store, &binding, "legacy-response");
+        drop(store);
+
+        let restarted = IdentityStore::open(_temp.path().join("identity.sqlite")).unwrap();
+        let (_, headers_b, sent) = prepare(&restarted, "caller", &HeaderMap::new(), &original, "b");
+        assert_ne!(headers_a["session-id"], headers_b["session-id"]);
+        assert_ne!(headers_a["thread-id"], headers_b["thread-id"]);
+        assert_eq!(sent["input"], original["input"]);
+        assert_eq!(original, saved);
+        assert_eq!(
+            restarted
+                .inspect_for_rebuild("foreign", &HeaderMap::new(), &original)
+                .unwrap_err()
+                .code,
+            "upstream_state_caller_mismatch"
+        );
+
+        for invalid in [
+            vec![call.clone()],
+            vec![output.clone()],
+            vec![output.clone(), call.clone()],
+            vec![call.clone(), call.clone(), output.clone()],
+            vec![
+                call.clone(),
+                json!({"type":"function_call_output","call_id":"wrong-call","output":"ok"}),
+            ],
+            vec![
+                call.clone(),
+                json!({"type":"custom_tool_call_output","call_id":"legacy-call","output":"wrong output kind"}),
+            ],
+        ] {
+            assert!(
+                !super::rebuild::paired_tools(&invalid),
+                "must reject incomplete or conflicting history: {invalid:?}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -388,6 +451,8 @@ fn cancellation_while_sqlite_is_busy_cannot_late_commit_unknown_history() {
             "native_rebuild_active_v1",
             "native_rebuild_portable_v1",
             "native_rebuild_checkpoints_v1",
+            "native_rebuild_history_v1",
+            "native_rebuild_items_v1",
             "native_opaque_v1",
         ] {
             let count: i64 = db

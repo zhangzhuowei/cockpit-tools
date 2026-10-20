@@ -25,14 +25,15 @@ const gatewayErrorKeys: Record<string, string> = {
   NATIVE_API_SWITCH_FAILED: "codex.localAccess.gatewayEngineSwitchRestored",
   NATIVE_API_ROLLBACK_FAILED: "codex.localAccess.gatewayEngineRestoreFailed",
   NATIVE_API_STOPPED: "codex.localAccess.gatewayEngineStopped",
+  CHATGPT_PLAN_NATIVE_REQUIRED: "chatgptPlan.error.nativeSwitch",
 };
 
 export function formatCodexGatewayModeError(t: TFunction, error: unknown): string {
   const raw = String(error).replace(/^Error:\s*/, "").trim();
-  const match = /^(NATIVE_API_[A-Z_]+)(?::\s*([\s\S]*))?$/.exec(raw);
+  const match = /^(NATIVE_API_[A-Z_]+|CHATGPT_PLAN_NATIVE_REQUIRED)(?::\s*([\s\S]*))?$/.exec(raw);
   const key = match && gatewayErrorKeys[match[1]];
   if (!key) return raw;
-  return `${t(key)}${match?.[2] ? `\n${match[2]}` : ""}`;
+  return `${t(key)}${match?.[2] && match[1].startsWith("NATIVE_API_") ? `\n${match[2]}` : ""}`;
 }
 
 /** Shared by the full API service page and its quick panel. */

@@ -34,6 +34,7 @@ enum Step {
     CompleteItems(&'static str, Vec<Value>),
     RawEvents(Vec<Value>),
     HttpOverload,
+    HttpRateLimit,
     SseOverload,
     Hold(&'static str),
 }
@@ -51,6 +52,7 @@ struct Upstream {
 struct TestHost {
     base: String,
     enabled: AtomicBool,
+    oauth: AtomicBool,
     passthrough: AtomicBool,
     removed_a: AtomicBool,
     selections: Mutex<Vec<RouteRequest>>,
@@ -108,7 +110,10 @@ impl Host for TestHost {
                     })?
             };
             Ok(Route {
+                continuity_account_id: None,
                 installation_profile: Some(installation_profile(account)),
+                official_authorization_revision: None,
+                official_registration_id: None,
                 transport_identity: None,
                 account_id: account.into(),
                 owner_id: format!("owner-{account}"),
@@ -121,7 +126,8 @@ impl Host for TestHost {
                 client: client(),
                 proxy_url: None,
                 proxy_route: None,
-                chatgpt: false,
+                chatgpt: self.oauth.load(Ordering::SeqCst),
+                chatgpt_plan: false,
                 wire_api: WireApi::Responses,
                 compact_endpoint: None,
                 websocket_endpoint: None,
@@ -232,6 +238,7 @@ async fn upstream_http(
     match step {
         Step::RawEvents(events) => sse(events),
         Step::HttpOverload => (StatusCode::SERVICE_UNAVAILABLE,Json(json!({"error":{"type":"server_error","code":"server_error","message":"Synthetic overloaded"}}))).into_response(),
+        Step::HttpRateLimit => (StatusCode::TOO_MANY_REQUESTS,Json(json!({"error":{"type":"usage_limit_reached","code":"usage_limit_reached","message":"Synthetic quota exhausted"}}))).into_response(),
         Step::SseOverload => sse(vec![json!({"type":"error","status_code":503,"error":{"type":"service_unavailable_error","code":"server_is_overloaded","message":"Synthetic overloaded"}})]),
         Step::CompleteItems(id,items) => {
             let response=json!({"id":id,"status":"completed","output":items});
@@ -337,6 +344,7 @@ impl Fixture {
         let host = Arc::new(TestHost {
             base: format!("http://{address}"),
             enabled: AtomicBool::new(enabled),
+            oauth: AtomicBool::new(false),
             passthrough: AtomicBool::new(false),
             removed_a: AtomicBool::new(false),
             selections: Mutex::new(vec![]),
@@ -699,11 +707,13 @@ async fn context_rebuild_cache_miss_reasoning_and_agent_cipher_keep_original_a_p
         fixture.root().await;
         fixture.host.enabled.store(true, Ordering::SeqCst);
         // This case protects genuinely missing history. Opaque checkpoints are
-        // now supported, so remove only the optional replay cache explicitly;
+        // now supported, so remove both the hot cache and accepted replay history explicitly;
         // durable response/cipher ownership must remain available on A.
         Connection::open(fixture.path())
             .unwrap()
-            .execute("DELETE FROM native_rebuild_checkpoints_v1", [])
+            .execute_batch(
+                "DELETE FROM native_rebuild_checkpoints_v1; DELETE FROM native_rebuild_history_v1;",
+            )
             .unwrap();
         let checkpoints: i64 = Connection::open(fixture.path())
             .unwrap()
@@ -1008,6 +1018,12 @@ async fn context_rebuild_upstream_websocket_overload_rebuilds_then_reuses_b_gene
 
 #[path = "context_rebuild_opaque_http_tests.rs"]
 mod opaque_tests;
+
+#[path = "context_rebuild_host_results_tests.rs"]
+mod host_results_tests;
+
+#[path = "context_rebuild_codex_app_failover_tests.rs"]
+mod codex_app_failover_tests;
 
 #[path = "context_rebuild_output_evidence_tests.rs"]
 mod output_evidence_tests;

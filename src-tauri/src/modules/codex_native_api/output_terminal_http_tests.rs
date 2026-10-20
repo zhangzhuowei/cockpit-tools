@@ -16,6 +16,185 @@ fn events(text: &str) -> Vec<Value> {
 }
 
 #[tokio::test]
+async fn responses_coalesced_data_lines_preserve_tools_and_terminal_for_stream_and_json() {
+    for stream in [false, true] {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let count = calls.clone();
+        let tool = json!({"id":"tool_item","type":"function_call","status":"completed","call_id":"call","name":"lookup","arguments":"{\"query\":\"synthetic\"}"});
+        let payload = [
+            json!({"type":"response.created","response":{"id":"coalesced","status":"in_progress"}}),
+            json!({"type":"response.function_call_arguments.delta","item_id":"tool_item","delta":"{\"query\":\"synthetic\"}"}),
+            json!({"type":"response.output_item.done","output_index":0,"item":tool.clone()}),
+            json!({"type":"response.completed","response":{"id":"coalesced","status":"completed","output":[]}}),
+        ].iter().map(|event|format!("data: {event}\n")).collect::<String>() + "\n";
+        let app = Router::new().route(
+            "/v1/responses",
+            post(move || {
+                count.fetch_add(1, Ordering::SeqCst);
+                let payload = payload.clone();
+                async move { ([("content-type", "text/event-stream")], payload) }
+            }),
+        );
+        let (handle, host, task, path) = start(
+            app,
+            ExecutionPolicy {
+                bootstrap_retries: 2,
+                ..Default::default()
+            },
+        )
+        .await;
+        let response = client()
+            .post(format!("http://{}/v1/responses", handle.addr))
+            .bearer_auth("key")
+            .json(&json!({"model":"m","stream":stream,"input":[]}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let raw = response.text().await.unwrap();
+        let terminal = if stream {
+            let output = events(&raw);
+            assert_eq!(output.len(), 4, "{raw}");
+            assert_eq!(output[2]["item"], tool);
+            assert_eq!(output[3]["type"], "response.completed");
+            output[3]["response"].clone()
+        } else {
+            serde_json::from_str::<Value>(&raw).unwrap()
+        };
+        assert_eq!(terminal["output"], json!([tool]));
+        assert_eq!(terminal["id"], "coalesced");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert!(host.reports.lock().unwrap()[0].success);
+        shutdown(handle, task, path).await;
+    }
+}
+
+#[tokio::test]
+async fn responses_coalesced_data_lines_never_retry_error_after_visible_output() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let count = calls.clone();
+    let payload=[
+        json!({"type":"response.created","response":{"id":"coalesced-failed","status":"in_progress"}}),
+        json!({"type":"response.output_text.delta","delta":"visible result"}),
+        json!({"type":"response.failed","response":{"id":"coalesced-failed","status":"failed","error":{"type":"rate_limit_error","code":"rate_limit_exceeded","message":"synthetic quota"}}}),
+    ].iter().map(|event|format!("data: {event}\n")).collect::<String>()+"\n";
+    let app = Router::new().route(
+        "/v1/responses",
+        post(move || {
+            count.fetch_add(1, Ordering::SeqCst);
+            let payload = payload.clone();
+            async move { ([("content-type", "text/event-stream")], payload) }
+        }),
+    );
+    let (handle, host, task, path) = start(
+        app,
+        ExecutionPolicy {
+            bootstrap_retries: 2,
+            status_retries: 2,
+            credential_retries: 2,
+            ..Default::default()
+        },
+    )
+    .await;
+    let response = client()
+        .post(format!("http://{}/v1/responses", handle.addr))
+        .bearer_auth("key")
+        .json(&json!({"model":"m","stream":true,"input":[]}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let raw = response.text().await.unwrap();
+    let output = events(&raw);
+    assert_eq!(output.len(), 3, "{raw}");
+    assert_eq!(output[1]["delta"], "visible result");
+    // Ordinary Responses clients receive the gateway's canonical public error
+    // envelope; Codex clients receive response.failed through the same path.
+    assert_eq!(output[2]["type"], "error");
+    assert_eq!(output[2]["status"], 429);
+    assert_eq!(output[2]["error"]["code"], "rate_limit_exceeded");
+    assert_eq!(output[2]["error"]["message"], "synthetic quota");
+    assert!(!raw.contains("response.completed"));
+    assert!(!raw.contains("[DONE]"));
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    assert!(!host.reports.lock().unwrap()[0].success);
+    let connection = rusqlite::Connection::open(&path).unwrap();
+    let rows: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM native_opaque_v1 WHERE kind='response'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(rows, 0);
+    drop(connection);
+    shutdown(handle, task, path).await;
+}
+
+#[tokio::test]
+async fn responses_explicit_done_after_data_line_without_completion_never_commits_success() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let count = calls.clone();
+    let app=Router::new().route("/v1/responses",post(move || {
+        count.fetch_add(1,Ordering::SeqCst);
+        async { ([("content-type","text/event-stream")],
+            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial only\"}\ndata: [DONE]\n\n") }
+    }));
+    let (handle, host, task, path) = start(
+        app,
+        ExecutionPolicy {
+            bootstrap_retries: 2,
+            credential_retries: 2,
+            ..Default::default()
+        },
+    )
+    .await;
+    let response = client()
+        .post(format!("http://{}/v1/responses", handle.addr))
+        .bearer_auth("key")
+        .json(&json!({"model":"m","stream":true,"input":[]}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let raw = response.text().await.unwrap();
+    let output = events(&raw);
+    assert_eq!(output[0]["delta"], "partial only");
+    assert_eq!(
+        output.last().unwrap()["error"]["code"],
+        "incomplete_upstream_stream"
+    );
+    assert!(!raw.contains("response.completed"));
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    let reports = host.reports.lock().unwrap();
+    assert_eq!(reports.len(), 1);
+    assert!(!reports[0].success);
+    drop(reports);
+    let connection = rusqlite::Connection::open(&path).unwrap();
+    let rows: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM native_opaque_v1 WHERE kind='response'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(rows, 0);
+    for table in ["native_rebuild_checkpoints_v1", "native_rebuild_history_v1"] {
+        let rows: i64 = connection
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(rows, 0, "{table}");
+    }
+    drop(connection);
+    shutdown(handle, task, path).await;
+}
+
+#[tokio::test]
 async fn responses_midstream_disconnect_has_one_readable_failure_and_never_retries_delivered_output(
 ) {
     for (codex, immediate, broken_transport, chatgpt) in [

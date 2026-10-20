@@ -191,11 +191,7 @@ impl ResponsesStreamAdapter {
             && !self.context.pending_name(&tool.name)
         {
             let mut item = json!({"id":format!("fc_{}",uuid::Uuid::now_v7()),"type":if tool.custom{"custom_tool_call"}else{"function_call"},"status":"in_progress","call_id":tool.id,"name":tool.name});
-            let (local, namespace) = self.context.identity(&tool.name);
-            item["name"] = json!(local);
-            if let Some(namespace) = namespace {
-                item["namespace"] = json!(namespace);
-            }
+            self.context.restore_item(&mut item);
             item[if tool.custom { "input" } else { "arguments" }] = json!("");
             self.output[tool.output] = item.clone();
             tool.added = true;

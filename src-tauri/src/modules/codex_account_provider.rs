@@ -1989,7 +1989,7 @@ pub(crate) fn provider_injection_model_payload(account: &CodexAccount) -> serde_
                 .get(&key)
                 .copied()
                 .unwrap_or_else(|| {
-                    // 当前 GPT 系列默认支持识图；其它模型仍按账号级开关。
+                    // 未设置逐模型值时，采用账号级开关或 models.json 声明的图片输入能力。
                     account.api_supports_vision || model_defaults_to_vision_input(model)
                 });
             serde_json::json!({

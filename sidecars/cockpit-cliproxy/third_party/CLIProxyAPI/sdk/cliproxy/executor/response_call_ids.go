@@ -72,6 +72,12 @@ func NormalizeResponsesCallIDs(body []byte, preserveOpaque ...bool) []byte {
 		}
 		name := strings.TrimSpace(item.Get("name").String())
 		callID := strings.TrimSpace(item.Get("call_id").String())
+		if callID == "" && codexHostResult(item) {
+			// These host-injected records have no model-issued call to match.
+			// Preserve malformed envelopes too; the shared Rust continuity
+			// validator must reject them instead of receiving a fabricated ID.
+			return true
+		}
 		if callID == "" {
 			if isCall {
 				callID = nextGeneratedCodexCallID("call_missing", index, used)
@@ -118,6 +124,20 @@ func NormalizeResponsesCallIDs(body []byte, preserveOpaque ...bool) []byte {
 		body, _ = sjson.DeleteBytes(body, fmt.Sprintf("input.%d", dropInputIndices[index]))
 	}
 	return body
+}
+
+// Keep this envelope aligned with native responses_host_results::is_host_result.
+// Payload and explicit call ID validity belong to the continuity validator.
+func codexHostResult(item gjson.Result) bool {
+	if item.Get("type").String() != "function_call_output" || item.Get("namespace").String() != "codex_app" {
+		return false
+	}
+	switch item.Get("name").String() {
+	case "create_thread", "send_message_to_thread":
+		return true
+	default:
+		return false
+	}
 }
 
 func codexCallOutputCanStandAlone(itemType string, item gjson.Result) bool {

@@ -353,6 +353,14 @@ fn normalize_request_diagnostics(
         attempt.error_category = diagnostic_optional(attempt.error_category.take(), 128);
         attempt.error_message = diagnostic_optional(attempt.error_message.take(), 1024);
         attempt.failure_phase = diagnostic_optional(attempt.failure_phase.take(), 80);
+        attempt.transport_error = attempt.transport_error.take().filter(|kind| kind == "tls_decrypt");
+        if attempt.transport_error.is_none() {
+            attempt.transport_pool_retired = None;
+        }
+        attempt.upstream_http_version = attempt.upstream_http_version.take().filter(|version| {
+            matches!(version.as_str(), "HTTP/0.9" | "HTTP/1.0" | "HTTP/1.1" | "HTTP/2.0" | "HTTP/3.0")
+        });
+        detail.truncated |= normalize_capability_fallback_trace(attempt);
     }
     detail.truncated |= detail.payloads.len() > REQUEST_DIAGNOSTICS_MAX_PAYLOADS;
     detail.payloads.truncate(REQUEST_DIAGNOSTICS_MAX_PAYLOADS);
@@ -397,6 +405,49 @@ fn normalize_request_diagnostics(
         payload.sha256 = format!("{:x}", Sha256::digest(payload.body.as_bytes()));
     }
     detail
+}
+
+/// Fallback provenance is bounded routing metadata, independent of payload
+/// capture. A malformed or unrelated record must never label an ordinary retry.
+fn normalize_capability_fallback_trace(attempt: &mut CodexLocalAccessRequestAttempt) -> bool {
+    let Some(mut trace) = attempt.capability_fallback.take() else {
+        return false;
+    };
+    let valid_field = |value: &str| {
+        !value.trim().is_empty()
+            && value.len() <= 256
+            && !value.chars().any(char::is_control)
+            && !value.contains("://")
+    };
+    if !matches!(trace.reason.as_str(), "preflight" | "upstream_unsupported")
+        || ![
+            &trace.from_account_id,
+            &trace.from_model,
+            &trace.to_account_id,
+            &trace.to_model,
+        ]
+        .into_iter()
+        .all(|value| valid_field(value))
+        || trace.from_account_id == trace.to_account_id
+        || trace.to_account_id != attempt.account_id
+        || trace.to_model != attempt.model_id
+    {
+        return true;
+    }
+    let old_len = trace.capabilities.len();
+    trace.capabilities.retain(|capability| {
+        capability == "unknown_tool"
+            || crate::models::codex_local_access::CODEX_CAPABILITY_IDS
+                .contains(&capability.as_str())
+    });
+    trace.capabilities.sort();
+    trace.capabilities.dedup();
+    if trace.capabilities.is_empty() {
+        return true;
+    }
+    let truncated = old_len != trace.capabilities.len();
+    attempt.capability_fallback = Some(trace);
+    truncated
 }
 
 fn request_diagnostic_from_row(
@@ -501,6 +552,22 @@ fn merge_request_diagnostics(
                     attempt.upstream_identity_captured = true;
                     attempt.upstream_session_id = old.upstream_session_id.clone();
                     attempt.upstream_thread_id = old.upstream_thread_id.clone();
+                }
+                // A later completion snapshot may omit optional provenance.
+                // Retain it only for the very same account/model/attempt.
+                if same_attempt && old.model_id == attempt.model_id {
+                    attempt.transport_error = attempt.transport_error.or_else(|| old.transport_error.clone());
+                    attempt.transport_pool_retired = match (old.transport_pool_retired, attempt.transport_pool_retired) {
+                        (Some(old), Some(new)) => Some(old || new),
+                        (old, new) => new.or(old),
+                    };
+                    attempt.upstream_http_version = attempt.upstream_http_version.or_else(|| old.upstream_http_version.clone());
+                }
+                if same_attempt
+                    && old.model_id == attempt.model_id
+                    && old.capability_fallback.is_some()
+                {
+                    attempt.capability_fallback = old.capability_fallback.clone();
                 }
                 *old = attempt;
             }

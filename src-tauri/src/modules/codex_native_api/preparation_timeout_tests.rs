@@ -59,7 +59,10 @@ impl Host for PreparationHost {
                 .with_retry_after(Some(Duration::from_secs(7))));
             }
             Ok(Route {
+                continuity_account_id: None,
                 installation_profile: None,
+                official_authorization_revision: None,
+                official_registration_id: None,
                 transport_identity: None,
                 account_id: "a".into(),
                 owner_id: "owner-a".into(),
@@ -70,6 +73,7 @@ impl Host for PreparationHost {
                 proxy_url: None,
                 proxy_route: None,
                 chatgpt: self.oauth,
+                chatgpt_plan: false,
                 wire_api: WireApi::Responses,
                 compact_endpoint: None,
                 websocket_endpoint: None,
@@ -81,7 +85,7 @@ impl Host for PreparationHost {
     fn prepare_body<'a>(
         &'a self,
         _: &'a Caller,
-        _: &'a str,
+        _: &'a Route,
         _: &'a HeaderMap,
         body: Value,
         _: bool,
@@ -124,6 +128,8 @@ impl Host for PreparationHost {
                         image_input: false,
                         excluded_account_ids: request.excluded_account_ids,
                         requires_permit: true,
+                        required_capabilities: Vec::new(),
+                        capability_fallback_from: None,
                         auxiliary: Some("images.generations".into()),
                     },
                 )

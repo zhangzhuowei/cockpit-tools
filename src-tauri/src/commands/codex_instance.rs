@@ -859,7 +859,7 @@ mod tests {
             });
         }
         modules::codex_instance::save_instance_store(&store).unwrap();
-        for speed in [CodexAppSpeed::Fast, CodexAppSpeed::Standard] {
+        for speed in [CodexAppSpeed::Ultrafast, CodexAppSpeed::Fast, CodexAppSpeed::Standard] {
             codex_update_instance(
                 "target".to_string(), None, None, None,
                 Some(Some("fixture-account".to_string())), None, None, None,
@@ -1727,7 +1727,16 @@ pub async fn codex_get_instance_quick_config(
             if let Some(models) =
                 modules::codex_local_access::api_service_preview_model_definitions(&base_dir)
             {
-                config.experimental_model_catalog_models = models;
+                config.experimental_model_catalog_models = models
+                    .into_iter()
+                    .map(|model| {
+                        config.experimental_model_catalog_models
+                            .iter()
+                            .find(|saved| saved.model_id == model.model_id)
+                            .cloned()
+                            .unwrap_or(model)
+                    })
+                    .collect();
             }
         }
         if let Some(draft) = read_pending_model_catalog(&base_dir)? {
@@ -3146,7 +3155,7 @@ async fn codex_start_instance_internal(
         ));
         let finalize_started = Instant::now();
         let updated = modules::codex_instance::update_default_pid(Some(pid))?;
-        modules::codex_app_injection::start_for_profile(
+        modules::codex_app_injection::start_for_launched_profile(
             app.clone(),
             DEFAULT_INSTANCE_ID.to_string(),
             default_dir.clone(),
@@ -3455,7 +3464,7 @@ async fn codex_start_instance_internal(
     ));
     let finalize_started = Instant::now();
     let updated = modules::codex_instance::update_instance_after_start(&instance.id, pid)?;
-    modules::codex_app_injection::start_for_profile(
+    modules::codex_app_injection::start_for_launched_profile(
         app.clone(),
         instance.id.clone(),
         instance_dir.to_path_buf(),

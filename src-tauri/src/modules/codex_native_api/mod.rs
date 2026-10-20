@@ -8,10 +8,18 @@ mod agent_communication;
 mod account_installation;
 mod auxiliary;
 mod blocking;
+mod capabilities;
+#[cfg(test)]
+mod capability_fallback_http_tests;
 mod bootstrap;
 mod chat;
 mod chat_upstream;
+mod chatgpt_plan_request;
+mod chatgpt_plan_wire;
+pub(super) mod chatgpt_plan_tools;
+mod client_tool_discovery;
 mod codex_wire;
+mod codex_cpa_wire;
 mod compat;
 mod compat_http;
 mod compat_options;
@@ -30,11 +38,23 @@ pub mod identity;
 mod images;
 mod lifecycle;
 mod mapping;
+mod multi_agent_compat;
+mod multi_agent_transport;
+#[cfg(test)]
+mod legacy_agent_wire_tests;
+#[cfg(test)]
+mod multi_agent_lifecycle_http_tests;
+#[cfg(test)]
+mod tls_recovery_http_tests;
 mod native_chat;
 mod output_error;
 mod output_items;
 mod output_usage;
 pub mod recovery;
+pub mod rate_limits;
+mod request_body;
+mod responses_host_results;
+mod responses_tool_history;
 mod retry;
 mod server;
 mod token_count;
@@ -75,3 +95,12 @@ mod agent_communication_plaintext_tests;
 mod grok_tool_search_http_tests;
 #[cfg(test)]
 mod grok_error_http_tests;
+
+#[cfg(test)]
+mod live_acceptance_tests;
+
+#[cfg(test)]
+mod chatgpt_plan_http_tests;
+
+#[cfg(test)]
+mod chatgpt_plan_continuation_tests;

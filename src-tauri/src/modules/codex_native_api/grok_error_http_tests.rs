@@ -54,7 +54,10 @@ impl Host for HostFixture {
             Ok(Route {
                 account_id: "fixture".into(),
                 owner_id: "same-owner".into(),
+                continuity_account_id: None,
                 installation_profile: None,
+                official_authorization_revision: None,
+                official_registration_id: None,
                 transport_identity: None,
                 base_url: self.base.clone(),
                 model: request.model,
@@ -63,6 +66,7 @@ impl Host for HostFixture {
                 proxy_url: None,
                 proxy_route: None,
                 chatgpt: false,
+                chatgpt_plan: false,
                 wire_api: WireApi::Responses,
                 compact_endpoint: None,
                 websocket_endpoint: None,

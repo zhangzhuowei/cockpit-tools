@@ -88,7 +88,7 @@ async fn native_image_route_once(
             catalog_ids.push(id);
         }
     }
-    let mut accounts = host.load_accounts(catalog_ids).await?;
+    let mut accounts = host.load_routing_accounts(catalog_ids, caller.id != NATIVE_INTERNAL_CALLER && collection.image_generation_account_ids.is_empty()).await?;
     let use_configured_main = request.responses_model.is_none()
         || !matches!(
             collection.image_generation_model.trim(),
@@ -109,6 +109,7 @@ async fn native_image_route_once(
     };
     accounts.retain(|account| {
         ids.contains(&account.id)
+            && (caller.id == NATIVE_INTERNAL_CALLER || !service_account_paused(&collection, &account.id))
             && !account.is_web_session_auth()
             && !request.excluded_account_ids.contains(&account.id)
             && !account.is_agent_identity_auth()
@@ -321,7 +322,7 @@ async fn native_acquire_image_source_permits(
             .await
             {
                 Ok((_, permit)) => permit,
-                Err(error) if error.code == "account_busy" => continue,
+                Err(error) if matches!(error.code, "account_busy" | "quota_reserved") => continue,
                 Err(error) => return Err(error),
             };
             if let Ok(image_permit) = gate.try_acquire_owned() {
@@ -453,6 +454,11 @@ fn native_prepare_image_body(
     dedicated_image: bool,
     compact: bool,
 ) -> Value {
+    // The independent plan wire validates unsupported tools itself; do not
+    // silently remove a requested capability before that validation runs.
+    if native_is_chatgpt_plan_account(account) {
+        return body;
+    }
     let override_mode = headers
         .get("x-agtools-disable-image-generation")
         .and_then(|value| value.to_str().ok())
@@ -630,6 +636,9 @@ fn native_image_source_allowed(
     account: &CodexAccount,
     model: &str,
 ) -> bool {
+    if native_is_chatgpt_plan_account(account) {
+        return false;
+    }
     let policy = collection
         .image_generation_account_policies
         .get(&account.id)

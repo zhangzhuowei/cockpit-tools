@@ -106,7 +106,10 @@ impl Host for CredentialHost {
             );
             Ok(ImageRoute {
                 route: Route {
+                    continuity_account_id: None,
                     installation_profile: None,
+                    official_authorization_revision: None,
+                    official_registration_id: None,
                     transport_identity: None,
                     account_id: account.into(),
                     owner_id: if request.force_refresh && self.change_refresh_owner {
@@ -126,6 +129,7 @@ impl Host for CredentialHost {
                     proxy_url: None,
                     proxy_route: None,
                     chatgpt: self.oauth,
+                    chatgpt_plan: false,
                     wire_api: WireApi::Responses,
                     compact_endpoint: None,
                     websocket_endpoint: None,
@@ -465,9 +469,10 @@ async fn forced_oauth_images_accept_complete_unknown_history_and_only_success_ad
     use sha2::{Digest, Sha256};
     for successful in [true, false] {
         let fixture = Fixture::start(true, 402, false, false, successful, false).await;
+        let cipher = crate::modules::codex_native_api::codex_cpa_wire::synthetic_gpt_signature(13);
         let original = json!({"model":"text-main","client_metadata":{"session_id":"image-root","thread_id":"image-thread"},"input":[
             {"role":"user","content":"prior request"},
-            {"type":"reasoning","id":"original-reasoning-id","encrypted_content":"external-image-history-cipher"},
+            {"type":"reasoning","id":"rs_original-reasoning-id","encrypted_content":cipher},
             {"type":"compaction","encrypted_content":"external-image-summary-cipher"},
             {"role":"user","content":"Draw a bird"}
         ],"tools":[{"type":"image_generation","model":"gpt-image-2.5"}],"tool_choice":{"type":"image_generation"}});
@@ -495,7 +500,7 @@ async fn forced_oauth_images_accept_complete_unknown_history_and_only_success_ad
         let path = fixture.root.path().join("identity.sqlite");
         let connection = rusqlite::Connection::open(&path).unwrap();
         for cipher in [
-            "external-image-history-cipher",
+            cipher.as_str(),
             "external-image-summary-cipher",
         ] {
             let digest = format!("{:x}", Sha256::digest(cipher.as_bytes()));

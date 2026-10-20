@@ -1033,6 +1033,7 @@ async fn record_sidecar_usage_event(event: SidecarUsageEvent) {
         event.latency_ms,
         sidecar_usage_capture(&event.usage),
         RequestStatsMeta {
+            authorization_route: Some("local_gateway"),
             gateway_mode: Some(CodexLocalAccessGatewayMode::Sidecar),
             proxy_route: event.proxy_route.as_ref(),
             request_id: request_id.as_deref(),
@@ -2095,6 +2096,9 @@ async fn write_local_access_profile_takeover(
     )?;
     write_local_access_profile_model_catalog(profile_dir, supports_websockets, &definitions)?;
     if include_account_pool_models {
+        native_sync_profile_catalog_tool_capabilities(
+            profile_dir, collection, &runtime_api_key, &[],
+        ).await?;
         // API 服务接管：客户端「可用推理强度」默认不含 max，而账号模型（例如 DeepSeek）
         // 只声明 low/high/max；这里补齐最高档，保证选择器里的档位与 DeepSeek 网关模式一致。
         ensure_profile_max_reasoning_effort(profile_dir)?;

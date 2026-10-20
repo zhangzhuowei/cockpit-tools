@@ -37,6 +37,16 @@ fn native_automatic_route_models(
     automatic_api_service_route_models(collection, account, &fallback)
 }
 
+fn native_automatic_upstream_models(
+    collection: &CodexLocalAccessCollection,
+    account: &CodexAccount,
+) -> Vec<String> {
+    native_automatic_route_models(collection, account)
+        .iter()
+        .filter_map(|entry| entry["upstreamModel"].as_str().map(str::to_owned))
+        .collect()
+}
+
 fn native_gateway_vision_fallback(gateway: &CodexLocalAccessProviderGateway) -> Option<String> {
     let models = native_gateway_models(gateway);
     if let Some(explicit) = gateway
@@ -107,10 +117,7 @@ fn native_automatic_vision_fallback(
     collection: &CodexLocalAccessCollection,
     account: &CodexAccount,
 ) -> Option<String> {
-    let models = native_automatic_route_models(collection, account)
-        .iter()
-        .filter_map(|entry| entry["upstreamModel"].as_str().map(str::to_owned))
-        .collect::<Vec<_>>();
+    let models = native_automatic_upstream_models(collection, account);
     let mut capabilities = account.clone();
     for model in &models {
         capabilities.api_model_vision_support.insert(
@@ -139,7 +146,10 @@ fn native_plan_vision_model(
             }
         }
     } else if plan.automatic
-        && automatic_api_service_provider_route_eligible(account)
+        && automatic_api_service_provider_route_eligible(
+            account,
+            &native_automatic_upstream_models(collection, account),
+        )
         && !native_account_model_vision(account, model)
     {
         if let Some(vision) = native_automatic_vision_fallback(collection, account) {
@@ -160,9 +170,12 @@ fn native_catalog_vision(
         return provider_gateway_model_vision(&effective, upstream)
             || native_gateway_vision_fallback(&effective).is_some();
     }
-    if plan.automatic && automatic_api_service_provider_route_eligible(account) {
+    if plan.automatic && account.is_api_key_auth() {
         return native_account_model_vision(account, upstream)
-            || native_automatic_vision_fallback(collection, account).is_some();
+            || (automatic_api_service_provider_route_eligible(
+                account,
+                &native_automatic_upstream_models(collection, account),
+            ) && native_automatic_vision_fallback(collection, account).is_some());
     }
     account
         .api_model_vision_support
@@ -173,7 +186,7 @@ fn native_catalog_vision(
 }
 
 fn native_prepare_provider_vision_body(
-    _collection: &CodexLocalAccessCollection,
+    collection: &CodexLocalAccessCollection,
     key: Option<&CodexLocalAccessApiKey>,
     account: &CodexAccount,
     mut body: Value,
@@ -202,7 +215,10 @@ fn native_prepare_provider_vision_body(
     let unsupported = if let Some(gateway) = gateway {
         !provider_gateway_model_vision(&native_effective_gateway_vision(gateway, account), model)
     } else if key.is_none_or(|key| key.model_routing.is_none() && key.provider_gateway.is_none())
-        && automatic_api_service_provider_route_eligible(account)
+        && automatic_api_service_provider_route_eligible(
+            account,
+            &native_automatic_upstream_models(collection, account),
+        )
     {
         !native_account_model_vision(account, model)
     } else {

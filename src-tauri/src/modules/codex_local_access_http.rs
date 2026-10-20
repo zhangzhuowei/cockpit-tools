@@ -556,6 +556,11 @@ fn resolve_upstream_target(target: &str) -> Result<String, String> {
 
 fn account_upstream_base_url(account: &CodexAccount) -> String {
     if !account.is_api_key_auth() {
+        // Test-only loopback target for the real account-scoped background path.
+        #[cfg(test)]
+        if let Ok(base) = std::env::var("CODEX_BACKGROUND_TEST_SERVER") {
+            return base;
+        }
         return UPSTREAM_CODEX_BASE_URL.to_string();
     }
 

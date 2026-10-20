@@ -17,9 +17,17 @@ fn new_local_access_collection() -> Result<CodexLocalAccessCollection, String> {
         image_generation_model_catalog_revision: 0,
         image_generation_main_model: None,
         image_generation_account_policies: HashMap::new(),
+        chatgpt_plan_codex_image_policies: HashMap::new(),
+        chatgpt_plan_service_revision: 0,
+        paused_account_ids: Vec::new(),
+        official_account_source_ids: HashMap::new(),
+            official_account_bindings: HashMap::new(),
+        service_account_identity_fingerprints: HashMap::new(),
         image_generation_account_ids: Vec::new(),
         image_generation_account_models: HashMap::new(),
         gateway_mode: CodexLocalAccessGatewayMode::default(),
+        capability_fallback: Default::default(),
+        multi_agent: Default::default(),
         native_gateway_default_migrated: true,
         upstream_proxy_url: None,
         routing_strategy: CodexLocalAccessRoutingStrategy::default(),
@@ -248,7 +256,8 @@ async fn save_local_access_accounts_with_reload(
         }
     };
 
-    let accounts = codex_account::list_accounts_checked()?;
+    let accounts = tokio::task::spawn_blocking(codex_account::list_accounts_checked)
+        .await.map_err(|_| "CODEX_ACCOUNT_LOAD_FAILED".to_string())??;
     let valid_account_ids: HashSet<String> = accounts
         .iter()
         .filter(|account| is_local_access_eligible_account(account, restrict_free_accounts))
@@ -258,7 +267,7 @@ async fn save_local_access_accounts_with_reload(
     let mut next_account_ids = Vec::new();
     let mut seen = HashSet::new();
     for account_id in account_ids {
-        if !valid_account_ids.contains(&account_id) {
+        if !valid_account_ids.contains(&account_id) && !(collection.account_ids.contains(&account_id) && service_account_paused(&collection, &account_id)) {
             continue;
         }
         if seen.insert(account_id.clone()) {
@@ -271,6 +280,7 @@ async fn save_local_access_accounts_with_reload(
         .filter(|account_id| !next_account_ids.iter().any(|next| next == *account_id))
         .cloned()
         .collect::<Vec<_>>();
+    crate::modules::chatgpt_plan_service::remember_modes_before_removal(&collection.account_ids, &removed_account_ids).await?;
     if !removed_account_ids.is_empty() {
         restore_removed_local_access_accounts(&removed_account_ids).await;
     }
@@ -348,7 +358,8 @@ pub async fn append_local_access_accounts(
         .as_ref()
         .map(|collection| collection.restrict_free_accounts)
         .unwrap_or(true);
-    let accounts = codex_account::list_accounts_checked()?;
+    let accounts = tokio::task::spawn_blocking(codex_account::list_accounts_checked)
+        .await.map_err(|_| "CODEX_ACCOUNT_LOAD_FAILED".to_string())??;
     let current_account_ids = existing_collection
         .as_ref()
         .map(|collection| collection.account_ids.as_slice())
@@ -1104,6 +1115,7 @@ pub async fn remove_local_access_accounts(
         .filter(|account_id| remove_ids.contains(*account_id))
         .cloned()
         .collect::<Vec<_>>();
+    crate::modules::chatgpt_plan_service::remember_modes_before_removal(&collection.account_ids, &removed_account_ids).await?;
     if !removed_account_ids.is_empty() {
         restore_removed_local_access_accounts(&removed_account_ids).await;
     }

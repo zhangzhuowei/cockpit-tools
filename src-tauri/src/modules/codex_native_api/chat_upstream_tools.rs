@@ -161,6 +161,7 @@ impl ToolContext {
             item["input"] = json!(input);
             item.as_object_mut().unwrap().remove("arguments");
         }
+        super::super::agent_communication::declare_plaintext_message(item);
     }
 }
 

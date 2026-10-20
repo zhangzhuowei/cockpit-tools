@@ -1,3 +1,7 @@
+import { prepareCodexServiceJoins } from "../utils/codexServiceJoin";
+import { listChatGptPlanAccounts } from "../services/chatgptPlanService";
+import { implicitCodexServiceAccountIds } from "../utils/chatgptPlanOverview";
+import { canChooseCodexServiceAuthorization, requestCodexServiceAuthorizations } from "../utils/codexAccountServiceNavigation";
 import { resolveCodexAccountDisplayName } from "../utils/codexAccountDisplayName";
 import { listenSafely as listen } from "../utils/tauriEventListener";
 import { refreshCodexQuotaWithFeedback } from "../utils/codexQuotaRefreshFeedback";
@@ -229,6 +233,8 @@ export function useCodexAccountsBaseController() {
         setExternalImportSyncError(null);
         if (!readCodexImportSyncApiService()) return;
         try {
+          accountIds = implicitCodexServiceAccountIds(accountIds, await listChatGptPlanAccounts());
+          if (!accountIds.length) return;
           const result =
             await codexLocalAccessService.appendCodexLocalAccessAccounts(
               accountIds,
@@ -586,10 +592,26 @@ export function useCodexAccountsBaseController() {
       [],
     );
 
+    const explicitApiServiceChoiceRef = useRef(false);
+
     const syncImportedAccountsToApiService = useCallback(
       async (accountIds: string[], force = false) => {
         if ((!syncImportedToApiService && !force) || accountIds.length === 0)
           return null;
+        if (explicitApiServiceChoiceRef.current) {
+          explicitApiServiceChoiceRef.current = false;
+          const imported = await codexService.listCodexAccounts();
+          const candidates = imported.filter((account) => accountIds.includes(account.id));
+          const grants = candidates.some(canChooseCodexServiceAuthorization) ? await listChatGptPlanAccounts() : [];
+          const prepared = await prepareCodexServiceJoins(candidates, grants,
+            localAccessState?.collection?.accountIds ?? [], setLocalAccessState);
+          if (prepared.choiceIds.length) requestCodexServiceAuthorizations(prepared.choiceIds);
+          if (prepared.resumedIds.length) { await ensureLocalAccessEntryVisible(); setImportApiServiceGuideCount(prepared.resumedIds.length); }
+          accountIds = prepared.localIds;
+          if (!accountIds.length) return null;
+        }
+        accountIds = implicitCodexServiceAccountIds(accountIds, await listChatGptPlanAccounts());
+        if (!accountIds.length) return null;
         const result =
           await codexLocalAccessService.appendCodexLocalAccessAccounts(
             accountIds,
@@ -601,7 +623,7 @@ export function useCodexAccountsBaseController() {
         }
         return result;
       },
-      [ensureLocalAccessEntryVisible, syncImportedToApiService],
+      [ensureLocalAccessEntryVisible, localAccessState?.collection?.accountIds, syncImportedToApiService],
     );
 
     const reauthTargetAccountId = reauthTargetAccount?.id?.trim() ?? "";
@@ -966,6 +988,8 @@ export function useCodexAccountsBaseController() {
   
     const closeCodexAddModal = useCallback(() => {
       if (importing) return;
+      explicitApiServiceChoiceRef.current = false;
+      setSyncImportedToApiService(readCodexImportSyncApiService());
       setReauthTargetAccount(null);
       setReauthRetrySwitchAccountId(null);
       setReauthRetryLaunchAfterSwitch(undefined);
@@ -984,10 +1008,8 @@ export function useCodexAccountsBaseController() {
     // Keep the shared modal independent from the currently visible Codex page.
     useEffect(() => {
       const openFromRequest = async (detail?: CodexOpenAddAccountDetail) => {
-        if (detail?.autoJoinApiService) {
-          setSyncImportedToApiService(true);
-          writeCodexImportSyncApiService(true);
-        }
+        explicitApiServiceChoiceRef.current = Boolean(detail?.autoJoinApiService);
+        if (detail?.autoJoinApiService) setSyncImportedToApiService(true);
         let targetAccount = detail?.targetAccountId
           ? (codexAccountsRef.current.find(
               (account) => account.id === detail.targetAccountId,

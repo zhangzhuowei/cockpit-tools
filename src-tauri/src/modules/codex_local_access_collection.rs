@@ -144,6 +144,27 @@ fn save_collection_to_path(path: &Path, collection: &CodexLocalAccessCollection)
             // Explicit body-recording choices must survive every full collection write.
             match serde_json::from_str::<Value>(current) {
                 Ok(current) => {
+                    if next.chatgpt_plan_service_revision < current
+                        .get("chatgptPlanServiceRevision").and_then(Value::as_u64).unwrap_or(0) {
+                        return Err("CHATGPT_PLAN_SERVICE_CHANGED".to_string());
+                    }
+                    // Only membership transactions resume a paused member. A
+                    // settings snapshot may remove it explicitly but cannot resume it.
+                    if let Some(paused) = current.get("pausedAccountIds") {
+                        let paused: Vec<String> = serde_json::from_value(paused.clone()).map_err(|_| "CHATGPT_PLAN_STORAGE_FAILED")?;
+                        next.paused_account_ids = paused.into_iter().filter(|id| next.account_ids.contains(id)).collect();
+                    }
+                    if let Some(fingerprints) = current.get("serviceAccountIdentityFingerprints") {
+                        next.service_account_identity_fingerprints = serde_json::from_value(fingerprints.clone()).map_err(|_| "CHATGPT_PLAN_STORAGE_FAILED")?;
+                        next.service_account_identity_fingerprints.retain(|id, _| next.account_ids.contains(id));
+                    }
+                    if let Some(bindings) = current.get("officialAccountBindings") {
+                        next.official_account_bindings = serde_json::from_value(bindings.clone()).map_err(|_| "CHATGPT_PLAN_STORAGE_FAILED")?;
+                        next.official_account_bindings.retain(|id, _| next.account_ids.contains(id));
+                    }
+                    if let Some(origins) = current.get("officialAccountSourceIds") {
+                        next.official_account_source_ids = serde_json::from_value(origins.clone()).map_err(|_| "CHATGPT_PLAN_STORAGE_FAILED")?;
+                    }
                     // A stale pre-upgrade snapshot must not clear the migration marker.
                     next.native_gateway_default_migrated |= current
                         .get("nativeGatewayDefaultMigrated")
@@ -171,6 +192,18 @@ fn save_collection_to_path(path: &Path, collection: &CodexLocalAccessCollection)
                     next.request_payload_logging = current.get("requestPayloadLogging")
                         .and_then(Value::as_bool)
                         .unwrap_or_else(|| REQUEST_PAYLOAD_LOGGING_ENABLED.load(Ordering::SeqCst));
+                    // Capability declarations have a dedicated field transaction too.
+                    // Keep the latest choice, while pruning references removed by this write.
+                    if let Some(config) = current.get("capabilityFallback") {
+                        next.capability_fallback = serde_json::from_value(config.clone())
+                            .map_err(|_| "CAPABILITY_FALLBACK_STORAGE".to_string())?;
+                        prune_capability_fallback_references(&mut next);
+                    }
+                    if let Some(config) = current.get("multiAgent") {
+                        next.multi_agent = serde_json::from_value(config.clone())
+                            .map_err(|_| "MULTI_AGENT_STORAGE".to_string())?;
+                        prune_multi_agent_references(&mut next);
+                    }
                     if let Some(updated_at) = current.get("updatedAt").and_then(Value::as_i64) {
                         next.updated_at = next.updated_at.max(updated_at);
                     }
@@ -186,6 +219,10 @@ fn save_collection_to_path(path: &Path, collection: &CodexLocalAccessCollection)
                 }
             }
         }
+        // Validate the final snapshot after preserving the engine's current
+        // disk choice. This also closes joining-vs-engine-switch races.
+        enforce_chatgpt_plan_image_policy(&mut next, &[]);
+        native_validate_chatgpt_plan_mode(&next, next.gateway_mode)?;
         serde_json::to_string_pretty(&next)
             .map_err(|error| format!("序列化本地接入配置失败: {error}"))
     })
@@ -359,7 +396,11 @@ fn collection_content_fingerprint(
     collection: &CodexLocalAccessCollection,
 ) -> Result<Vec<u8>, String> {
     // Stable byte identity for CAS: any concurrent user edit must change the fingerprint.
-    serde_json::to_vec(collection)
+    let mut value = serde_json::to_value(collection)
+        .map_err(|error| format!("序列化 API 服务配置指纹失败: {}", error))?;
+    // HashMap iteration order changes when the same disk snapshot is decoded.
+    value.sort_all_objects();
+    serde_json::to_vec(&value)
         .map_err(|error| format!("序列化 API 服务配置指纹失败: {}", error))
 }
 
@@ -1568,6 +1609,9 @@ fn sanitize_collection_structure(
     collection: &mut CodexLocalAccessCollection,
 ) -> Result<bool, String> {
     let mut changed = false;
+    changed |= prune_capability_fallback_references(collection);
+    changed |= prune_multi_agent_references(collection);
+    changed |= enforce_chatgpt_plan_image_policy(collection, &[]);
 
     // Persisted global collections already migrate to native during loading.
     // Keep the legacy fallback for unpersisted compatibility/profile snapshots.
@@ -1746,6 +1790,7 @@ fn sanitize_collection_with_accounts(
     accounts: &[CodexAccount],
 ) -> Result<(bool, HashSet<String>), String> {
     let mut changed = sanitize_collection_structure(collection)?;
+    changed |= enforce_chatgpt_plan_image_policy(collection, accounts);
 
     let valid_bound_oauth_account_ids: HashSet<String> = accounts
         .iter()
@@ -1768,6 +1813,7 @@ fn sanitize_collection_with_accounts(
         .iter()
         .filter(|account| {
             is_local_access_eligible_account(account, collection.restrict_free_accounts)
+                || (collection.official_account_bindings.contains_key(&account.id) && !account.is_api_key_auth() && !account.is_agent_identity_auth() && !account.is_web_session_auth())
         })
         .map(|account| account.id.clone())
         .collect();
@@ -1786,9 +1832,10 @@ fn sanitize_collection_with_accounts(
         .filter(|id| matches!(codex_account::account_storage_status(id),
             Ok(codex_account::CodexAccountStorageStatus::Deleted)))
         .collect();
+    let paused_ids: HashSet<String> = collection.paused_account_ids.iter().cloned().collect();
     let keep_reference = |id: &str, valid_ids: &HashSet<String>| {
         !explicitly_deleted_ids.contains(id)
-            && (!known_account_ids.contains(id) || valid_ids.contains(id))
+            && (paused_ids.contains(id) || !known_account_ids.contains(id) || valid_ids.contains(id))
     };
 
     if let Some(bound_id) = collection.bound_oauth_account_id.as_deref() {
@@ -1891,6 +1938,9 @@ fn sanitize_collection_with_accounts(
     }
     collection.account_model_rules = normalized_account_model_rules;
 
+    changed |= prune_capability_fallback_references(collection);
+    changed |= prune_multi_agent_references(collection);
+
     Ok((changed, valid_account_ids))
 }
 
@@ -1944,9 +1994,17 @@ async fn ensure_runtime_loaded_without_start_with_profile_restore(
         image_generation_model_catalog_revision: 0,
                 image_generation_main_model: None,
                 image_generation_account_policies: HashMap::new(),
+                chatgpt_plan_codex_image_policies: HashMap::new(),
+                chatgpt_plan_service_revision: 0,
+                paused_account_ids: Vec::new(),
+                official_account_source_ids: HashMap::new(),
+            official_account_bindings: HashMap::new(),
+        service_account_identity_fingerprints: HashMap::new(),
                 image_generation_account_ids: Vec::new(),
         image_generation_account_models: HashMap::new(),
                 gateway_mode: CodexLocalAccessGatewayMode::default(),
+                capability_fallback: Default::default(),
+        multi_agent: Default::default(),
                 native_gateway_default_migrated: true,
                 upstream_proxy_url: None,
                 routing_strategy: CodexLocalAccessRoutingStrategy::default(),
@@ -2214,7 +2272,7 @@ fn bound_oauth_quota_refresh_control() -> &'static TokioMutex<BoundOauthQuotaRef
 async fn bound_oauth_quota_refresh_target() -> Option<String> {
     let runtime = gateway_runtime().lock().await;
     let collection = runtime.collection.as_ref()?;
-    if !runtime.running || !collection.enabled || collection.bound_oauth_quota_reserve.is_none() {
+    if (!runtime.running && !native_api_running()) || !collection.enabled || collection.bound_oauth_quota_reserve.is_none() {
         return None;
     }
     normalize_optional_account_ref(collection.bound_oauth_account_id.as_deref())
@@ -2226,10 +2284,34 @@ async fn refresh_bound_oauth_quota_if_due(reason: &'static str, min_interval: Du
     };
 
     {
-        let mut control = bound_oauth_quota_refresh_control().lock().await;
-        if control.in_flight {
+        let control = bound_oauth_quota_refresh_control().lock().await;
+        if control.in_flight { return; }
+        if control.last_account_id.as_deref() == Some(account_id.as_str())
+            && (control.retry_at.is_some_and(|at| at > Instant::now())
+                || control.last_started_at.is_some_and(|at| at.elapsed() < min_interval.min(Duration::from_secs(5)))) {
             return;
         }
+    }
+    let read_id = account_id.clone();
+    let account = tokio::task::spawn_blocking(move || codex_account::load_account(&read_id)).await.ok().flatten();
+    let dynamic = bound_oauth_dynamic_refresh_interval(account.as_ref());
+    let critical = {
+        let runtime = quota_reserve_coordinator().lock().ok();
+        runtime.as_ref().and_then(|runtime| runtime.watched_reserve.as_ref().map(|reserve|
+            account.as_ref().is_none_or(|account| {
+                let decision = quota_reserve_decision(reserve, account, runtime.accounts.get(&account.id));
+                decision.0 || decision.1
+            }))).unwrap_or(true)
+    };
+    let min_interval = if critical { min_interval.min(dynamic) } else { dynamic };
+    {
+        let mut control = bound_oauth_quota_refresh_control().lock().await;
+        if control.in_flight { return; }
+        if control.last_account_id.as_deref() != Some(account_id.as_str()) {
+            control.failures = 0;
+            control.retry_at = None;
+        }
+        if control.retry_at.is_some_and(|at| at > Instant::now()) { return; }
         if control.last_account_id.as_deref() == Some(account_id.as_str())
             && control
                 .last_started_at
@@ -2243,10 +2325,23 @@ async fn refresh_bound_oauth_quota_if_due(reason: &'static str, min_interval: Du
         control.last_started_at = Some(Instant::now());
     }
 
-    let result = codex_quota::refresh_account_quota_background(&account_id).await;
+    let refresh_started = Instant::now();
+    let result = timeout(Duration::from_secs(10), codex_quota::refresh_account_quota_background(&account_id))
+        .await.unwrap_or_else(|_| Err("OAuth quota refresh timed out".to_string()));
     {
         let mut control = bound_oauth_quota_refresh_control().lock().await;
         control.in_flight = false;
+        if result.is_ok() {
+            control.failures = 0;
+            control.retry_at = None;
+        } else {
+            control.failures = control.failures.saturating_add(1);
+            control.retry_at = Some(Instant::now() + quota_refresh_failure_backoff(control.failures,
+                result.as_ref().err().map(String::as_str)));
+        }
+    }
+    if result.is_err() {
+        note_gateway_quota_refresh_failure(&account_id, refresh_started);
     }
 
     match result {
@@ -2291,6 +2386,7 @@ pub async fn reevaluate_bound_oauth_quota_reserve_after_refresh(
     if account_id.is_empty() {
         return;
     }
+    notify_quota_reserve_changed(account_id);
     let refreshed_account = refresh_succeeded.then(|| codex_account::load_account(account_id)).flatten();
     if let Ok(mut failures) = bound_oauth_quota_refresh_failures().lock() {
         if refresh_succeeded {

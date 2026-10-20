@@ -256,14 +256,29 @@ func PrepareContinuity(ctx context.Context, request ContinuityPrepareRequest) (c
 // ContinuityAttempt is one actual upstream send. A successor attempt has an
 // independent sequence and binding; late callbacks cannot address its binding.
 type ContinuityAttempt struct {
-	mu         sync.Mutex
-	hook       ContinuityHook
-	ticket, id string
-	next       uint64
-	terminal   bool
-	successful bool
-	compact    bool
-	finished   bool
+	mu             sync.Mutex
+	hook           ContinuityHook
+	ticket, id     string
+	next           uint64
+	terminal       bool
+	successful     bool
+	compact        bool
+	finished       bool
+	eventTransform func([]byte) []byte
+	output         continuityOutput
+}
+
+// SetEventTransform allows a selected transport to add authoritative response
+// metadata before persistence. It does not change canonical input or wire logs.
+func (a *ContinuityAttempt) SetEventTransform(transform func([]byte) []byte) {
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !a.finished {
+		a.eventTransform = transform
+	}
 }
 
 func BindContinuity(ctx context.Context, accountID string, headers http.Header, body []byte, expandHTTPPrevious ...bool) (*ContinuityAttempt, http.Header, []byte, error) {
@@ -318,20 +333,34 @@ func (a *ContinuityAttempt) Observe(ctx context.Context, headers http.Header, ev
 	}
 	request := ContinuityObserveRequest{Ticket: a.ticket, AttemptID: a.id, Sequence: a.next, Headers: headers.Clone(), Events: []json.RawMessage{}}
 	if len(event) > 0 {
+		if a.eventTransform != nil {
+			event = a.eventTransform(event)
+		}
 		if !json.Valid(event) {
+			a.output.discard()
 			return errors.New("invalid upstream Responses event")
+		}
+		if ctx != nil && ctx.Err() != nil || a.terminal {
+			a.output.discard()
+		} else {
+			event = a.output.observe(event)
 		}
 		request.Events = append(request.Events, append(json.RawMessage(nil), event...))
 	}
 	ack, err := a.hook.Observe(ctx, request)
 	if err != nil {
+		a.output.discard()
 		return err
 	}
 	if ack.NextSequence != a.next+1 {
+		a.output.discard()
 		return fmt.Errorf("continuity sequence acknowledgement mismatch: %d", ack.NextSequence)
 	}
 	a.next = ack.NextSequence
 	a.terminal = a.terminal || ack.Terminal
+	if ack.Terminal {
+		a.output.discard()
+	}
 	if ack.Terminal && len(event) > 0 {
 		response := gjson.ParseBytes(event)
 		if nested := response.Get("response"); nested.IsObject() {
@@ -357,6 +386,7 @@ func (a *ContinuityAttempt) Finish(ctx context.Context, cause error) error {
 		return nil
 	}
 	a.finished = true
+	a.output.discard()
 	status, code := "failed", "continuity_incomplete"
 	if cause != nil {
 		code = "continuity_upstream_failed"

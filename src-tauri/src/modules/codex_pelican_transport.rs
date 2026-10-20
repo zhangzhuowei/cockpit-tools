@@ -8,6 +8,8 @@ static PELICAN_PREPARATION_SLOTS: std::sync::LazyLock<Arc<tokio::sync::Semaphore
     std::sync::LazyLock::new(|| Arc::new(tokio::sync::Semaphore::new(6)));
 
 pub struct PelicanChatOutput {
+    /// Independent plan usage must not be measured with the original Codex quota.
+    pub uses_official_authorization: bool,
     pub reply: String,
     pub usage: Option<Value>,
     pub response_id: Option<String>,
@@ -252,6 +254,7 @@ impl PelicanSseDecoder {
             final_text
         };
         Ok(PelicanChatOutput {
+            uses_official_authorization: false,
             reply,
             usage: response.get("usage").filter(|v| !v.is_null()).cloned(),
             response_id: response
@@ -364,6 +367,18 @@ async fn pelican_chat_inner(
     prompt: &str,
     on_delta: impl Fn(String) + Send + Sync + 'static,
 ) -> Result<PelicanChatOutput, String> {
+    if let Some(authorization) = prepare_official_background_authorization(account_id).await? {
+        return run_official_background_chat(
+            &authorization,
+            model,
+            effort,
+            prompt,
+            PELICAN_DELIVERY_INSTRUCTIONS,
+            "pelican",
+            on_delta,
+        )
+        .await;
+    }
     let id = account_id.to_owned();
     let runtime_handle = tokio::runtime::Handle::current();
     // Blocking disk/syscall work cannot be forcibly cancelled. Keep its permit in

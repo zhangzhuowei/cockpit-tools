@@ -1,6 +1,6 @@
 //! Durable, caller- and owner-scoped protocol identities. Never rewrites model content.
 //!
-//! Public methods perform bounded SQLite work and must run on a blocking worker.
+//! Public methods perform SQLite/history work and must run on a blocking worker.
 use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -31,8 +31,8 @@ pub(crate) mod rebuild;
 const MAX_REQUEST_OPAQUE_REFS: usize = 100_000;
 const OPAQUE_TTL_SECONDS: i64 = 24 * 60 * 60;
 const MAX_ID_BYTES: usize = 4096;
-// Canonical body metadata includes the full tool inventory. Keep its limit aligned
-// with the service request-body ceiling; HTTP headers have their transport limit.
+// Canonical metadata includes the tool inventory. Bound metadata expansion
+// independently of conversation input; HTTP headers have their transport limit.
 const MAX_METADATA_BYTES: usize = 16 * 1024 * 1024;
 
 pub struct IdentityStore {
@@ -359,6 +359,16 @@ impl IdentityStore {
         self.inspect_mode(caller, headers, body, true)
     }
 
+    fn checkpoint_reader(&self) -> Result<Connection, ServiceError> {
+        let connection =
+            Connection::open_with_flags(&self.path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .map_err(storage)?;
+        connection
+            .busy_timeout(Duration::from_secs(2))
+            .map_err(storage)?;
+        Ok(connection)
+    }
+
     fn inspect_mode(
         &self,
         caller: &str,
@@ -399,7 +409,10 @@ impl IdentityStore {
         } else {
             identity_value(flat.and_then(|v| v.get("turn_id")))?
         };
-        let connection = self.connection.lock().map_err(storage)?;
+        // Input/tool scans and accepted-history decoding can be large. Keep
+        // them off the publication mutex and use one consistent WAL snapshot.
+        let reader = self.checkpoint_reader()?;
+        let connection = reader.unchecked_transaction().map_err(storage)?;
         let mut opaque = Vec::new();
         if let Some(value) = identity_value(body.get("previous_response_id"))? {
             let reference = digest("response", &value);

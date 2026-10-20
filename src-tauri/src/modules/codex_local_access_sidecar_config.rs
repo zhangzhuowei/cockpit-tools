@@ -655,6 +655,7 @@ fn sidecar_codex_key_model_values(
                 json!({
                     "name": mapping.upstream_model.clone(),
                     "alias": mapping.client_model.clone(),
+                    "is-compat": true,
                 })
             })
             .collect();
@@ -666,6 +667,7 @@ fn sidecar_codex_key_model_values(
             json!({
                 "name": alias.source_model.clone(),
                 "alias": alias.alias.clone(),
+                "is-compat": true,
             })
         })
         .collect()
@@ -904,17 +906,12 @@ fn validate_api_key_account_scope_update(
 }
 
 fn codex_app_speed_service_tier(speed: &CodexAppSpeed) -> Option<&'static str> {
-    match speed {
-        CodexAppSpeed::Fast => Some("priority"),
-        CodexAppSpeed::Standard => None,
-    }
+    speed.service_tier()
 }
 
 #[test]
-fn removed_app_speed_does_not_inject_a_service_tier() {
-    let legacy_speed: CodexAppSpeed =
-        serde_json::from_str(r#""ultrafast""#).expect("read legacy speed");
-    assert_eq!(codex_app_speed_service_tier(&legacy_speed), None);
+fn app_speed_uses_the_selected_service_tier() {
+    assert_eq!(codex_app_speed_service_tier(&CodexAppSpeed::Ultrafast), Some("ultrafast"));
     assert_eq!(codex_app_speed_service_tier(&CodexAppSpeed::Standard), None);
     assert_eq!(
         codex_app_speed_service_tier(&CodexAppSpeed::Fast),
@@ -1179,7 +1176,13 @@ fn remove_account_refs_from_collection(
 
     let before_account_ids = collection.account_ids.clone();
     collection.account_ids.retain(|id| !remove_ids.contains(id));
+    collection.official_account_bindings.retain(|id, _| !remove_ids.contains(id));
+    collection.service_account_identity_fingerprints.retain(|id, _| !remove_ids.contains(id));
+    let before_paused = collection.paused_account_ids.len();
+    collection.paused_account_ids.retain(|id| !remove_ids.contains(id));
+    changed |= before_paused != collection.paused_account_ids.len();
     changed |= collection.account_ids != before_account_ids;
+    changed |= prune_capability_fallback_references(collection);
 
     let before_image_ids = collection.image_generation_account_ids.len();
     collection
@@ -1660,8 +1663,8 @@ fn sidecar_quota_reserve_manifest_value(
     }
 
     Some(json!({
-        "hourlyThresholdPercent": reserve.hourly_percent,
-        "weeklyThresholdPercent": reserve.weekly_percent,
+        "hourlyThresholdPercent": quota_reserve_cutoff(reserve, reserve.hourly_percent) as i32,
+        "weeklyThresholdPercent": quota_reserve_cutoff(reserve, reserve.weekly_percent) as i32,
     }))
 }
 
@@ -1679,14 +1682,15 @@ fn sidecar_quota_reserve_snapshot_value(
     let quota = fresh_quota_for_bound_oauth_reserve(account);
     Some(json!({
         "snapshotUpdatedAtUnixSeconds": account.usage_updated_at,
+        "snapshotVerifiedQueryStartedAtUnixMillis": sidecar_quota_reserve_verified_query_started_ms(&account.id),
         "hourlyRemainingPercent": quota
             .and_then(|quota| valid_quota_remaining_percent(quota.hourly_percentage)),
         "weeklyRemainingPercent": quota
             .and_then(|quota| valid_quota_remaining_percent(quota.weekly_percentage)),
         "hourlyWindowPresent": quota.and_then(|quota| quota.hourly_window_present),
         "weeklyWindowPresent": quota.and_then(|quota| quota.weekly_window_present),
-        "hourlyThresholdPercent": reserve.hourly_percent,
-        "weeklyThresholdPercent": reserve.weekly_percent,
+        "hourlyThresholdPercent": quota_reserve_cutoff(reserve, reserve.hourly_percent) as i32,
+        "weeklyThresholdPercent": quota_reserve_cutoff(reserve, reserve.weekly_percent) as i32,
     }))
 }
 
@@ -2479,12 +2483,19 @@ fn prepare_sidecar_launch_config_in_dir_sync(
     api_service: bool,
     preparation: Option<GatewayPreparationContext>,
 ) -> Result<SidecarLaunchConfig, String> {
+    if !collection.official_account_bindings.is_empty() { return Err("CHATGPT_PLAN_NATIVE_REQUIRED".into()); }
     let overridden_account_ids: HashSet<String> = account_overrides.keys().cloned().collect();
     let account_overrides = sidecar_account_snapshot(
         effective_sidecar_account_ids_with_internal(collection, api_service),
         &account_overrides,
         codex_account::load_account,
     );
+    // The sidecar cannot retrieve/renew independently stored plan grants.
+    // Reject before writing any auth/config file, rather than exporting the
+    // unusable account projection marker as an API key.
+    if account_overrides.values().any(native_is_chatgpt_plan_account) {
+        return Err("CHATGPT_PLAN_NATIVE_REQUIRED".to_string());
+    }
     // Validate public keys before changing authentication files or the existing config.
     // An internal maintenance key cannot stand in for an unresolved declared public key.
     let public_client_keys =
@@ -2634,15 +2645,24 @@ fn prepare_sidecar_launch_config_in_dir_sync(
                 manifest_accounts.push(value);
                 continue;
             }
-            // 与自动混合路由的判定保持一致：Chat 协议账号、以及具备逐模型识图能力的账号
-            // （例如 DeepSeek）走 provider 路由，这样带图片的请求才能自动转到识图模型。
+            // 与自动混合路由使用同一判定：Chat Completions 做协议转换；
+            // Responses 只有在存在可用的图片转模型目标时才走 provider 路由。
+            let candidate_route_models = automatic_api_service_route_models(
+                collection,
+                &account,
+                &api_service_supported_codex_model_ids(),
+            );
+            let upstream_models = normalize_model_rule_list(
+                candidate_route_models
+                    .iter()
+                    .filter_map(|model| model["upstreamModel"].as_str().map(str::to_string))
+                    .collect(),
+            );
             let provider_route_models =
-                if api_service && automatic_api_service_provider_route_eligible(&account) {
-                    automatic_api_service_route_models(
-                        collection,
-                        &account,
-                        &api_service_supported_codex_model_ids(),
-                    )
+                if api_service
+                    && automatic_api_service_provider_route_eligible(&account, &upstream_models)
+                {
+                    candidate_route_models
                 } else {
                     Vec::new()
                 };
@@ -2679,6 +2699,7 @@ fn prepare_sidecar_launch_config_in_dir_sync(
                         .map(|model| {
                             json!({
                                 "name": model["upstreamModel"], "alias": model["clientModel"],
+                                "is-compat": true,
                             })
                         })
                         .collect(),
@@ -2832,6 +2853,8 @@ fn prepare_sidecar_launch_config_in_dir_sync(
         );
     }
     let mut manifest = json!({
+        "officialAccountBindings": collection.official_account_bindings,
+        "pausedAccountIds": collection.paused_account_ids,
         "locale": app_locale,
         "serviceTierControlEnabled": api_service,
         "gatewayErrorMessages": {
@@ -2843,6 +2866,7 @@ fn prepare_sidecar_launch_config_in_dir_sync(
             "bound_account_not_candidate": sidecar_localized_messages("codex.localAccess.accountPoolHealth.dialog.boundAccountNotCandidateDetail"),
             "model_not_available": sidecar_localized_messages("codex.localAccess.gatewayErrors.modelNotAvailable"),
             "account_concurrency_exceeded": sidecar_localized_messages("codex.localAccess.gatewayErrors.accountConcurrencyExceeded"),
+            "quota_reserved": sidecar_localized_messages("codex.localAccess.gatewayErrors.quotaReserved"),
             "provider_retry_after": sidecar_localized_messages("codex.localAccess.gatewayErrors.providerRetryAfter"),
             "audio_invalid_request": sidecar_localized_messages("codex.localAccess.gatewayErrors.audioInvalidRequest"),
             "audio_too_large": sidecar_localized_messages("codex.localAccess.gatewayErrors.audioTooLarge"),
@@ -2928,6 +2952,7 @@ fn prepare_sidecar_launch_config_in_dir_sync(
         "codex".to_string(),
         json!({
             "optimize-multi-agent-v2": true,
+            "orphan-delegation-compatibility": true,
             "stream-bootstrap-buffering": api_service,
         }),
     );

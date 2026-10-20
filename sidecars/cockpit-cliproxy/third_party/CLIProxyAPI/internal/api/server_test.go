@@ -499,8 +499,9 @@ func TestCodexLiveRoutesRequireAuthAndAreRegistered(t *testing.T) {
 			t.Fatalf("%s unauthorized status = %d, want %d", path, unauthorizedRecorder.Code, http.StatusUnauthorized)
 		}
 
-		authorized := httptest.NewRequest(http.MethodPost, path, nil)
+		authorized := httptest.NewRequest(http.MethodPost, path, strings.NewReader("v=0\r\n"))
 		authorized.Header.Set("Authorization", "Bearer test-key")
+		authorized.Header.Set("Content-Type", "application/sdp")
 		authorizedRecorder := httptest.NewRecorder()
 		server.engine.ServeHTTP(authorizedRecorder, authorized)
 		if authorizedRecorder.Code != http.StatusServiceUnavailable {
@@ -577,12 +578,14 @@ func TestRealtimeStandardRoutesAndClientSecretAuth(t *testing.T) {
 	}
 
 	for _, testCase := range []struct {
-		method string
-		path   string
-		status int
+		method      string
+		path        string
+		body        io.Reader
+		contentType string
+		status      int
 	}{
 		{method: http.MethodGet, path: "/v1/realtime?model=gpt-realtime", status: http.StatusUpgradeRequired},
-		{method: http.MethodPost, path: "/v1/realtime", status: http.StatusServiceUnavailable},
+		{method: http.MethodPost, path: "/v1/realtime", body: strings.NewReader("v=0\r\n"), contentType: "application/sdp", status: http.StatusServiceUnavailable},
 		{method: http.MethodPost, path: "/v1/realtime/sessions", status: http.StatusOK},
 		{method: http.MethodPost, path: "/v1/realtime/transcription_sessions", status: http.StatusNotImplemented},
 		{method: http.MethodGet, path: "/v1/realtime/translations", status: http.StatusNotImplemented},
@@ -593,8 +596,11 @@ func TestRealtimeStandardRoutesAndClientSecretAuth(t *testing.T) {
 		{method: http.MethodPost, path: "/v1/realtime/calls/call-123/refer", status: http.StatusNotImplemented},
 		{method: http.MethodPost, path: "/v1/realtime/calls/call-123/hangup", status: http.StatusNotFound},
 	} {
-		request := httptest.NewRequest(testCase.method, testCase.path, nil)
+		request := httptest.NewRequest(testCase.method, testCase.path, testCase.body)
 		request.Header.Set("Authorization", "Bearer test-key")
+		if testCase.contentType != "" {
+			request.Header.Set("Content-Type", testCase.contentType)
+		}
 		recorder := httptest.NewRecorder()
 		server.engine.ServeHTTP(recorder, request)
 		if recorder.Code != testCase.status {

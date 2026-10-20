@@ -3,6 +3,14 @@
 include!("codex_account_model_config_transfer.rs");
 /// 获取 Codex 数据目录
 pub fn get_codex_home() -> PathBuf {
+    // The plan lifecycle fixture isolates both storage and client projection;
+    // no test may inspect the developer's active Codex credentials.
+    #[cfg(test)]
+    if std::env::var_os("CHATGPT_PLAN_TEST_SERVER").is_some() {
+        if let Some(root) = std::env::var_os("COCKPIT_TOOLS_TEST_DATA_DIR") {
+            return PathBuf::from(root).join("chatgpt-plan-test-codex-home");
+        }
+    }
     if let Some(from_env) = resolve_codex_home_from_env() {
         return from_env;
     }

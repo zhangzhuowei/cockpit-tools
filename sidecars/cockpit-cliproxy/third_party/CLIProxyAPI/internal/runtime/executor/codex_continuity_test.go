@@ -119,6 +119,10 @@ func TestCodexContinuityHTTPPreservesOpaqueInputAndObservesRawTerminal(t *testin
 		t.Run(mode, func(t *testing.T) {
 			body := []byte(`{"model":"gpt-5.4","previous_response_id":"logical-response","prompt_cache_key":"logical-session","client_metadata":{"thread_id":"logical-thread"},"input":[{"type":"reasoning","id":"` + strings.Repeat("item-id-", 12) + `","encrypted_content":"synthetic-opaque-cipher","summary":[]}]}`)
 			hook := &codexContinuityHook{done: make(chan cliproxyexecutor.ContinuityFinishRequest, 1)}
+			wireItem := `{"type":"reasoning","id":"rs-wire","encrypted_content":"synthetic-output","summary":[],"signature":"synthetic-signature","unknown":{"keep":true}}`
+			wireDone := `{"type":"response.output_item.done","output_index":0,"item":` + wireItem + `}`
+			wireTerminal := `{"type":"response.completed","response":{"id":"resp-wire","status":"completed","output":[]}}`
+			compactResponse := `{"id":"compact-id","object":"response.compaction","output":[{"type":"compaction","encrypted_content":"synthetic-compact"}]}`
 			captured := make(chan []byte, 1)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Header.Get("Session-Id") != "bound-session" || r.Header.Get("Thread-Id") != "bound-thread" {
@@ -128,11 +132,11 @@ func TestCodexContinuityHTTPPreservesOpaqueInputAndObservesRawTerminal(t *testin
 				captured <- actual
 				if mode == "compact" {
 					w.Header().Set("Content-Type", "application/json")
-					_, _ = io.WriteString(w, `{"id":"compact-id","object":"response.compaction","output":[{"type":"compaction","encrypted_content":"synthetic-compact"}]}`)
+					_, _ = io.WriteString(w, compactResponse)
 					return
 				}
 				w.Header().Set("Content-Type", "text/event-stream")
-				_, _ = io.WriteString(w, "data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"reasoning\",\"id\":\"rs-wire\",\"encrypted_content\":\"synthetic-output\",\"summary\":[]}}\n\n"+"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-wire\",\"status\":\"completed\",\"output\":[]}}\n\n")
+				_, _ = io.WriteString(w, "data: "+wireDone+"\n\ndata: "+wireTerminal+"\n\n")
 			}))
 			defer server.Close()
 			auth := &cliproxyauth.Auth{ID: "account", Provider: "codex", Attributes: map[string]string{"base_url": server.URL, "api_key": "synthetic-token"}, Metadata: map[string]any{"access_token": "synthetic-token"}}
@@ -140,6 +144,7 @@ func TestCodexContinuityHTTPPreservesOpaqueInputAndObservesRawTerminal(t *testin
 			exec := NewCodexExecutor(codexContinuityConfig())
 			opts := cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatOpenAIResponse, Headers: http.Header{"Session-Id": []string{"logical-session"}}}
 			req := cliproxyexecutor.Request{Model: "gpt-5.4", Payload: body}
+			var publicPayloads [][]byte
 			if mode == "stream" {
 				opts.Stream = true
 				result, err := exec.ExecuteStream(ctx, auth, req, opts)
@@ -150,14 +155,17 @@ func TestCodexContinuityHTTPPreservesOpaqueInputAndObservesRawTerminal(t *testin
 					if chunk.Err != nil {
 						t.Fatal(chunk.Err)
 					}
+					publicPayloads = append(publicPayloads, bytes.Clone(chunk.Payload))
 				}
 			} else {
 				if mode == "compact" {
 					opts.Alt = "responses/compact"
 				}
-				if _, err := exec.Execute(ctx, auth, req, opts); err != nil {
+				result, err := exec.Execute(ctx, auth, req, opts)
+				if err != nil {
 					t.Fatal(err)
 				}
+				publicPayloads = append(publicPayloads, bytes.Clone(result.Payload))
 			}
 			actual := <-captured
 			if gjson.GetBytes(actual, "input").Raw != gjson.GetBytes(body, "input").Raw || gjson.GetBytes(actual, "previous_response_id").String() != "logical-response" {
@@ -177,13 +185,84 @@ func TestCodexContinuityHTTPPreservesOpaqueInputAndObservesRawTerminal(t *testin
 				t.Fatalf("binds=%d", len(hook.binds))
 			}
 			if mode != "compact" {
-				last := hook.events[len(hook.events)-1]
-				if len(gjson.GetBytes(last, "response.output").Array()) != 0 {
-					t.Fatalf("patched output leaked into raw evidence: %s", last)
+				if len(hook.events) != 2 || !bytes.Equal(hook.events[0], []byte(wireDone)) {
+					t.Fatal("observer changed the original complete done item")
 				}
+				assertCodexContinuityOutputItems(t, hook.events[1], "response.output", wireItem)
+				public := codexContinuityPublicResponse(t, publicPayloads, mode == "stream")
+				assertCodexContinuityOutputItems(t, public, "output", wireItem)
+				if gjson.GetBytes(public, "id").String() != "resp-wire" {
+					t.Fatal("public response identity changed")
+				}
+			} else if len(hook.events) != 1 || !bytes.Equal(hook.events[0], []byte(compactResponse)) || len(publicPayloads) != 1 || !bytes.Equal(publicPayloads[0], []byte(compactResponse)) {
+				t.Fatal("compact raw observer or public response was changed")
 			}
 		})
 	}
+}
+
+func assertCodexContinuityOutputItems(t *testing.T, payload []byte, path string, expected ...string) {
+	t.Helper()
+	items := gjson.GetBytes(payload, path).Array()
+	if len(items) != len(expected) {
+		t.Fatalf("output items=%d, want %d", len(items), len(expected))
+	}
+	for i, item := range items {
+		if item.Raw != expected[i] {
+			t.Fatalf("output item %d differs from the original upstream done item", i)
+		}
+	}
+}
+
+func codexContinuityPublicResponse(t *testing.T, payloads [][]byte, stream bool) []byte {
+	t.Helper()
+	if !stream {
+		if len(payloads) != 1 || !json.Valid(payloads[0]) {
+			t.Fatal("missing public JSON response")
+		}
+		return payloads[0]
+	}
+	for _, payload := range payloads {
+		for _, line := range bytes.Split(payload, []byte("\n")) {
+			line = bytes.TrimSpace(bytes.TrimPrefix(line, []byte("data:")))
+			if gjson.GetBytes(line, "type").String() == "response.completed" {
+				return []byte(gjson.GetBytes(line, "response").Raw)
+			}
+		}
+	}
+	t.Fatal("missing public completed event")
+	return nil
+}
+
+func TestCodexContinuitySparseTerminalObservationPreservesHTTPWire(t *testing.T) {
+	hook := &codexContinuityHook{done: make(chan cliproxyexecutor.ContinuityFinishRequest, 1)}
+	ctx := codexContinuityContext(t, hook, []byte(`{"input":[]}`))
+	attempt, _, _, err := cliproxyexecutor.BindContinuity(ctx, "account", nil, []byte(`{"input":[]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := `{"id":"wire-item","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"synthetic answer"}],"unknown":{"keep":true}}`
+	done := `{"type":"response.output_item.done","output_index":0,"item":` + item + `}`
+	terminal := `{"type":"response.completed","response":{"id":"wire-response","status":"completed","output":[]}}`
+	wire := "event: response.output_item.done\r\ndata: " + done + "\r\n\r\nevent: response.completed\r\ndata: " + terminal + "\r\n\r\n"
+	response := &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(wire))}
+	if err := helps.ObserveContinuityHTTPResponse(ctx, attempt, response, nil); err != nil {
+		t.Fatal(err)
+	}
+	actual, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := response.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if string(actual) != wire {
+		t.Fatal("durable observation changed raw SSE transport bytes")
+	}
+	if len(hook.events) != 2 || string(hook.events[0]) != done {
+		t.Fatal("durable observer did not retain the original done event")
+	}
+	assertCodexContinuityOutputItems(t, hook.events[1], "response.output", item)
 }
 
 func TestCodexContinuityAcknowledgesBeforeClientOutputAndFailsClosed(t *testing.T) {
@@ -263,6 +342,9 @@ func TestCodexContinuityWebsocketMultiTurnAndRawEvidence(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		t.Run(map[bool]string{false: "nonstream", true: "stream"}[stream], func(t *testing.T) {
 			upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+			wireItem := `{"id":"rs-original-wire","type":"reasoning","encrypted_content":"synthetic-ws-output","summary":[],"signature":"synthetic-signature","unknown":["keep"]}`
+			wireDone := `{"type":"response.output_item.done","output_index":0,"item":` + wireItem + `}`
+			wireTerminal := `{"type":"response.completed","response":{"id":"resp-ws","status":"completed","output":[]}}`
 			captured := make(chan []byte, 2)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				conn, err := upgrader.Upgrade(w, r, nil)
@@ -276,8 +358,8 @@ func TestCodexContinuityWebsocketMultiTurnAndRawEvidence(t *testing.T) {
 						return
 					}
 					captured <- payload
-					_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.output_item.done","output_index":0,"item":{"id":"rs-original-wire","type":"reasoning","encrypted_content":"synthetic-ws-output","summary":[]}}`))
-					_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.completed","response":{"id":"resp-ws","status":"completed","output":[]}}`))
+					_ = conn.WriteMessage(websocket.TextMessage, []byte(wireDone))
+					_ = conn.WriteMessage(websocket.TextMessage, []byte(wireTerminal))
 				}
 			}))
 			defer server.Close()
@@ -291,6 +373,11 @@ func TestCodexContinuityWebsocketMultiTurnAndRawEvidence(t *testing.T) {
 				ctx := codexContinuityContext(t, hook, body)
 				req := cliproxyexecutor.Request{Model: "gpt-5.4", Payload: body}
 				opts := cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatOpenAIResponse, Stream: stream, Metadata: map[string]any{cliproxyexecutor.ExecutionSessionMetadataKey: session}}
+				var publicPayloads [][]byte
+				var observedWire [][]byte
+				opts.WebSocketResponseObserver = func(_ context.Context, event cliproxyexecutor.WebSocketResponseEvent) {
+					observedWire = append(observedWire, bytes.Clone(event.Payload))
+				}
 				if stream {
 					result, err := exec.ExecuteStream(ctx, auth, req, opts)
 					if err != nil {
@@ -300,11 +387,14 @@ func TestCodexContinuityWebsocketMultiTurnAndRawEvidence(t *testing.T) {
 						if chunk.Err != nil {
 							t.Fatal(chunk.Err)
 						}
+						publicPayloads = append(publicPayloads, bytes.Clone(chunk.Payload))
 					}
 				} else {
-					if _, err := exec.Execute(ctx, auth, req, opts); err != nil {
+					result, err := exec.Execute(ctx, auth, req, opts)
+					if err != nil {
 						t.Fatal(err)
 					}
+					publicPayloads = append(publicPayloads, bytes.Clone(result.Payload))
 				}
 				actual := <-captured
 				if gjson.GetBytes(actual, "input").Raw != gjson.GetBytes(body, "input").Raw || gjson.GetBytes(actual, "previous_response_id").String() != "logical-response" {
@@ -315,15 +405,30 @@ func TestCodexContinuityWebsocketMultiTurnAndRawEvidence(t *testing.T) {
 				case <-time.After(3 * time.Second):
 					t.Fatal("WS finish not delivered")
 				}
+				if len(observedWire) != 2 || string(observedWire[0]) != wireDone || string(observedWire[1]) != wireTerminal {
+					t.Fatal("continuity normalization changed raw WebSocket observer frames")
+				}
+				public := codexContinuityPublicResponse(t, publicPayloads, stream)
+				assertCodexContinuityOutputItems(t, public, "output", wireItem)
+				if gjson.GetBytes(public, "id").String() != "resp-ws" {
+					t.Fatal("public WebSocket response identity changed")
+				}
 			}
 			hook.mu.Lock()
 			defer hook.mu.Unlock()
 			if len(hook.binds) != 2 || hook.binds[0].AttemptID == hook.binds[1].AttemptID || hook.binds[0].Ticket == hook.binds[1].Ticket {
 				t.Fatalf("WS turns reused ticket/attempt: %+v", hook.binds)
 			}
-			for _, event := range hook.events {
-				if gjson.GetBytes(event, "type").String() == "response.completed" && len(gjson.GetBytes(event, "response.output").Array()) != 0 {
-					t.Fatalf("WS patch contaminated raw evidence: %s", event)
+			if len(hook.events) != 4 {
+				t.Fatalf("WS durable events=%d, want four", len(hook.events))
+			}
+			for index, event := range hook.events {
+				if index%2 == 0 {
+					if string(event) != wireDone {
+						t.Fatal("WS durable observer changed an original done event")
+					}
+				} else {
+					assertCodexContinuityOutputItems(t, event, "response.output", wireItem)
 				}
 			}
 		})

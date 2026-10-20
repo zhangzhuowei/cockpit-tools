@@ -1,5 +1,5 @@
 //! Official MultiAgentV2 message arguments become encrypted agent_message input.
-use serde_json::Value;
+use serde_json::{json, Map, Value};
 
 /// Match Codex ToolCall::direct_source and agent_message_from_tool. The absence
 /// of encrypted_function_args is not a plaintext signal: only an explicit empty
@@ -43,7 +43,49 @@ pub(super) fn declare_plaintext_message(item: &mut Value) {
             .get("encrypted_function_args")
             .is_none_or(Value::is_null)
         && item.get("encrypted_content").is_none_or(Value::is_null)
+        && item.get("signature").is_none_or(Value::is_null)
     {
         item["encrypted_function_args"] = serde_json::json!([]);
     }
+}
+
+/// Match the pre-Rust Go provider gateway's portable message projection.
+/// This retains literal bytes and routing information; it never decrypts data.
+/// Only call after ownership admission, on a provider's per-attempt wire copy.
+pub(super) fn portable_message(item: &mut Value) -> Result<(), &'static str> {
+    let Some(parts) = item.get_mut("content").and_then(Value::as_array_mut) else {
+        return Err("Agent message content must be an array");
+    };
+    for part in parts.iter_mut() {
+        if part.get("type").and_then(Value::as_str) == Some("encrypted_content") {
+            let content = part
+                .get("encrypted_content")
+                .and_then(Value::as_str)
+                .ok_or("Agent message encrypted content must be text")?
+                .to_owned();
+            part["type"] = json!("input_text");
+            part["text"] = json!(content);
+            part.as_object_mut().unwrap().remove("encrypted_content");
+        }
+    }
+    let object = item.as_object_mut().unwrap();
+    let mut metadata = Map::new();
+    for key in [
+        "author",
+        "recipient",
+        "id",
+        "internal_chat_message_metadata_passthrough",
+    ] {
+        if let Some(value) = object.remove(key) {
+            metadata.insert(key.to_owned(), value);
+        }
+    }
+    if !metadata.is_empty() {
+        object.get_mut("content").unwrap().as_array_mut().unwrap().push(json!({
+            "type":"input_text", "text":format!("Agent routing metadata: {}", Value::Object(metadata))
+        }));
+    }
+    object.insert("type".into(), json!("message"));
+    object.insert("role".into(), json!("user"));
+    Ok(())
 }

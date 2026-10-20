@@ -1,5 +1,5 @@
 //! Bounded local failure details. Never retain URLs, credentials or authorization values.
-use super::super::contract::ServiceError;
+use super::super::contract::{ServiceError, TransportFailureKind};
 use regex::Regex;
 use serde_json::Value;
 use std::{error::Error, sync::LazyLock};
@@ -39,10 +39,23 @@ pub(crate) fn transport_failure(
     let mut details = Vec::new();
     let mut current = Some(error);
     let mut timed_out = false;
-    for _ in 0..8 {
+    let mut tls_decrypt = false;
+    // Bootstrap can rewrap a reqwest body before canonical adaptation. Its
+    // real TLS cause sits deeper than eight wrappers; still bound traversal
+    // so a malformed/cyclic Error implementation cannot block the request.
+    for _ in 0..32 {
         let Some(error) = current else {
             break;
         };
+        // Canonical stream adapters wrap this error in io::Error. Keep its
+        // classification instead of stringifying it into an untyped 502.
+        if let Some(error) = error.downcast_ref::<ServiceError>() {
+            return error.clone();
+        }
+        tls_decrypt |= matches!(
+            error.downcast_ref::<rustls::Error>(),
+            Some(rustls::Error::DecryptError)
+        );
         let detail = sanitize_error_text(&error.to_string());
         timed_out |= error
             .downcast_ref::<std::io::Error>()
@@ -50,7 +63,7 @@ pub(crate) fn transport_failure(
             || error
                 .downcast_ref::<reqwest::Error>()
                 .is_some_and(reqwest::Error::is_timeout);
-        if !detail.is_empty() && !details.contains(&detail) {
+        if !detail.is_empty() && details.len() < 8 && !details.contains(&detail) {
             details.push(detail);
         }
         current = error
@@ -71,7 +84,9 @@ pub(crate) fn transport_failure(
     // can expose it again through get_ref. Keep each cause once, omitting only
     // generic transport layers when a more specific cause is available.
     let message = concise_transport_details(&details);
-    ServiceError::new(status, code, format!("{context}: {message}"))
+    let mut error = ServiceError::new(status, code, format!("{context}: {message}"));
+    error.transport_failure = tls_decrypt.then_some(TransportFailureKind::TlsDecrypt);
+    error
 }
 
 fn concise_transport_details(details: &[String]) -> String {
@@ -151,6 +166,11 @@ pub(crate) fn upstream_error_metadata_status(status: u16, value: &Value) -> (Opt
         || matches!(
             code,
             "usage_limit_reached"
+                | "subscription_sharing_usage_limit_exceeded"
+                | "subscription_sharing_invalid_user"
+                | "subscription_sharing_user_not_eligible"
+                | "chatpass_v2_scope_not_authorized"
+                | "chatpass_v2_invalid_authorization_context"
                 | "insufficient_quota"
                 | "invalid_grant"
                 | "reauthorization_required"
@@ -190,6 +210,50 @@ pub(crate) fn failure_phase(code: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn tls_decrypt_requires_typed_evidence_and_survives_canonical_wrapping() {
+        let mut raw = std::io::Error::other(rustls::Error::DecryptError);
+        for _ in 0..12 {
+            raw = std::io::Error::other(raw);
+        }
+        let failure = transport_failure(502, "upstream_stream_error", "Read failed", &raw);
+        assert_eq!(
+            failure.transport_failure,
+            Some(TransportFailureKind::TlsDecrypt)
+        );
+        let wrapped = std::io::Error::other(failure.clone());
+        let restored = transport_failure(503, "upstream_unavailable", "Another layer", &wrapped);
+        assert_eq!(restored.transport_failure, failure.transport_failure);
+        assert_eq!(
+            (restored.status, restored.code),
+            (502, "upstream_stream_error")
+        );
+        assert_eq!(restored.message, failure.message);
+        for raw in [
+            std::io::Error::other("cannot decrypt peer's message"),
+            std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "unexpected EOF"),
+            std::io::Error::other(rustls::Error::InvalidCertificate(
+                rustls::CertificateError::UnknownIssuer,
+            )),
+        ] {
+            assert_eq!(
+                transport_failure(502, "upstream_stream_error", "Read failed", &raw)
+                    .transport_failure,
+                None
+            );
+        }
+        let remote = ServiceError::new(
+            502,
+            "upstream_stream_error",
+            "cannot decrypt peer's message",
+        );
+        assert_eq!(
+            transport_failure(502, "upstream_stream_error", "Read failed", &remote)
+                .transport_failure,
+            None
+        );
+    }
+
     #[test]
     fn parity22_runtime_wrapped_error_keeps_classification_and_public_details() {
         let wrapped = serde_json::json!({"type":"error","status":401,"body":{"error":{"code":"invalid_grant","type":"authentication_error","message":"fixture expired","param":"token"}}});

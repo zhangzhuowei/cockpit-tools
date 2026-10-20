@@ -1110,6 +1110,7 @@ fn model_pricing(
 enum CodexBillingServiceTier {
     Standard,
     Priority,
+    Ultrafast,
     Flex,
 }
 
@@ -1429,9 +1430,7 @@ fn price_book_entry_for_model(model_id: &str) -> Option<&'static CodexLocalAcces
 fn parse_billing_service_tier(service_tier: Option<&str>) -> CodexBillingServiceTier {
     match service_tier.and_then(normalize_proxy_service_tier) {
         Some("priority") => CodexBillingServiceTier::Priority,
-        // “超高速”（ultrafast）目前没有公开的独立费率，按官方快速档同档估算，
-        // 避免落回标准档导致费用被明显低估。
-        Some("ultrafast") => CodexBillingServiceTier::Priority,
+        Some("ultrafast") => CodexBillingServiceTier::Ultrafast,
         Some("flex") => CodexBillingServiceTier::Flex,
         _ => CodexBillingServiceTier::Standard,
     }
@@ -1493,7 +1492,7 @@ fn pricing_has_explicit_priority_rates(pricing: &CodexLocalAccessModelPricing) -
 }
 
 /// Resolve unit prices after service_tier + long-context policy
-/// (absolute priority rates, else x2/x0.5; long multiplies input/cache/output).
+/// (absolute priority rates, else x2; Ultrafast x6, Flex x0.5; long composes).
 fn compute_effective_unit_prices(
     pricing: &CodexLocalAccessModelPricing,
     model_id: &str,
@@ -1533,6 +1532,11 @@ fn compute_effective_unit_prices(
         }
         CodexBillingServiceTier::Priority if !is_grok_47_pricing_model(model_id) => {
             tier_multiplier = 2.0;
+        }
+        CodexBillingServiceTier::Ultrafast if !is_grok_47_pricing_model(model_id) => {
+            // OpenAI Ultrafast uses 6x Standard, independently of Fast overrides.
+            // https://developers.openai.com/api/docs/models/gpt-6.1-sol
+            tier_multiplier = 6.0;
         }
         CodexBillingServiceTier::Flex if !is_grok_47_pricing_model(model_id) => {
             tier_multiplier = 0.5;

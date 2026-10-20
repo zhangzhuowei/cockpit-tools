@@ -4,6 +4,7 @@ const NATIVE_HTTP_CLIENT_CACHE_LIMIT: usize = 128;
 struct NativeHttpClientEntry {
     account_id: String,
     client: Client,
+    identity: String,
     used: u64,
 }
 
@@ -24,20 +25,22 @@ impl Default for NativeHttpClientCache {
 }
 
 impl NativeHttpClientCache {
-    fn get(&mut self, key: &str) -> Option<Client> {
+    fn get(&mut self, key: &str) -> Option<(Client, String)> {
         let entry = self.entries.get_mut(key)?;
         self.clock = self.clock.saturating_add(1);
         entry.used = self.clock;
-        Some(entry.client.clone())
+        Some((entry.client.clone(), entry.identity.clone()))
     }
 
-    fn insert(&mut self, key: String, account_id: String, client: Client) {
+    fn insert(&mut self, key: String, account_id: String, client: Client) -> String {
         self.clock = self.clock.saturating_add(1);
+        let identity = format!("{key}:{}", uuid::Uuid::new_v4());
         self.entries.insert(
             key,
             NativeHttpClientEntry {
                 account_id,
                 client,
+                identity: identity.clone(),
                 used: self.clock,
             },
         );
@@ -54,6 +57,23 @@ impl NativeHttpClientCache {
             // own reqwest Client clones; eviction never aborts an active turn.
             self.entries.remove(&oldest);
         }
+        identity
+    }
+
+    fn invalidate(&mut self, identity: &str) -> bool {
+        let Some((key, _)) = identity.rsplit_once(':') else {
+            return false;
+        };
+        if self
+            .entries
+            .get(key)
+            .is_some_and(|entry| entry.identity == identity)
+        {
+            self.entries.remove(key);
+            return true;
+        }
+        // A late failure from a retired pool must not remove its replacement.
+        false
     }
 
     fn retain_accounts(&mut self, keep: impl Fn(&str) -> bool) {
@@ -166,6 +186,13 @@ async fn native_http_client(
     account: &CodexAccount,
     context: &NativeTransportContext<'_>,
 ) -> Result<(Client, Option<String>, Option<Value>, String), native_contract::ServiceError> {
+    // Synchronous proxy policy reads only the prepared in-memory snapshot. A
+    // cold native service must load it here, without relying on UI/startup work.
+    // Reuse the bounded, single-flight loader; explicit account/direct/API-key
+    // routes skip shared storage and load failures must not become a fallback.
+    crate::modules::codex_proxy_runtime::ensure_account_proxy_state(account)
+        .await
+        .map_err(|_| native_error(503, "proxy_unavailable", "Account proxy is unavailable"))?;
     let account_proxy = if account.egress_proxy_disabled {
         None
     } else {
@@ -288,13 +315,13 @@ async fn native_http_client(
         proxy.as_deref(),
         &no_proxy,
     );
-    if let Some(client) = host
+    if let Some((client, identity)) = host
         .clients
         .lock()
         .ok()
         .and_then(|mut cache| cache.get(&cache_key))
     {
-        return Ok((client, proxy, proxy_route, cache_key));
+        return Ok((client, proxy, proxy_route, identity));
     }
     let mut builder = native_http_client_builder(
         native_codex_responses_alpn(account, context),
@@ -331,11 +358,13 @@ async fn native_http_client(
     if let Ok(mut clients) = host.clients.lock() {
         // Another preparation may have built the same client while this one was
         // outside the lock. Reuse its entry without replacing its live pool.
-        if let Some(client) = clients.get(&cache_key) {
-            return Ok((client, proxy, proxy_route, cache_key));
+        if let Some((client, identity)) = clients.get(&cache_key) {
+            return Ok((client, proxy, proxy_route, identity));
         }
-        clients.insert(cache_key.clone(), account.id.clone(), client.clone());
+        let identity = clients.insert(cache_key, account.id.clone(), client.clone());
+        return Ok((client, proxy, proxy_route, identity));
     }
+    // This uncached client has no shared pool to retire.
     Ok((client, proxy, proxy_route, cache_key))
 }
 

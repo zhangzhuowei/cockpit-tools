@@ -57,7 +57,10 @@ impl Host for PolicyHost {
     ) -> BoxFuture<'a, Result<Route, ServiceError>> {
         Box::pin(async move {
             Ok(Route {
+                continuity_account_id: None,
                 installation_profile: None,
+                official_authorization_revision: None,
+                official_registration_id: None,
                 transport_identity: None,
                 account_id: "a".into(),
                 owner_id: "a".into(),
@@ -68,6 +71,7 @@ impl Host for PolicyHost {
                 proxy_url: None,
                 proxy_route: None,
                 chatgpt: self.chatgpt,
+                chatgpt_plan: false,
                 wire_api: WireApi::Responses,
                 compact_endpoint: None,
                 websocket_endpoint: None,
@@ -344,7 +348,10 @@ async fn native_transport_rejects_forged_websocket_accept() {
         stream.write_all(b"HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Accept: forged-value\r\n\r\n").await.unwrap();
     });
     let route = Route {
+        continuity_account_id: None,
         installation_profile: None,
+        official_authorization_revision: None,
+        official_registration_id: None,
         transport_identity: None,
         account_id: "a".into(),
         owner_id: "a".into(),
@@ -355,6 +362,7 @@ async fn native_transport_rejects_forged_websocket_accept() {
         proxy_url: None,
         proxy_route: None,
         chatgpt: false,
+        chatgpt_plan: false,
         wire_api: WireApi::Responses,
         compact_endpoint: None,
         websocket_endpoint: None,

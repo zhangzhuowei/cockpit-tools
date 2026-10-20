@@ -5,6 +5,14 @@ use axum::http::HeaderMap;
 use futures_util::future::BoxFuture;
 use serde_json::Value;
 
+pub use super::multi_agent_compat::{ModelProfile, Options as MultiAgentOptions};
+
+#[derive(Clone, Debug, Default)]
+pub struct MultiAgentPolicy {
+    pub options: MultiAgentOptions,
+    pub models: Vec<ModelProfile>,
+}
+
 #[derive(Clone, Debug)]
 pub struct Caller {
     pub id: String,
@@ -30,6 +38,16 @@ pub struct RouteRequest {
     pub requires_permit: bool,
     /// Named non-Responses operation; preserves model ACLs while selecting compatible credentials.
     pub auxiliary: Option<String>,
+    /// Effective request features before provider-specific normalization.
+    pub required_capabilities: Vec<String>,
+    /// Select only explicitly configured backups; never relax caller/model scope.
+    pub capability_fallback_from: Option<String>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct CapabilityFallbackDecision {
+    pub enabled: bool,
+    pub unsupported: Vec<String>,
 }
 
 /// Validated client routing identities before account-specific upstream rewriting.
@@ -111,12 +129,17 @@ impl ExecutionPolicy {
 #[derive(Clone)]
 pub struct Route {
     pub account_id: String,
+    /// Credential namespace for continuation state; business membership remains account_id.
+    pub continuity_account_id: Option<String>,
     /// Stable owner identity (including workspace), independent of token refreshes.
     pub owner_id: String,
     /// Stable installation identity; independent of continuation ownership.
     pub installation_profile: Option<crate::modules::codex_api_identity::InstallationProfile>,
-    /// Opaque transport configuration/credential digest. Never sent upstream.
+    /// Opaque configuration/credential digest and client generation. Never sent upstream.
     pub transport_identity: Option<String>,
+    /// SIWC authorization epoch used for this attempt; internal only.
+    pub official_authorization_revision: Option<String>,
+    pub official_registration_id: Option<String>,
     /// Responses base: e.g. https://chatgpt.com/backend-api/codex or https://api.openai.com/v1.
     pub base_url: String,
     pub model: String,
@@ -126,6 +149,8 @@ pub struct Route {
     /// Sanitized route diagnostics; never forwarded as an upstream header.
     pub proxy_route: Option<Value>,
     pub chatgpt: bool,
+    /// Independent Sign in with ChatGPT plan grant; never a Codex backend route.
+    pub chatgpt_plan: bool,
     /// Upstream wire protocol, independently of the protocol used by the caller.
     pub wire_api: WireApi,
     pub compact_endpoint: Option<EndpointOverride>,
@@ -133,6 +158,10 @@ pub struct Route {
     pub default_service_tier: Option<String>,
     /// Held until the request or stream actually ends.
     pub permit: Option<Arc<dyn Send + Sync>>,
+}
+
+impl Route {
+    pub fn continuity_id(&self) -> &str { self.continuity_account_id.as_deref().unwrap_or(&self.account_id) }
 }
 
 #[derive(Clone)]
@@ -169,6 +198,11 @@ pub struct ImageRoute {
     pub main_model: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransportFailureKind {
+    TlsDecrypt,
+}
+
 #[derive(Clone, Debug)]
 pub struct ServiceError {
     pub status: u16,
@@ -178,6 +212,8 @@ pub struct ServiceError {
     pub response_error: Option<Value>,
     pub retry_after: Option<Duration>,
     pub credential_scope: bool,
+    /// Local, typed transport evidence; never inferred from an upstream message.
+    pub transport_failure: Option<TransportFailureKind>,
 }
 
 impl ServiceError {
@@ -189,6 +225,7 @@ impl ServiceError {
             response_error: None,
             retry_after: None,
             credential_scope: false,
+            transport_failure: None,
         }
     }
 
@@ -208,8 +245,23 @@ impl ServiceError {
     }
 }
 
+impl std::fmt::Display for ServiceError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for ServiceError {}
+
 #[derive(Clone, Debug)]
 pub struct RequestReport {
+    /// One-way fingerprint of the actual SIWC access token for stale-error fencing.
+    /// Never serialized into public logs or request payloads.
+    pub official_access_fingerprint: Option<String>,
+    pub official_authorization_revision: Option<String>,
+    pub official_registration_id: Option<String>,
+    /// Classified authorization evidence for this attempt, never public payload data.
+    pub official_authorization_error: Option<String>,
     pub operation: &'static str,
     pub diagnostics: Option<super::diagnostics::DiagnosticContext>,
     pub caller: Caller,
@@ -230,6 +282,25 @@ pub struct RequestReport {
 }
 
 pub trait Host: Send + Sync + 'static {
+    /// Retire only the failed client generation. Fast in-memory work only;
+    /// existing streams keep their client clones and must not be cancelled.
+    fn invalidate_transport(&self, _identity: &str) -> bool { false }
+    /// Caller-visible model profiles and protocol-derived multi-agent policy.
+    /// Before routing only boundary/tool preparation is requested; a selected
+    /// route determines whether its protocol needs portable message input.
+    fn multi_agent_policy<'a>(
+        &'a self,
+        _caller: &'a Caller,
+        _route: Option<&'a Route>,
+        _requested_model: &'a str,
+    ) -> BoxFuture<'a, Result<MultiAgentPolicy, ServiceError>> {
+        Box::pin(async { Ok(MultiAgentPolicy::default()) })
+    }
+    /// Fast in-memory observations only; implementations must not wait for disk or network.
+    fn observe_rate_limits(&self, _account_id: &str, _snapshot: super::rate_limits::QuotaSnapshot,
+        _request_started: std::time::Instant) {}
+    fn quota_request_started(&self, _account_id: &str) {}
+    fn check_quota_before_send(&self, _account_id: &str) -> Result<(), ServiceError> { Ok(()) }
     /// A runtime policy notification; must not perform blocking I/O.
     fn set_cooling_disabled(&self, _disabled: bool) {}
     /// Disabling affinity clears only the transient routing preference cache.
@@ -237,7 +308,7 @@ pub trait Host: Send + Sync + 'static {
     fn prepare_body<'a>(
         &'a self,
         _caller: &'a Caller,
-        _account_id: &'a str,
+        _route: &'a Route,
         _headers: &'a HeaderMap,
         body: Value,
         _dedicated_image: bool,
@@ -294,6 +365,12 @@ pub trait Host: Send + Sync + 'static {
     ) -> BoxFuture<'a, ()> {
         self.route_failed_for_model(account_id, model, status, retry_after, credential_scope)
     }
+    fn route_failed_attempt<'a>(
+        &'a self, route: &'a Route, model: &'a str, status: u16,
+        retry_after: Option<Duration>, credential_scope: bool, message: Option<&'a str>,
+    ) -> BoxFuture<'a, ()> {
+        self.route_failed_with_context(&route.account_id, model, status, retry_after, credential_scope, message)
+    }
     fn retry_cooldown_wait<'a>(
         &'a self,
         _caller: &'a Caller,
@@ -321,6 +398,14 @@ pub trait Host: Send + Sync + 'static {
         caller: &'a Caller,
         request: RouteRequest,
     ) -> BoxFuture<'a, Result<Route, ServiceError>>;
+    fn capability_fallback_decision<'a>(
+        &'a self,
+        _caller: &'a Caller,
+        _route: &'a Route,
+        _request: &'a RouteRequest,
+    ) -> BoxFuture<'a, Result<CapabilityFallbackDecision, ServiceError>> {
+        Box::pin(async { Ok(CapabilityFallbackDecision::default()) })
+    }
     fn models<'a>(&'a self, caller: &'a Caller) -> BoxFuture<'a, Result<Value, ServiceError>>;
     /// Local estimate preprocessing, after public model visibility was checked.
     /// This must not acquire an account permit or issue an upstream request.

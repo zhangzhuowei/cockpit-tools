@@ -1,3 +1,4 @@
+import { requestCodexOfficialAuthorizationManagement, requestCodexOfficialAuthorizationCheck } from "../utils/codexAccountServiceNavigation";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useModalScrollLock } from "../hooks/useModalScrollLock";
@@ -14,13 +15,13 @@ import { CodexGroupAccountPickerModal } from "../components/CodexGroupAccountPic
 import { CodexLocalAccessModal } from "../components/CodexLocalAccessModal";
 import { CodexInstanceGatewaysModal } from "../components/CodexInstanceGatewaysModal";
 import { CodexAccountPoolHealthModal } from "../components/CodexAccountPoolHealthModal";
-import { isCodexApiKeyAccount, isCodexChatCompletionsApiKeyAccount, isCodexNewApiAccount } from "../types/codex";
+import { isCodexApiKeyAccount, isCodexChatgptPlanAccount, isCodexChatCompletionsApiKeyAccount, isCodexNewApiAccount } from "../types/codex";
 import { QuickSettingsPopover } from "../components/QuickSettingsPopover";
 import { MultiSelectFilterDropdown } from "../components/MultiSelectFilterDropdown";
 import { SingleSelectFilterDropdown } from "../components/SingleSelectFilterDropdown";
 import { SingleSelectDropdown } from "../components/SingleSelectDropdown";
 import { CODEX_API_PROVIDER_CUSTOM_ID, CODEX_API_PROVIDER_PRESETS, COCKPIT_API_PROVIDER_ID } from "../utils/codexProviderPresets";
-import { formatCodexQuotaPoolPercent, formatCodexQuotaPoolWindowLabel } from "../utils/codexQuotaPool";
+import { formatCodexQuotaPoolPlanLabel, formatCodexQuotaPoolPercent, formatCodexQuotaPoolWindowLabel } from "../utils/codexQuotaPool";
 import { getMfaOtpToken } from "../utils/mfaVault";
 import type { CodexExportFormat } from "../utils/codexExportFormats";
 import type { CodexAccountsViewProps } from "./CodexAccountsView";
@@ -33,6 +34,9 @@ import { PELICAN_GROUPS_CHANGED } from "../components/codex/pelican/PelicanResul
 
 /** 渲染 CodexAccountsView 的 activeTab === "overview" 业务面板。 */
 export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
+  useEffect(() => {
+    if (props.localAccessState) requestCodexOfficialAuthorizationCheck({ running: Boolean(props.localAccessState.running && props.localAccessCollection?.enabled) });
+  }, [props.localAccessState?.running, props.localAccessCollection?.enabled]);
   const {
     accountNoteCopiedKey,
     accountNoteError,
@@ -242,6 +246,7 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
     openFormattedExportSavedDirectory,
     openFullQuotaWakeupTestModal,
     overviewAccounts,
+    planOverview,
     overviewCurrentAccountId,
     overviewLayoutMode,
     page,
@@ -565,8 +570,8 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
               </button>
               <button
                 className="btn btn-secondary icon-only"
-                onClick={handleRefreshAll}
-                disabled={refreshingAll || accounts.length === 0}
+                onClick={() => { void planOverview.reload(); handleRefreshAll(); }}
+                disabled={refreshingAll || planOverview.loading || overviewAccounts.length === 0}
                 title={t("common.shared.refreshAll", "刷新全部")}
               >
                 <RefreshCw
@@ -614,15 +619,15 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
             </div>
           </div>
 
-          {(accounts.length > 0 || codexGroups.length > 0) && (
+          {(overviewAccounts.length > 0 || codexGroups.length > 0) && (
             <div className="codex-overview-selection-bar account-selection-toolbar has-middle">
               <div className="codex-overview-selection-left">
                 <label className="codex-overview-select-all">
                   <input
                     type="checkbox"
                     checked={isAllPaginatedSelected}
+                            disabled={!paginatedAccounts.some((account) => !isCodexChatgptPlanAccount(account))}
                     onChange={handleToggleSelectAllPaginated}
-                    disabled={paginatedAccounts.length === 0}
                   />
                   <span>{t("common.selectAll", "全选")}</span>
                 </label>
@@ -756,12 +761,12 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
             </div>
           )}
 
-          {loading && accounts.length === 0 ? (
+          {loading && overviewAccounts.length === 0 ? (
             <div className="loading-container">
               <RefreshCw size={24} className="loading-spinner" />
               <p>{t("common.loading", "加载中...")}</p>
             </div>
-          ) : accounts.length === 0 && !hasGroupEntryCards ? (
+          ) : overviewAccounts.length === 0 && !hasGroupEntryCards ? (
             <div className="empty-state">
               <Globe size={48} />
               <h3>{t("common.shared.empty.title", "暂无账号")}</h3>
@@ -1035,6 +1040,7 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
                           <input
                             type="checkbox"
                             checked={isAllPaginatedSelected}
+                            disabled={!paginatedAccounts.some((account) => !isCodexChatgptPlanAccount(account))}
                             onChange={handleToggleSelectAllPaginated}
                           />
                           {t("common.selectAll", "全选")}
@@ -1091,6 +1097,7 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
                               <input
                                 type="checkbox"
                                 checked={isAllPaginatedSelected}
+                            disabled={!paginatedAccounts.some((account) => !isCodexChatgptPlanAccount(account))}
                                 onChange={handleToggleSelectAllPaginated}
                               />
                             )}
@@ -1150,6 +1157,7 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
                               <input
                                 type="checkbox"
                                 checked={isAllPaginatedSelected}
+                            disabled={!paginatedAccounts.some((account) => !isCodexChatgptPlanAccount(account))}
                                 onChange={handleToggleSelectAllPaginated}
                               />
                             )}
@@ -1196,6 +1204,7 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
           />
 
           {<CodexAddAccountDialog {...props} />}
+
 
           {quickSwitchAccountId && createPortal(
             <div className="modal-overlay codex-account-dialog-overlay">
@@ -2196,7 +2205,7 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
                         >
                           <div className="codex-local-access-stats-plan">
                             <strong>
-                              {item.key} ({item.count})
+                              {formatCodexQuotaPoolPlanLabel(item, t('chatgptPlan.officialFlow.badge'), { pending: t('chatgptPlan.officialFlow.bindingChecking'), invalid: t('chatgptPlan.officialFlow.bindingInvalid') })} ({item.count})
                             </strong>
                           </div>
                           <div className="codex-local-access-stats-values">
@@ -3419,6 +3428,8 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
           <CodexAccountPoolHealthModal
             isOpen={showLocalAccessHealthModal}
             accountIds={localAccessCollection?.accountIds ?? []}
+            pausedAccountIds={localAccessCollection?.pausedAccountIds}
+            officialAccountBindings={localAccessCollection?.officialAccountBindings}
             accounts={accounts}
             accountHealth={localAccessState?.accountHealth ?? []}
             accountPoolHealth={localAccessState?.accountPoolHealth ?? []}
@@ -3436,7 +3447,8 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
               const account = accounts.find((item) => item.id === accountId);
               if (!account) return;
               setShowLocalAccessHealthModal(false);
-              openCodexAddModal("tempLogin", account);
+              if (isCodexChatgptPlanAccount(account) || localAccessCollection?.officialAccountBindings?.[accountId]) requestCodexOfficialAuthorizationManagement();
+              else openCodexAddModal("tempLogin", account);
             }}
           />
 
@@ -3456,6 +3468,8 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
               localAccessModalMode === "members"
                 ? {
                     accounts: filteredAccounts,
+                    activeGroupId,
+                    compareAccounts: props.compareAccountsBySort,
                     searchQuery,
                     filterTypes,
                     tagFilter,
@@ -3488,6 +3502,7 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
               sessionAffinity,
               sessionAffinityTtlMs,
               imageGenerationAccountPolicies,
+              officialAccountBindings,
             }) =>
               handleSaveLocalAccessAccounts(accountIds, {
                 restrictFreeAccounts,
@@ -3496,6 +3511,7 @@ export function CodexAccountsOverviewPanel(props: CodexAccountsViewProps) {
                 sessionAffinity,
                 sessionAffinityTtlMs,
                 imageGenerationAccountPolicies,
+                officialAccountBindings,
               })
             }
             onClearStats={handleClearLocalAccessStats}

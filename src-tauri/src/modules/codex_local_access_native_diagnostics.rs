@@ -1,4 +1,6 @@
 // Native management and diagnostics share the host's bounded, redacted persistence.
+#[path = "codex_local_access_native_quota_plans.rs"]
+mod official_quota_plans;
 use crate::modules::codex_native_api::diagnostics::{
     DiagnosticContext as NativeDiagnosticContext, ManagementRequest as NativeManagementRequest,
 };
@@ -39,7 +41,11 @@ fn native_diagnostic_detail(
             .into_iter()
             .take(REQUEST_DIAGNOSTICS_MAX_ATTEMPTS)
             .map(|item| CodexLocalAccessRequestAttempt {
+                authorization_route: item.authorization_route,
                 sequence: item.sequence,
+                transport_error: item.transport_error,
+                transport_pool_retired: item.transport_pool_retired,
+                upstream_http_version: item.upstream_http_version,
                 upstream_identity_captured: item.upstream_identity_captured,
                 upstream_session_id: item.upstream_session_id,
                 upstream_thread_id: item.upstream_thread_id,
@@ -58,6 +64,16 @@ fn native_diagnostic_detail(
                 error_category: item.error_category,
                 error_message: item.error_message,
                 failure_phase: item.failure_phase,
+                capability_fallback: item.capability_fallback.map(|trace| {
+                    crate::models::codex_local_access::CodexLocalAccessCapabilityFallbackTrace {
+                        reason: trace.reason,
+                        capabilities: trace.capabilities,
+                        from_account_id: trace.from_account_id,
+                        from_model: trace.from_model,
+                        to_account_id: trace.to_account_id,
+                        to_model: trace.to_model,
+                    }
+                }),
             })
             .collect(),
         payloads: if capture_payloads {
@@ -243,7 +259,7 @@ async fn native_management(
         NativeManagementRequest::ServiceTier {
             speed, revision, ..
         } => {
-            if revision == 0 || !matches!(speed.as_str(), "standard" | "fast") {
+            if revision == 0 || !matches!(speed.as_str(), "standard" | "fast" | "ultrafast") {
                 return Err(native_error(
                     400,
                     "invalid_request",
@@ -265,11 +281,7 @@ async fn native_management(
             .await
             .map_err(|_| native_error(503, "service_unavailable", "Cannot read API speed"))?
             .map_err(|_| native_error(503, "service_unavailable", "Cannot read API speed"))?;
-            let saved = if saved.speed == CodexAppSpeed::Fast {
-                "fast"
-            } else {
-                "standard"
-            };
+            let saved = saved.speed.as_str();
             if expected != saved {
                 return Err(native_error(
                     409,
@@ -283,7 +295,16 @@ async fn native_management(
         NativeManagementRequest::Quota => {
             let collection = bridge.collection().await?;
             let scope = native_management_scope(&collection, caller)?;
-            let accounts = native_load_accounts(scope.clone()).await?;
+            let original_accounts = native_load_accounts(scope.clone()).await?;
+            let mut official_plans = official_quota_plans::load(&original_accounts).await;
+            // The canonical source is already within this key's scope. Display
+            // its measured quota, while health comes from the selected grant.
+            for source in &original_accounts {
+                if collection.official_account_bindings.contains_key(&source.id) {
+                    official_plans.insert(source.id.clone(), official_quota_plans::DisplayAccount::from_source(source));
+                }
+            }
+            let accounts = bridge.load_routing_accounts(scope.clone(), caller.id != NATIVE_INTERNAL_CALLER).await?;
             let cooling: HashSet<String> = bridge
                 .cooldowns
                 .lock()
@@ -299,6 +320,7 @@ async fn native_management(
                 &accounts,
                 &cooling,
                 chrono::Utc::now().timestamp(),
+                &official_plans,
             ))
         }
         NativeManagementRequest::ResetAuth { account_ids }
@@ -358,6 +380,7 @@ fn native_quota_summary(
     accounts: &[CodexAccount],
     cooling: &HashSet<String>,
     now: i64,
+    official_plans: &HashMap<String, official_quota_plans::DisplayAccount>,
 ) -> Value {
     let by_id = accounts
         .iter()
@@ -371,39 +394,86 @@ fn native_quota_summary(
     let mut updated_at = 0;
     let mut stale = false;
     let mut plans: std::collections::BTreeMap<String, Value> = std::collections::BTreeMap::new();
+    // Group only the key-visible channels. A validated official association
+    // contributes display metadata, never another account's channel health.
+    let mut groups: std::collections::BTreeMap<&str, Vec<(&str, Option<&CodexAccount>)>> =
+        std::collections::BTreeMap::new();
+    let mut seen = HashSet::new();
     for id in scope {
+        if !seen.insert(id.as_str()) {
+            continue;
+        }
         let account = by_id.get(id.as_str()).copied();
-        let plan = account
-            .map(|account| {
-                if account.is_api_key_auth() {
-                    "API_KEY".into()
-                } else {
+        let source = account
+            .filter(|account| codex_account::is_chatgpt_plan_account(account))
+            .and_then(|_| official_plans.get(id))
+            .map(|display| display.source_id.as_str())
+            .unwrap_or(id.as_str());
+        groups.entry(source).or_default().push((id, account));
+    }
+    for (source, channels) in groups {
+        let original = channels
+            .iter()
+            .find_map(|(id, account)| (*id == source).then_some(*account).flatten());
+        let display = original
+            .filter(|account| !codex_account::is_chatgpt_plan_account(account))
+            .map(official_quota_plans::DisplayAccount::from_source)
+            .or_else(|| {
+                channels.iter().find_map(|(id, account)| {
                     account
-                        .plan_type
-                        .as_deref()
-                        .unwrap_or("UNKNOWN")
-                        .trim()
-                        .replace(['-', ' '], "_")
-                        .to_ascii_uppercase()
-                }
+                        .filter(|account| codex_account::is_chatgpt_plan_account(account))
+                        .and_then(|_| official_plans.get(*id))
+                        .cloned()
+                })
+            });
+        let api_key = channels.iter().all(|(_, account)| {
+            account.is_some_and(|account| {
+                account.is_api_key_auth() && !codex_account::is_chatgpt_plan_account(account)
             })
-            .unwrap_or_else(|| "UNKNOWN".into());
+        });
+        let name = if api_key {
+            "API_KEY".to_owned()
+        } else {
+            display
+                .as_ref()
+                .and_then(|display| display.plan.clone())
+                .unwrap_or_else(|| {
+                    if channels.iter().any(|(_, account)| {
+                        account.is_some_and(codex_account::is_chatgpt_plan_account)
+                    }) {
+                        "ChatGPT".into()
+                    } else {
+                        "UNKNOWN".into()
+                    }
+                })
+        };
         let plan = plans
-            .entry(plan.clone())
-            .or_insert_with(|| json!({"plan":plan,"count":0}));
+            .entry(name.clone())
+            .or_insert_with(|| json!({"plan":name,"count":0}));
         plan["count"] = json!(plan["count"].as_u64().unwrap_or(0) + 1);
-        if account.is_some_and(CodexAccount::is_api_key_auth) {
+        if api_key {
             continue;
         }
         count += 1;
-        let Some(account) = account else {
+        let has_healthy_official = channels.iter().any(|(id, account)| {
+            account.is_some_and(|account| {
+                codex_account::is_chatgpt_plan_account(account)
+                    && !cooling.contains(*id)
+                    && !account.requires_reauth
+                    && account.quota_error.is_none()
+            })
+        });
+        let channel_cooling = channels.iter().any(|(id, _)| cooling.contains(*id));
+        let quota = display.as_ref().and_then(|display| display.quota.as_ref());
+        let Some(quota) = quota else {
             missing += 1;
-            abnormal += 1;
-            continue;
-        };
-        let Some(quota) = account.quota.as_ref() else {
-            missing += 1;
-            abnormal += 1;
+            if has_healthy_official {
+                available += 1;
+            } else if channel_cooling {
+                cooldown += 1;
+            } else {
+                abnormal += 1;
+            }
             continue;
         };
         let mut first = (quota.hourly_window_present != Some(false)
@@ -428,7 +498,13 @@ fn native_quota_summary(
         };
         let Some(value) = value else {
             missing += 1;
-            abnormal += 1;
+            if has_healthy_official {
+                available += 1;
+            } else if channel_cooling {
+                cooldown += 1;
+            } else {
+                abnormal += 1;
+            }
             continue;
         };
         total = Some(total.unwrap_or(0) + value);
@@ -444,14 +520,22 @@ fn native_quota_summary(
             plan[field] = json!(plan[field].as_i64().unwrap_or(0) + value);
         }
         included += 1;
-        if cooling.contains(id) {
-            cooldown += 1;
-        } else if account.requires_reauth || account.quota_error.is_some() {
-            abnormal += 1;
-        } else {
+        let channel_available = channels.iter().any(|(id, account)| {
+            account.is_some_and(|account| {
+                !cooling.contains(*id) && !account.requires_reauth && account.quota_error.is_none()
+            })
+        });
+        if channel_available {
             available += 1;
+        } else if channel_cooling {
+            cooldown += 1;
+        } else {
+            abnormal += 1;
         }
-        if let Some(at) = account.usage_updated_at {
+        if let Some(at) = display
+            .as_ref()
+            .and_then(|display| display.usage_updated_at)
+        {
             updated_at = updated_at.max(at);
             stale |= now.saturating_sub(at) > 900 || at > now;
         } else {
@@ -489,6 +573,32 @@ fn native_quota_summary(
 mod native_diagnostic_tests {
     use super::*;
     use crate::modules::codex_native_api::diagnostics::DiagnosticPayload;
+
+    #[test]
+    fn native_capability_fallback_trace_survives_disabled_payload_capture() {
+        let trace = json!({
+            "reason":"preflight", "capabilities":["file_search"],
+            "fromAccountId":"primary", "fromModel":"fixture-model",
+            "toAccountId":"backup", "toModel":"fixture-model"
+        });
+        let context = NativeDiagnosticContext {
+            request_id: "capability-fixture".into(),
+            attempts: vec![serde_json::from_value(json!({
+                "sequence":1, "accountId":"backup", "modelId":"fixture-model",
+                "transport":"http", "startedAtMs":1, "latencyMs":0,
+                "success":true, "capabilityFallback":trace
+            }))
+            .unwrap()],
+            ..Default::default()
+        };
+        let detail = native_diagnostic_detail(context, false);
+        assert!(detail.payloads.is_empty());
+        assert_eq!(detail.attempts.len(), 1);
+        assert_eq!(
+            serde_json::to_value(&detail.attempts[0].capability_fallback).unwrap(),
+            trace
+        );
+    }
 
     #[test]
     fn management_scope_never_promotes_empty_or_limited_keys() {
@@ -656,6 +766,7 @@ mod native_diagnostic_tests {
             &[account("scoped", 80, 0), account("outside", 100, 100)],
             &HashSet::new(),
             1001,
+            &HashMap::new(),
         );
         assert_eq!(result["accountCount"], 2);
         assert_eq!(result["includedAccountCount"], 1);
@@ -664,8 +775,10 @@ mod native_diagnostic_tests {
         assert_eq!(result["fiveHourRemainingPercent"], 0);
         assert_eq!(result["weeklyRemainingPercent"], 0);
         let empty =
-            native_quota_summary(&[], &[account("outside", 100, 100)], &HashSet::new(), 1001);
+            native_quota_summary(&[], &[account("outside", 100, 100)], &HashSet::new(), 1001, &HashMap::new());
         assert_eq!(empty["accountCount"], 0);
         assert!(empty.get("remainingPercent").is_none());
     }
+
+    include!("codex_local_access_native_quota_summary_tests.rs");
 }

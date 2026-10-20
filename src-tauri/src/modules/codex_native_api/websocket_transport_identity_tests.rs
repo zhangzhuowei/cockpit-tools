@@ -26,7 +26,10 @@ fn route() -> Route {
     Route {
         account_id: "a".into(),
         owner_id: "owner-a".into(),
+        continuity_account_id: None,
         installation_profile: Some(profile()),
+        official_authorization_revision: None,
+        official_registration_id: None,
         transport_identity: Some("stable-transport".into()),
         base_url: "http://127.0.0.1:1/v1".into(),
         model: "m".into(),
@@ -38,6 +41,7 @@ fn route() -> Route {
         proxy_url: None,
         proxy_route: None,
         chatgpt: false,
+        chatgpt_plan: false,
         wire_api: WireApi::Responses,
         compact_endpoint: None,
         websocket_endpoint: None,
@@ -52,6 +56,8 @@ fn websocket_reuse_requires_matching_installation_authentication_and_transport_c
     assert!(!websocket_transport_changed(&original, &original));
     let mutations: Vec<Box<dyn Fn(&mut Route)>> = vec![
         Box::new(|v| v.account_id = "b".into()),
+        Box::new(|v| v.continuity_account_id = Some("chatgpt_plan_other-grant".into())),
+        Box::new(|v| v.official_registration_id = Some("other-grant".into())),
         Box::new(|v| v.owner_id = "another-owner".into()),
         Box::new(|v| v.transport_identity = Some("new-config".into())),
         Box::new(|v| v.installation_profile.as_mut().unwrap().revision += 1),

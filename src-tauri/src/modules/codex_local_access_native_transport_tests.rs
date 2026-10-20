@@ -189,7 +189,7 @@ async fn native_client_cache_separates_accounts_on_the_same_proxy_and_reuses_exa
         .unwrap()
         .retain_accounts(|account| account != first.account.id);
     assert_eq!(host.clients.lock().unwrap().len(), 1);
-    assert!(host.clients.lock().unwrap().entries.contains_key(&key_b));
+    assert!(host.clients.lock().unwrap().entries.values().any(|entry| entry.identity == key_b));
 }
 
 #[test]
@@ -208,6 +208,31 @@ fn native_client_cache_evicts_only_the_least_recently_used_entry() {
     assert!(cache.get("a").is_some());
     assert!(cache.get("b").is_none());
     assert!(cache.get("c").is_some());
+}
+
+#[tokio::test]
+async fn native_tls_invalidation_rebuilds_only_the_failed_generation() {
+    let host = NativeHostBridge::default();
+    let first = Inputs::new();
+    let mut other = first.clone();
+    other.account.id = "other-account".into();
+    let mut websocket = first.clone();
+    websocket.http1_only = true;
+    let (_, _, _, original) = native_http_client(&host, &first.collection, &first.account, &first.context()).await.unwrap();
+    let (_, _, _, other_identity) = native_http_client(&host, &other.collection, &other.account, &other.context()).await.unwrap();
+    let (_, _, _, websocket_identity) = native_http_client(&host, &websocket.collection, &websocket.account, &websocket.context()).await.unwrap();
+    assert!(native_contract::Host::invalidate_transport(&host, &original));
+    assert!(!native_contract::Host::invalidate_transport(&host, &original));
+    let (_, _, _, replacement) = native_http_client(&host, &first.collection, &first.account, &first.context()).await.unwrap();
+    assert_ne!(original, replacement);
+    assert!(!native_contract::Host::invalidate_transport(&host, &original), "late failure must not retire a newer pool");
+    let (_, _, _, current) = native_http_client(&host, &first.collection, &first.account, &first.context()).await.unwrap();
+    assert_eq!(current, replacement);
+    for (input, expected) in [(&other, other_identity), (&websocket, websocket_identity)] {
+        let (_, _, _, actual) = native_http_client(&host, &input.collection, &input.account, &input.context()).await.unwrap();
+        assert_eq!(actual, expected, "another account or protocol must keep its pool");
+    }
+    assert_eq!(host.clients.lock().unwrap().len(), 3);
 }
 
 #[tokio::test]
@@ -285,7 +310,7 @@ async fn native_client_eviction_keeps_an_active_response_alive_and_never_retains
     )
     .await
     .unwrap();
-    assert!(!host.clients.lock().unwrap().entries.contains_key(&key_a));
+    assert!(!host.clients.lock().unwrap().entries.values().any(|entry| entry.identity == key_a));
     release.notify_one();
     assert_eq!(
         tokio::time::timeout(Duration::from_secs(2), response.chunk())
@@ -310,6 +335,7 @@ async fn native_client_eviction_keeps_an_active_response_alive_and_never_retains
 }
 
 include!("codex_local_access_native_proxy_bypass_tests.rs");
+include!("codex_local_access_native_proxy_startup_tests.rs");
 include!("codex_local_access_native_tls_lifecycle_tests.rs");
 
 const NATIVE_ALPN_DEADLINE: Duration = Duration::from_secs(5);

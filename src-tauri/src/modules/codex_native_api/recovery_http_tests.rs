@@ -50,7 +50,10 @@ impl Host for HostFixture {
         Box::pin(async move {
             self.selections.lock().unwrap().push(request.clone());
             Ok(Route {
+                continuity_account_id: None,
                 installation_profile: None,
+                official_authorization_revision: None,
+                official_registration_id: None,
                 transport_identity: None,
                 account_id: "account".into(),
                 owner_id: "owner".into(),
@@ -61,6 +64,7 @@ impl Host for HostFixture {
                 proxy_url: None,
                 proxy_route: None,
                 chatgpt: false,
+                chatgpt_plan: false,
                 wire_api: WireApi::Responses,
                 compact_endpoint: None,
                 websocket_endpoint: None,

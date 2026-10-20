@@ -1,6 +1,130 @@
 // Native instance gateways share the existing profile transaction, not the global API listener.
 
 impl NativeHostBridge {
+    async fn selected_authorization_current(
+        &self,
+        account: &str,
+        registration: Option<&str>,
+        revision: Option<&str>,
+    ) -> bool {
+        let Ok(collection) = self.collection().await else {
+            return false;
+        };
+        if self.profile_dir.is_some() {
+            return registration.is_none();
+        }
+        if !account.starts_with(codex_account::CHATGPT_PLAN_ACCOUNT_PREFIX)
+            && collection
+                .official_account_bindings
+                .get(account)
+                .map(String::as_str)
+                != registration
+        {
+            return false;
+        }
+        if let (Some(id), Some(revision)) = (registration, revision) {
+            crate::modules::chatgpt_plan::authorization_epoch_matches(
+                id,
+                (!account.starts_with(codex_account::CHATGPT_PLAN_ACCOUNT_PREFIX))
+                    .then_some(account),
+                revision,
+            )
+            .await
+        } else {
+            registration.is_none()
+        }
+    }
+    async fn load_route_account(
+        &self,
+        route: &native_contract::Route,
+    ) -> Result<Option<CodexAccount>, native_contract::ServiceError> {
+        if let Some(registration) = route
+            .official_registration_id
+            .as_ref()
+            .filter(|_| route.continuity_account_id.is_some())
+        {
+            let collection = self.collection().await?;
+            if !collection.account_ids.contains(&route.account_id)
+                || service_account_paused(&collection, &route.account_id)
+                || collection.official_account_bindings.get(&route.account_id) != Some(registration)
+            {
+                return Err(native_error(
+                    409,
+                    "account_binding_unavailable",
+                    "Selected authorization changed before the request was sent",
+                ));
+            }
+        }
+        if route.official_registration_id.is_some()
+            && !self
+                .selected_authorization_current(
+                    &route.account_id,
+                    route.official_registration_id.as_deref(),
+                    route.official_authorization_revision.as_deref(),
+                )
+                .await
+        {
+            return Err(native_error(
+                409,
+                "account_binding_unavailable",
+                "Selected official authorization is no longer valid",
+            ));
+        }
+        let mut accounts = self.load_accounts(vec![route.account_id.clone()]).await?;
+        let Some(account) = accounts.pop() else {
+            return Ok(None);
+        };
+        if let Some(registration) = route.official_registration_id.clone().filter(|_| {
+            !account
+                .id
+                .starts_with(codex_account::CHATGPT_PLAN_ACCOUNT_PREFIX)
+        }) {
+            return tokio::task::spawn_blocking(move || {
+                Some(crate::modules::chatgpt_plan::official_runtime_overlay(
+                    account,
+                    &registration,
+                ))
+            })
+            .await
+            .map_err(|_| {
+                native_error(
+                    503,
+                    "account_read_failed",
+                    "Unable to prepare selected official authorization",
+                )
+            });
+        }
+        Ok(Some(account))
+    }
+    async fn load_routing_accounts(
+        &self,
+        ids: Vec<String>,
+        official: bool,
+    ) -> Result<Vec<CodexAccount>, native_contract::ServiceError> {
+        let accounts = self.load_accounts(ids).await?;
+        let bindings = self.collection().await?.official_account_bindings;
+        if !official || self.profile_dir.is_some() || bindings.is_empty() {
+            return Ok(accounts);
+        }
+        tokio::task::spawn_blocking(move || {
+            accounts
+                .into_iter()
+                .map(|account| match bindings.get(&account.id) {
+                    Some(id) => crate::modules::chatgpt_plan::official_runtime_overlay(account, id),
+                    None => account,
+                })
+                .collect()
+        })
+        .await
+        .map_err(|_| {
+            native_error(
+                503,
+                "account_read_failed",
+                "Unable to read official authorization metadata",
+            )
+        })
+    }
+
     async fn load_accounts(
         &self,
         ids: Vec<String>,
@@ -260,7 +384,13 @@ async fn native_ensure_provider_profile(
                     )?;
                 }
                 codex_account::reapply_experimental_model_policy_if_enabled(profile)?;
-                reapply_deepseek_profile_config_overrides(profile, account)
+                reapply_deepseek_profile_config_overrides(profile, account)?;
+                runtime.block_on(native_sync_profile_catalog_tool_capabilities(
+                    profile,
+                    &published,
+                    &key_owned,
+                    std::slice::from_ref(account),
+                ))
             })
             .await
             .map_err(|_| "NATIVE_PROFILE_WRITE_FAILED".to_string())?
@@ -296,7 +426,13 @@ async fn native_ensure_bound_profile(
                     false,
                 ))?;
                 cleanup_provider_gateway_profile_model_overrides(profile)?;
-                codex_account::reapply_experimental_model_policy_if_enabled(profile).map(|_| ())
+                codex_account::reapply_experimental_model_policy_if_enabled(profile)?;
+                runtime.block_on(native_sync_profile_catalog_tool_capabilities(
+                    profile,
+                    &published,
+                    &key_owned,
+                    &[],
+                ))
             })
             .await
             .map_err(|_| "NATIVE_PROFILE_WRITE_FAILED".to_string())?
@@ -358,7 +494,13 @@ async fn native_ensure_mixed_profile(
                         Some(definitions),
                     )?;
                 }
-                codex_account::reapply_experimental_model_policy_if_enabled(profile).map(|_| ())
+                codex_account::reapply_experimental_model_policy_if_enabled(profile)?;
+                runtime.block_on(native_sync_profile_catalog_tool_capabilities(
+                    profile,
+                    &published,
+                    &key_owned,
+                    &[],
+                ))
             })
             .await
             .map_err(|_| "NATIVE_PROFILE_WRITE_FAILED".to_string())??;

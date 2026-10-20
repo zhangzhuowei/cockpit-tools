@@ -47,7 +47,8 @@ fn native_reserve_dispatch_requires_confirmed_entitlement_and_keeps_other_quota_
     reserved.bound_oauth_quota_reserve = Some(CodexLocalAccessQuotaReserve {
         hourly_percent: 20,
         weekly_percent: 10,
-    });
+        strict: false, safety_margin_percent: 3,
+});
     assert!(!native_model_quota_allows(
         &reserved,
         &account,

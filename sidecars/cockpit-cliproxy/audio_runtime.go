@@ -62,6 +62,7 @@ func (s *relayServer) forwardAudio(c *gin.Context, spec *apiKeySpec, a *audioReq
 	// credentials; ordinary transcription retains its OAuth preference.
 	if !spec.BoundOAuth {
 		candidates := (&cockpitSelector{manifest: s.manifest}).filterAuthsForAPIKeyScope(ctx, s.authManager.List())
+		candidates = unpausedServiceAuths(ctx, s.manifest, candidates)
 		hasOAuth, hasAPIKey := false, false
 		for _, auth := range candidates {
 			if auth == nil || auth.Provider != "codex" {

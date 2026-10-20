@@ -374,7 +374,7 @@
 }
 
 .codex-launch-preview-header-speed .codex-speed-trigger,
-.codex-launch-preview-header-speed .codex-speed-trigger.fast {
+.codex-launch-preview-header-speed .codex-speed-trigger:is(.fast, .ultrafast) {
   height: 30px;
   padding-inline: 9px;
   border-color: color-mix(in srgb, var(--primary) 34%, var(--border));
@@ -387,8 +387,8 @@
 .codex-launch-preview-header-speed .codex-speed-trigger:hover:not(:disabled),
 .codex-launch-preview-header-speed .codex-speed-trigger.open,
 .codex-launch-preview-header-speed
-  .codex-speed-trigger.fast:hover:not(:disabled),
-.codex-launch-preview-header-speed .codex-speed-trigger.fast.open {
+  .codex-speed-trigger:is(.fast, .ultrafast):hover:not(:disabled),
+.codex-launch-preview-header-speed .codex-speed-trigger:is(.fast, .ultrafast).open {
   border-color: var(--primary);
   color: var(--primary);
   background: color-mix(in srgb, var(--primary) 8%, transparent);

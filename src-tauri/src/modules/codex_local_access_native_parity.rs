@@ -7,6 +7,7 @@ fn native_catalog_prefers_websockets(
     account: &CodexAccount,
 ) -> bool {
     collection.responses_websockets_enabled
+        && !native_is_chatgpt_plan_account(account)
         && key.is_none_or(|key| key.provider_gateway.is_none() && key.model_routing.is_none())
         && !plan.xai
         && !codex_account::is_grok_upstream_provider(account)

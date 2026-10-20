@@ -1101,10 +1101,18 @@
         image_generation_model_catalog_revision: 0,
             image_generation_main_model: None,
             image_generation_account_policies: HashMap::new(),
+            chatgpt_plan_codex_image_policies: HashMap::new(),
+            chatgpt_plan_service_revision: 0,
+            paused_account_ids: Vec::new(),
+            official_account_source_ids: HashMap::new(),
+            official_account_bindings: HashMap::new(),
+        service_account_identity_fingerprints: HashMap::new(),
             image_generation_account_ids: Vec::new(),
         image_generation_account_models: HashMap::new(),
             // These fixtures exercise the explicitly selected Go engine.
             gateway_mode: CodexLocalAccessGatewayMode::Sidecar,
+            capability_fallback: Default::default(),
+        multi_agent: Default::default(),
             native_gateway_default_migrated: true,
             upstream_proxy_url: None,
             routing_strategy: CodexLocalAccessRoutingStrategy::default(),
@@ -2668,7 +2676,8 @@ http_headers = { "x-cockpit-instance-id" = "default" }
         collection.bound_oauth_quota_reserve = Some(CodexLocalAccessQuotaReserve {
             hourly_percent: 20,
             weekly_percent: 30,
-        });
+            strict: false, safety_margin_percent: 3,
+});
 
         let changed = remove_account_refs_from_collection(
             &mut collection,
@@ -3104,7 +3113,8 @@ http_headers = { "x-cockpit-instance-id" = "default" }
         let reserve = CodexLocalAccessQuotaReserve {
             hourly_percent: 20,
             weekly_percent: 10,
-        };
+            strict: false, safety_margin_percent: 3,
+};
         let blocked =
             test_oauth_account_with_quota("account-bound", 20, 90, Some(true), Some(true));
         assert!(bound_oauth_quota_reserve_blocks_account(
@@ -3113,18 +3123,17 @@ http_headers = { "x-cockpit-instance-id" = "default" }
         ));
 
         let available =
-            test_oauth_account_with_quota("account-bound", 21, 11, Some(true), Some(true));
-        assert!(!bound_oauth_quota_reserve_blocks_account(
-            &reserve,
-            Some(&available)
-        ));
+            test_oauth_account_with_quota("reserve-confirmed-bound", 24, 14, Some(true), Some(true));
+        {
+            super::quota_reserve_coordinator().lock().unwrap().accounts.entry(available.id.clone()).or_default();
+        }
+        super::confirm_gateway_quota_refresh(&available.id, available.quota.as_ref().unwrap(), std::time::Instant::now());
+        assert!(!bound_oauth_quota_reserve_blocks_account(&reserve, Some(&available)));
 
         let ignored_hourly =
-            test_oauth_account_with_quota("account-bound", 0, 11, Some(false), Some(true));
-        assert!(!bound_oauth_quota_reserve_blocks_account(
-            &reserve,
-            Some(&ignored_hourly)
-        ));
+            test_oauth_account_with_quota("reserve-confirmed-bound", 0, 14, Some(false), Some(true));
+        super::confirm_gateway_quota_refresh(&ignored_hourly.id, ignored_hourly.quota.as_ref().unwrap(), std::time::Instant::now());
+        assert!(!bound_oauth_quota_reserve_blocks_account(&reserve, Some(&ignored_hourly)));
         assert!(bound_oauth_quota_reserve_blocks_account(&reserve, None));
 
         let mut quota_error = available;
@@ -3185,7 +3194,8 @@ http_headers = { "x-cockpit-instance-id" = "default" }
         let reserve = CodexLocalAccessQuotaReserve {
             hourly_percent: 20,
             weekly_percent: 10,
-        };
+            strict: false, safety_margin_percent: 3,
+};
         let blocked =
             test_oauth_account_with_quota("account-bound", 20, 90, Some(true), Some(true));
         let scoped = vec!["account-bound".to_string(), "account-other".to_string()];
@@ -3208,7 +3218,8 @@ http_headers = { "x-cockpit-instance-id" = "default" }
         collection.bound_oauth_quota_reserve = Some(CodexLocalAccessQuotaReserve {
             hourly_percent: 20,
             weekly_percent: 10,
-        });
+            strict: false, safety_margin_percent: 3,
+});
         let account =
             test_oauth_account_with_quota("account-bound", 75, 40, Some(true), Some(false));
 
@@ -3216,8 +3227,8 @@ http_headers = { "x-cockpit-instance-id" = "default" }
         let reserve = manifest
             .get("quotaReserve")
             .expect("quota reserve should exist");
-        assert_eq!(reserve["hourlyThresholdPercent"], json!(20));
-        assert_eq!(reserve["weeklyThresholdPercent"], json!(10));
+        assert_eq!(reserve["hourlyThresholdPercent"], json!(23));
+        assert_eq!(reserve["weeklyThresholdPercent"], json!(13));
         assert!(reserve.get("snapshotUpdatedAtUnixSeconds").is_none());
         assert!(reserve.get("hourlyRemainingPercent").is_none());
 

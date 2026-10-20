@@ -6,12 +6,17 @@ use tokio::sync::Semaphore;
 
 #[derive(Default)]
 struct Recorder {
+    quotas: Mutex<Vec<(String, super::super::rate_limits::QuotaSnapshot)>>,
     reports: Mutex<Vec<RequestReport>>,
     contexts: Mutex<Vec<DiagnosticContext>>,
     changed: Notify,
 }
 
 impl Host for Recorder {
+    fn observe_rate_limits(&self, account_id: &str, snapshot: super::super::rate_limits::QuotaSnapshot,
+        _: std::time::Instant) {
+        self.quotas.lock().unwrap().push((account_id.to_owned(), snapshot));
+    }
     fn authorize<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<Caller, ServiceError>> {
         Box::pin(async { unreachable!() })
     }
@@ -83,6 +88,27 @@ async fn recorded(host: &Recorder) -> RequestReport {
     })
     .await
     .expect("report persisted without waiting for a live request")
+}
+
+#[tokio::test]
+async fn native_lifecycle_quota_is_observed_before_completion_and_ignores_outgoing_headers() {
+    let (mut tracker, host, _activity, _stop, _gate) = fixture().await;
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert("x-codex-primary-used-percent", "89.5".parse().unwrap());
+    tracker.quota_headers(&headers);
+    assert!(host.quotas.lock().unwrap().is_empty(), "unrelated providers cannot update Codex quota");
+    tracker.quota_account = Some("oauth-quota-fixture".into());
+    tracker.upstream_headers(&headers);
+    assert!(host.quotas.lock().unwrap().is_empty(), "request headers are not quota evidence");
+    tracker.quota_headers(&headers);
+    tracker.quota_event(&json!({"type":"codex.rate_limits","rate_limits":{
+        "secondary":{"used_percent":75.25,"window_minutes":10080,"reset_at":5000}}}));
+    let quotas = host.quotas.lock().unwrap();
+    assert_eq!(quotas.len(), 2);
+    assert_eq!(quotas[0].0, "oauth-quota-fixture");
+    assert_eq!(quotas[0].1.primary.as_ref().unwrap().remaining_percent, 10.5);
+    assert_eq!(quotas[1].1.secondary.as_ref().unwrap().remaining_percent, 24.75);
+    assert!(host.reports.lock().unwrap().is_empty(), "quota delivery does not wait for request persistence");
 }
 
 #[tokio::test]

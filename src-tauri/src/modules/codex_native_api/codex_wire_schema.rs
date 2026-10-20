@@ -45,6 +45,9 @@ fn unsupported_pattern(pattern: &str) -> bool {
             {
                 return true;
             }
+            if bytes.get(cursor + 1) == Some(&b'0') {
+                return true;
+            }
             cursor += 1;
         }
         cursor += 1;
@@ -68,6 +71,15 @@ fn strip_patterns(schema: &mut Value) {
         .is_some_and(unsupported_pattern)
     {
         schema.remove("pattern");
+    }
+    for key in ["minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"] {
+        if schema
+            .get(key)
+            .and_then(Value::as_number)
+            .is_some_and(|number| numeric_bound_out_of_int64(&number.to_string()))
+        {
+            schema.remove(key);
+        }
     }
     for key in [
         "properties",
@@ -109,6 +121,72 @@ fn strip_patterns(schema: &mut Value) {
         }
     }
 }
+
+/// CPA drops only integer-valued bounds outside int64, including integral
+/// decimal/exponent spelling. Avoid f64 conversion, exponent-sized allocation
+/// and integer overflow while checking hostile-but-valid numeric schemas.
+fn numeric_bound_out_of_int64(raw: &str) -> bool {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return false;
+    }
+    let negative = raw.starts_with('-');
+    let raw_unsigned = raw.strip_prefix(['-', '+']).unwrap_or(raw);
+    let (mantissa, exponent) = raw_unsigned
+        .split_once(['e', 'E'])
+        .unwrap_or((raw_unsigned, "0"));
+    let (integer, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
+    if integer.is_empty() && fraction.is_empty() {
+        return false;
+    }
+    if !integer
+        .bytes()
+        .chain(fraction.bytes())
+        .all(|value| value.is_ascii_digit())
+    {
+        return false;
+    }
+    let combined = format!("{integer}{fraction}");
+    let significant = combined.trim_start_matches('0');
+    if significant.is_empty() {
+        return false;
+    }
+    let exponent = match exponent.parse::<i128>() {
+        Ok(value) => value,
+        Err(error) if matches!(error.kind(), std::num::IntErrorKind::PosOverflow) => return true,
+        Err(_) => return false,
+    };
+    // These guards also bound the following arithmetic for extreme exponents.
+    if exponent < -(raw.len() as i128) {
+        return false;
+    }
+    if exponent > raw.len() as i128 + 20 {
+        return true;
+    }
+    let digits = significant.trim_end_matches('0');
+    let power = exponent - fraction.len() as i128 + (significant.len() - digits.len()) as i128;
+    if power < 0 {
+        return false;
+    }
+    let length = digits.len() as i128 + power;
+    if length > 19 {
+        return true;
+    }
+    if length < 19 {
+        return false;
+    }
+    let normalized = format!("{digits}{}", "0".repeat(power as usize));
+    normalized.as_str()
+        > if negative {
+            "9223372036854775808"
+        } else {
+            "9223372036854775807"
+        }
+}
+
+#[cfg(test)]
+#[path = "codex_wire_schema_parity_tests.rs"]
+mod parity_tests;
 
 fn simplify_union(property: &mut Value) {
     let Some(object) = property.as_object_mut() else {

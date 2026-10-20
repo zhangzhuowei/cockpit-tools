@@ -61,18 +61,25 @@ func (e *CodexWebsocketsExecutor) dialCodexWebsocket(ctx context.Context, auth *
 	return conn, closer, resp, err
 }
 
-func writeCodexWebsocketMessage(sess *codexWebsocketSession, conn *websocket.Conn, payload []byte) error {
-	if sess != nil {
-		return sess.writeMessage(conn, websocket.TextMessage, payload)
-	}
+// Acquire the actual socket write lock before checking admission. A request can
+// wait behind an earlier writer while quota observations change in the host.
+func writeCodexWebsocketMessage(ctx context.Context, authID string, sess *codexWebsocketSession, conn *websocket.Conn, payload []byte) error {
 	if conn == nil {
 		return fmt.Errorf("codex websockets executor: websocket conn is nil")
 	}
+	if sess != nil {
+		sess.writeMu.Lock()
+		defer sess.writeMu.Unlock()
+	}
+	if err := cliproxyexecutor.CheckUpstreamSend(ctx, authID); err != nil {
+		return err
+	}
+	cliproxyexecutor.MarkUpstreamAttempt(ctx)
 	return conn.WriteMessage(websocket.TextMessage, payload)
 }
 
 func mapCodexWebsocketWriteError(sess *codexWebsocketSession, conn *websocket.Conn, err error) error {
-	if err == nil || sess == nil || conn == nil {
+	if err == nil || sess == nil || conn == nil || cliproxyexecutor.IsUpstreamSendGuardError(err) {
 		return err
 	}
 	upstreamErr := sess.upstreamDisconnectError(conn)
@@ -84,7 +91,7 @@ func mapCodexWebsocketWriteError(sess *codexWebsocketSession, conn *websocket.Co
 }
 
 func shouldRetryCodexWebsocketSend(err error) bool {
-	if err == nil {
+	if err == nil || cliproxyexecutor.IsUpstreamSendGuardError(err) {
 		return false
 	}
 	var requestErr cliproxyexecutor.RequestScopedError

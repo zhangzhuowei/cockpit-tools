@@ -8,6 +8,10 @@ use super::{
     server::{outbound_headers, AppState},
 };
 
+#[path = "mapping_capability.rs"]
+mod capability;
+pub(super) use capability::retry as retry_capability;
+
 #[derive(Clone)]
 pub(super) struct Prepared {
     pub execution: super::execution::Execution,
@@ -22,10 +26,16 @@ pub(super) struct Prepared {
     pub image_route_request: Option<ImageRouteRequest>,
     pub compact: bool,
     pub grok_context: Option<super::grok_wire::Context>,
+    pub plan_tools_context: Option<super::chatgpt_plan_tools::Context>,
+    pub multi_agent_policy: super::contract::MultiAgentPolicy,
+    pub multi_agent_context: super::multi_agent_compat::Context,
     pub raw_chat: Option<super::native_chat::RawChat>,
     pub rebuild_plan: Option<super::identity::rebuild::Plan>,
     pub rebuild_applied: bool,
     pub bridge_body: Option<Value>,
+    pub capability_fallback_enabled: bool,
+    pub capability_fallback: Option<super::diagnostics::CapabilityFallbackTrace>,
+    pub transport_pinned: bool,
 }
 
 impl Prepared {
@@ -60,6 +70,7 @@ pub(super) async fn prepare(
         body,
         preferred,
         Vec::new(),
+        None,
         false,
         false,
     )
@@ -98,6 +109,7 @@ pub(super) async fn prepare_websocket_preferred(
         body,
         preferred,
         Vec::new(),
+        None,
         false,
         true,
     )
@@ -118,6 +130,7 @@ pub(super) async fn prepare_compact(
         body,
         preferred,
         Vec::new(),
+        None,
         true,
         false,
     )
@@ -131,6 +144,7 @@ async fn prepare_excluding(
     body: Value,
     preferred: Option<&str>,
     excluded_account_ids: Vec<String>,
+    capability_fallback_from: Option<String>,
     compact: bool,
     websocket: bool,
 ) -> Result<Prepared, ServiceError> {
@@ -145,6 +159,7 @@ async fn prepare_excluding(
                 body,
                 preferred,
                 excluded_account_ids,
+                capability_fallback_from,
                 compact,
                 websocket,
             ),
@@ -159,6 +174,7 @@ async fn prepare_excluding_inner(
     mut body: Value,
     preferred: Option<&str>,
     excluded_account_ids: Vec<String>,
+    capability_fallback_from: Option<String>,
     compact: bool,
     websocket: bool,
 ) -> Result<Prepared, ServiceError> {
@@ -170,6 +186,8 @@ async fn prepare_excluding_inner(
         .filter(|model| !model.is_empty())
         .ok_or_else(|| ServiceError::new(400, "model_required", "A model is required"))?
         .to_string();
+    let (prepared_body, boundary_tools_prepared) = super::multi_agent_transport::ingress(state, caller, incoming, body, &model).await?;
+    body = prepared_body;
     let requested_rebuild = !compact
         && super::execution::current()
             .is_some_and(|execution| execution.policy.account_switch_rebuild);
@@ -196,7 +214,9 @@ async fn prepare_excluding_inner(
                     &body_copy,
                 )?;
             }
-            let plan = plan.filter(|plan| plan.body.to_string().len() <= max_body_bytes);
+            let plan = plan.filter(|plan| {
+                max_body_bytes == usize::MAX || plan.body.to_string().len() <= max_body_bytes
+            });
             if enabled && plan.is_none() {
                 identity.protect_unrebuildable(&mut context)?;
             }
@@ -235,6 +255,8 @@ async fn prepare_excluding_inner(
         image_input: image_input(&body),
         excluded_account_ids,
         requires_permit: true,
+        required_capabilities: super::capabilities::collect(&body, compact),
+        capability_fallback_from,
         auxiliary: websocket.then(|| "responses.websocket".to_owned()),
     };
     let selected = match route(state, caller, request.clone()).await {
@@ -255,6 +277,7 @@ async fn prepare_excluding_inner(
                 &body,
                 rebuild_plan.unwrap(),
                 excluded,
+                request.capability_fallback_from.clone(),
                 websocket,
             )
             .await;
@@ -262,8 +285,12 @@ async fn prepare_excluding_inner(
         Err(error) => return Err(error),
     };
     if !compact
-        && !websocket
+        // SIWC sockets are bridged to stateless HTTP. A reconnect has no local
+        // socket checkpoint, so expand a validated durable response here too.
+        // Partial connection-local anchors were already resolved by WS history.
+        && (!websocket || selected.chatgpt_plan)
         && ((selected.chatgpt && !selected.headers.contains_key("x-xai-token-auth"))
+            || selected.chatgpt_plan
             || super::grok_errors::applies(&selected))
         && selected.wire_api == super::contract::WireApi::Responses
         && (body
@@ -288,7 +315,7 @@ async fn prepare_excluding_inner(
             } else {
                 identity.configure_rebuild(&mut context, &original_headers, &normalized, enabled)?
             };
-            if plan.as_ref().map_or(&normalized, |plan| &plan.body).to_string().len() > max_body_bytes {
+            if max_body_bytes != usize::MAX && plan.as_ref().map_or(&normalized, |plan| &plan.body).to_string().len() > max_body_bytes {
                 return Err(ServiceError::new(413, "continuation_history_too_large",
                     "Expanded conversation exceeds the request size limit; existing history was preserved"));
             }
@@ -299,20 +326,44 @@ async fn prepare_excluding_inner(
             .as_ref()
             .map_or(normalized_body, |plan| plan.body.clone());
         let mut prepared = finalize(
-            state, caller, headers, body, context, selected, request, None, false,
+            state,
+            caller,
+            headers,
+            body,
+            context,
+            selected,
+            request,
+            None,
+            false,
+            preferred.is_some(),
+            boundary_tools_prepared,
         )
         .await?;
         prepared.source_body = source_body;
         prepared.source_headers = source_headers;
-        prepared.rebuild_plan = plan;
-        prepared.rebuild_applied = expanded_previous;
+        if prepared.rebuild_plan.is_none() {
+            prepared.rebuild_plan = plan;
+        }
+        prepared.rebuild_applied |= expanded_previous;
         return Ok(prepared);
     }
     let mut prepared = finalize(
-        state, caller, incoming, body, context, selected, request, None, compact,
+        state,
+        caller,
+        incoming,
+        body,
+        context,
+        selected,
+        request,
+        None,
+        compact,
+        preferred.is_some(),
+        boundary_tools_prepared,
     )
     .await?;
-    if prepared.route.wire_api == super::contract::WireApi::Responses {
+    if prepared.route.wire_api == super::contract::WireApi::Responses
+        && prepared.rebuild_plan.is_none()
+    {
         prepared.rebuild_plan = rebuild_plan;
     }
     Ok(prepared)
@@ -395,7 +446,7 @@ async fn prepare_selected_inner(
     if context
         .state_account_id
         .as_deref()
-        .is_some_and(|id| id != selected.route.account_id)
+        .is_some_and(|id| id != selected.route.continuity_id())
     {
         return Err(ServiceError::new(
             409,
@@ -420,6 +471,8 @@ async fn prepare_selected_inner(
         image_input: image_input(&body),
         excluded_account_ids: Vec::new(),
         requires_permit: true,
+        required_capabilities: super::capabilities::collect(&body, false),
+        capability_fallback_from: None,
         auxiliary: None,
     };
     // Image routing has already resolved and authorized the concrete tool model.
@@ -441,6 +494,8 @@ async fn prepare_selected_inner(
         request,
         Some(image_request),
         false,
+        true,
+        false,
     )
     .await
 }
@@ -455,6 +510,8 @@ async fn finalize(
     request: RouteRequest,
     image_route_request: Option<ImageRouteRequest>,
     compact: bool,
+    transport_pinned: bool,
+    boundary_tools_prepared: bool,
 ) -> Result<Prepared, ServiceError> {
     if request.excluded_account_ids.contains(&selected.account_id) {
         return Err(ServiceError::new(
@@ -463,7 +520,39 @@ async fn finalize(
             "No untried account is available",
         ));
     }
-    let source_body = body.clone();
+    let logical_source = body.clone();
+    let logical_headers = incoming.clone();
+    let selection = capability::select(
+        state,
+        caller,
+        incoming,
+        body,
+        context,
+        selected,
+        request,
+        transport_pinned || image_route_request.is_some(),
+        false,
+        "preflight",
+    )
+    .await?;
+    let mut context = selection.context;
+    let selected = selection.route;
+    let request = selection.request;
+    let mut body = selection.body;
+    let incoming = &selection.headers;
+    let mut multi_agent_policy = super::execution::within(
+        state,
+        state.host.multi_agent_policy(caller, Some(&selected), &request.model),
+    ).await?;
+    multi_agent_policy.options.tools_prepared = boundary_tools_prepared;
+    if selected.chatgpt_plan {
+        super::chatgpt_plan_wire::validate_before_transport(
+            &body,
+            compact,
+            request.auxiliary.as_deref() == Some("responses.websocket"),
+        )?;
+    }
+    let source_body = logical_source;
     if compact || image_route_request.is_some() {
         // These Responses operations still carry the caller's complete history.
         // They do not create a generated-history checkpoint, but validated
@@ -478,7 +567,7 @@ async fn finalize(
         state,
         state.host.prepare_body(
             caller,
-            &selected.account_id,
+            &selected,
             incoming,
             body,
             image_route_request.is_some(),
@@ -486,11 +575,11 @@ async fn finalize(
         ),
     )
     .await?;
-    let source_headers = incoming.clone();
+    let source_headers = logical_headers;
     let mut headers = outbound_headers(incoming);
     headers.extend(selected.headers.clone());
     let identity = state.identity.clone();
-    let account_id = selected.account_id.clone();
+    let account_id = selected.continuity_id().to_owned();
     let owner_id = selected.owner_id.clone();
     let (mut body, headers, binding) = super::blocking::run_prepared(state, move || {
         let binding =
@@ -525,10 +614,16 @@ async fn finalize(
         image_route_request,
         compact,
         grok_context: None,
+        plan_tools_context: None,
+        multi_agent_policy,
+        multi_agent_context: Default::default(),
         raw_chat: None,
-        rebuild_plan: None,
-        rebuild_applied: false,
+        rebuild_applied: selection.plan.is_some(),
+        rebuild_plan: selection.plan,
         bridge_body: None,
+        capability_fallback_enabled: selection.enabled,
+        capability_fallback: selection.trace,
+        transport_pinned,
     })
 }
 
@@ -545,10 +640,16 @@ async fn prepare_rebuilt(
     caller: &Caller,
     original_headers: &HeaderMap,
     original_body: &Value,
-    plan: super::identity::rebuild::Plan,
+    mut plan: super::identity::rebuild::Plan,
     excluded: Vec<String>,
+    capability_fallback_from: Option<String>,
     websocket: bool,
 ) -> Result<Prepared, ServiceError> {
+    let model = plan.body["model"].as_str().unwrap_or_default().to_owned();
+    let (body, boundary_tools_prepared) = super::multi_agent_transport::ingress(
+        state, caller, &plan.headers, plan.body, &model,
+    ).await?;
+    plan.body = body;
     let mut context = inspect_mode(state, caller, &plan.headers, &plan.body, true).await?;
     let identity = state.identity.clone();
     let headers = plan.headers.clone();
@@ -572,6 +673,8 @@ async fn prepare_rebuilt(
         image_input: image_input(&plan.body),
         excluded_account_ids: excluded,
         requires_permit: true,
+        required_capabilities: super::capabilities::collect(&plan.body, false),
+        capability_fallback_from,
         auxiliary: websocket.then(|| "responses.websocket".to_owned()),
     };
     let selected = route(state, caller, request.clone()).await?;
@@ -592,6 +695,8 @@ async fn prepare_rebuilt(
         request,
         None,
         false,
+        false,
+        boundary_tools_prepared,
     )
     .await?;
     next.source_headers = original_headers.clone();
@@ -676,24 +781,34 @@ async fn inspect_mode(
 
 /// A 401 is the only automatic replay: same account and owner, before any output.
 pub(super) async fn refresh(state: &AppState, prepared: &mut Prepared) -> Result<(), ServiceError> {
+    refresh_route(state, prepared, true).await
+}
+
+/// Rebuild a retired transport only inside an existing retry budget. This
+/// retains the account/owner fence and performs no forced credential refresh.
+pub(super) async fn refresh_transport(state: &AppState, prepared: &mut Prepared) -> Result<(), ServiceError> {
+    refresh_route(state, prepared, false).await
+}
+
+async fn refresh_route(state: &AppState, prepared: &mut Prepared, force_refresh: bool) -> Result<(), ServiceError> {
     prepared.execution = prepared.execution.renew_open();
     let execution = prepared.execution.clone();
     execution
         .run(super::execution::prepare(
             state,
-            refresh_inner(state, prepared),
+            refresh_inner(state, prepared, force_refresh),
         ))
         .await
 }
 
-async fn refresh_inner(state: &AppState, prepared: &mut Prepared) -> Result<(), ServiceError> {
+async fn refresh_inner(state: &AppState, prepared: &mut Prepared, force_refresh: bool) -> Result<(), ServiceError> {
     prepared.route.permit = None;
     let mut request = prepared.request.clone();
-    request.force_refresh = true;
-    request.preferred_account_id = Some(prepared.route.account_id.clone());
+    request.force_refresh = force_refresh;
+    request.preferred_account_id = Some(prepared.route.continuity_id().to_owned());
     let selected = if let Some(mut image_request) = prepared.image_route_request.clone() {
-        image_request.force_refresh = true;
-        image_request.preferred_account_id = Some(prepared.route.account_id.clone());
+        image_request.force_refresh = force_refresh;
+        image_request.preferred_account_id = Some(prepared.route.continuity_id().to_owned());
         super::execution::within(
             state,
             state.host.image_route(&prepared.caller, image_request),
@@ -704,6 +819,8 @@ async fn refresh_inner(state: &AppState, prepared: &mut Prepared) -> Result<(), 
         route(state, &prepared.caller, request).await?
     };
     if selected.account_id != prepared.route.account_id
+        || selected.continuity_id() != prepared.route.continuity_id()
+        || selected.official_registration_id != prepared.route.official_registration_id
         || selected.owner_id != prepared.route.owner_id
     {
         return Err(ServiceError::new(
@@ -712,6 +829,23 @@ async fn refresh_inner(state: &AppState, prepared: &mut Prepared) -> Result<(), 
             "Credential refresh cannot change the account or owner of an active request",
         ));
     }
+    if !force_refresh && (selected.base_url != prepared.route.base_url
+        || selected.model != prepared.route.model
+        || selected.wire_api != prepared.route.wire_api
+        || selected.chatgpt != prepared.route.chatgpt
+        || selected.chatgpt_plan != prepared.route.chatgpt_plan)
+    {
+        return Err(ServiceError::new(409, "transport_route_changed",
+            "Transport recovery cannot change the upstream endpoint, model or protocol"));
+    }
+    let mut multi_agent_policy = super::execution::within(
+        state,
+        state.host.multi_agent_policy(
+            &prepared.caller, Some(&selected), &prepared.request.model,
+        ),
+    ).await?;
+    multi_agent_policy.options.tools_prepared = prepared.multi_agent_policy.options.tools_prepared;
+    prepared.multi_agent_policy = multi_agent_policy;
     for name in prepared.route.headers.keys() {
         prepared.headers.remove(name);
     }
@@ -762,7 +896,7 @@ async fn rewrite_body_inner(
         state,
         state.host.prepare_body(
             &prepared.caller,
-            &prepared.route.account_id,
+            &prepared.route,
             prepared.replay_headers(),
             body,
             prepared.image_route_request.is_some(),
@@ -771,7 +905,7 @@ async fn rewrite_body_inner(
     )
     .await?;
     let store = state.identity.clone();
-    let account = prepared.route.account_id.clone();
+    let account = prepared.route.continuity_id().to_owned();
     let owner = prepared.route.owner_id.clone();
     let mut headers = prepared.headers.clone();
     let (mut body, mut headers) = super::blocking::run_prepared(state, move || {
@@ -865,16 +999,19 @@ async fn retry_other_account_inner(
             excluded.push(prepared.route.account_id.clone());
         }
         prepared.route.permit = None;
-        *prepared = prepare_rebuilt(
+        let mut next = prepare_rebuilt(
             state,
             &prepared.caller,
             &prepared.source_headers,
             &prepared.source_body,
             plan,
             excluded,
+            prepared.request.capability_fallback_from.clone(),
             prepared.request.auxiliary.as_deref() == Some("responses.websocket"),
         )
         .await?;
+        inherit_capability_trace(prepared, &mut next);
+        *prepared = next;
         return Ok(());
     }
     if prepared.request.preferred_account_id.is_some() {
@@ -927,11 +1064,13 @@ async fn retry_other_account_inner(
             prepared.source_body.clone(),
             None,
             excluded,
+            prepared.request.capability_fallback_from.clone(),
             prepared.compact,
             prepared.request.auxiliary.as_deref() == Some("responses.websocket"),
         )
         .await?
     };
+    inherit_capability_trace(prepared, &mut next);
     next.raw_chat = prepared.raw_chat.clone();
     *prepared = next;
     Ok(())
@@ -954,6 +1093,13 @@ async fn retry_cooldown_round_inner(
     state: &AppState,
     prepared: &mut Prepared,
 ) -> Result<(), ServiceError> {
+    if prepared.request.capability_fallback_from.is_some() {
+        return Err(ServiceError::new(
+            503,
+            "capability_fallback_exhausted",
+            "Capability fallback cannot restart an unrestricted credential round",
+        ));
+    }
     let pinned = prepared.request.preferred_account_id.clone();
     if prepared.rebuild_plan.is_some() && pinned.is_none() {
         prepared.route.permit = None;
@@ -964,6 +1110,7 @@ async fn retry_cooldown_round_inner(
             &prepared.source_body,
             prepared.rebuild_plan.clone().unwrap(),
             Vec::new(),
+            prepared.request.capability_fallback_from.clone(),
             prepared.request.auxiliary.as_deref() == Some("responses.websocket"),
         )
         .await?;
@@ -1004,6 +1151,7 @@ async fn retry_cooldown_round_inner(
             prepared.source_body.clone(),
             pinned.as_deref(),
             Vec::new(),
+            prepared.request.capability_fallback_from.clone(),
             prepared.compact,
             prepared.request.auxiliary.as_deref() == Some("responses.websocket"),
         )
@@ -1011,6 +1159,7 @@ async fn retry_cooldown_round_inner(
     };
     if pinned.is_some()
         && (next.route.account_id != prepared.route.account_id
+            || next.route.continuity_id() != prepared.route.continuity_id()
             || next.route.owner_id != prepared.route.owner_id)
     {
         return Err(ServiceError::new(
@@ -1019,6 +1168,7 @@ async fn retry_cooldown_round_inner(
             "Retry cannot change the continuation owner",
         ));
     }
+    inherit_capability_trace(prepared, &mut next);
     next.raw_chat = prepared.raw_chat.clone();
     *prepared = next;
     Ok(())
@@ -1079,7 +1229,10 @@ mod tests {
     #[test]
     fn api_key_non_gpt_suffix_applies_without_assuming_unverified_grok_capability() {
         let mut route = Route {
+            continuity_account_id: None,
             installation_profile: None,
+            official_authorization_revision: None,
+            official_registration_id: None,
             transport_identity: None,
             account_id: "account".into(),
             owner_id: "owner".into(),
@@ -1090,6 +1243,7 @@ mod tests {
             proxy_url: None,
             proxy_route: None,
             chatgpt: false,
+            chatgpt_plan: false,
             wire_api: super::super::contract::WireApi::Responses,
             compact_endpoint: None,
             websocket_endpoint: None,
@@ -1135,7 +1289,10 @@ mod tests {
     #[test]
     fn xai_thinking_requires_verified_route_and_keeps_history_in_both_protocols() {
         let mut route = Route {
+            continuity_account_id: None,
             installation_profile: None,
+            official_authorization_revision: None,
+            official_registration_id: None,
             transport_identity: None,
             account_id: "account".into(),
             owner_id: "owner".into(),
@@ -1146,6 +1303,7 @@ mod tests {
             proxy_url: None,
             proxy_route: None,
             chatgpt: false,
+            chatgpt_plan: false,
             wire_api: super::super::contract::WireApi::Responses,
             compact_endpoint: None,
             websocket_endpoint: None,
@@ -1211,5 +1369,15 @@ mod tests {
         assert!(!image_generation_requested(
             &json!({"input":[{"type":"message","tools":[{"type":"image_generation"}]}]})
         ));
+    }
+}
+
+fn inherit_capability_trace(previous: &Prepared, next: &mut Prepared) {
+    if next.capability_fallback.is_none() && next.request.capability_fallback_from.is_some() {
+        next.capability_fallback = previous.capability_fallback.clone().map(|mut trace| {
+            trace.to_account_id = next.route.account_id.clone();
+            trace.to_model = next.route.model.clone();
+            trace
+        });
     }
 }

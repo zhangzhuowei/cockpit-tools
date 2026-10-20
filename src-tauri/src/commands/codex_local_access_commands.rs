@@ -71,8 +71,9 @@ pub async fn codex_local_access_save_accounts(
     image_generation_account_policies: Option<
         HashMap<String, CodexLocalAccessImageGenerationPolicy>,
     >,
+    official_account_bindings: Option<HashMap<String, String>>,
 ) -> Result<CodexLocalAccessState, String> {
-    codex_local_access::save_local_access_accounts(
+    codex_local_access::save_local_access_accounts_with_official_bindings(
         account_ids,
         restrict_free_accounts.unwrap_or(true),
         backup_account_ids,
@@ -80,6 +81,7 @@ pub async fn codex_local_access_save_accounts(
         session_affinity,
         session_affinity_ttl_ms,
         image_generation_account_policies,
+        official_account_bindings,
     )
     .await
 }

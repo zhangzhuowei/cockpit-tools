@@ -1,7 +1,7 @@
 //! Project Codex history onto xAI's Responses input without changing the
 //! caller's saved transcript or treating opaque content as decrypted text.
 use super::{invalid, ServiceError};
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 
 #[path = "grok_arguments.rs"]
 mod arguments;
@@ -95,45 +95,7 @@ pub(super) fn merge_summaries(body: &mut Value) {
 }
 
 fn agent_message(item: &mut Value) -> Result<(), ServiceError> {
-    let Some(parts) = item.get_mut("content").and_then(Value::as_array_mut) else {
-        return Err(invalid("Agent message content must be an array"));
-    };
-    // Match CPA's adapter for legacy third-party messages. The literal bytes
-    // remain available to the model; this is not decryption or ownership proof.
-    // Newly generated Grok collaboration calls explicitly select plaintext at
-    // the response boundary, so the client normally supplies input_text here.
-    for part in parts.iter_mut() {
-        if part.get("type").and_then(Value::as_str) == Some("encrypted_content") {
-            let content = part
-                .get("encrypted_content")
-                .and_then(Value::as_str)
-                .ok_or_else(|| invalid("Agent message encrypted content must be text"))?
-                .to_owned();
-            part["type"] = json!("input_text");
-            part["text"] = json!(content);
-            part.as_object_mut().unwrap().remove("encrypted_content");
-        }
-    }
-    let object = item.as_object_mut().unwrap();
-    let mut metadata = Map::new();
-    for key in [
-        "author",
-        "recipient",
-        "id",
-        "internal_chat_message_metadata_passthrough",
-    ] {
-        if let Some(value) = object.remove(key) {
-            metadata.insert(key.to_owned(), value);
-        }
-    }
-    if !metadata.is_empty() {
-        object.get_mut("content").unwrap().as_array_mut().unwrap().push(json!({
-            "type":"input_text", "text":format!("Agent routing metadata: {}", Value::Object(metadata))
-        }));
-    }
-    object.insert("type".into(), json!("message"));
-    object.insert("role".into(), json!("user"));
-    Ok(())
+    super::super::agent_communication::portable_message(item).map_err(invalid)
 }
 
 fn search_action(item: &mut Value) {

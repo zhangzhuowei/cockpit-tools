@@ -263,6 +263,8 @@ func (s *relayServer) writeExecutorError(c *gin.Context, err error) {
 	}
 	status := statusCodeFromError(err)
 	code := "upstream_error"
+	var authError *coreauth.Error
+	paused := errors.As(err, &authError) && authError.Code == "account_paused"
 	if status == http.StatusUnauthorized || status == http.StatusForbidden {
 		code = "auth_failed"
 	} else if status == http.StatusTooManyRequests {
@@ -272,11 +274,14 @@ func (s *relayServer) writeExecutorError(c *gin.Context, err error) {
 	} else if status == http.StatusGatewayTimeout || status == http.StatusRequestTimeout {
 		code = errorCategory(status, errorMessage(err), false)
 	}
+	if paused {
+		code = "account_paused"
+	}
 	if err != nil {
 		_ = c.Error(err)
 	}
 	forwardSafeErrorResponseHeaders(c, err)
-	if shouldThrottleDownstreamExecutorError(status) {
+	if !paused && shouldThrottleDownstreamExecutorError(status) {
 		var ctx context.Context = context.Background()
 		if c != nil && c.Request != nil {
 			ctx = c.Request.Context()

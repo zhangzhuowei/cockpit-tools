@@ -303,7 +303,10 @@ impl Host for RetryHost {
                 }),
             );
             Ok(Route {
+                continuity_account_id: None,
                 installation_profile: None,
+                official_authorization_revision: None,
+                official_registration_id: None,
                 transport_identity: None,
                 account_id: account.into(),
                 owner_id: format!("owner-{account}"),
@@ -314,6 +317,7 @@ impl Host for RetryHost {
                 proxy_url: None,
                 proxy_route: None,
                 chatgpt: self.refreshable.load(Ordering::Acquire),
+                chatgpt_plan: false,
                 wire_api: WireApi::Responses,
                 compact_endpoint: None,
                 websocket_endpoint: None,
@@ -741,7 +745,7 @@ async fn automatic_history_websocket_error_is_terminal_while_connection_stays_op
         .insert("authorization", HeaderValue::from_static("Bearer local"));
     let (mut socket, _) = tokio_tungstenite::connect_async(upgrade).await.unwrap();
     let mut body = request();
-    body["input"] = json!([{"type":"reasoning","encrypted_content":"legacy-cipher"}]);
+    body["input"] = json!([{"type":"reasoning","encrypted_content":super::super::codex_cpa_wire::synthetic_gpt_signature(11)}]);
     socket
         .send(ClientMessage::Text(body.to_string().into()))
         .await

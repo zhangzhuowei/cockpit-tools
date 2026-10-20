@@ -1,7 +1,7 @@
 //! Official Codex integer fields, matching CPA's tool-schema compatibility map.
 use serde_json::{json, Value};
 
-pub(super) fn normalize(schema: &mut Value, name: &str, namespace: Option<&str>) {
+pub(crate) fn normalize(schema: &mut Value, name: &str, namespace: Option<&str>) {
     let qualified = namespace
         .filter(|ns| !matches!(*ns, "functions" | "collab"))
         .map_or_else(|| name.to_owned(), |ns| format!("{ns}__{name}"));
@@ -15,6 +15,30 @@ pub(super) fn normalize(schema: &mut Value, name: &str, namespace: Option<&str>)
     {
         name = short;
     }
+    normalize_fields(schema, name, false);
+}
+
+/// CPA's strict target map is narrower than the legacy Grok adapter's aliases.
+/// Keep the latter intact while applying upstream matching at shared boundaries.
+pub(super) fn normalize_cpa(schema: &mut Value, name: &str) {
+    let name = name.trim();
+    let name = name
+        .strip_prefix("functions__")
+        .or_else(|| name.strip_prefix("collab__"))
+        .unwrap_or(name);
+    let name = match name {
+        "multi_agent_v1__wait_agent" | "collaboration__wait_agent" => "wait_agent",
+        "collaboration__get_channels"
+        | "collaboration__list_threads"
+        | "collaboration__search_posts"
+        | "collaboration__read_thread"
+        | "collaboration__read_post" => name.strip_prefix("collaboration__").unwrap(),
+        _ => name,
+    };
+    normalize_fields(schema, name, true);
+}
+
+fn normalize_fields(schema: &mut Value, name: &str, exact: bool) {
     let paths: &[&str] = match name {
         "exec_command" => &["yield_time_ms", "max_output_tokens", "timeout_ms"],
         "write_stdin" => &["session_id", "yield_time_ms", "max_output_tokens"],
@@ -65,6 +89,9 @@ pub(super) fn normalize(schema: &mut Value, name: &str, namespace: Option<&str>)
         match schema.pointer_mut(&pointer) {
             Some(value @ Value::String(_)) if value == "number" => *value = json!("integer"),
             Some(Value::Array(values)) => {
+                if exact && !values.iter().any(|value| value == "number") {
+                    continue;
+                }
                 for value in values.iter_mut() {
                     if value == "number" {
                         *value = json!("integer");

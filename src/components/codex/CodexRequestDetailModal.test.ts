@@ -8,6 +8,9 @@ import type { CodexLocalAccessRequestDetail } from '../../types/codexLocalAccess
 const identity = loadHookModule(new URL('./CodexRequestIdentityHeaders.tsx', import.meta.url), {
   'lucide-react': { Activity: 'Activity', Copy: 'Copy' },
 });
+const fallbackTrace = loadHookModule(new URL('./CodexCapabilityFallbackTrace.tsx', import.meta.url), {
+  'react-i18next': { useTranslation: () => ({ t: (key: string) => key }) },
+});
 
 function text(value: any): string {
   if (value == null || typeof value === 'boolean') return '';
@@ -31,10 +34,36 @@ function harness(event: Record<string, unknown>, options: { detail?: CodexLocalA
     './CodexRequestTimeoutHint': { CodexRequestTimeoutHint: 'CodexRequestTimeoutHint' },
     './CodexOutputSpeed': { CodexOutputSpeed: 'CodexOutputSpeed' },
     './CodexRequestIdentityHeaders': identity.exports,
+    './CodexCapabilityFallbackTrace': fallbackTrace.exports,
   }, { document: { body: {} }, navigator: { clipboard: { writeText: options.writeText ?? (async () => {}) } } });
   hook.render(() => hook.exports.CodexRequestDetailModal({ event: { requestId: 'id', latencyMs: 100, ...event }, accountDisplayNames: new Map([['a','Account One'],['b','Account Two']]), maskAccountText: String, onClose: options.onClose ?? (() => {}) }));
   return hook;
 }
+
+test('a routing rejection shows its full error and local source without captured bodies or attempts', async () => {
+  const hook = harness({ success: false, errorCategory: 'subscription_sharing_unsupported_capability', errorMessage: 'Standalone /alpha/search is not implemented by this gateway route' }, {
+    detail: { requestId: 'id', failurePhase: 'routing', attempts: [], payloads: [], capturedAtMs: 1, truncated: false },
+  });
+  await settlePromises();
+  const content = text(hook.flush());
+  assert.match(content, /phases.routing/);
+  assert.match(content, /sources.gateway/);
+  assert.match(content, /subscription_sharing_unsupported_capability/);
+  assert.match(content, /Standalone \/alpha\/search is not implemented/);
+  assert.match(content, /toolExecutionHint/);
+  hook.unmount();
+});
+
+test('an identical error code does not turn unknown history or a successful tool response into an upstream failure', async () => {
+  const unknown = harness({ success: false, errorCategory: 'subscription_sharing_unsupported_capability', errorMessage: 'Recorded cause' });
+  await settlePromises();
+  assert.match(text(unknown.flush()), /sources.unknown/);
+  unknown.unmount();
+  const success = harness({ success: true, errorMessage: 'An MCP tool returned an error inside a successful model turn' });
+  await settlePromises();
+  assert.doesNotMatch(text(success.flush()), /requestDiagnostics.errorSource|sources.upstream/);
+  success.unmount();
+});
 
 test('request details retain priority and raw default separately even without request-body recording', async () => {
   const hook = harness({ requestedServiceTier: 'priority', responseServiceTier: 'default', serviceTier: 'standard' });
@@ -63,6 +92,18 @@ function detail(overrides: Partial<CodexLocalAccessRequestDetail> = {}): CodexLo
 function attempt(sequence: number, overrides: Partial<CodexLocalAccessRequestDetail['attempts'][number]> = {}) {
   return { sequence, accountId:sequence===1?'a':'b', modelId:'m', transport:sequence===1?'http':'websocket', startedAtMs:1, latencyMs:1, success:true, ...overrides };
 }
+
+test('request details show recorded capability switches on their actual target attempts only', async () => {
+  const hook = harness({}, { detail: detail({ attempts: [attempt(1), attempt(2, { capabilityFallback: {
+    reason: 'upstream_unsupported', capabilities: ['web_search'], fromAccountId: 'a', fromModel: 'Source-Model', toAccountId: 'b', toModel: 'Target-Model',
+  } })] }) });
+  await settlePromises();
+  const content = text(hook.flush());
+  assert.equal((content.match(/capabilityFallback.traceTitle/g) ?? []).length, 1);
+  for (const value of ['capabilityFallback.reasonUpstream', 'Source-Model', 'Target-Model', 'capabilityFallback.capability.web_search']) assert.ok(content.includes(value), value);
+  assert.equal(content.includes('capabilityFallback.reasonPreflight'), false);
+  hook.unmount();
+});
 
 test('session headers compare one client with each attempt independently of request body capture', async () => {
   const hook = harness({}, { detail:detail({ clientIdentityCaptured:true, clientSessionId:'original-root', clientThreadId:null,
@@ -193,5 +234,21 @@ test('legacy request details show unknown request/response sources instead of cl
   assert.match(content, /legacyTier:standard/);
   assert.match(content, /legacyTierHint/);
   assert.equal(content.includes('codex.speed.standard'), false);
+  hook.unmount();
+});
+
+
+test('request details distinguish the final route and individual fallback attempt routes', async () => {
+  const hook = harness({ accountId: 'chatgpt_plan_saved' }, { detail: {
+    requestId: 'id', attempts: [
+      { sequence: 1, accountId: 'source', accountEmail: 'same@example.com', modelId: 'model', transport: 'http', startedAtMs: 0, status: 400, success: false, latencyMs: 1 },
+      { sequence: 2, accountId: 'chatgpt_plan_saved', accountEmail: 'same@example.com', modelId: 'model', transport: 'http', startedAtMs: 0, status: 200, success: true, latencyMs: 1 },
+    ], payloads: [], capturedAtMs: 0, truncated: false,
+  } as CodexLocalAccessRequestDetail });
+  await settlePromises();
+  const content = text(hook.flush());
+  assert.match(content, /codex.requestDiagnostics.authorizationRoute/);
+  assert.equal(content.split('codex.requestDiagnostics.routeOfficial').length - 1, 2);
+  assert.equal(content.split('codex.requestDiagnostics.routeLocal').length - 1, 1);
   hook.unmount();
 });

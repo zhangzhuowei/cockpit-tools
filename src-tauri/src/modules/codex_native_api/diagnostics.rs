@@ -59,7 +59,14 @@ pub struct DiagnosticContext {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiagnosticAttempt {
+    pub authorization_route: Option<String>,
     pub sequence: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transport_error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transport_pool_retired: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upstream_http_version: Option<String>,
     #[serde(default)]
     pub upstream_identity_metadata_captured: bool,
     #[serde(default)]
@@ -85,6 +92,19 @@ pub struct DiagnosticAttempt {
     pub error_category: Option<String>,
     pub error_message: Option<String>,
     pub failure_phase: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capability_fallback: Option<CapabilityFallbackTrace>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapabilityFallbackTrace {
+    pub reason: String,
+    pub capabilities: Vec<String>,
+    pub from_account_id: String,
+    pub from_model: String,
+    pub to_account_id: String,
+    pub to_model: String,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -249,7 +269,9 @@ fn parse_management(
         }
         "/v1/cockpit/service-tier-default" if post => {
             let input: ServiceTier = serde_json::from_slice(body).map_err(|_| invalid_request())?;
-            if input.revision == 0 || !matches!(input.speed.as_str(), "standard" | "fast") {
+            if input.revision == 0
+                || !matches!(input.speed.as_str(), "standard" | "fast" | "ultrafast")
+            {
                 return Err(invalid_request());
             }
             Ok(ManagementRequest::ServiceTier {
@@ -364,5 +386,35 @@ mod tests {
         .is_err());
         assert!(parse_management(&Method::GET, "/v1/cockpit/auth/reset", b"", true).is_err());
         assert!(!ManagementRequest::Quota.requires_internal_key());
+    }
+
+    #[test]
+    fn management_accepts_all_three_speed_choices_and_rejects_unknown_values() {
+        for speed in ["standard", "fast", "ultrafast"] {
+            let body = serde_json::json!({"speed":speed,"revision":1}).to_string();
+            let request = parse_management(
+                &Method::POST,
+                "/v1/cockpit/service-tier-default",
+                body.as_bytes(),
+                true,
+            )
+            .unwrap();
+            assert!(request.requires_internal_key());
+            assert_eq!(
+                request,
+                ManagementRequest::ServiceTier {
+                    speed: speed.into(),
+                    revision: 1,
+                    loopback: true
+                }
+            );
+        }
+        assert!(parse_management(
+            &Method::POST,
+            "/v1/cockpit/service-tier-default",
+            br#"{"speed":"turbo","revision":1}"#,
+            true
+        )
+        .is_err());
     }
 }

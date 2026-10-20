@@ -6,12 +6,42 @@ use super::contract::ServiceError;
 
 #[path = "codex_wire_calls.rs"]
 mod calls;
+#[path = "codex_wire_headers.rs"]
+mod final_headers;
 #[path = "codex_wire_lite.rs"]
 mod lite;
 #[path = "codex_wire_schema.rs"]
 mod schema;
+pub(super) use final_headers::finalize_routing_hint;
 
 pub(super) const LITE_HEADER: &str = "x-openai-internal-codex-responses-lite";
+
+pub(super) fn responses_lite(headers: &HeaderMap, body: &Value) -> bool {
+    headers
+        .get(LITE_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.trim().eq_ignore_ascii_case("true"))
+        || lite::metadata_enabled(body)
+}
+
+/// CPA applies these helpers after SIWC request rules as well. This public
+/// adapter uses upstream HTTP even when the downstream connection is a socket.
+/// It must not inherit backend defaults, hosted-tool filtering or backend IDs.
+pub(super) fn normalize_plan_tools(body: &mut Value, responses_lite: bool) {
+    if responses_lite {
+        body["parallel_tool_calls"] = json!(false);
+    } else if body.get("parallel_tool_calls").is_some()
+        && !body
+            .get("tools")
+            .and_then(Value::as_array)
+            .is_some_and(|tools| !tools.is_empty())
+    {
+        if let Some(body) = body.as_object_mut() {
+            body.remove("parallel_tool_calls");
+        }
+    }
+    schema::normalize_tools(body);
+}
 
 /// Run after the host's image policy and identity mapping, for the selected route.
 /// Third-party API-key payloads retain their generation settings and tool schemas.
@@ -145,11 +175,10 @@ fn normalize_inner(
     }
     calls::normalize(body);
     let object = body.as_object_mut().expect("Object checked above");
-    if object.get("instructions").is_none_or(|value| {
-        value.is_null() || value.as_str().is_some_and(|text| text.trim().is_empty())
-    }) {
+    if object.get("instructions").is_none_or(Value::is_null) {
         object.insert("instructions".into(), json!(""));
     }
+    super::responses_tool_history::normalize_empty_function_arguments(body);
     let metadata_lite = lite::metadata_enabled(body);
     let header_lite = headers.contains_key(LITE_HEADER);
     let explicit_lite = headers

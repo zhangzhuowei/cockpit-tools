@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { APIKEY_FUN_FAMILIES, buildCodexConfigToml, resolveDefaultModel } from './apikeyFunClientConfigs';
 import { APIKEY_FUN_DEFAULT_MODEL_CATALOG } from './apikeyFunLinks';
@@ -10,8 +11,11 @@ const family = (id: string) => {
 };
 
 test('codex config derives the auto compact limit as 90% of the context window', () => {
+  const catalog = JSON.parse(readFileSync(new URL('../../sidecars/cockpit-cliproxy/third_party/CLIProxyAPI/internal/registry/models/codex_client_models.json', import.meta.url), 'utf8'));
+  const codexTemplate = catalog.models.find((model: { slug: string }) => model.slug === family('codex').fallbackModel);
+  assert.ok(codexTemplate, 'Codex family model template');
   for (const [id, contextWindow] of [
-    ['codex', 272000],
+    ['codex', codexTemplate.context_window],
     ['glm', 1000000],
     ['kimi', 1000000],
     ['deepseek', 1000000],
@@ -19,7 +23,7 @@ test('codex config derives the auto compact limit as 90% of the context window',
     const toml = buildCodexConfigToml({
       family: family(id),
       client: 'codex_cli',
-      model: 'gpt-5.6-sol',
+      model: family(id).fallbackModel,
     });
     const expected = Math.floor((contextWindow * 90) / 100);
     assert.ok(toml.includes(`model_context_window = ${contextWindow}`), id);

@@ -118,24 +118,29 @@ pub(super) async fn current_or_new(state: &AppState) -> Result<Execution, Servic
     Ok(Execution::from_deadline(policy, deadline))
 }
 
-pub(super) async fn within<T>(
-    state: &AppState,
-    future: impl Future<Output = Result<T, ServiceError>>,
-) -> Result<T, ServiceError> {
-    let execution = current_or_new(state).await?;
-    let mut stop = state.stop.clone();
-    tokio::select! {
-        _ = stop.wait() => Err(stopping_error()),
-        result = tokio::time::timeout_at(execution.prepare_deadline(), future) =>
-            result.map_err(|_| execution.timeout_error())?,
+pub(super) fn within<'a, T: 'a>(
+    state: &'a AppState,
+    future: impl Future<Output = Result<T, ServiceError>> + 'a,
+) -> impl Future<Output = Result<T, ServiceError>> + 'a {
+    // Box before constructing the wrapper. Nested retry preparation otherwise
+    // retains and copies every large child future into each timeout layer.
+    let future = Box::pin(future);
+    async move {
+        let execution = current_or_new(state).await?;
+        let mut stop = state.stop.clone();
+        tokio::select! {
+            _ = stop.wait() => Err(stopping_error()),
+            result = tokio::time::timeout_at(execution.prepare_deadline(), future) =>
+                result.map_err(|_| execution.timeout_error())?,
+        }
     }
 }
 
-pub(super) async fn prepare<T>(
-    state: &AppState,
-    future: impl Future<Output = Result<T, ServiceError>>,
-) -> Result<T, ServiceError> {
-    within(state, future).await
+pub(super) fn prepare<'a, T: 'a>(
+    state: &'a AppState,
+    future: impl Future<Output = Result<T, ServiceError>> + 'a,
+) -> impl Future<Output = Result<T, ServiceError>> + 'a {
+    within(state, future)
 }
 
 pub(super) async fn total<T>(

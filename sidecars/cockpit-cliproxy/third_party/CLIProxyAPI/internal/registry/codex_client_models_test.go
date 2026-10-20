@@ -105,16 +105,12 @@ func TestMergeLocallyPinnedCodexClientModelsKeepsPinnedModelsWhenRemoteLags(t *t
 		}
 		// The shipped catalog is the only source here, so every pinned model
 		// must carry the embedded metadata rather than the remote stub.
-		window, compact := float64(256000), float64(230400)
-		if pinnedSlug == codexBuiltinGPT61SolModelID {
-			window, compact = 272000, 244800
-		}
-		if got := modelBySlug[pinnedSlug]["context_window"]; got != window {
-			t.Fatalf("%s context_window = %#v, want %v", pinnedSlug, got, window)
-		}
-		// Every declared window must include its 90% compaction limit.
-		if got := modelBySlug[pinnedSlug]["auto_compact_token_limit"]; got != compact {
-			t.Fatalf("%s auto_compact_token_limit = %#v, want %v", pinnedSlug, got, compact)
+		template := embeddedCodexClientModelForTest(t, pinnedSlug)
+		// Every declared window must include the embedded compaction limit.
+		for _, field := range []string{"context_window", "auto_compact_token_limit"} {
+			if got, want := modelBySlug[pinnedSlug][field], template[field]; got != want {
+				t.Fatalf("%s %s = %#v, want embedded value %#v", pinnedSlug, field, got, want)
+			}
 		}
 	}
 	if len(payload.Models) != 1+len(locallyPinnedCodexClientModelSlugs) {
@@ -167,14 +163,14 @@ func TestMergeLocallyPinnedCodexClientModelsPrefersRemotePinnedMetadata(t *testi
 			t.Fatalf("remote %s context_window = %#v, want 372000", tc.slug, got)
 		}
 	}
-	if countBySlug[codexBuiltinGPT61SolModelID] != 1 || modelBySlug[codexBuiltinGPT61SolModelID]["context_window"] != float64(272000) {
-		t.Fatal("missing GPT-6.1 Sol must be backfilled exactly once from the embedded catalog")
-	}
-	if countBySlug[codexBuiltinGPT6LunaModelID] != 1 {
-		t.Fatalf("merged catalog %s entry count = %d, want 1", codexBuiltinGPT6LunaModelID, countBySlug[codexBuiltinGPT6LunaModelID])
-	}
-	if got := modelBySlug[codexBuiltinGPT6LunaModelID]["context_window"]; got != float64(256000) {
-		t.Fatalf("missing %s was not backfilled from the embedded catalog: %#v", codexBuiltinGPT6LunaModelID, modelBySlug[codexBuiltinGPT6LunaModelID])
+	for _, slug := range []string{codexBuiltinGPT61SolModelID, codexBuiltinGPT6LunaModelID} {
+		if countBySlug[slug] != 1 {
+			t.Fatalf("merged catalog %s entry count = %d, want 1", slug, countBySlug[slug])
+		}
+		template := embeddedCodexClientModelForTest(t, slug)
+		if got, want := modelBySlug[slug]["context_window"], template["context_window"]; got != want {
+			t.Fatalf("missing %s context_window = %#v, want embedded value %#v", slug, got, want)
+		}
 	}
 }
 
@@ -355,6 +351,21 @@ func testCodexClientCatalog(t *testing.T, models ...map[string]any) []byte {
 	return data
 }
 
+func embeddedCodexClientModelForTest(t *testing.T, slug string) map[string]any {
+	t.Helper()
+	var catalog codexClientModelsPayload
+	if err := json.Unmarshal(embeddedCodexClientModelsJSON, &catalog); err != nil {
+		t.Fatalf("decode embedded Codex client model template: %v", err)
+	}
+	for _, model := range catalog.Models {
+		if model["slug"] == slug {
+			return model
+		}
+	}
+	t.Fatalf("embedded Codex client model template is missing %s", slug)
+	return nil
+}
+
 func TestRemoteClientCatalogCannotRestoreRetiredModels(t *testing.T) {
 	var document map[string]any
 	if err := json.Unmarshal(embeddedCodexClientModelsJSON, &document); err != nil {
@@ -421,7 +432,8 @@ func TestLoadCodexClientCatalogDropsRetiredModelsAndPreservesSolMetadata(t *test
 		}
 		if model["slug"] == "gpt-5.6-sol" {
 			count++
-			if model["display_name"] != "GPT-5.6 Sol" || model["max_context_window"] != float64(921000) {
+			template := embeddedCodexClientModelForTest(t, "gpt-5.6-sol")
+			if model["display_name"] != "GPT-5.6 Sol" || model["max_context_window"] != template["max_context_window"] {
 				t.Fatalf("active template metadata changed: %v", model)
 			}
 		}

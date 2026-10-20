@@ -158,7 +158,10 @@ impl Host for HostFixture {
         Box::pin(async move {
             tokio::time::sleep(self.route_delay).await;
             Ok(Route {
+                continuity_account_id: None,
                 installation_profile: None,
+                official_authorization_revision: None,
+                official_registration_id: None,
                 transport_identity: None,
                 account_id: "a".into(),
                 owner_id: "owner".into(),
@@ -169,6 +172,7 @@ impl Host for HostFixture {
                 proxy_url: None,
                 proxy_route: None,
                 chatgpt: false,
+                chatgpt_plan: false,
                 wire_api: self.wire,
                 compact_endpoint: None,
                 websocket_endpoint: None,

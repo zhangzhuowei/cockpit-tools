@@ -17,6 +17,7 @@ pub(super) struct SseDecoder {
     pending: Vec<u8>,
     limit: usize,
     scan_from: usize,
+    data_lines: IndependentDataLines,
     output: Option<super::output_items::OutputCollector>,
     terminal: bool,
     pub done: bool,
@@ -28,6 +29,7 @@ impl SseDecoder {
             pending: Vec::new(),
             limit,
             scan_from: 0,
+            data_lines: IndependentDataLines::default(),
             output: Some(super::output_items::OutputCollector::new(limit)),
             terminal: false,
             done: false,
@@ -81,6 +83,7 @@ impl SseDecoder {
             });
             self.pending.clear();
             self.scan_from = 0;
+            self.data_lines = IndependentDataLines::default();
             self.terminal = true;
         }
         Ok(frames)
@@ -95,15 +98,33 @@ impl SseDecoder {
     ) -> Result<(), ServiceError> {
         if !self.pending.is_empty() && starts_field(bytes) {
             let fields = fields(&self.pending);
-            if fields.event.is_none() && fields.valid_data() && starts_data(bytes) {
+            // Preserve the old missing-field-newline compatibility for two
+            // complete data-only chunks. Actual newline-delimited data uses
+            // the incremental scanner below, independent of TCP boundaries.
+            if !self.pending.contains(&b'\n')
+                && fields.event.is_none()
+                && self.pending.len() <= self.limit
+                && bytes.len() <= self.limit
+                && data_object(&self.pending)
+                && !bytes.contains(&b'\n')
+                && data_object(bytes)
+            {
                 let pending = std::mem::take(&mut self.pending);
                 frames.push(self.decode_frame(&pending, b"\n\n")?);
                 self.scan_from = 0;
+                self.data_lines = IndependentDataLines::default();
             } else if !self.pending.ends_with(b"\n")
                 && !self.pending.ends_with(b"\r")
                 && !bytes.starts_with(b"\n")
                 && !bytes.starts_with(b"\r")
-                && (fields.data.is_empty() || fields.valid_data())
+                && (self
+                    .pending
+                    .rsplit(|byte| *byte == b'\n')
+                    .next()
+                    .is_some_and(data_object)
+                    || (fields.data.is_empty()
+                        && complete_event_field(&self.pending)
+                        && trim_ascii(bytes).starts_with(b"data:")))
             {
                 self.pending.push(b'\n');
             }
@@ -112,7 +133,7 @@ impl SseDecoder {
             // A chunk may contain many small events. Bound the pending frame,
             // rather than reject a large transport chunk containing valid frames.
             let remaining = self
-                .limit
+                .pending_limit()
                 .saturating_add(4)
                 .saturating_sub(self.pending.len());
             if remaining == 0 {
@@ -122,15 +143,32 @@ impl SseDecoder {
             self.pending.extend_from_slice(&bytes[..count]);
             bytes = &bytes[count..];
             let mut consumed = 0;
-            while let Some((offset, separator)) = frame_end(&self.pending[self.scan_from..]) {
-                let end = self.scan_from + offset;
+            loop {
+                let standard = frame_end(&self.pending[self.scan_from..])
+                    .map(|(offset, separator)| (self.scan_from + offset, separator, false));
+                let separate = self
+                    .data_lines
+                    .boundary(&self.pending[consumed..], false)
+                    .map(|(offset, separator)| (consumed + offset, separator, true));
+                let Some((end, separator, repaired)) = [standard, separate]
+                    .into_iter()
+                    .flatten()
+                    .min_by_key(|(end, _, _)| *end)
+                else {
+                    break;
+                };
                 if end.saturating_sub(consumed) > self.limit {
                     return Err(event_too_large());
                 }
                 let raw = self.pending[consumed..end].to_vec();
-                let delimiter = self.pending[end..end + separator].to_vec();
+                let delimiter = if repaired {
+                    b"\n\n".to_vec()
+                } else {
+                    self.pending[end..end + separator].to_vec()
+                };
                 frames.push(self.decode_frame(&raw, &delimiter)?);
                 consumed = end + separator;
+                self.data_lines = IndependentDataLines::default();
                 self.scan_from = consumed;
                 if self.terminal || self.done {
                     break;
@@ -140,9 +178,11 @@ impl SseDecoder {
             self.scan_from = self.pending.len().saturating_sub(3);
             if self.terminal || self.done {
                 self.pending.clear();
+                self.data_lines = IndependentDataLines::default();
+                self.scan_from = 0;
                 break;
             }
-            if self.pending.len() > self.limit {
+            if self.pending.len() > self.pending_limit() {
                 return Err(event_too_large());
             }
         }
@@ -151,6 +191,7 @@ impl SseDecoder {
             let pending = std::mem::take(&mut self.pending);
             frames.push(self.decode_frame(&pending, b"\n\n")?);
             self.scan_from = 0;
+            self.data_lines = IndependentDataLines::default();
         }
         Ok(())
     }
@@ -158,7 +199,24 @@ impl SseDecoder {
     pub(super) fn finish_frames(&mut self) -> Result<Vec<SseFrame>, ServiceError> {
         if self.terminal || self.done || !self.has_partial_event() {
             self.pending.clear();
+            self.data_lines = IndependentDataLines::default();
+            self.scan_from = 0;
             return Ok(Vec::new());
+        }
+        let mut frames = Vec::new();
+        while let Some((end, separator)) = self.data_lines.boundary(&self.pending, true) {
+            if end > self.limit {
+                return Err(event_too_large());
+            }
+            let raw = self.pending[..end].to_vec();
+            frames.push(self.decode_frame(&raw, b"\n\n")?);
+            self.pending.drain(..end + separator);
+            self.data_lines = IndependentDataLines::default();
+            self.scan_from = 0;
+            if self.terminal || self.done {
+                self.pending.clear();
+                return Ok(frames);
+            }
         }
         let fields = fields(&self.pending);
         if !fields.data.is_empty() && !fields.valid_data() {
@@ -170,7 +228,20 @@ impl SseDecoder {
         }
         let pending = std::mem::take(&mut self.pending);
         self.scan_from = 0;
-        Ok(vec![self.decode_frame(&pending, b"\n\n")?])
+        self.data_lines = IndependentDataLines::default();
+        frames.push(self.decode_frame(&pending, b"\n\n")?);
+        Ok(frames)
+    }
+
+    fn pending_limit(&self) -> usize {
+        // Confirming independent lines needs at most one following bounded
+        // frame, not an unbounded aggregate or a larger individual event.
+        let prefix = self
+            .data_lines
+            .first
+            .filter(|(end, _)| *end <= self.limit)
+            .map_or(0, |(end, separator)| end.saturating_add(separator));
+        self.limit.saturating_add(prefix)
     }
 
     pub(super) fn has_partial_event(&self) -> bool {
@@ -256,6 +327,10 @@ impl SseDecoder {
                 }
             }
         }
+        let identity_restored = self
+            .output
+            .as_ref()
+            .is_some_and(|output| output.can_restore_identity(&value));
         let original = (self.output.is_some()
             && matches!(
                 value["type"].as_str(),
@@ -315,7 +390,7 @@ impl SseDecoder {
         }
         Ok(SseFrame {
             value: Some(value),
-            identity_event: original.filter(|_| repaired_output),
+            identity_event: original.filter(|_| repaired_output && !identity_restored),
             bytes: wire.into(),
         })
     }
@@ -370,8 +445,97 @@ fn starts_field(bytes: &[u8]) -> bool {
         .into_iter()
         .any(|prefix| bytes.starts_with(prefix))
 }
-fn starts_data(bytes: &[u8]) -> bool {
-    trim_ascii(bytes).starts_with(b"data:")
+
+fn complete_event_field(raw: &[u8]) -> bool {
+    raw.rsplit(|byte| *byte == b'\n')
+        .next()
+        .map(trim_ascii)
+        .and_then(|line| line.strip_prefix(b"event:"))
+        .map(trim_ascii)
+        .is_some_and(|kind| {
+            !kind.is_empty()
+                && std::str::from_utf8(kind).is_ok()
+                && !kind.iter().any(|byte| byte.is_ascii_whitespace())
+        })
+}
+
+/// Some Responses peers omit the blank separator between data-only JSON
+/// events. Repair complete object lines or an existing following [DONE]; an incomplete
+/// JSON line still belongs to the ordinary multiline SSE field. Event/id/retry
+/// and comment fields are handled exclusively by standard SSE framing.
+#[derive(Default)]
+struct IndependentDataLines {
+    scan_from: usize,
+    line_start: usize,
+    first: Option<(usize, usize)>,
+    disabled: bool,
+    #[cfg(test)]
+    scanned_bytes: usize,
+    #[cfg(test)]
+    parsed_lines: usize,
+}
+
+fn data_object(line: &[u8]) -> bool {
+    trim_ascii(line)
+        .strip_prefix(b"data:")
+        .and_then(|data| serde_json::from_slice::<Value>(trim_ascii(data)).ok())
+        .is_some_and(|value| value.is_object())
+}
+
+fn data_done(line: &[u8]) -> bool {
+    trim_ascii(line)
+        .strip_prefix(b"data:")
+        .is_some_and(|data| trim_ascii(data) == b"[DONE]")
+}
+
+impl IndependentDataLines {
+    fn boundary(&mut self, raw: &[u8], eof: bool) -> Option<(usize, usize)> {
+        if self.disabled {
+            return None;
+        }
+        while self.scan_from < raw.len() {
+            let offset = raw[self.scan_from..].iter().position(|byte| *byte == b'\n');
+            let scanned = offset.map_or(raw.len() - self.scan_from, |offset| offset + 1);
+            #[cfg(test)]
+            {
+                self.scanned_bytes += scanned;
+            }
+            self.scan_from += scanned;
+            let Some(_) = offset else {
+                break;
+            };
+            let newline = self.scan_from - 1;
+            #[cfg(test)]
+            {
+                self.parsed_lines += 1;
+            }
+            let line = &raw[self.line_start..newline];
+            if !data_object(line) && !(self.first.is_some() && data_done(line)) {
+                self.disabled = true;
+                return None;
+            }
+            if let Some(first) = self.first {
+                return Some(first);
+            }
+            self.first = Some(if newline > 0 && raw[newline - 1] == b'\r' {
+                (newline - 1, 2)
+            } else {
+                (newline, 1)
+            });
+            self.line_start = self.scan_from;
+        }
+        if eof && self.first.is_some() && self.line_start < raw.len() {
+            #[cfg(test)]
+            {
+                self.parsed_lines += 1;
+            }
+            if data_object(&raw[self.line_start..]) || data_done(&raw[self.line_start..]) {
+                return self.first;
+            }
+            self.disabled = true;
+        }
+        None
+    }
 }
 /// Shared terminal classification for SSE, WebSocket and identity observation.
 /// A failure status is authoritative even when an upstream uses a generic or
@@ -507,7 +671,7 @@ impl ResponseObservation {
                 | "invalid_grant"
                 | "reauthorization_required" => Some(401),
                 "account_deactivated" | "account_suspended" => Some(403),
-                _ => self.http_status,
+                _ => super::chatgpt_plan_wire::error_status(code).or(self.http_status),
             };
         }
         if let Some((status, _)) = super::bootstrap::rejection(event) {
@@ -650,7 +814,15 @@ mod tests {
 
     #[test]
     fn retry_hints_preserve_nested_seconds_and_take_the_longest_delay() {
-        for wrapper in ["root", "error", "response", "response/error", "body", "body/error", "detail"] {
+        for wrapper in [
+            "root",
+            "error",
+            "response",
+            "response/error",
+            "body",
+            "body/error",
+            "detail",
+        ] {
             for field in ["retry_after", "retry_after_seconds"] {
                 for value in [json!(0), json!(2), json!(1.25), json!("2.5")] {
                     let mut event = json!({});
@@ -662,18 +834,40 @@ mod tests {
                         }
                     }
                     target[field] = value.clone();
-                    let expected = value.as_f64().unwrap_or_else(|| value.as_str().unwrap().parse().unwrap());
-                    assert_eq!(retry_after_event(&event), Some(std::time::Duration::from_secs_f64(expected)), "{event}");
+                    let expected = value
+                        .as_f64()
+                        .unwrap_or_else(|| value.as_str().unwrap().parse().unwrap());
+                    assert_eq!(
+                        retry_after_event(&event),
+                        Some(std::time::Duration::from_secs_f64(expected)),
+                        "{event}"
+                    );
                 }
             }
         }
-        for value in [json!(-1), json!("NaN"), json!("inf"), json!(1e100), json!(true), json!(null), json!({})] {
+        for value in [
+            json!(-1),
+            json!("NaN"),
+            json!("inf"),
+            json!(1e100),
+            json!(true),
+            json!(null),
+            json!({}),
+        ] {
             assert_eq!(retry_after_event(&json!({"retry_after":value})), None);
         }
-        assert_eq!(retry_after_event(&json!({"retry_after":1, "error":{"retry_after_seconds":3.5}, "headers":{"Retry-After":"2"}})), Some(std::time::Duration::from_millis(3500)));
+        assert_eq!(
+            retry_after_event(
+                &json!({"retry_after":1, "error":{"retry_after_seconds":3.5}, "headers":{"Retry-After":"2"}})
+            ),
+            Some(std::time::Duration::from_millis(3500))
+        );
         let mut observation = ResponseObservation::default();
         observation.observe(&json!({"type":"response.failed", "response":{"error":{"code":"server_is_overloaded","retry_after":7}}}));
-        assert_eq!(observation.retry_after, Some(std::time::Duration::from_secs(7)));
+        assert_eq!(
+            observation.retry_after,
+            Some(std::time::Duration::from_secs(7))
+        );
     }
 
     #[test]
@@ -742,7 +936,9 @@ pub(super) fn retry_after_event(event: &Value) -> Option<std::time::Duration> {
         if let Some(seconds) = value.as_u64() {
             return Some(std::time::Duration::from_secs(seconds));
         }
-        let seconds = value.as_f64().or_else(|| value.as_str()?.trim().parse::<f64>().ok())?;
+        let seconds = value
+            .as_f64()
+            .or_else(|| value.as_str()?.trim().parse::<f64>().ok())?;
         std::time::Duration::try_from_secs_f64(seconds).ok()
     }
     let mut delay: Option<std::time::Duration> = None;
@@ -768,9 +964,15 @@ pub(super) fn retry_after_event(event: &Value) -> Option<std::time::Duration> {
             }
         }
     }
-    for error in [Some(event), Some(super::diagnostics::error_object(event)), event.get("error"), event.get("response"),
-        event.pointer("/response/error"), event.get("body"), event.pointer("/body/error")]
-    {
+    for error in [
+        Some(event),
+        Some(super::diagnostics::error_object(event)),
+        event.get("error"),
+        event.get("response"),
+        event.pointer("/response/error"),
+        event.get("body"),
+        event.pointer("/body/error"),
+    ] {
         let Some(error) = error else {
             continue;
         };
@@ -788,6 +990,120 @@ pub(super) fn retry_after_event(event: &Value) -> Option<std::time::Duration> {
         }
     }
     delay
+}
+
+#[cfg(test)]
+mod sparse_identity_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn item() -> Value {
+        json!({"id":"observed","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"synthetic answer"}],"unknown":{"keep":true}})
+    }
+
+    fn frame(decoder: &mut SseDecoder, event: &Value) -> SseFrame {
+        decoder
+            .push_frames(format!("data: {event}\n\n").as_bytes())
+            .unwrap()
+            .pop()
+            .unwrap()
+    }
+
+    #[test]
+    fn complete_done_can_supply_identity_evidence_for_a_successful_sparse_terminal() {
+        for kind in ["response.completed", "response.done"] {
+            for missing in [false, true] {
+                let mut decoder = SseDecoder::new(8192);
+                let done =
+                    json!({"type":"response.output_item.done","output_index":0,"item":item()});
+                let observed = frame(&mut decoder, &done);
+                assert_eq!(observed.value.as_ref(), Some(&done));
+                assert!(observed.identity_event.is_none());
+                let mut terminal = json!({"type":kind,"response":{"id":"response","status":"completed","output":[]}});
+                if missing {
+                    terminal["response"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("output");
+                }
+                let terminal = frame(&mut decoder, &terminal);
+                assert!(terminal.identity_event.is_none());
+                assert_eq!(
+                    terminal.value.as_ref().unwrap()["response"]["output"],
+                    json!([item()])
+                );
+                assert!(String::from_utf8_lossy(&terminal.bytes).contains("synthetic answer"));
+            }
+        }
+    }
+
+    #[test]
+    fn partial_or_presentation_repaired_output_keeps_the_original_identity_event() {
+        for mode in [
+            "unindexed",
+            "gap",
+            "conflict",
+            "partial",
+            "missing-id",
+            "nonempty-tool",
+            "incomplete",
+        ] {
+            let mut decoder = SseDecoder::new(8192);
+            let mut done =
+                json!({"type":"response.output_item.done","output_index":0,"item":item()});
+            if mode == "unindexed" {
+                done.as_object_mut().unwrap().remove("output_index");
+            }
+            if mode == "gap" {
+                done["output_index"] = json!(1);
+            }
+            if mode == "partial" {
+                done["item"]["content"] = json!([]);
+            }
+            if mode == "nonempty-tool" {
+                done["item"] = json!({"id":"call","type":"function_call","call_id":"call","name":"tool","arguments":"{}"});
+            }
+            frame(&mut decoder, &done);
+            if mode == "conflict" {
+                done["item"]["content"][0]["text"] = json!("different");
+                frame(&mut decoder, &done);
+            }
+            let mut terminal = json!({"type":"response.completed","response":{"id":"response","status":"completed","output":[]}});
+            if mode == "missing-id" {
+                let mut missing = item();
+                missing.as_object_mut().unwrap().remove("id");
+                terminal["response"]["output"] = json!([missing]);
+            }
+            if mode == "nonempty-tool" {
+                terminal["response"]["output"] = json!([{"id":"call","type":"function_call","call_id":"call","name":"tool","arguments":"{\"truncated\":true}"}]);
+            }
+            if mode == "incomplete" {
+                terminal["type"] = json!("response.incomplete");
+                terminal["response"]["status"] = json!("incomplete");
+            }
+            let observed = frame(&mut decoder, &terminal);
+            assert_eq!(observed.identity_event.as_ref(), Some(&terminal), "{mode}");
+        }
+    }
+
+    #[test]
+    fn eof_or_failed_terminal_cannot_turn_done_items_into_success() {
+        for failed in [false, true] {
+            let mut decoder = SseDecoder::new(8192);
+            frame(
+                &mut decoder,
+                &json!({"type":"response.output_item.done","output_index":0,"item":item()}),
+            );
+            if failed {
+                let terminal = json!({"type":"response.failed","response":{"id":"response","status":"failed","error":{"code":"synthetic_failure"},"output":[]}});
+                let observed = frame(&mut decoder, &terminal);
+                assert_eq!(observed.value.as_ref(), Some(&terminal));
+                assert!(observed.identity_event.is_none());
+                assert_eq!(observed.value.unwrap()["response"]["output"], json!([]));
+            }
+            assert!(decoder.finish_frames().unwrap().is_empty());
+        }
+    }
 }
 
 #[cfg(test)]

@@ -1047,6 +1047,9 @@ fn save_account_with_tombstone_guard(account: &CodexAccount) -> Result<(), Strin
 }
 
 fn save_account_unchecked(account: &CodexAccount) -> Result<(), String> {
+    if account.official_registration_id.is_some() {
+        return Err("API_SERVICE_RUNTIME_ACCOUNT_READ_ONLY".into());
+    }
     let path = get_accounts_dir().join(format!("{}.json", &account.id));
     let content = crate::modules::secure_account_storage::serialize_account_file("codex",
         &crate::modules::codex_account_proxy::storage_value(account)?)?;

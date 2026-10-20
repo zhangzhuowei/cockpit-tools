@@ -110,6 +110,7 @@ async fn send_inner(
         }
         previous_open_deadline = Some(prepared.execution.open_deadline);
         tracker.begin_attempt("http");
+        tracker.capability_fallback(prepared.capability_fallback.clone());
         if raw.is_some() && (prepared.route.wire_api != WireApi::Chat || prepared.route.chatgpt) {
             return Err(ServiceError::new(
                 503,
@@ -117,7 +118,7 @@ async fn send_inner(
                 "The replacement account does not support this request's native Chat protocol",
             ));
         }
-        if prepared.route.chatgpt && !compact {
+        if (prepared.route.chatgpt || prepared.route.chatgpt_plan) && !compact {
             prepared.body["stream"] = Value::Bool(true);
             prepared.body["store"] = Value::Bool(false);
         }
@@ -141,10 +142,13 @@ async fn send_inner(
             let mut body = mapping::rewrite_body(state, prepared, body.clone()).await?;
             body["model"] = Value::String(prepared.route.model.clone());
             body
-        } else if chat {
-            super::chat_upstream::responses_to_chat(&prepared.body)?
         } else {
-            prepared.body.clone()
+            let mut body = prepared.body.clone();
+            super::multi_agent_transport::sanitize_reasoning(prepared, &mut body);
+            if chat || super::grok_errors::applies(&prepared.route) {
+                super::multi_agent_transport::prepare(prepared, &mut body)?;
+            }
+            if chat { super::chat_upstream::responses_to_chat(&body)? } else { body }
         };
         if chat
             && path == "chat/completions"
@@ -171,7 +175,7 @@ async fn send_inner(
         };
         let endpoint = compact
             .then_some(prepared.route.compact_endpoint.as_ref())
-            .flatten();
+            .flatten().cloned();
         let mut headers = prepared.headers.clone();
         // OAuth forces an upstream stream for buffered clients too. Keep the
         // client's delivery option only when it actually requested streaming.
@@ -181,20 +185,47 @@ async fn send_inner(
                 object.remove("stream_options");
             }
         }
-        if let Some(endpoint) = endpoint {
+        if let Some(endpoint) = endpoint.as_ref() {
             for name in prepared.route.headers.keys() {
                 headers.remove(name);
             }
             headers.extend(endpoint.headers.clone());
         }
         headers.remove(header::PROXY_AUTHORIZATION);
-        super::codex_wire::normalize(
-            &mut headers,
-            &mut body,
-            prepared.route.chatgpt && !super::grok_errors::applies(&prepared.route),
-            compact,
+        if prepared.route.chatgpt_plan {
+            prepared.plan_tools_context =
+                Some(super::chatgpt_plan_wire::prepare_with_effort_override(
+                    &mut headers,
+                    &mut body,
+                    compact,
+                    prepared
+                        .source_body
+                        .get("model")
+                        .and_then(Value::as_str)
+                        .is_some_and(|model| super::gpt_thinking::parse_model(model).1.is_some()),
+                )?);
+        } else {
+            prepared.plan_tools_context = None;
+            super::codex_wire::normalize(
+                &mut headers,
+                &mut body,
+                prepared.route.chatgpt && !super::grok_errors::applies(&prepared.route),
+                compact,
+            )?;
+        }
+        if raw.is_none() && !chat && !super::grok_errors::applies(&prepared.route) {
+            super::multi_agent_transport::prepare(prepared, &mut body)?;
+        }
+        let codex_backend = prepared.route.chatgpt && !super::grok_errors::applies(&prepared.route);
+        if codex_backend || prepared.route.chatgpt_plan {
+            super::codex_cpa_wire::sanitize_input_ids(&mut body);
+        }
+        super::codex_wire::finalize_routing_hint(
+            &mut headers, &body, codex_backend && !prepared.route.chatgpt_plan, &prepared.route.headers,
         )?;
-        let base_url = endpoint.map_or(prepared.route.base_url.as_str(), |endpoint| {
+        prepared.multi_agent_context.capture_final(&body);
+        prepared.binding.retain_transmitted_input_blobs(&body);
+        let base_url = endpoint.as_ref().map_or(prepared.route.base_url.as_str(), |endpoint| {
             endpoint.base_url.as_str()
         });
         let url = format!("{}/{}", base_url.trim_end_matches('/'), path);
@@ -214,6 +245,7 @@ async fn send_inner(
         if let Some(request) = request.try_clone().and_then(|request| request.build().ok()) {
             tracker.upstream_headers(request.headers());
         }
+        tracker.check_quota_before_send()?;
         let mut stop = state.stop.clone();
         let result = tokio::select! {
             _ = stop.wait() => Err(stopping_error()),
@@ -247,6 +279,7 @@ async fn send_inner(
                         deadline,
                     )
                     .await?;
+                    renew_transport_after_tls(state, prepared, tracker, &error).await?;
                     continue;
                 }
                 if credential_limit_allows(policy, credential_attempts)
@@ -283,6 +316,8 @@ async fn send_inner(
                 return Err(error);
             }
         };
+        tracker.upstream_http_version(response.version());
+        tracker.quota_headers(response.headers());
         let status = response.status();
         if status.is_success()
             && !compact
@@ -298,6 +333,7 @@ async fn send_inner(
                         policy,
                         deadline,
                         super::grok_errors::applies(&prepared.route),
+                        prepared.capability_fallback_enabled,
                     )
                     .await
                 }
@@ -322,6 +358,7 @@ async fn send_inner(
                         deadline,
                     )
                     .await?;
+                    renew_transport_after_tls(state, prepared, tracker, &error).await?;
                     continue;
                 }
                 Err(error) => return Err(error),
@@ -333,6 +370,7 @@ async fn send_inner(
         let mut failure_message = None;
         let mut model_unavailable = false;
         let mut request_scoped = false;
+        let mut capability_rejection = false;
         if !status.is_success() {
             let inspected = inspect_status_error(
                 state,
@@ -351,6 +389,7 @@ async fn send_inner(
             failure_message = inspected.2;
             model_unavailable = !compact && inspected.4;
             request_scoped = inspected.5;
+            capability_rejection = inspected.6;
             tracker.capture_request_fault(request_scoped);
             tracker.attempt_result(status.as_u16(), false, Some("upstream_http_error"));
         }
@@ -359,6 +398,19 @@ async fn send_inner(
             (headers, body) => headers.or(body),
         };
         tracker.set_retry_after(wait);
+        if capability_rejection
+            && prepared.capability_fallback_enabled
+            && !prepared.request.required_capabilities.is_empty()
+        {
+            if mapping::retry_capability(state, prepared).await? {
+                drop(response);
+                tracker.routed(&prepared.caller, &prepared.route, &prepared.request.model);
+                tracker.routing_identity(&prepared.request);
+                tracker.track_rebuild(prepared.binding.rebuild_abort_handle());
+                tracker.request_metadata(&prepared.body);
+                continue;
+            }
+        }
         // Preserve the original response before refresh, retry or cooldown can
         // penalize an account for a malformed caller request.
         if request_scoped {
@@ -505,6 +557,26 @@ async fn send_inner(
     }
 }
 
+/// Called only after an existing retry fence/budget permits another attempt.
+/// Do not turn TLS recovery into an authorization refresh or a replay policy.
+pub(super) async fn renew_transport_after_tls(
+    state: &AppState,
+    prepared: &mut Prepared,
+    tracker: &mut RequestTracker,
+    error: &ServiceError,
+) -> Result<(), ServiceError> {
+    if error.transport_failure != Some(super::contract::TransportFailureKind::TlsDecrypt) {
+        return Ok(());
+    }
+    tracker.release_route();
+    mapping::refresh_transport(state, prepared).await?;
+    tracker.routed(&prepared.caller, &prepared.route, &prepared.request.model);
+    tracker.routing_identity(&prepared.request);
+    tracker.track_rebuild(prepared.binding.rebuild_abort_handle());
+    tracker.request_metadata(&prepared.body);
+    Ok(())
+}
+
 pub(super) async fn cooldown_round(
     state: &AppState,
     prepared: &mut Prepared,
@@ -579,10 +651,17 @@ async fn cooldown_round_inner(
 // Host routes distinguish managed OAuth credentials from API keys through
 // chatgpt; native xAI OAuth projections additionally carry their verified marker.
 pub(super) fn can_refresh_credentials(prepared: &Prepared) -> bool {
-    prepared.route.chatgpt || prepared.route.headers.contains_key("x-xai-token-auth")
+    prepared.route.chatgpt
+        || prepared.route.chatgpt_plan
+        || prepared.route.headers.contains_key("x-xai-token-auth")
 }
 
 pub(super) fn can_switch_account(prepared: &Prepared) -> bool {
+    // A capability replacement may only move again through the stricter
+    // pre-execution capability gate, never ordinary network/status failover.
+    if prepared.request.capability_fallback_from.is_some() {
+        return false;
+    }
     if prepared.rebuild_plan.is_some()
         && prepared.raw_chat.is_none()
         && prepared.image_route_request.is_none()
@@ -637,7 +716,7 @@ async fn note_failed(
     let mut stop = state.stop.clone();
     tokio::select! {
         _ = stop.wait() => Err(stopping_error()),
-        result = tokio::time::timeout_at(deadline, state.host.route_failed_with_context(&prepared.route.account_id, &prepared.route.model, status, wait, credential_scope, message)) => result.map_err(|_| total_timeout()),
+        result = tokio::time::timeout_at(deadline, state.host.route_failed_attempt(&prepared.route, &prepared.route.model, status, wait, credential_scope, message)) => result.map_err(|_| total_timeout()),
     }
 }
 
@@ -671,6 +750,7 @@ pub(super) async fn inspect_status_error(
         bool,
         Option<String>,
         Option<Duration>,
+        bool,
         bool,
         bool,
     ),
@@ -744,6 +824,10 @@ pub(super) async fn inspect_status_error(
             model,
         ),
     };
+    let capability_rejection = !challenge
+        && value.as_ref().is_some_and(|value| {
+            super::capabilities::pre_execution_rejection(status.as_u16(), value)
+        });
     let request_scoped = !challenge
         && super::upstream_errors::request_fault(
             status.as_u16(),
@@ -760,6 +844,7 @@ pub(super) async fn inspect_status_error(
         body_retry_after,
         model_unavailable,
         request_scoped,
+        capability_rejection,
     ))
 }
 

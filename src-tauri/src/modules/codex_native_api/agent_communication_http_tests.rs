@@ -77,7 +77,10 @@ impl Host for TestHost {
                 )
             };
             Ok(Route {
+                continuity_account_id: None,
                 installation_profile: None,
+                official_authorization_revision: None,
+                official_registration_id: None,
                 transport_identity: None,
                 account_id: account.into(),
                 owner_id: format!("owner-{account}"),
@@ -91,6 +94,7 @@ impl Host for TestHost {
                 proxy_url: None,
                 proxy_route: None,
                 chatgpt: false,
+                chatgpt_plan: false,
                 wire_api: WireApi::Responses,
                 compact_endpoint: None,
                 websocket_endpoint: None,
