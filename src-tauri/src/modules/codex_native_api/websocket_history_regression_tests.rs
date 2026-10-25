@@ -15,6 +15,7 @@ fn prepared_history() -> Prepared {
         .rewrite(&context, "a", "owner", &mut headers, &mut body)
         .unwrap();
     Prepared {
+        preflight_attempts: Vec::new(),
         execution: crate::modules::codex_native_api::execution::Execution::from_deadline(
             Default::default(),
             tokio::time::Instant::now() + std::time::Duration::from_secs(60),
@@ -24,6 +25,10 @@ fn prepared_history() -> Prepared {
             installation_profile: None,
             official_authorization_revision: None,
             official_registration_id: None,
+            official_fallback_registration_id: None,
+            official_fallback_authorization_revision: None,
+            authorization_scope_fingerprint: None,
+                official_fallback_failure: None,
             transport_identity: None,
             account_id: "a".into(),
             owner_id: "owner".into(),
@@ -213,6 +218,77 @@ fn completed_socket_history_replays_known_cipher_and_tool_pairs_without_mutating
 }
 
 #[test]
+fn conflicting_tool_history_reaches_upstream_without_cache_repair_or_rebuild_proof() {
+    for kind in ["function_call", "custom_tool_call"] {
+        let mut prepared = prepared_history();
+        let mut history = History::default();
+        history.begin(&prepared);
+        history.remember_call(&json!({"type":"function_call","call_id":"cached","name":"cached_tool","arguments":"{}"}));
+        let first = if kind == "function_call" {
+            json!({"type":kind,"call_id":"conflict","name":"tool","arguments":"{}"})
+        } else {
+            json!({"type":kind,"call_id":"conflict","name":"tool","input":"first"})
+        };
+        let mut second = first.clone();
+        if kind == "function_call" {
+            second["arguments"] = json!("{\"different\":true}");
+        } else {
+            second["input"] = json!("second");
+        }
+        let input = json!([
+            {"role":"user","content":"original"},
+            {"type":"function_call_output","call_id":"cached","output":"cached result"},
+            first,
+            {"type":"reasoning","encrypted_content":"preserve-exact-cipher","summary":[]},
+            second
+        ]);
+        prepared.source_body["input"] = input.clone();
+        let original = prepared.source_body.clone();
+        let forwarded = history.replay(&prepared).unwrap();
+        assert_eq!(forwarded["input"], input, "{kind}");
+        assert_eq!(prepared.source_body, original);
+        history.observe(&prepared, &json!({"type":"response.completed","response":{"id":"conflicted","status":"completed","output":[]}}));
+        assert!(!history.checkpoint.as_ref().unwrap().complete_for_rebuild);
+
+        let delta = json!({"model":"m","previous_response_id":"conflicted","input":[{"role":"user","content":"continue"}]});
+        assert!(history.completed_replay(&prepared, &delta).unwrap().is_none());
+        prepared.source_body = delta;
+        history.begin(&prepared);
+        let next = history.replay(&prepared).unwrap();
+        let mut expected = input.as_array().unwrap().clone();
+        expected.push(json!({"role":"user","content":"continue"}));
+        assert_eq!(next["input"], json!(expected));
+        history.observe(&prepared, &json!({"type":"response.completed","response":{"id":"after-conflict","status":"completed","output":[]}}));
+        assert!(!history.checkpoint.as_ref().unwrap().complete_for_rebuild);
+    }
+}
+
+#[test]
+fn current_delta_must_be_complete_before_automatic_socket_replay() {
+    let prepared = prepared_history();
+    let mut history = History::default();
+    history.begin(&prepared);
+    history.observe(&prepared, &json!({"type":"response.completed","response":{"id":"valid-root","status":"completed","output":[]}}));
+    assert!(history.checkpoint.as_ref().unwrap().complete_for_rebuild);
+    for input in [
+        json!([{"type":"function_call_output","call_id":"missing","output":"result"}]),
+        json!([
+            {"type":"function_call","call_id":"same","name":"tool","arguments":"{}"},
+            {"type":"function_call","call_id":"same","name":"other","arguments":"{}"},
+            {"type":"function_call_output","call_id":"same","output":"result"}
+        ]),
+        json!([{"type":"future_history_item","payload":"preserve me"}]),
+    ] {
+        let delta = json!({"model":"m","previous_response_id":"valid-root","input":input});
+        let original = delta.clone();
+        assert!(history.completed_replay(&prepared, &delta).unwrap().is_none());
+        assert_eq!(delta, original);
+    }
+    let valid = json!({"model":"m","previous_response_id":"valid-root","input":[{"role":"user","content":"continue"}]});
+    assert!(history.completed_replay(&prepared, &valid).unwrap().is_some());
+}
+
+#[test]
 fn partial_or_unproven_socket_history_cannot_authorize_cross_account_replay() {
     for mode in ["unknown-root", "missing-output", "conflict", "partial"] {
         let mut prepared = prepared_history();
@@ -351,7 +427,7 @@ async fn http_sse_bridge_repairs_output_without_granting_cross_account_history_p
         );
         let source: ByteStream = stream::iter(vec![Ok(Bytes::from(wire))]).boxed();
         let mut messages = super::super::transport_bridge::sse_messages(source, 4096);
-        let mut collector = OutputCollector::new(4096);
+        let mut collector = OutputCollector::new();
         let mut repaired_terminal = false;
         while let Some(message) = messages.next().await {
             let tokio_tungstenite::tungstenite::Message::Text(text) = message.unwrap() else {

@@ -9,10 +9,25 @@ struct Recorder {
     quotas: Mutex<Vec<(String, super::super::rate_limits::QuotaSnapshot)>>,
     reports: Mutex<Vec<RequestReport>>,
     contexts: Mutex<Vec<DiagnosticContext>>,
+    invalidations: Mutex<Vec<String>>,
     changed: Notify,
+    quota_checks: Mutex<Vec<String>>,
+    quota_denied: Mutex<Vec<String>>,
 }
 
 impl Host for Recorder {
+    fn check_quota_before_send(&self, account_id: &str) -> Result<(), ServiceError> {
+        self.quota_checks.lock().unwrap().push(account_id.into());
+        if self.quota_denied.lock().unwrap().iter().any(|id| id == account_id) {
+            return Err(ServiceError::new(429, "quota_reserved", "Synthetic reserve"));
+        }
+        Ok(())
+    }
+
+    fn invalidate_transport(&self, identity: &str) -> bool {
+        self.invalidations.lock().unwrap().push(identity.to_owned());
+        true
+    }
     fn observe_rate_limits(&self, account_id: &str, snapshot: super::super::rate_limits::QuotaSnapshot,
         _: std::time::Instant) {
         self.quotas.lock().unwrap().push((account_id.to_owned(), snapshot));
@@ -42,6 +57,8 @@ impl Host for Recorder {
         })
     }
 }
+
+include!("lifecycle_dispatch_tests.rs");
 
 fn usage() -> Value {
     json!({"input_tokens": 17, "output_tokens": 23, "total_tokens": 40})

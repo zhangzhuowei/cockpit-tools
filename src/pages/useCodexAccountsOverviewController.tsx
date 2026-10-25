@@ -5,10 +5,11 @@ import { RefreshCw, RotateCw } from "lucide-react";
 import * as codexService from "../services/codexService";
 import * as codexLocalAccessService from "../services/codexLocalAccessService";
 import { type CodexAccountGroup } from "../services/codexAccountGroupService";
-import { hasCodexAccountStructure, hasCodexAccountName, getCodexQuotaWindows, isCodexApiKeyAccount, isCodexChatgptPlanAccount, isCodexAgentIdentityAccount, isCodexNewApiAccount, isCodexTeamLikePlan } from "../types/codex";
+import { hasCodexAccountStructure, hasCodexAccountName, isCodexApiKeyAccount, isCodexChatgptPlanAccount, isCodexAgentIdentityAccount, isCodexNewApiAccount, isCodexTeamLikePlan } from "../types/codex";
 import { summarizeCodexQuotaErrorMessage } from "../utils/codexQuotaError";
 import { buildCodexAccountPresentation } from "../presentation/platformAccountPresentation";
-import { buildCodexAccountWindowStatQueries, formatCodexWindowStatsText, type CodexWindowStats } from "../utils/codexWindowStats";
+import { formatCodexWindowStatsText } from "../utils/codexWindowStats";
+import { useCodexAccountWindowStats } from "../hooks/useCodexAccountWindowStats";
 import { type CodexLaunchPreviewAction, type CodexLaunchPreviewSummary } from "../components/codex/CodexLaunchPreviewModal";
 import { CodexImageModelSelect } from "../components/CodexImageModelConfig";
 import { useCodexImageForwardConfig } from "../components/CodexImageForwardConfig";
@@ -110,7 +111,6 @@ export function useCodexAccountsOverviewController(context: Pick<ReturnType<type
   | "resolveUsageProviderForApiKeyAccount"
   | "searchQuery"
   | "selected"
-  | "sessionWindowStats"
   | "setApiKeyUsageDetailAccountId"
   | "setBatchDeleteBusy"
   | "setBatchDeleteJob"
@@ -127,7 +127,6 @@ export function useCodexAccountsOverviewController(context: Pick<ReturnType<type
   | "setMessage"
   | "setRefreshingGroupId"
   | "setSelected"
-  | "setSessionWindowStats"
   | "setShowCustomSortModal"
   | "setSortBy"
   | "showAdditionalQuota"
@@ -226,7 +225,6 @@ export function useCodexAccountsOverviewController(context: Pick<ReturnType<type
     resolveUsageProviderForApiKeyAccount,
     searchQuery,
     selected,
-    sessionWindowStats,
     setApiKeyUsageDetailAccountId,
     setBatchDeleteBusy,
     setBatchDeleteJob,
@@ -243,7 +241,6 @@ export function useCodexAccountsOverviewController(context: Pick<ReturnType<type
     setMessage,
     setRefreshingGroupId,
     setSelected,
-    setSessionWindowStats,
     setShowCustomSortModal,
     setSortBy,
     showAdditionalQuota,
@@ -263,66 +260,9 @@ export function useCodexAccountsOverviewController(context: Pick<ReturnType<type
       : (currentAccount?.id ?? null);
 
   
-    useEffect(() => {
-      if (activeTab !== "overview") {
-        setSessionWindowStats({ ready: false, byAccountId: {} });
-        return;
-      }
-      const memberAccounts = (localAccessCollection?.accountIds ?? [])
-        .map((accountId) => accounts.find((account) => account.id === accountId))
-        .filter((account): account is CodexAccount => Boolean(account));
-      const now = Math.floor(Date.now() / 1000);
-      const queries = memberAccounts.flatMap((account) =>
-        buildCodexAccountWindowStatQueries(
-          account.id,
-          getCodexQuotaWindows(account.quota),
-          now,
-        ),
-      );
-      if (queries.length === 0) {
-        setSessionWindowStats({ ready: false, byAccountId: {} });
-        return;
-      }
-      let cancelled = false;
-      void (async () => {
-        try {
-          const rows =
-            await codexLocalAccessService.queryCodexLocalAccessAccountWindowStats(
-              queries,
-            );
-          if (cancelled) return;
-          const byAccountId: Record<
-            string,
-            { primary?: CodexWindowStats; secondary?: CodexWindowStats }
-          > = {};
-          rows.forEach((row) => {
-            const stats: CodexWindowStats = {
-              requestCount: row.requestCount,
-              inputTokens: row.inputTokens,
-              cachedInputTokens: row.cachedTokens,
-              outputTokens: row.outputTokens,
-              totalTokens: row.totalTokens,
-              estimatedCostUsd: row.estimatedCostUsd,
-            };
-            const current = byAccountId[row.accountId] ?? {};
-            if (row.windowKey === "secondary") {
-              current.secondary = stats;
-            } else if (row.windowKey === "primary") {
-              current.primary = stats;
-            }
-            byAccountId[row.accountId] = current;
-          });
-          setSessionWindowStats({ ready: true, byAccountId });
-        } catch {
-          if (!cancelled) {
-            setSessionWindowStats({ ready: false, byAccountId: {} });
-          }
-        }
-      })();
-      return () => {
-        cancelled = true;
-      };
-    }, [accounts, activeTab, localAccessCollection?.accountIds]);
+    const sessionWindowStats = useCodexAccountWindowStats(
+      activeTab === "overview", accounts, localAccessCollection?.accountIds ?? [],
+    );
   
     const applyWindowStatsToQuotaItems = useCallback(
       (
@@ -330,18 +270,10 @@ export function useCodexAccountsOverviewController(context: Pick<ReturnType<type
         items: ReturnType<typeof buildCodexAccountPresentation>["quotaItems"],
       ) => {
         const memberIds = localAccessCollection?.accountIds ?? [];
-        if (!memberIds.includes(account.id)) {
+        if (!memberIds.includes(account.id) || !sessionWindowStats.ready) {
           return items;
         }
         const accountStats = sessionWindowStats.byAccountId[account.id] ?? {};
-        const emptyStats = {
-          requestCount: 0,
-          inputTokens: 0,
-          cachedInputTokens: 0,
-          outputTokens: 0,
-          totalTokens: 0,
-          estimatedCostUsd: 0,
-        };
         return items.map((item) => {
           if (item.key !== "primary" && item.key !== "secondary") {
             return item;
@@ -349,7 +281,8 @@ export function useCodexAccountsOverviewController(context: Pick<ReturnType<type
           const stats =
             (item.key === "primary"
               ? accountStats.primary
-              : accountStats.secondary) ?? emptyStats;
+              : accountStats.secondary);
+          if (!stats) return item;
           const windowStatsText = formatCodexWindowStatsText(stats);
           const hint = t(
             "codex.quota.windowStatsHint",
@@ -722,8 +655,8 @@ export function useCodexAccountsOverviewController(context: Pick<ReturnType<type
           description: `${accountName} · ${t("instances.defaultName", "默认实例")}`,
           actionLabel: t("common.open", "打开"),
           disabled: cliLaunchingAccountId === account.id,
-          onAction: async () => {
-            await handleLaunchCodexCli(account);
+          onAction: async (launchOptions) => {
+            await handleLaunchCodexCli(account, launchOptions);
           },
         },
       );
@@ -991,8 +924,8 @@ export function useCodexAccountsOverviewController(context: Pick<ReturnType<type
             description: `${t("codex.localAccess.title", "API 服务")} · ${baseUrl}`,
             actionLabel: t("common.open", "打开"),
             disabled: cliLaunchingAccountId === CODEX_API_SERVICE_BIND_ID,
-            onAction: async () => {
-              await handleLaunchLocalAccessCli();
+            onAction: async (launchOptions) => {
+              await handleLaunchLocalAccessCli(launchOptions);
             },
           },
           {

@@ -1062,6 +1062,14 @@ async fn record_request_stats_with_meta(
     usage: Option<UsageCapture>,
     meta: RequestStatsMeta<'_>,
 ) -> Result<(), String> {
+    // The runtime counters, recent event and persisted row use one bounded
+    // classification before any aggregation takes place.
+    let normalized_category = normalized_request_log_error_category(
+        success,
+        error_category.unwrap_or_default().trim(),
+        meta.error_message.unwrap_or_default().trim(),
+    );
+    let error_category = (!normalized_category.is_empty()).then_some(normalized_category.as_ref());
     let persisted_event = {
         let mut runtime = gateway_runtime().lock().await;
         let now = now_ms();
@@ -1500,6 +1508,7 @@ fn new_empty_local_access_collection() -> Result<CodexLocalAccessCollection, Str
         model_pricings: Vec::new(),
         excluded_models: Vec::new(),
         session_affinity: true,
+        session_identity_mapping_enabled: true,
         session_affinity_ttl_ms: DEFAULT_SESSION_AFFINITY_TTL_MS,
         session_affinity_default_enabled_migrated: true,
         responses_websockets_enabled: false,

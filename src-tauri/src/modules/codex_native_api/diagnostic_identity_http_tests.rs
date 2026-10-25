@@ -113,6 +113,8 @@ async fn identity_ws(
 
 #[path = "account_installation_auxiliary_tests.rs"]
 mod installation_auxiliary_tests;
+#[path = "diagnostic_identity_mapping_tests.rs"]
+mod session_identity_mapping_tests;
 struct IdentityHost {
     base: String,
     wire: WireApi,
@@ -154,6 +156,10 @@ impl Host for IdentityHost {
                 installation_profile: Some(test_profile(account)),
                 official_authorization_revision: None,
                 official_registration_id: None,
+                official_fallback_registration_id: None,
+                official_fallback_authorization_revision: None,
+                authorization_scope_fingerprint: None,
+                official_fallback_failure: None,
                 transport_identity: None,
                 account_id: account.into(),
                 owner_id: format!("owner-{account}"),
@@ -246,6 +252,20 @@ async fn identity_fixture(
     tokio::task::JoinHandle<()>,
     tempfile::TempDir,
 ) {
+    identity_fixture_with_options(wire, native_socket, retry, Options::default()).await
+}
+async fn identity_fixture_with_options(
+    wire: WireApi,
+    native_socket: bool,
+    retry: bool,
+    options: Options,
+) -> (
+    Handle,
+    Arc<IdentityHost>,
+    Arc<IdentitySource>,
+    tokio::task::JoinHandle<()>,
+    tempfile::TempDir,
+) {
     let source = Arc::new(IdentitySource {
         seen: Mutex::new(vec![]),
         connections: AtomicUsize::new(0),
@@ -279,7 +299,7 @@ async fn identity_fixture(
         "127.0.0.1:0".parse().unwrap(),
         host.clone(),
         dir.path().join("identity.sqlite"),
-        Options::default(),
+        options,
     )
     .await
     .unwrap();
@@ -668,13 +688,8 @@ async fn websocket_http_chat_bridge_and_local_prewarm_capture_only_real_sends() 
             .await
             .unwrap();
         complete_socket(&mut socket).await;
-        let values = captured(&host, 1).await;
-        assert!(values[0].client_identity_captured);
-        assert!(values[0].client_session_id.is_none());
-        assert!(values[0]
-            .attempts
-            .iter()
-            .all(|attempt| !attempt.upstream_identity_captured));
+        assert!(host.diagnostics.lock().unwrap().is_empty(),
+            "local prewarm does not represent an upstream attempt");
         assert!(source.seen.lock().unwrap().is_empty());
         socket
             .send(Message::Text(
@@ -685,14 +700,16 @@ async fn websocket_http_chat_bridge_and_local_prewarm_capture_only_real_sends() 
             .await
             .unwrap();
         complete_socket(&mut socket).await;
-        let values = captured(&host, 2).await;
+        let values = captured(&host, 1).await;
         let seen = source.seen.lock().unwrap();
         assert_eq!(seen.len(), 1);
-        assert_sent(&values[1], &seen[0], None, None);
-        assert_eq!(values[1].attempts.last().unwrap().transport, "http");
+        assert_sent(&values[0], &seen[0], None, None);
+        assert_eq!(values[0].attempts.last().unwrap().transport, "http");
         drop(seen);
         socket.close(None).await.unwrap();
         handle.shutdown(Duration::from_secs(2)).await.unwrap();
+        assert_eq!(host.diagnostics.lock().unwrap().len(), 1,
+            "only the real send may leave a diagnostic after all work settles");
         task.abort();
     }
 }

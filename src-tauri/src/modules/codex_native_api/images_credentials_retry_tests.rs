@@ -110,6 +110,10 @@ impl Host for CredentialHost {
                     installation_profile: None,
                     official_authorization_revision: None,
                     official_registration_id: None,
+                    official_fallback_registration_id: None,
+                    official_fallback_authorization_revision: None,
+                    authorization_scope_fingerprint: None,
+                official_fallback_failure: None,
                     transport_identity: None,
                     account_id: account.into(),
                     owner_id: if request.force_refresh && self.change_refresh_owner {
@@ -430,7 +434,7 @@ async fn forced_oauth_images_reject_missing_server_history_and_have_no_manual_ma
     assert_eq!(response.status(), 409);
     assert_eq!(
         response.json::<Value>().await.unwrap()["error"]["code"],
-        "previous_response_not_found"
+        "continuation_history_incomplete"
     );
     assert!(fixture.requests.lock().unwrap().is_empty());
     let mut clean = body;

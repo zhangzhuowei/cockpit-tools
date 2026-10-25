@@ -186,6 +186,8 @@ export interface CodexLocalAccessCollection {
   maxAccountConcurrency: number;
   accountConcurrencyWaitMs: number;
   excludedModels: string[];
+  /** Service-scoped; omitted legacy values default to enabled. */
+  sessionIdentityMappingEnabled?: boolean;
   sessionAffinity: boolean;
   sessionAffinityTtlMs: number;
   sessionAffinityDefaultEnabledMigrated?: boolean;
@@ -314,6 +316,8 @@ export interface CodexLocalAccessProxyRoute {
 
 export interface CodexLocalAccessUsageEvent {
   authorizationRoute?: 'official' | 'local_gateway' | null;
+  /** Recorded fallback evidence; absent for older logs or pending diagnostics. */
+  authorizationFallback?: CodexAuthorizationFallbackTrace | null;
   timestamp: number;
   requestId: string;
   accountId: string;
@@ -334,6 +338,8 @@ export interface CodexLocalAccessUsageEvent {
   serviceTier?: string | null;
   /** Final outbound field (auto when omitted); absent for historical records. */
   requestedServiceTier?: string | null;
+  /** Explicit adaptation on the final sent attempt; never inferred from feedback. */
+  serviceTierAdaptation?: CodexServiceTierAdaptation | null;
   /** Upstream feedback, preserved verbatim (including default). */
   responseServiceTier?: string | null;
   /** Request reasoning effort (e.g. low/medium/high/xhigh/max), when present. */
@@ -381,8 +387,30 @@ export interface CodexLocalAccessUsageEventPage {
   totalPages: number;
 }
 
+export interface CodexAuthorizationFallbackTrace {
+  reason: string;
+  /** Missing on legacy records, which describe an upstream rejection. */
+  triggerStage?: string;
+  fromAccountId: string;
+  toAccountId: string;
+  fromRoute: string;
+  toRoute: string;
+  status?: number | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+}
+
+export interface CodexServiceTierAdaptation {
+  requestedTier: string;
+  sentTier: 'default';
+  reason: 'official_default_only';
+}
+
 export interface CodexLocalAccessRequestAttempt {
+  serviceTierAdaptation?: CodexServiceTierAdaptation | null;
   authorizationRoute?: 'official' | 'local_gateway' | null;
+  authorizationFallback?: CodexAuthorizationFallbackTrace | null;
+  upstreamRequestId?: string | null;
   sequence: number;
   transportError?: string | null;
   transportPoolRetired?: boolean | null;

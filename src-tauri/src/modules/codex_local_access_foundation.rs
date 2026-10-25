@@ -18,13 +18,12 @@ use crate::models::codex_local_access::{
     CodexLocalAccessModelStats, CodexLocalAccessPortCleanupResult,
     CodexLocalAccessProfileAttachment, CodexLocalAccessProviderGateway,
     CodexLocalAccessProviderGatewayModelCapability, CodexLocalAccessProxyRoute,
-    CodexLocalAccessQuotaReserve, CodexLocalAccessQuotaReserveStatus, CodexLocalAccessRequestKind,
-    CodexLocalAccessRoutingStrategy, CodexLocalAccessScope, CodexLocalAccessState,
-    CodexLocalAccessStats, CodexLocalAccessStatsWindow, CodexLocalAccessTestFailure,
-    CodexLocalAccessTestResult, CodexLocalAccessTimeoutPreset, CodexLocalAccessTimeouts,
-    CodexLocalAccessUsageEvent, CodexLocalAccessUsageEventPage, CodexLocalAccessUsageStats,
-    CodexLocalAccessUsageTrendPoint, CodexTokenBreakdown, DEFAULT_CODEX_IMAGE_GENERATION_MODEL,
-    DEFAULT_MAX_ACCOUNT_CONCURRENCY,
+    CodexLocalAccessQuotaReserve, CodexLocalAccessQuotaReserveStatus, CodexLocalAccessRequestKind, CodexLocalAccessRoutingStrategy, CodexLocalAccessScope,
+    CodexLocalAccessState, CodexLocalAccessStats, CodexLocalAccessStatsWindow,
+    CodexLocalAccessTestFailure, CodexLocalAccessTestResult, CodexLocalAccessTimeoutPreset,
+    CodexLocalAccessTimeouts, CodexLocalAccessUsageEvent, CodexLocalAccessUsageEventPage,
+    CodexLocalAccessUsageStats, CodexLocalAccessUsageTrendPoint, CodexTokenBreakdown,
+    DEFAULT_CODEX_IMAGE_GENERATION_MODEL, DEFAULT_MAX_ACCOUNT_CONCURRENCY,
 };
 use crate::models::{CodexInstanceApiRoute, CodexInstanceModelRouting};
 use crate::modules::atomic_write::{
@@ -263,8 +262,13 @@ const CODEX_PROVIDER_MODEL_SHELL_POOL: &[&str] = &["gpt-5.6-sol", "gpt-5.6-terra
 // Keep the GPT-6 family available as identity-preserving shells when an upstream
 // account already exposes those exact models, without assigning them to unrelated
 // overflow models. The retired model remains valid only for explicit API providers.
-const CODEX_PROVIDER_IDENTITY_ONLY_MODEL_IDS: &[&str] =
-    &["gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.5"];
+const CODEX_PROVIDER_IDENTITY_ONLY_MODEL_IDS: &[&str] = &[
+    "gpt-6.1-sol",
+    "gpt-6-astra",
+    "gpt-6-sol",
+    "gpt-6-luna",
+    "gpt-5.5",
+];
 const CODEX_PROVIDER_GATEWAY_STATE_FILE: &str = "state.json";
 const CODEX_LOCAL_ACCESS_SIDECAR_CONFIG_FILE: &str = "config.json";
 const CODEX_LOCAL_ACCESS_SIDECAR_MANIFEST_FILE: &str = "manifest.json";
@@ -624,15 +628,6 @@ mod model_provider_chat_test_cancellation_tests {
         assert!(!is_model_provider_chat_test_cancelled(&run_id));
         assert!(!cancel_model_provider_chat_test_run(&run_id));
     }
-}
-
-#[derive(Default)]
-struct BoundOauthQuotaRefreshControl {
-    failures: u32,
-    retry_at: Option<Instant>,
-    in_flight: bool,
-    last_account_id: Option<String>,
-    last_started_at: Option<Instant>,
 }
 
 #[derive(Default)]
@@ -1176,10 +1171,6 @@ fn update_gateway_preparation_progress(context: GatewayPreparationContext, compl
 
 fn upstream_http_client_cache() -> &'static Mutex<Option<CachedUpstreamHttpClient>> {
     UPSTREAM_HTTP_CLIENT.get_or_init(|| Mutex::new(None))
-}
-
-fn bound_oauth_quota_refresh_failures() -> &'static Mutex<HashSet<String>> {
-    BOUND_OAUTH_QUOTA_REFRESH_FAILURES.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
 fn duration_to_millis(duration: Duration) -> u64 {
@@ -1800,6 +1791,7 @@ fn sync_runtime_collection(
     if let Some(handle) = runtime.native_handle.as_ref() {
         handle.set_cooling_disabled(collection.disable_cooling);
         handle.set_session_affinity_enabled(collection.session_affinity);
+        handle.set_session_identity_mapping_enabled(collection.session_identity_mapping_enabled);
     }
     // Start the maintenance thread without waiting for SQLite/schema/body cleanup.
     let _ = request_diagnostics_writer();
@@ -1843,135 +1835,8 @@ fn validate_loaded_local_access_bound_oauth_account(
     Ok(oauth_account)
 }
 
-fn validate_bound_oauth_quota_reserve(
-    reserve: Option<CodexLocalAccessQuotaReserve>,
-    has_bound_oauth_account: bool,
-) -> Result<Option<CodexLocalAccessQuotaReserve>, String> {
-    let Some(mut reserve) = reserve else {
-        return Ok(None);
-    };
-    if !has_bound_oauth_account {
-        return Err("设置 OAuth 保留额度前必须先绑定 OAuth 账号".to_string());
-    }
-    if !(BOUND_OAUTH_QUOTA_RESERVE_MIN_PERCENT..=BOUND_OAUTH_QUOTA_RESERVE_MAX_PERCENT)
-        .contains(&reserve.hourly_percent)
-    {
-        return Err("5 小时 OAuth 保留额度必须在 1% 到 100% 之间".to_string());
-    }
-    if !(BOUND_OAUTH_QUOTA_RESERVE_MIN_PERCENT..=BOUND_OAUTH_QUOTA_RESERVE_MAX_PERCENT)
-        .contains(&reserve.weekly_percent)
-    {
-        return Err("周 OAuth 保留额度必须在 1% 到 100% 之间".to_string());
-    }
-    if !(1..=20).contains(&reserve.safety_margin_percent) {
-        return Err("OAUTH_QUOTA_INVALID_MARGIN".to_string());
-    }
-    reserve.strict = true;
-    Ok(Some(reserve))
-}
-
-fn normalize_bound_oauth_quota_reserve(
-    reserve: &mut Option<CodexLocalAccessQuotaReserve>,
-    has_bound_oauth_account: bool,
-) -> bool {
-    let original = reserve.clone();
-    if !has_bound_oauth_account {
-        *reserve = None;
-        return *reserve != original;
-    }
-    if let Some(reserve) = reserve.as_mut() {
-        reserve.strict = true;
-        reserve.safety_margin_percent = reserve.safety_margin_percent.clamp(1, 20);
-        reserve.hourly_percent = reserve.hourly_percent.clamp(
-            BOUND_OAUTH_QUOTA_RESERVE_MIN_PERCENT,
-            BOUND_OAUTH_QUOTA_RESERVE_MAX_PERCENT,
-        );
-        reserve.weekly_percent = reserve.weekly_percent.clamp(
-            BOUND_OAUTH_QUOTA_RESERVE_MIN_PERCENT,
-            BOUND_OAUTH_QUOTA_RESERVE_MAX_PERCENT,
-        );
-    }
-    *reserve != original
-}
-
 fn valid_quota_remaining_percent(value: i32) -> Option<i32> {
     (0..=100).contains(&value).then_some(value)
-}
-
-fn quota_refresh_fail_closed_for_account(account_id: &str) -> bool {
-    bound_oauth_quota_refresh_failures()
-        .lock()
-        .map(|failures| failures.contains(account_id))
-        .unwrap_or(true)
-}
-
-fn fresh_quota_for_bound_oauth_reserve(
-    account: &CodexAccount,
-) -> Option<&crate::models::codex::CodexQuota> {
-    if account.quota_error.is_some() || quota_refresh_fail_closed_for_account(&account.id) {
-        return None;
-    }
-    let updated_at = account.usage_updated_at?;
-    let now = chrono::Utc::now().timestamp();
-    if updated_at <= 0
-        || updated_at > now
-        || now.saturating_sub(updated_at) > BOUND_OAUTH_QUOTA_RESERVE_MAX_SNAPSHOT_AGE_SECONDS
-    {
-        return None;
-    }
-    account.quota.as_ref()
-}
-
-fn bound_oauth_quota_reserve_blocks_account(
-    reserve: &CodexLocalAccessQuotaReserve,
-    account: Option<&CodexAccount>,
-) -> bool {
-    account.is_none_or(|account| !quota_reserve_allows(reserve, account))
-}
-
-fn quota_reserve_warning_threshold(reserve_percent: i32) -> i32 {
-    20.max(reserve_percent.saturating_add(5)).min(100)
-}
-
-
-fn apply_bound_oauth_quota_reserve(
-    collection: &CodexLocalAccessCollection,
-    scoped_account_ids: Vec<String>,
-) -> Vec<String> {
-    let Some(reserve) = collection.bound_oauth_quota_reserve.as_ref() else {
-        return scoped_account_ids;
-    };
-    let Some(bound_account_id) =
-        normalize_optional_account_ref(collection.bound_oauth_account_id.as_deref())
-    else {
-        return scoped_account_ids;
-    };
-    if !scoped_account_ids
-        .iter()
-        .any(|account_id| account_id == &bound_account_id)
-    {
-        return scoped_account_ids;
-    }
-
-    let account = codex_account::load_account(&bound_account_id);
-    filter_bound_oauth_quota_reserve_account(
-        scoped_account_ids,
-        &bound_account_id,
-        reserve,
-        account.as_ref(),
-    )
-}
-
-fn filter_bound_oauth_quota_reserve_account(
-    mut scoped_account_ids: Vec<String>,
-    bound_account_id: &str,
-    reserve: &CodexLocalAccessQuotaReserve,
-    account: Option<&CodexAccount>,
-) -> Vec<String> {
-    if bound_oauth_quota_reserve_blocks_account(reserve, account) {
-        scoped_account_ids.retain(|account_id| account_id != bound_account_id);
-    }
-    scoped_account_ids
 }
 
 async fn cache_prepared_account(account: &CodexAccount) {
@@ -3700,4 +3565,146 @@ fn tool_choice_selects_image_generation(choice: &Value) -> bool {
             .and_then(Value::as_array)
             .is_some_and(|items| items.iter().any(tool_choice_selects_image_generation))
     })
+}
+
+#[derive(Default)]
+struct BoundOauthQuotaRefreshControl {
+    failures: u32,
+    retry_at: Option<Instant>,
+    in_flight: bool,
+    last_account_id: Option<String>,
+    last_started_at: Option<Instant>,
+}
+
+fn bound_oauth_quota_refresh_failures() -> &'static Mutex<HashSet<String>> {
+    BOUND_OAUTH_QUOTA_REFRESH_FAILURES.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+fn validate_bound_oauth_quota_reserve(
+    reserve: Option<CodexLocalAccessQuotaReserve>,
+    has_bound_oauth_account: bool,
+) -> Result<Option<CodexLocalAccessQuotaReserve>, String> {
+    let localized = |key: &str| crate::modules::i18n::translate(
+        &crate::modules::config::get_user_config().language, key, &[],
+    );
+    let Some(mut reserve) = reserve else {
+        return Ok(None);
+    };
+    if !has_bound_oauth_account {
+        return Err(localized("codex.api.oauthBinding.switchRequiresBinding"));
+    }
+    if !(BOUND_OAUTH_QUOTA_RESERVE_MIN_PERCENT..=BOUND_OAUTH_QUOTA_RESERVE_MAX_PERCENT)
+        .contains(&reserve.hourly_percent)
+    {
+        return Err(localized("codex.localAccess.oauthBinding.quotaReserveInvalid"));
+    }
+    if !(BOUND_OAUTH_QUOTA_RESERVE_MIN_PERCENT..=BOUND_OAUTH_QUOTA_RESERVE_MAX_PERCENT)
+        .contains(&reserve.weekly_percent)
+    {
+        return Err(localized("codex.localAccess.oauthBinding.quotaReserveInvalid"));
+    }
+    if !(1..=20).contains(&reserve.safety_margin_percent) {
+        return Err(localized("codex.localAccess.oauthBinding.safetyMarginInvalid"));
+    }
+    reserve.strict = true;
+    Ok(Some(reserve))
+}
+
+fn normalize_bound_oauth_quota_reserve(
+    reserve: &mut Option<CodexLocalAccessQuotaReserve>,
+    has_bound_oauth_account: bool,
+) -> bool {
+    let original = reserve.clone();
+    if !has_bound_oauth_account {
+        *reserve = None;
+        return *reserve != original;
+    }
+    if let Some(reserve) = reserve.as_mut() {
+        reserve.strict = true;
+        reserve.safety_margin_percent = reserve.safety_margin_percent.clamp(1, 20);
+        reserve.hourly_percent = reserve.hourly_percent.clamp(
+            BOUND_OAUTH_QUOTA_RESERVE_MIN_PERCENT,
+            BOUND_OAUTH_QUOTA_RESERVE_MAX_PERCENT,
+        );
+        reserve.weekly_percent = reserve.weekly_percent.clamp(
+            BOUND_OAUTH_QUOTA_RESERVE_MIN_PERCENT,
+            BOUND_OAUTH_QUOTA_RESERVE_MAX_PERCENT,
+        );
+    }
+    *reserve != original
+}
+
+fn quota_refresh_fail_closed_for_account(account_id: &str) -> bool {
+    bound_oauth_quota_refresh_failures()
+        .lock()
+        .map(|failures| failures.contains(account_id))
+        .unwrap_or(true)
+}
+
+fn fresh_quota_for_bound_oauth_reserve(
+    account: &CodexAccount,
+) -> Option<&crate::models::codex::CodexQuota> {
+    if account.quota_error.is_some() || quota_refresh_fail_closed_for_account(&account.id) {
+        return None;
+    }
+    let updated_at = account.usage_updated_at?;
+    let now = chrono::Utc::now().timestamp();
+    if updated_at <= 0
+        || updated_at > now
+        || now.saturating_sub(updated_at) > BOUND_OAUTH_QUOTA_RESERVE_MAX_SNAPSHOT_AGE_SECONDS
+    {
+        return None;
+    }
+    account.quota.as_ref()
+}
+
+fn bound_oauth_quota_reserve_blocks_account(
+    reserve: &CodexLocalAccessQuotaReserve,
+    account: Option<&CodexAccount>,
+) -> bool {
+    account.is_none_or(|account| !quota_reserve_allows(reserve, account))
+}
+
+fn quota_reserve_warning_threshold(reserve_percent: i32) -> i32 {
+    20.max(reserve_percent.saturating_add(5)).min(100)
+}
+
+fn apply_bound_oauth_quota_reserve(
+    collection: &CodexLocalAccessCollection,
+    scoped_account_ids: Vec<String>,
+) -> Vec<String> {
+    let Some(reserve) = collection.bound_oauth_quota_reserve.as_ref() else {
+        return scoped_account_ids;
+    };
+    let Some(bound_account_id) =
+        normalize_optional_account_ref(collection.bound_oauth_account_id.as_deref())
+    else {
+        return scoped_account_ids;
+    };
+    if !scoped_account_ids
+        .iter()
+        .any(|account_id| account_id == &bound_account_id)
+    {
+        return scoped_account_ids;
+    }
+
+    let account = codex_account::load_account(&bound_account_id);
+    filter_bound_oauth_quota_reserve_account(
+        scoped_account_ids,
+        &bound_account_id,
+        reserve,
+        account.as_ref(),
+    )
+}
+
+fn filter_bound_oauth_quota_reserve_account(
+    mut scoped_account_ids: Vec<String>,
+    bound_account_id: &str,
+    reserve: &CodexLocalAccessQuotaReserve,
+    account: Option<&CodexAccount>,
+) -> Vec<String> {
+    if bound_oauth_quota_reserve_blocks_account(reserve, account) {
+        scoped_account_ids.retain(|account_id| account_id != bound_account_id);
+    }
+    scoped_account_ids
 }

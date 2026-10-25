@@ -1,4 +1,5 @@
 //! HTTP adapters for independent Images calls. A requested batch retains one owner.
+use crate::modules::codex_native_api::deadline::{self, Deadline};
 use std::{collections::VecDeque, sync::Arc};
 
 use axum::{
@@ -190,7 +191,6 @@ async fn parse_request(
                 )
             })?;
         let mut parts = Vec::new();
-        let mut received = 0usize;
         loop {
             let mut stop = state.stop.clone();
             let next = tokio::select! {
@@ -228,8 +228,8 @@ async fn parse_request(
                     result.map_err(|_| ServiceError::new(408,"request_body_timeout","Timed out reading image upload"))?
                         .map_err(|_| ServiceError::new(413,"request_too_large","Image upload exceeds its size limit"))?,
             };
-            received = received.saturating_add(bytes.len());
-            if received > state.options.max_upload_bytes {
+            // Go bounds each uploaded file, not the sum of multipart fields.
+            if filename.is_some() && bytes.len() > state.options.max_upload_bytes {
                 return Err(ServiceError::new(
                     413,
                     "request_too_large",
@@ -254,7 +254,7 @@ async fn parse_request(
     let mut stop = state.stop.clone();
     let bytes = tokio::select! {
         _ = stop.wait() => return Err(stopping_error()),
-        result = tokio::time::timeout(state.options.request_timeout, to_bytes(incoming.into_body(), state.options.max_upload_bytes)) =>
+        result = tokio::time::timeout(state.options.request_timeout, to_bytes(incoming.into_body(), state.options.max_body_bytes)) =>
             result.map_err(|_| ServiceError::new(408,"request_body_timeout","Timed out reading image request"))?
                 .map_err(|_| ServiceError::new(413,"request_too_large","Image request exceeds its size limit"))?,
     };
@@ -262,7 +262,7 @@ async fn parse_request(
         state,
         bytes,
         &encoding_headers,
-        state.options.max_upload_bytes,
+        state.options.max_body_bytes,
     )
     .await?;
     blocking::run(
@@ -288,11 +288,27 @@ pub(super) struct Execution {
     pub(super) route_request: ImageRouteRequest,
     pub(super) tracker: RequestTracker,
     pub(super) usage: Option<Value>,
-    pub(super) deadline: Option<(tokio::time::Instant, std::time::Duration)>,
+    pub(super) deadline: Option<(Deadline, std::time::Duration)>,
     pub(super) owner_committed: bool,
 }
 
 impl Execution {
+    pub(super) fn response_limit(&self) -> usize {
+        if self.selected.route.chatgpt {
+            self.state.options.max_response_bytes
+        } else {
+            self.state.options.max_image_response_bytes
+        }
+    }
+
+    pub(super) fn event_limit(&self) -> usize {
+        if self.selected.route.chatgpt {
+            self.state.options.max_event_bytes
+        } else {
+            self.response_limit()
+        }
+    }
+
     fn can_switch_source(&self) -> bool {
         fn opaque(value: &Value) -> bool {
             match value {
@@ -344,12 +360,23 @@ impl Execution {
         &mut self,
         oauth: bool,
     ) -> Result<(reqwest::Response, Option<Binding>), ServiceError> {
+        if !oauth {
+            // Go's independent Images API waits for generation with one
+            // five-minute context; the OAuth stream-open/idle knobs do not apply.
+            let image_timeout = std::time::Duration::from_secs(300);
+            self.budget.total_deadline = self.budget.total_deadline
+                .min(Deadline::after(image_timeout));
+            self.budget.policy.open_timeout = image_timeout;
+            self.budget.policy.idle_timeout = image_timeout;
+            self.budget = self.budget.renew_open();
+        }
         let mut refreshed = false;
         let mut send_attempts = 0u8;
         let mut status_attempts = 0u8;
         let mut open_attempts = 1u8;
         let mut bootstrap_attempts = 0u8;
         let mut credential_attempts = 0usize;
+        let mut last_upstream_failure: Option<ServiceError> = None;
         let mut round_attempted = false;
         let policy = self.budget.policy.clone();
         let deadline = self
@@ -367,7 +394,6 @@ impl Execution {
                 self.budget = self.budget.renew_open();
             }
             previous_open_deadline = Some(self.budget.open_deadline);
-            self.tracker.begin_attempt("http");
             let mut headers = outbound_headers(&self.headers);
             headers.extend(self.selected.route.headers.clone());
             headers.remove(header::CONTENT_LENGTH);
@@ -434,8 +460,6 @@ impl Execution {
                 self.selected.route.base_url.trim_end_matches('/'),
                 path
             );
-            self.tracker
-                .payload("upstream_request", "http", &headers, &payload.to_string());
             let mut outgoing = self.selected.route.client.post(url).headers(headers);
             if !oauth {
                 if let Some(parts) = self.request.native_parts(&self.selected.image_model) {
@@ -465,21 +489,40 @@ impl Execution {
             }
             let mut stop = self.state.stop.clone();
             let (client, built) = outgoing.build_split();
-            if let Ok(request) = &built {
-                self.tracker.upstream_headers(request.headers());
+            let built = built.map_err(|error| super::super::diagnostics::transport_failure(
+                502, "upstream_request_invalid", "Unable to prepare the image upstream request", &error,
+            ).with_upstream_not_sent(true));
+            let open_deadline = deadline.cap(self.budget.prepare_deadline());
+            let outgoing = async {
+                let built = built?;
+                if tokio::time::Instant::now() >= open_deadline {
+                    return Err(ServiceError::new(504,"upstream_connect_timeout","Image upstream response headers timed out"));
+                }
+                self.tracker.begin_attempt("http");
+                self.tracker.payload("upstream_request", "http", built.headers(), &payload.to_string());
+                self.tracker.upstream_headers(built.headers());
                 self.tracker.check_quota_before_send()?;
-            }
-            let outgoing = async move { client.execute(built?).await };
+                client.execute(built).await.map_err(|error| {
+                    super::super::diagnostics::transport_failure(502,"upstream_unavailable","Unable to connect to the image upstream",&error)
+                        .with_upstream_not_sent(error.is_connect() || error.is_builder())
+                })
+            };
             let result = tokio::select! {
+                biased;
                 _ = stop.wait() => return Err(stopping_error()),
-                result = tokio::time::timeout_at(self.budget.prepare_deadline().min(deadline), outgoing) =>
+                result = deadline::timeout_at(open_deadline, outgoing) =>
                     result.map_err(|_| ServiceError::new(504,"upstream_connect_timeout","Image upstream response headers timed out"))
-                        .and_then(|value|value.map_err(|error| super::super::diagnostics::transport_failure(502,"upstream_unavailable","Unable to connect to the image upstream",&error))),
+                        .and_then(|value| value),
             };
             let mut response = match result {
                 Ok(response) => response,
                 Err(error) => {
-                    self.tracker.attempt_error(&error);
+                    if error.upstream_not_sent {
+                        self.tracker.discard_unsent_attempt();
+                    } else {
+                        self.tracker.attempt_error(&error);
+                        last_upstream_failure = Some(error.clone());
+                    }
                     if tokio::time::Instant::now() >= deadline {
                         return Err(super::super::retry::total_timeout());
                     }
@@ -490,13 +533,13 @@ impl Execution {
                             continue;
                         }
                     }
-                    if stream_open_timeout || send_attempts >= policy.send_retries {
-                        if super::super::retry::credential_limit_allows(
+                    if error.upstream_not_sent || stream_open_timeout || send_attempts >= policy.send_retries {
+                        if (error.upstream_not_sent || super::super::retry::credential_limit_allows(
                             &policy,
                             credential_attempts,
-                        ) && self.alternate_source(None, deadline).await?
+                        )) && self.alternate_source(None, deadline).await?
                         {
-                            credential_attempts += 1;
+                            if !error.upstream_not_sent { credential_attempts += 1; }
                             send_attempts = 0;
                             status_attempts = 0;
                             open_attempts = 1;
@@ -514,7 +557,9 @@ impl Execution {
                             refreshed = false;
                             continue;
                         }
-                        return Err(error);
+                        return Err(if error.upstream_not_sent {
+                            last_upstream_failure.clone().unwrap_or(error)
+                        } else { error });
                     }
                     send_attempts += 1;
                     super::super::retry::delay(
@@ -531,6 +576,7 @@ impl Execution {
                 }
             };
             self.tracker.upstream_http_version(response.version());
+            self.tracker.upstream_response_headers(response.headers());
             self.tracker.quota_headers(response.headers());
             if oauth && response.status().is_success() {
                 // The shared probe stops at the first business event or its
@@ -599,11 +645,34 @@ impl Execution {
                     false,
                     Some("image_upstream_error"),
                 );
+                // inspect_status_error has already bounded and buffered this
+                // body. Keep only the structured error, not a response/stream.
+                let status = response.status();
+                let version = response.version();
+                let headers = response.headers().clone();
+                let bytes = response.bytes().await.map_err(|error| {
+                    super::super::diagnostics::transport_failure(status.as_u16(),
+                        "upstream_http_error", "Unable to read the image upstream error", &error)
+                })?;
+                let detail = serde_json::from_slice::<Value>(&bytes).ok()
+                    .map(|value| super::super::diagnostics::error_object(&value).clone());
+                let mut saved = ServiceError::new(status.as_u16(), "image_upstream_error",
+                    failure_message.clone().unwrap_or_else(|| "Image upstream rejected the request".into()))
+                    .with_credential_scope(credential_scope)
+                    .with_retry_after(retry_after_headers(&headers).max(body_retry_after));
+                if let Some(detail) = detail { saved = saved.with_error_details(detail); }
+                last_upstream_failure = Some(saved);
+                let mut rebuilt = axum::http::Response::new(bytes);
+                *rebuilt.status_mut() = status;
+                *rebuilt.version_mut() = version;
+                *rebuilt.headers_mut() = headers;
+                response = reqwest::Response::from(rebuilt);
             }
             let retry_after = match (retry_after_headers(response.headers()), body_retry_after) {
                 (Some(headers), Some(body)) => Some(headers.max(body)),
                 (headers, body) => headers.or(body),
             };
+            self.tracker.set_retry_after(retry_after);
             if request_scoped {
                 self.tracker.set_retry_after(retry_after);
                 return Ok((response, binding));
@@ -717,7 +786,7 @@ impl Execution {
                     let mut stop = self.state.stop.clone();
                     tokio::select! {
                         _=stop.wait()=>return Err(stopping_error()),
-                        result=tokio::time::timeout_at(deadline,self.state.host.route_failed_attempt(&self.selected.route,&self.selected.image_model,if model_unavailable { 404 } else { response.status().as_u16() },retry_after,credential_scope,failure_message.as_deref()))=>result.map_err(|_|super::super::retry::total_timeout())?,
+                        result=deadline::timeout_at(deadline,self.state.host.route_failed_attempt(&self.selected.route,&self.selected.image_model,if model_unavailable { 404 } else { response.status().as_u16() },retry_after,credential_scope,failure_message.as_deref()))=>result.map_err(|_|super::super::retry::total_timeout())?,
                     }
                 }
                 if self
@@ -780,7 +849,7 @@ impl Execution {
     async fn alternate_source(
         &mut self,
         upstream_failure: Option<(u16, Option<std::time::Duration>, bool, Option<&str>)>,
-        deadline: tokio::time::Instant,
+        deadline: Deadline,
     ) -> Result<bool, ServiceError> {
         if !self.can_switch_source() {
             return Ok(false);
@@ -792,7 +861,7 @@ impl Execution {
             let mut stop = self.state.stop.clone();
             tokio::select! {
                 _=stop.wait()=>return Err(stopping_error()),
-                result=tokio::time::timeout_at(deadline,self.state.host.route_failed_attempt(&self.selected.route,&self.selected.image_model,status,retry_after,credential_scope,message))=>{result.map_err(|_|super::super::retry::total_timeout())?;}
+                result=deadline::timeout_at(deadline,self.state.host.route_failed_attempt(&self.selected.route,&self.selected.image_model,status,retry_after,credential_scope,message))=>{result.map_err(|_|super::super::retry::total_timeout())?;}
             }
         }
         self.tracker.release_route();
@@ -840,7 +909,7 @@ impl Execution {
         &mut self,
         status: u16,
         policy: &super::super::contract::ExecutionPolicy,
-        deadline: tokio::time::Instant,
+        deadline: Deadline,
     ) -> Result<bool, ServiceError> {
         self.budget = self.budget.renew_open();
         let budget = self.budget.clone();
@@ -857,7 +926,7 @@ impl Execution {
         &mut self,
         status: u16,
         policy: &super::super::contract::ExecutionPolicy,
-        deadline: tokio::time::Instant,
+        deadline: Deadline,
     ) -> Result<bool, ServiceError> {
         if !self.can_switch_source() {
             return Ok(false);
@@ -893,7 +962,7 @@ impl Execution {
         let mut stop = self.state.stop.clone();
         let wait = tokio::select! {
             _=stop.wait()=>return Err(stopping_error()),
-            result=tokio::time::timeout_at(deadline,self.state.host.retry_cooldown_wait(&self.caller,request,policy.retry_max_delay))=>result.map_err(|_|super::super::retry::total_timeout())??,
+            result=deadline::timeout_at(deadline,self.state.host.retry_cooldown_wait(&self.caller,request,policy.retry_max_delay))=>result.map_err(|_|super::super::retry::total_timeout())??,
         };
         let Some(mut wait) = wait else {
             return Ok(false);
@@ -912,7 +981,7 @@ impl Execution {
         let mut stop = self.state.stop.clone();
         let selected = tokio::select! {
             _=stop.wait()=>return Err(stopping_error()),
-            result=tokio::time::timeout_at(deadline,self.state.host.image_route(&self.caller,request.clone()))=>result.map_err(|_|super::super::retry::total_timeout())??,
+            result=deadline::timeout_at(deadline,self.state.host.image_route(&self.caller,request.clone()))=>result.map_err(|_|super::super::retry::total_timeout())??,
         };
         if selected.route.chatgpt != self.selected.route.chatgpt
             || (request.preferred_account_id.is_some()
@@ -937,11 +1006,11 @@ impl Execution {
     ) -> Result<Vec<u8>, ServiceError> {
         let (deadline, idle_timeout) = self.deadline.unwrap_or_else(|| {
             (
-                tokio::time::Instant::now() + self.state.options.request_timeout,
+                (tokio::time::Instant::now() + self.state.options.request_timeout).into(),
                 self.state.options.idle_timeout,
             )
         });
-        tokio::time::timeout_at(deadline, read_bounded(&self.state, response, idle_timeout))
+        deadline::timeout_at(deadline, read_bounded(&self.state, response, idle_timeout, self.response_limit()))
             .await
             .map_err(|_| super::super::retry::total_timeout())?
     }
@@ -952,11 +1021,11 @@ impl Execution {
     ) -> Result<Option<Bytes>, ServiceError> {
         let (deadline, idle_timeout) = self.deadline.unwrap_or_else(|| {
             (
-                tokio::time::Instant::now() + self.state.options.idle_timeout,
+                (tokio::time::Instant::now() + self.state.options.idle_timeout).into(),
                 self.state.options.idle_timeout,
             )
         });
-        tokio::time::timeout_at(deadline, read_next(&self.state, stream, idle_timeout))
+        deadline::timeout_at(deadline, read_next(&self.state, stream, idle_timeout))
             .await
             .map_err(|_| super::super::retry::total_timeout())?
     }
@@ -974,7 +1043,7 @@ async fn forward_native(mut execution: Execution) -> Result<Response, ServiceErr
     let headers = upstream.headers().clone();
     if is_sse(&headers) && status.is_success() && execution.request.stream {
         let current = NativeStream {
-            decoder: SseDecoder::new(execution.state.options.max_response_bytes),
+            decoder: SseDecoder::new(execution.event_limit()),
             upstream: upstream.bytes_stream().boxed(),
             execution,
             completed: 0,
@@ -993,6 +1062,9 @@ async fn forward_native(mut execution: Execution) -> Result<Response, ServiceErr
                     let events = match bytes {
                         Some(bytes) => {
                             current.progress.chunk(bytes.len());
+                            if current.progress.bytes > current.execution.response_limit() {
+                                return current.error(ServiceError::new(502, "upstream_response_too_large", "Image response exceeds its size limit")).await;
+                            }
                             current.execution.tracker.first_response();
                             current.decoder.push(&bytes)
                         }
@@ -1023,7 +1095,7 @@ async fn forward_native(mut execution: Execution) -> Result<Response, ServiceErr
                                 &current.execution.state,
                                 &mut wrapped,
                                 current.execution.request.response_format,
-                                current.execution.state.options.max_response_bytes,
+                                current.execution.response_limit(),
                                 current.execution.asset_budget(),
                             )
                             .await
@@ -1082,7 +1154,7 @@ async fn forward_native(mut execution: Execution) -> Result<Response, ServiceErr
         }
     };
     if is_sse(&headers) && status.is_success() {
-        let mut decoder = SseDecoder::new(execution.state.options.max_response_bytes);
+        let mut decoder = SseDecoder::new(execution.event_limit());
         let mut events = decoder.push(&bytes)?;
         events.extend(decoder.finish()?);
         let usage = events
@@ -1111,7 +1183,7 @@ async fn forward_native(mut execution: Execution) -> Result<Response, ServiceErr
             &execution.state,
             &mut value,
             execution.request.response_format,
-            execution.state.options.max_response_bytes,
+            execution.response_limit(),
             execution.asset_budget(),
         )
         .await
@@ -1147,7 +1219,7 @@ async fn forward_native(mut execution: Execution) -> Result<Response, ServiceErr
             &execution.state,
             value,
             execution.request.response_format,
-            execution.state.options.max_response_bytes,
+            execution.response_limit(),
             execution.asset_budget(),
         )
         .await
@@ -1268,6 +1340,7 @@ pub(super) async fn read_bounded(
     state: &AppState,
     response: reqwest::Response,
     idle_timeout: std::time::Duration,
+    limit: usize,
 ) -> Result<Vec<u8>, ServiceError> {
     let mut upstream = response.bytes_stream().boxed();
     let mut bytes = Vec::new();
@@ -1277,7 +1350,7 @@ pub(super) async fn read_bounded(
         .map_err(|error| progress.failure(error))?
     {
         progress.chunk(chunk.len());
-        if bytes.len().saturating_add(chunk.len()) > state.options.max_response_bytes {
+        if bytes.len().saturating_add(chunk.len()) > limit {
             return Err(ServiceError::new(
                 502,
                 "upstream_response_too_large",
@@ -1478,7 +1551,7 @@ async fn forward_oauth(mut execution: Execution) -> Result<Response, ServiceErro
         execution.request.response_format,
     )
     .with_output_format(&execution.request.output_format)
-    .with_limit(execution.state.options.max_response_bytes);
+    .with_limit(execution.response_limit());
     let stream = match into_image_stream(&execution, upstream).await {
         Ok(stream) => stream,
         Err(error) => {
@@ -1487,7 +1560,7 @@ async fn forward_oauth(mut execution: Execution) -> Result<Response, ServiceErro
         }
     };
     let mut current = OAuthStream {
-        decoder: SseDecoder::new(execution.state.options.max_response_bytes),
+        decoder: SseDecoder::new(execution.event_limit()),
         upstream: Some(stream),
         binding,
         accumulator,
@@ -1578,7 +1651,7 @@ impl OAuthStream {
                 })
                 .map(str::len)
                 .sum();
-            if size > self.execution.state.options.max_response_bytes {
+            if size > self.execution.response_limit() {
                 return Err(ServiceError::new(
                     502,
                     "upstream_response_too_large",
@@ -1611,13 +1684,13 @@ impl OAuthStream {
             }
             self.binding = binding;
             self.upstream = Some(into_image_stream(&self.execution, response).await?);
-            self.decoder = SseDecoder::new(self.execution.state.options.max_response_bytes);
+            self.decoder = SseDecoder::new(self.execution.event_limit());
             self.accumulator = ImageAccumulator::new(
                 self.execution.request.operation,
                 self.execution.request.response_format,
             )
             .with_output_format(&self.execution.request.output_format)
-            .with_limit(self.execution.state.options.max_response_bytes);
+            .with_limit(self.execution.response_limit());
             self.progress = ImageStreamProgress::new(true);
         }
         let upstream = self.upstream.as_mut().ok_or_else(|| {
@@ -1687,7 +1760,7 @@ impl OAuthStream {
                 self.execution.request.response_format,
             )
             .with_output_format(&self.execution.request.output_format)
-            .with_limit(self.execution.state.options.max_response_bytes);
+            .with_limit(self.execution.response_limit());
             let mut accumulator = std::mem::replace(&mut self.accumulator, placeholder);
             let (accumulator, converted) = blocking::run(
                 self.execution.state.stop.clone(),

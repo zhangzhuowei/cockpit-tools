@@ -3,7 +3,7 @@ import { reuseCodexServiceJoin } from "../utils/codexServiceJoin";
 import { listChatGptPlanAccounts, chatGptPlanErrorKey } from "../services/chatgptPlanService";
 import { CodexAccountOfficialBadge } from "../components/codex/CodexOfficialBadge";
 import { isCodexChatgptPlanAccount } from "../types/codex";
-import { canChooseCodexServiceAuthorization, requestCodexServiceAuthorization } from "../utils/codexAccountServiceNavigation";
+import { canChooseCodexServiceAuthorization } from "../utils/codexAccountServiceNavigation";
 import { useChatGptPlanOverview } from "../hooks/useChatGptPlanOverview";
 import { chatGptPlanSourceMemberIds } from "../utils/chatgptPlanOverview";
 import { getCodexAccountQuotaError } from "../utils/codexProxyRuntimeError";
@@ -1059,10 +1059,6 @@ export function useCodexAccountsLocalAccessController(context: Pick<ReturnType<t
               setMessage({ text: t("codex.localAccess.saveSuccess", "API 服务集合已更新") });
               return;
             }
-            if (resumed.kind === 'choice' || resumed.kind === 'reauthorize') {
-              requestCodexServiceAuthorization(accountId, resumed.kind === 'reauthorize' ? 'official' : undefined);
-              return;
-            }
           }
           const result =
             await codexLocalAccessService.appendCodexLocalAccessAccounts([
@@ -1164,6 +1160,7 @@ export function useCodexAccountsLocalAccessController(context: Pick<ReturnType<t
           restrictFreeAccounts?: boolean;
           backupAccountIds?: string[];
           preferredAccountIds?: string[];
+          sessionIdentityMappingEnabled?: boolean;
           sessionAffinity?: boolean;
           sessionAffinityTtlMs?: number;
           imageGenerationAccountPolicies?: Record<string, CodexLocalAccessImageGenerationPolicy>;
@@ -1207,6 +1204,7 @@ export function useCodexAccountsLocalAccessController(context: Pick<ReturnType<t
               options?.sessionAffinityTtlMs,
               options?.imageGenerationAccountPolicies,
               options?.officialAccountBindings,
+              options?.sessionIdentityMappingEnabled,
             );
           setLocalAccessState(nextState);
           setMessage({

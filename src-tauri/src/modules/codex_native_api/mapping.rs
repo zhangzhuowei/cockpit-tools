@@ -11,6 +11,9 @@ use super::{
 #[path = "mapping_capability.rs"]
 mod capability;
 pub(super) use capability::retry as retry_capability;
+#[path = "mapping_official_fallback.rs"]
+mod official_fallback;
+pub(super) use official_fallback::retry as retry_official_local;
 
 #[derive(Clone)]
 pub(super) struct Prepared {
@@ -36,6 +39,7 @@ pub(super) struct Prepared {
     pub capability_fallback_enabled: bool,
     pub capability_fallback: Option<super::diagnostics::CapabilityFallbackTrace>,
     pub transport_pinned: bool,
+    pub preflight_attempts: Vec<super::diagnostics::DiagnosticAttempt>,
 }
 
 impl Prepared {
@@ -442,7 +446,20 @@ async fn prepare_selected_inner(
     selected: ImageRoute,
     image_request: ImageRouteRequest,
 ) -> Result<Prepared, ServiceError> {
-    let context = inspect_mode(state, caller, incoming, &body, true).await?;
+    let mut context = inspect_mode(state, caller, incoming, &body, true).await?;
+    if selected.route.chatgpt
+        && !selected.route.headers.contains_key("x-xai-token-auth")
+        && body.get("previous_response_id").is_some_and(Value::is_string)
+    {
+        // Forced image tools use the same OAuth HTTP transport. It cannot
+        // resolve native response anchors without the complete local history.
+        let identity = state.identity.clone();
+        let headers = incoming.clone();
+        (context, body) = super::blocking::run_prepared(state, move || {
+            let plan = identity.expand_http_previous(&mut context, &headers, &body, &body)?;
+            Ok::<_, ServiceError>((context, plan.body))
+        }).await?;
+    }
     if context
         .state_account_id
         .as_deref()
@@ -506,8 +523,8 @@ async fn finalize(
     incoming: &HeaderMap,
     mut body: Value,
     mut context: RequestIdentity,
-    selected: Route,
-    request: RouteRequest,
+    mut selected: Route,
+    mut request: RouteRequest,
     image_route_request: Option<ImageRouteRequest>,
     compact: bool,
     transport_pinned: bool,
@@ -522,6 +539,53 @@ async fn finalize(
     }
     let logical_source = body.clone();
     let logical_headers = incoming.clone();
+    let mut official_plan = None;
+    if !selected.chatgpt_plan && selected.official_fallback_registration_id.is_some()
+        && !official_fallback::same_owner(state, &context, &selected).await? {
+        let (rebuilt, plan) = official_fallback::replay(state, caller, incoming, &body, context.clone(), None)
+            .await?.ok_or_else(|| official_fallback::history_recovery("history_unavailable"))?;
+        context = rebuilt;
+        body = plan.body.clone();
+        request.preferred_account_id = None;
+        request.soft_preferred_account_id = None;
+        official_plan = Some(plan);
+    }
+    let mut force_capability_fallback = false;
+    let preflight_attempts = Vec::new();
+    if selected.chatgpt_plan && image_route_request.is_none()
+        && request.auxiliary.as_deref().is_none_or(|operation| operation == "responses.websocket") {
+        let mut official_body = body.clone();
+        super::chatgpt_plan_wire::adapt_service_tier(&mut official_body);
+        if let Err(error) = super::chatgpt_plan_wire::validate_before_transport(&official_body, compact, request.auxiliary.as_deref() == Some("responses.websocket")) {
+            if error.code == "subscription_sharing_unsupported_capability" {
+                let failure = super::contract::OfficialFallbackFailure {
+                    trigger_stage: "preflight",
+                    status: error.status, code: error.code.into(), message: Some(error.message.clone()), retry_after: error.retry_after,
+                };
+                match official_fallback::select(state, caller, incoming, &body,
+                    context.clone(), &mut selected, request.clone(), None, failure.clone()).await {
+                    Ok(Some(fallback)) => {
+                        body = fallback.plan.body.clone();
+                        context = fallback.context;
+                        selected = fallback.route;
+                        request = fallback.request;
+                        official_plan = Some(fallback.plan);
+                    }
+                    Err(error) if super::official_fallback::local_unavailable(&error) => {
+                        // Keep the original logical request and owner fence. The
+                        // scoped selector may try another account. Neither this
+                        // local candidate nor the official validation sent a
+                        // request, so they are not failed upstream attempts.
+                        force_capability_fallback = true;
+                    }
+                    Err(error) => return Err(error),
+                    Ok(None) => {}
+                }
+            }
+        }
+    }
+    let incoming = official_plan.as_ref().map_or(incoming, |plan| &plan.headers);
+    let official_candidate = selected.chatgpt_plan || selected.official_fallback_registration_id.is_some();
     let selection = capability::select(
         state,
         caller,
@@ -531,10 +595,17 @@ async fn finalize(
         selected,
         request,
         transport_pinned || image_route_request.is_some(),
-        false,
+        force_capability_fallback,
         "preflight",
     )
-    .await?;
+    .await.map_err(|error| {
+        if official_candidate && matches!(error.code,
+            "capability_fallback_history_unsafe" | "capability_fallback_encryption_unsafe") {
+            official_fallback::history_recovery("history_not_portable")
+        } else {
+            error
+        }
+    })?;
     let mut context = selection.context;
     let selected = selection.route;
     let request = selection.request;
@@ -546,6 +617,7 @@ async fn finalize(
     ).await?;
     multi_agent_policy.options.tools_prepared = boundary_tools_prepared;
     if selected.chatgpt_plan {
+        super::chatgpt_plan_wire::adapt_service_tier(&mut body);
         super::chatgpt_plan_wire::validate_before_transport(
             &body,
             compact,
@@ -596,7 +668,9 @@ async fn finalize(
         }
     }
     body["model"] = Value::String(selected.model.clone());
-    if body.get("service_tier").is_none() {
+    if selected.chatgpt_plan {
+        super::chatgpt_plan_wire::adapt_service_tier(&mut body);
+    } else if body.get("service_tier").is_none() {
         if let Some(tier) = &selected.default_service_tier {
             body["service_tier"] = Value::String(tier.clone());
         }
@@ -618,12 +692,13 @@ async fn finalize(
         multi_agent_policy,
         multi_agent_context: Default::default(),
         raw_chat: None,
-        rebuild_applied: selection.plan.is_some(),
-        rebuild_plan: selection.plan,
+        rebuild_applied: selection.plan.is_some() || official_plan.is_some(),
+        rebuild_plan: selection.plan.or(official_plan),
         bridge_body: None,
         capability_fallback_enabled: selection.enabled,
         capability_fallback: selection.trace,
         transport_pinned,
+        preflight_attempts,
     })
 }
 
@@ -770,11 +845,7 @@ async fn inspect_mode(
     let headers = headers.clone();
     let body = body.clone();
     super::blocking::run_prepared(state, move || {
-        if allow_portable_input {
-            identity.inspect_for_rebuild(&caller_id, &headers, &body)
-        } else {
-            identity.inspect(&caller_id, &headers, &body)
-        }
+        identity.inspect_for_forwarding(&caller_id, &headers, &body, allow_portable_input)
     })
     .await
 }
@@ -816,11 +887,18 @@ async fn refresh_inner(state: &AppState, prepared: &mut Prepared, force_refresh:
         .await?
         .route
     } else {
-        route(state, &prepared.caller, request).await?
+        super::execution::within(
+            state,
+            state.host.refresh_route(&prepared.caller, &prepared.route, request),
+        ).await?
     };
     if selected.account_id != prepared.route.account_id
         || selected.continuity_id() != prepared.route.continuity_id()
         || selected.official_registration_id != prepared.route.official_registration_id
+        || selected.official_fallback_registration_id != prepared.route.official_fallback_registration_id
+        || selected.official_fallback_authorization_revision != prepared.route.official_fallback_authorization_revision
+        || (prepared.route.official_fallback_registration_id.is_some()
+            && selected.authorization_scope_fingerprint != prepared.route.authorization_scope_fingerprint)
         || selected.owner_id != prepared.route.owner_id
     {
         return Err(ServiceError::new(
@@ -915,7 +993,9 @@ async fn rewrite_body_inner(
     .await?;
     super::account_installation::apply(&prepared.route, &mut headers, &mut body)?;
     body["model"] = Value::String(prepared.route.model.clone());
-    if body.get("service_tier").is_none() {
+    if prepared.route.chatgpt_plan {
+        super::chatgpt_plan_wire::adapt_service_tier(&mut body);
+    } else if body.get("service_tier").is_none() {
         if let Some(tier) = &prepared.route.default_service_tier {
             body["service_tier"] = Value::String(tier.clone());
         }
@@ -1233,6 +1313,10 @@ mod tests {
             installation_profile: None,
             official_authorization_revision: None,
             official_registration_id: None,
+            official_fallback_registration_id: None,
+            official_fallback_authorization_revision: None,
+            authorization_scope_fingerprint: None,
+                official_fallback_failure: None,
             transport_identity: None,
             account_id: "account".into(),
             owner_id: "owner".into(),
@@ -1293,6 +1377,10 @@ mod tests {
             installation_profile: None,
             official_authorization_revision: None,
             official_registration_id: None,
+            official_fallback_registration_id: None,
+            official_fallback_authorization_revision: None,
+            authorization_scope_fingerprint: None,
+                official_fallback_failure: None,
             transport_identity: None,
             account_id: "account".into(),
             owner_id: "owner".into(),

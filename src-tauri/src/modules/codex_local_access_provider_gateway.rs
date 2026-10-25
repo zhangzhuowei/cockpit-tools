@@ -383,7 +383,8 @@ pub fn restore_mixed_model_gateway_profile(profile_dir: &Path) -> Result<bool, S
     if let Some(index) = backup_index {
         let backup = backups.profiles[index].clone();
         if config_is_mixed {
-            let restored = restore_config_toml_from_takeover_backup(
+            let restored = restore_profile_config_toml_from_takeover_backup(
+                profile_dir,
                 current_config.as_deref(),
                 backup.config_toml.as_deref(),
             )?;
@@ -1441,6 +1442,7 @@ fn apply_provider_gateway_template_settings(
     collection.model_pricings = template.model_pricings.clone();
     collection.excluded_models = template.excluded_models.clone();
     collection.session_affinity = template.session_affinity;
+    collection.session_identity_mapping_enabled = template.session_identity_mapping_enabled;
     collection.session_affinity_ttl_ms = template.session_affinity_ttl_ms;
     collection.session_affinity_default_enabled_migrated =
         template.session_affinity_default_enabled_migrated;

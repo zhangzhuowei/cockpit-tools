@@ -14,6 +14,7 @@ include!("codex_local_access_profile_takeover.rs");
 include!("codex_local_access_takeover_maintenance.rs");
 include!("codex_local_access_sidecar_config.rs");
 include!("codex_local_access_automatic_routing.rs");
+include!("codex_local_access_injection_display.rs");
 include!("codex_local_access_sidecar_runtime.rs");
 include!("codex_local_access_pool_diagnostics.rs");
 include!("codex_local_access_collection.rs");

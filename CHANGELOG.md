@@ -10,6 +10,86 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- Clear all published announcements so old notices and automatic announcement popups disappear after a successful client refresh.
+
+## [1.3.74] - 2026-10-24
+
+### Fixed
+
+- Adapt to newer Codex clients, restoring native speed controls and quota notices for API services without OAuth and mixed OAuth/API profiles while preserving send restrictions for official, remote and image modes.
+- Recognize compressed Codex chat heads in session lists and restore them safely; export and synchronize standalone compressed chats without changing the source history.
+- Align Astra’s native question-dialog and clock tool capabilities and preserve the current Astra/Sol automatic review requirement without resetting saved model, reasoning or context preferences.
+- Keep injected model, speed, quota and chat metrics attached to the focused conversation when multiple composers or model menus are open; new chats no longer reuse another chat’s identity or cached selection.
+- Preserve concurrent chat history during restore and import, append chat index entries without replacing newer records, and allow safe index-repair retries. Respect the official client’s refusal to delete history still referenced by a branch and retain recovery backups when deletion is not confirmed.
+- Keep selection counts and batch action states consistent during rapid Codex session selection; reserve count width and remove fading transitions from the selection toolbar.
+- Fix some existing conversations, tool history and newer message types being rejected by local history checks in the Rust and Go API services. Preserve tool-call compatibility, account permissions, duplicate-execution protection and original upstream errors.
+- Fix CLI Launch in Codex launch previews reopening the same preview or being hidden behind it; continue to the working-directory and terminal dialog with the confirmed settings, and keep failures visible in the preview.
+- Preserve existing macOS Keychain access permissions when switching Antigravity accounts, avoiding repeated password prompts caused by resetting the credential's access policy.
+- API Service Rust engine connection failures now identify the attempted proxy and distinguish timeouts, unavailable local proxies and confirmed proxy authentication failures, instead of masking them as upstream authorization failures. Account and upstream rejections retain their original errors.
+- Recover Codex usage dialogs from temporary local read failures with bounded retries and resume queries after Cockpit reconnects, preserving verified data and pagination. Reduce repeated work in usage statistics queries.
+- Prioritize the configured Codex client path on Windows, including official MSIX installations. Resolve package identity from the selected executable instead of letting an invalid StartApps AppUserModelId block launch. Discover alternative registered clients only after a confirmed pre-launch failure, and avoid duplicate launches when the result is uncertain.
+- Accept Antigravity account files with a UTF-8 BOM after OAuth authorization without rolling back newer account notes. Validate encrypted backups before recovery, retain valid backups if recovery fails or is interrupted, preserve concurrent saves, and report missing encryption keys without replacing them.
+- Keep Antigravity desktop account switches consistent when the client falls back from the system credential store to its local token file. Preserve `id_token` in both stores and report fallback synchronization failures instead of claiming success.
+- Keep Codex account cards' request counts, token usage and costs visible while quota reset estimates update. Refresh statistics in the background without clearing unrelated accounts or windows, and clear expired-window counters when their quota resets.
+
+### Added
+
+- Add a dedicated Repair chat index entry to session management and the launch preview for editing and branching issues. It checks selected conversations and their ancestor history, backs up and resets out-of-bounds paginated indexes only when the original records are complete and the target client is stopped, and preserves chat records, accounts and provider settings.
+- Add a default-on Session ID mapping switch in API Service routing options and member settings. Turn it off to forward the original client Session-Id and Thread-Id values. Both directions show a confirmation explaining identifier isolation and possible cache reuse trade-offs, without persistent inline text; changes take effect after saving.
+
+### Changed
+
+- Align Antigravity quota queries with official client v2.25.0 to include `Gemini 4 Argon (Weekly)` alongside `Claude (5h)`, `Claude (Weekly)`, `Gemini (5h)`, and `Gemini (Weekly)`, and display Antigravity account quotas as single-column per-window progress rows matching Codex.
+- Align Antigravity incremental authorization with Antigravity-Manager v4.9.8 while retaining voice transcription permission. Use native OAuth request headers, refresh credentials with 15 minutes or less remaining, and retry `invalid_grant` once after a short delay before reporting failure. OAuth callbacks support IPv4 and IPv6 loopback addresses.
+
+## [1.3.73] - 2026-10-22
+
+### Changed
+
+- Remove the Rust API Service engine's five-minute text request limit, 32 MiB full-response limit, 8 MiB accumulated output limit, and Chat conversion limits of 32 MiB and 4,096 items. Change the Codex stream event limit from 8 MiB to a 50 MiB per-line limit.
+- Increase image API response limits from 32 MiB to 96 MiB and change the 64 MiB image upload limit from a combined request limit to a per-file limit. Keep the independent image API's five-minute total timeout.
+- Remove the 30-second wait limit for the first client WebSocket message, change Chat provider stream limits from 8 MiB to 4 MiB per line, and cap the account concurrency wait queue at 100 requests.
+- Restore optional OAuth quota reserves for API Service bindings, including 5-hour and weekly thresholds, safety margins, protection status and admission checks in both gateway engines. Quota reservation is unchecked by default for new bindings. Existing bindings keep their saved choice; enable protection again if an earlier version removed its settings.
+- API Service clients use the same current-chat average output speed and input-token-weighted cache hit rate in the footer and overview, retaining the measurements after generation stops. Request records distinguish requested and returned speed tiers.
+- Open and refresh recent API request records faster, with indexed summaries for new requests and immediate dialog updates. Existing request history is retained without a bulk rebuild.
+
+### Fixed
+
+- Activate quota compatibility in the current Codex API Service page on Windows and macOS without reloading the window or waiting for a later page load. Remove incorrect send blocking caused by exhausted subscription quota, hide the corresponding notice, and restore the local quota cache when enhancements stop.
+- Show output speed and cache hit rates in the footer and overview with exactly one decimal place, discarding remaining digits without rounding; 99.99% displays as 99.9%.
+- Reduce repeated account refreshes and statistics work after Codex switches, retaining confirmed counters during background refresh. Limit launch-time session checks and report timeouts or recovery failures inside the launch dialog.
+- Keep verified request records visible during background refresh failures and when switching dialog tabs. Distinguish empty results, unlinked chats and unavailable services, and reject replies from previous chats or service bindings.
+- Preserve verified current-chat average speed and cache measurements across brief database read failures, expire caches when their verification lapses, and clear measurements when the service binding or chat changes.
+
+## [1.3.72] - 2026-10-21
+
+### Added
+
+- **Official-first API Service routing**: Prefer linked official ChatGPT access, then recover through the same account's local OAuth route or another permitted account after a safe, recoverable failure. Preserve explicit local-only choices, conversation and tool history, account permissions and quota limits. Official access uses default speed; local fallback retains the requested speed. Request details show the actual route and recovery results.
+- **Account tests**: Rename Pelican test and add candy reasoning, distinct public benchmark cases, and fixed-answer mathematics, code tracing, long-context ledger and dependency-planning tasks. Show descriptive task names, expanded references and per-field results, distinguishing format compliance from final-answer correctness. Retired prompts and their original graders remain available in history. Plain-text replies can be compared alongside HTML; incomplete requests are not scored, and local results are separate from official leaderboards.
+- **API Service usage overview**: A compact, readable dialog shows the selected model family’s GPT account quotas, DeepSeek balance or Grok quota alongside current-chat metrics and service statistics. Switch between current-chat and service-wide request records and load more without losing the scroll position. Account names, known subscription labels, requested and upstream models, authorization routes, token usage and performance follow API Service conventions. GPT API Key account counts load independently of request statistics and follow the current service/key account scope, retaining confirmed counts across chat changes and disconnections. The 660px dialog keeps request fields compact with internal horizontal scrolling when needed. Balance rows align provider, contributing account count and amount; dialog height adapts to overview content across both tabs, capped at 700px and 85% of the viewport, metric units are smaller, repeated overview models are collapsed, and clicking outside closes the dialog. Unlinked or unmeasured data stays unknown; incomplete historical statistics are marked as verified subsets.
+- Keep Reauthorize available in the Codex launch preview, allowing credentials to be replaced for the existing account before an authorization failure.
+
+### Changed
+
+- Show API Service quota, speed and cache in one status strip with a light surface and a single purple accent dot; use blue for speed and account-overview colors for displayed quota percentages: green at ≥80%, yellow at ≥40%, orange at ≥10%, red below 10%, and “—” for missing data. Click to view details and refresh. Client output speed uses the same post-first-response timing as API Service, weighted over the current chat’s recent valid requests; unmatched chats or missing timing show “—”.
+- Hide the ChatGPT subscription usage banner in API Service clients while preserving native notices and actual limits for ordinary accounts.
+
+### Removed
+
+- Remove automatic official-authorization prompts on API Service startup, page entry and ordinary account additions. Manual authorization remains in member management; batch additions continue for healthy accounts and report individual failures without changing saved access choices.
+- Remove OAuth quota reserves, thresholds and safety margins from both API Service engines. Existing reserve settings no longer affect routing; actual quota exhaustion, key scopes and account concurrency still apply.
+
+### Fixed
+
+- Correct Windows update-package installer identification so automatic updates can select the appropriate installer format.
+- Restore native dictation controls and transcription in Codex clients bound to API Service, following the client’s native capabilities and settings instead of overriding dictation. General audio APIs and realtime voice remain available.
+- Recover Rust and Go API requests when quota errors arrive after stream handshakes, including accounts without official authorization. Cool down exhausted access before trying a safe fallback, respect upstream reset times and retain conversation and tool safety checks. Requests with delivered output or uncertain execution are not replayed; unsent candidates create no failure records and consume no upstream retry attempts.
+- Fix the send button remaining disabled for independent API conversations when the linked ChatGPT quota is exhausted in mixed mode. Preserve unsaved drafts, rich content, active conversations and actual quota limits.
+- Keep Cockpit-managed Codex realtime voice connections on the current API Service port after reconnection, while preserving custom voice endpoints.
+
 ## [1.3.71] - 2026-10-20
 
 ### Added

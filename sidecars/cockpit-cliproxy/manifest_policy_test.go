@@ -918,6 +918,9 @@ func TestBuildCockpitQuotaResponseGroupsPlansAndPoolHealth(t *testing.T) {
 	if response.AvailableAccountCount != 1 || response.AbnormalAccountCount != 1 || response.CooldownAccountCount != 1 {
 		t.Fatalf("runtime pool health = available %d, abnormal %d, cooldown %d", response.AvailableAccountCount, response.AbnormalAccountCount, response.CooldownAccountCount)
 	}
+	if response.FiveHourCapacityPercent == nil || *response.FiveHourCapacityPercent != 100 || response.WeeklyCapacityPercent == nil || *response.WeeklyCapacityPercent != 200 {
+		t.Fatalf("runtime cooldown must not change counted window capacity: %#v", response)
+	}
 }
 
 func TestBuildCockpitQuotaResponseBlocksHourlyWhenWeeklyIsExhausted(t *testing.T) {

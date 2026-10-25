@@ -302,3 +302,17 @@ fn quota_protection_timeout_blocks_old_evidence_and_recovers_on_verification() {
         "slow metadata must not invalidate verified quota"
     );
 }
+
+#[test]
+fn quota_protection_status_uses_live_memory_without_requiring_an_account_file() {
+    let (collection, account) = quota_protection_fixture("quota-status-without-file", 80, true);
+    let cold = build_quota_reserve_status(&collection).unwrap();
+    assert!(cold.blocked && cold.awaiting_confirmation);
+    assert!(!cold.snapshot_fresh);
+    confirm_gateway_quota_refresh(&account.id, account.quota.as_ref().unwrap(), Instant::now());
+    let ready = build_quota_reserve_status(&collection).unwrap();
+    assert!(ready.snapshot_fresh);
+    assert!(!ready.blocked && !ready.awaiting_confirmation);
+    observe_gateway_quota(&account.id, quota_protection_snapshot(12.0, 5000), Instant::now());
+    assert!(build_quota_reserve_status(&collection).unwrap().blocked);
+}

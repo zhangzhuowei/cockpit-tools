@@ -1081,3 +1081,35 @@ async fn native_context_rebuild_preserves_existing_retry_limits() {
         assert_eq!(policy.retry_max_delay, Duration::from_millis(720));
     }
 }
+
+#[tokio::test]
+async fn go_limits_host_ignores_legacy_total_timeout_and_wait_queue_releases_on_drop() {
+    let mut collection = native_test_collection();
+    collection.timeouts.legacy_stream_total_timeout_ms = 300_000;
+    let host = NativeHostBridge::for_collection(collection);
+    let policy = native_contract::Host::execution_policy(&host).await.unwrap();
+    assert!(policy.total_timeout.is_zero());
+    assert_eq!(policy.open_timeout, Duration::from_secs(60));
+    assert_eq!(policy.idle_timeout, Duration::from_secs(120));
+    let slots: Vec<_> = (0..100).map(|_| native_account_wait_slot(&host).unwrap()).collect();
+    assert_eq!(native_account_wait_slot(&host).err().unwrap().code, "account_busy");
+    drop(slots);
+    assert_eq!(host.account_waiters.load(Ordering::Acquire), 0);
+    let slot = native_account_wait_slot(&host).unwrap();
+    drop(slot);
+    assert_eq!(host.account_waiters.load(Ordering::Acquire), 0);
+    let mut collection = native_test_collection();
+    collection.max_account_concurrency = 1;
+    collection.account_concurrency_wait_ms = 10_000;
+    let accounts = [native_test_account()];
+    let (_, busy) = native_acquire_account_concurrency_permit(&host, &collection, &accounts, true).await.unwrap();
+    let mut waiting = Box::pin(native_acquire_account_concurrency_permit(&host, &collection, &accounts, true));
+    tokio::select! {
+        result = &mut waiting => panic!("occupied account unexpectedly resolved: {}", result.is_ok()),
+        _ = tokio::time::sleep(Duration::from_millis(10)) => {}
+    }
+    assert_eq!(host.account_waiters.load(Ordering::Acquire), 1);
+    drop(waiting);
+    assert_eq!(host.account_waiters.load(Ordering::Acquire), 0);
+    drop(busy);
+}

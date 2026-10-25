@@ -82,12 +82,7 @@ export function resolveOAuthBindingQuotaReserve(
       ? { ...reserve, hourlyPercent, weeklyPercent }
       : null;
   }
-  // 已绑定且未保留额度表示保存过关闭状态；仅新绑定使用默认值。
-  if (collection?.boundOauthAccountId?.trim()) return null;
-  return {
-    hourlyPercent: DEFAULT_OAUTH_HOURLY_QUOTA_RESERVE_PERCENT,
-    weeklyPercent: DEFAULT_OAUTH_WEEKLY_QUOTA_RESERVE_PERCENT,
-  };
+  return null;
 }
 
 export function normalizeCodexApiBaseUrl(rawValue?: string | null): string {

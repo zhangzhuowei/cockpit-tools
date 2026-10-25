@@ -23,9 +23,11 @@ mod codex_cpa_wire;
 mod compat;
 mod compat_http;
 mod compat_options;
+mod connection_error;
 pub mod contract;
 pub mod continuity_bridge;
 pub mod diagnostics;
+mod deadline;
 mod edge;
 mod events;
 pub(crate) mod execution;
@@ -47,6 +49,9 @@ mod multi_agent_lifecycle_http_tests;
 #[cfg(test)]
 mod tls_recovery_http_tests;
 mod native_chat;
+mod official_fallback;
+#[cfg(test)]
+mod official_fallback_http_tests;
 mod output_error;
 mod output_items;
 mod output_usage;

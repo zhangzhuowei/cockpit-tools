@@ -15,11 +15,9 @@ function text(value: any): string {
   return typeof value === "object" ? text(value.props?.children) : String(value);
 }
 
-test("new OAuth bindings reserve 30% of the five-hour quota and 10% of the weekly quota", () => {
+test("new OAuth bindings leave quota reservation disabled by default", () => {
   for (const collection of [undefined, null, {}, { boundOauthAccountId: null, boundOauthQuotaReserve: null }]) {
-    assert.deepEqual(resolveOAuthBindingQuotaReserve(collection), {
-      hourlyPercent: 30, weeklyPercent: 10,
-    });
+    assert.equal(resolveOAuthBindingQuotaReserve(collection), null);
   }
 });
 
@@ -132,6 +130,9 @@ test("binding and reserve dialogs keep focus and Escape with only the active lay
   assert.equal(focusCalls.filter((entry) => entry.open && entry.active).length, 1);
   props.oauthBindingQuotaReserveEditorOpen = true;
   assert.equal(dialogs().length, 2);
+  for (const overlay of nodes(h.flush()).filter((node) => node.props?.className?.includes("modal-overlay"))) {
+    assert.equal(overlay.props.onClick, undefined, "background clicks must keep both dialogs open");
+  }
   assert.equal(focusCalls[0].open, true);
   assert.equal(focusCalls[0].active, false);
   assert.equal(focusCalls[0].restore, true);

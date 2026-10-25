@@ -178,6 +178,10 @@ impl Host for TestHost {
                 installation_profile: None,
                 official_authorization_revision: None,
                 official_registration_id: None,
+                official_fallback_registration_id: None,
+                official_fallback_authorization_revision: None,
+                authorization_scope_fingerprint: None,
+                official_fallback_failure: None,
                 transport_identity: None,
                 default_service_tier: None,
                 permit: None,
@@ -300,6 +304,7 @@ impl Fixture {
         continuity_bridge::start(continuity_bridge::Config {
             identity_path: self.path(),
             token: CONTROL_TOKEN.into(),
+            session_identity_mapping_enabled: true,
             owners: HashMap::from([
                 ("a".into(), "owner-a".into()),
                 ("b".into(), "owner-b".into()),

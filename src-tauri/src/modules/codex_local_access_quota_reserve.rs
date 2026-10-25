@@ -574,14 +574,20 @@ fn build_quota_reserve_status(
 ) -> Option<CodexLocalAccessQuotaReserveStatus> {
     let reserve = collection.bound_oauth_quota_reserve.as_ref()?;
     let account_id = normalize_optional_account_ref(collection.bound_oauth_account_id.as_deref())?;
-    let account = codex_account::load_account(&account_id);
     let runtime = quota_reserve_coordinator().lock().ok()?;
     let state = runtime.accounts.get(&account_id);
-    let (blocked, near, primary, secondary) = account
-        .as_ref()
-        .map(|account| quota_reserve_decision(reserve, account, state))
-        .unwrap_or((true, false, None, None));
-    let pending = state.is_none_or(|s| !s.verified || (near && s.awaiting_confirmation));
+    let fresh = |window: Option<&ObservedQuotaWindow>| {
+        window.filter(|window| window.observed_at.elapsed().as_secs() <= 180).cloned()
+    };
+    let primary = fresh(state.and_then(|state| state.primary.as_ref()));
+    let secondary = fresh(state.and_then(|state| state.secondary.as_ref()));
+    let near = quota_windows_near(reserve, primary.as_ref(), secondary.as_ref());
+    let pending = primary.is_none() || secondary.is_none()
+        || state.is_none_or(|state| !state.verified || (near && state.awaiting_confirmation));
+    let refresh_failed = quota_refresh_fail_closed_for_account(&account_id);
+    let blocked = refresh_failed
+        || quota_window_blocks(primary.as_ref(), quota_reserve_cutoff(reserve, reserve.hourly_percent))
+        || quota_window_blocks(secondary.as_ref(), quota_reserve_cutoff(reserve, reserve.weekly_percent));
     let effective = [
         ("hourly", primary.as_ref(), reserve.hourly_percent),
         ("weekly", secondary.as_ref(), reserve.weekly_percent),
@@ -604,9 +610,7 @@ fn build_quota_reserve_status(
         snapshot_updated_at: age.map(|age| chrono::Utc::now().timestamp() - age),
         snapshot_fresh: primary.is_some()
             && secondary.is_some()
-            && account.as_ref().is_some_and(|a| {
-                a.quota_error.is_none() && !quota_refresh_fail_closed_for_account(&a.id)
-            }),
+            && !refresh_failed,
         blocked: blocked || pending,
         warning: effective.is_some() || pending,
         effective_window: effective.map(|e| e.0.to_string()),

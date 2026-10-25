@@ -71,7 +71,7 @@ test('local gateway application selects its source and inactive member dialogs d
   }
 });
 
-function saveMembersContext(options: { selected?: Set<string>; accounts?: Map<string, { id: string }>; bindings?: Record<string, string>; save?: (payload: any) => Promise<unknown>; prepare?: (ids: string[], bindings: Record<string, string>) => Promise<Record<string, string> | null> } = {}) {
+function saveMembersContext(options: { mappingEnabled?: boolean; selected?: Set<string>; accounts?: Map<string, { id: string }>; bindings?: Record<string, string>; save?: (payload: any) => Promise<unknown>; prepare?: (ids: string[], bindings: Record<string, string>) => Promise<Record<string, string> | null> } = {}) {
   const source = ts.createSourceFile('modal.tsx', readFileSync(new URL('./CodexLocalAccessModal.tsx', import.meta.url), 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   let callback: ts.Expression | undefined;
   const visit = (node: ts.Node) => {
@@ -94,6 +94,7 @@ function saveMembersContext(options: { selected?: Set<string>; accounts?: Map<st
     memberSaveInFlight, memberSaveEpoch, setMemberSavePending: (value: boolean) => { pending = value; },
     prepareMemberSave: options.prepare ?? (async (_ids: string[], bindings: Record<string, string>) => bindings),
     sessionAffinityTtlSeconds: '3600', sessionAffinity: true, restrictFreeAccounts: true,
+    sessionIdentityMappingEnabled: options.mappingEnabled ?? true,
     customRoutingDraft: {}, customRoutingRuleByAccountId: new Map(), imageGenerationPolicies: {}, officialAccountBindings: options.bindings ?? {},
     setError: (value: string) => { error = value; }, setNotice() {}, setSessionAffinityTtlError() {},
     t: (key: string) => key, chatGptPlanErrorKey,
@@ -183,7 +184,7 @@ test('production member selection unchecks both legacy channels without losing u
     localAccessAccountById: new Map(accounts.map((account) => [account.id, account])),
     selected: new Set([source.id, official.id, 'unrelated']),
     collection: { accountIds: [source.id, official.id] }, restrictFreeAccounts: false,
-    isCodexLocalAccessEligibleAccount: () => true, shouldRecommendCodexServiceAuthorization: () => false,
+    isCodexLocalAccessEligibleAccount: () => true,
     isMemberRowSelected: (account: CodexAccount) => codexServiceRelatedEndpointIds(account, accounts).some((id) => context.selected.has(id)),
     toggleCodexServiceDisplaySelection, needsCodexServiceMemberAuthorizationChoice, setMembersDraftDirty() {},
     addMemberRows: async (rows: CodexAccount[]) => rows.map((account) => account.id),
@@ -219,7 +220,7 @@ test('production API member removal removes both channels and preserves unrelate
 test('priority changes select the original member without opening authorization before Save', async () => {
   const source = { id: 'source', email: 'source@example.com', auth_mode: 'oauth' } as CodexAccount;
   const accounts = [source];
-  const draft = createCodexServiceMemberDraftHarness({ accounts, list: async () => [], recommend: true });
+  const draft = createCodexServiceMemberDraftHarness({ accounts, list: async () => [] });
   const context: Record<string, any> = {
     membersInteractionDisabled: false, completeLocalAccessAccounts: accounts,
     localAccessAccountById: new Map(accounts.map((account) => [account.id, account])),
@@ -371,4 +372,16 @@ test('an old Save completion cannot close or clear the busy state of a reopened 
   assert.equal(h.closed(), false); assert.equal(h.pending(), true);
   reopened.resolve(); await second;
   assert.equal(h.closed(), true); assert.equal(h.pending(), false);
+});
+
+
+test('member settings save each explicit mapping choice independently of session affinity', async () => {
+  for (const enabled of [false, true]) {
+    const h = saveMembersContext({ mappingEnabled: enabled, selected: new Set(['source']), accounts: new Map([['source', { id: 'source' }]]) });
+    await h.action();
+    assert.equal(h.saved.length, 1);
+    assert.equal(h.saved[0].sessionIdentityMappingEnabled, enabled);
+    assert.equal(h.saved[0].sessionAffinity, true);
+    assert.equal(h.closed(), true);
+  }
 });

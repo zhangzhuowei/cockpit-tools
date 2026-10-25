@@ -2030,59 +2030,7 @@ fn thread_sync_worker_error(error: impl std::fmt::Display) -> String {
     )
 }
 
-#[tauri::command]
-pub async fn codex_repair_session_visibility_across_instances(
-    app: AppHandle,
-    mode: Option<modules::codex_session_visibility::CodexSessionVisibilityRepairMode>,
-    run_id: Option<String>,
-    target_provider: Option<String>,
-    target_instance_id: Option<String>,
-    repair_instance_ids: Option<Vec<String>>,
-    session_ids: Option<Vec<String>>,
-    dry_run: Option<bool>,
-) -> Result<modules::codex_session_visibility::CodexSessionVisibilityRepairSummary, String> {
-    let mode =
-        mode.unwrap_or(modules::codex_session_visibility::CodexSessionVisibilityRepairMode::Quick);
-    let resolved_target_provider = match target_provider
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-    {
-        Some(provider) => Some(provider),
-        None => match target_instance_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            Some(instance_id) => Some(
-                modules::codex_session_visibility::resolve_session_visibility_target_provider_from_instance_id(
-                    instance_id,
-                )?,
-            ),
-            None => None,
-        },
-    };
-    let progress_app = app.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let reporter =
-            |progress: modules::codex_session_visibility::CodexSessionVisibilityRepairProgress| {
-                let _ = progress_app.emit(
-                    modules::codex_session_visibility::SESSION_VISIBILITY_REPAIR_PROGRESS_EVENT,
-                    progress,
-                );
-            };
-        modules::codex_session_visibility::repair_session_visibility_across_instances_with_target(
-            mode,
-            run_id,
-            Some(&reporter),
-            resolved_target_provider,
-            session_ids,
-            repair_instance_ids,
-            dry_run.unwrap_or(false),
-        )
-    })
-    .await
-    .map_err(|error| format!("修复 Codex 会话可见性任务失败: {}", error))?
-}
+include!("codex_instance_history_repair.rs");
 
 #[tauri::command]
 pub async fn codex_list_session_visibility_repair_providers(
@@ -3129,6 +3077,13 @@ async fn codex_start_instance_internal(
         );
         let launch_started = Instant::now();
         ensure_codex_instance_start_not_cancelled(&instance_id)?;
+        modules::codex_app_injection::start_for_launched_profile(
+            app.clone(),
+            DEFAULT_INSTANCE_ID.to_string(),
+            default_dir.clone(),
+            injection_plan.port,
+            default_bind_account_id.clone(),
+        );
         let launch_args = injection_plan.args.clone();
         let prepared_home = default_dir.clone();
         // Package registration, activation and PID confirmation can wait on
@@ -3155,13 +3110,6 @@ async fn codex_start_instance_internal(
         ));
         let finalize_started = Instant::now();
         let updated = modules::codex_instance::update_default_pid(Some(pid))?;
-        modules::codex_app_injection::start_for_launched_profile(
-            app.clone(),
-            DEFAULT_INSTANCE_ID.to_string(),
-            default_dir.clone(),
-            injection_plan.port,
-            default_bind_account_id.clone(),
-        );
         let running = modules::process::is_pid_running(pid);
         modules::logger::log_info(&format!(
             "[Codex Start] default finalize phase finished: elapsed_ms={}, total_ms={}",
@@ -3439,6 +3387,13 @@ async fn codex_start_instance_internal(
     );
     let launch_started = Instant::now();
     ensure_codex_instance_start_not_cancelled(&instance_id)?;
+    modules::codex_app_injection::start_for_launched_profile(
+        app.clone(),
+        instance.id.clone(),
+        instance_dir.to_path_buf(),
+        injection_plan.port,
+        instance.bind_account_id.clone(),
+    );
     let launch_home = instance.user_data_dir.clone();
     let launch_args = injection_plan.args.clone();
     let pid = tauri::async_runtime::spawn_blocking(move || {
@@ -3464,13 +3419,6 @@ async fn codex_start_instance_internal(
     ));
     let finalize_started = Instant::now();
     let updated = modules::codex_instance::update_instance_after_start(&instance.id, pid)?;
-    modules::codex_app_injection::start_for_launched_profile(
-        app.clone(),
-        instance.id.clone(),
-        instance_dir.to_path_buf(),
-        injection_plan.port,
-        instance.bind_account_id.clone(),
-    );
     let running = modules::process::is_pid_running(pid);
     let initialized = is_profile_initialized(&updated.user_data_dir);
     modules::logger::log_info(&format!(
