@@ -158,6 +158,49 @@
     "providerClear": "Effacer la sélection"
   },
   "common": {
+    "profileRestoreBusy": "La session est en cours de restauration. Réessayez dans un instant.",
+    "profileRestoreInvalid": "Le chemin de la sauvegarde de session est invalide. Importez à nouveau le compte.",
+    "profileRestoreRecoveryFailed": "La restauration de session a échoué. La sauvegarde a été conservée : {{detail}}",
+    "dataQueryBusy": "Traitement des données en cours. Réessayez dans un instant.",
+    "apiBudget": {
+      "keyScope": "Cette clé",
+      "upgradeRequired": "Mettez à jour Cockpit Tools sur l’ordinateur passerelle pour afficher les statistiques et l’historique des requêtes.",
+      "gatewayName": "Passerelle Cockpit",
+      "accountingNote": "Les débits enregistrés restent fixes après recalcul des prix ; les estimations peuvent différer. Budgets réinitialisés en UTC.",
+      "preparing": "Préparation des statistiques historiques en arrière-plan. Réessayez bientôt.",
+      "settled": "Débits enregistrés",
+      "unrecorded": "Non enregistré",
+      "unmeteredShort": "Non mesuré",
+      "rangeLimit": "Choisissez des dates valides jusqu’à aujourd’hui, sur 93 jours maximum.",
+      "partialCharges": "{{count}} requêtes sans débit enregistré ou mesure. Les statistiques de débit incluent uniquement les montants enregistrés.",
+      "retention": "Historique depuis {{time}} ; seuls les journaux conservés par la passerelle sont inclus.",
+      "logFiltersNote": "Filtres limités aux détails ci-dessous. Statistiques et courbes utilisent la période choisie.",
+      "timeout": "Délai dépassé",
+      "textRequests": "Texte",
+      "imageEdits": "Retouche d’image",
+      "budget": "Budget d’usage",
+      "period": "Période",
+      "lifetime": "Ponctuel",
+      "daily": "Par jour",
+      "weekly": "Par semaine",
+      "monthly": "Par mois",
+      "dailyLimit": "Plafond journalier",
+      "concurrency": "Requêtes simultanées",
+      "dailyImages": "Requêtes image/jour",
+      "invalid": "Saisissez un nombre positif dans la plage autorisée.",
+      "hint": "Calcul aux tarifs configurés. Les modèles sans tarif sont indisponibles. Réinitialisation en UTC sans report. Les requêtes en cours peuvent dépasser le plafond.",
+      "unmetered": "Les requêtes sans données d’usage ou de prix sont exclues du montant.",
+      "remote": "Cockpit distant",
+      "active": "Actif",
+      "disabled": "Désactivé",
+      "service_disabled": "Service arrêté",
+      "token_limit_reached": "Quota de jetons atteint",
+      "budget_limit_reached": "Budget épuisé",
+      "images": "Images",
+      "consumed": "Utilisé",
+      "resetsAt": "Réinitialisation",
+      "offline": "Hors ligne · données en cache"
+    },
     "networkErrors": {
       "upstream": "ce service en amont",
       "proxyConnection": "Échec de connexion à {{target}} via le proxy « {{proxy}} ». Le proxy ou le réseau peut être en cause. Vérifiez le proxy ou essayez un autre nœud.",
@@ -392,7 +435,11 @@
           "statusSkipped": "Ignoré",
           "statusPending": "En attente d'import"
         },
-        "invalidJson": "JSON non valide. Vérifiez le fichier ou le contenu collé."
+        "invalidJson": "JSON non valide. Vérifiez le fichier ou le contenu collé.",
+        "empty": "Les données à importer sont vides.",
+        "sizeLimit": "Le fichier ne doit pas dépasser {{limit}} MiB.",
+        "countLimit": "Importez au maximum {{count}} comptes à la fois.",
+        "itemFailed": "Élément {{index}} : {{error}}"
       },
       "externalImport": {
         "bundleInvalidJson": "Le paquet d'import n'est pas un JSON valide",
@@ -503,6 +550,8 @@
         "title": "Aperçu des comptes"
       },
       "quota": {
+        "usageWithUnit": "Utilisation ({{unit}})",
+        "usage": "Utilisation",
         "noData": "Aucune donnée de quota",
         "queryFailed": "Échec de la requête de quota",
         "resetDone": "Réinitialisé",
@@ -591,6 +640,29 @@
         "missingTiming": "Aucune durée de sortie valide enregistrée.",
         "shortWindow": "La fenêtre de sortie observée est inférieure à 100 ms."
       }
+    },
+    "deviceRestriction": {
+      "title": "Restrictions de l’appareil",
+      "badge": "Appareil restreint",
+      "paused": "Une restriction explicite de l’appareil a été observée. Les tentatives automatiques pour cette opération sont suspendues. Consultez le relevé sur la page des comptes.",
+      "note": "Il s’agit d’observations locales, pas de places d’appareil OpenAI. Supprimer des comptes ou des identifiants locaux ne garantit pas la levée de la limite côté serveur.",
+      "retryNote": "Autoriser les tentatives ne marque pas la restriction comme levée. Un nouveau refus explicite les suspend à nouveau.",
+      "desktop": "Connexion au bureau",
+      "quota": "Lecture du quota",
+      "api": "Requêtes API",
+      "oauth": "Connexion OAuth",
+      "token": "Renouvellement du jeton",
+      "recovered": "Opération rétablie",
+      "pausedLabel": "Tentatives suspendues",
+      "retryEnabled": "Tentatives autorisées",
+      "observed": "Première : {{first}} · Dernière : {{last}} · {{count}} observations",
+      "check": "Revérifier",
+      "allowRetry": "Autoriser les essais",
+      "help": "Aide officielle",
+      "support": "Contacter l’assistance",
+      "failed": "L’opération a échoué. Le dernier état connu est conservé. Réessayez.",
+      "loginAttempt": "Connexion sans compte identifié",
+      "removed": "Compte local supprimé"
     }
   },
   "nav": {
@@ -1329,8 +1401,6 @@
       "codexPreserveExternalBridge": "Garder le pont externe",
       "codexPreserveExternalBridgeDesc": "Conserver le pont Codex Web GPT validé par les données locales lors du changement de compte OAuth. Désactivé par défaut.",
       "codexEnhancements": {
-        "nativeFast": "Sélecteur Fast natif",
-        "nativeFastDesc": "Active le menu de vitesse natif du client pour les comptes API Key, avec les niveaux pris en charge par le modèle. Disponibilité et tarifs selon le fournisseur API.",
         "quotaCompat": "Quotas en mode mixte",
         "quotaCompatDesc": "Avec une connexion OAuth réelle et une route API externe, évite que le quota de l’abonnement bloque les messages API locaux. Ne modifie ni la consommation réelle ni les quotas d’images.",
         "restartHint": "Activé par défaut. Redémarrez chaque instance Codex concernée après modification et gardez Cockpit Tools ouvert. La dictée native dépend des capacités et réglages du client ; Cockpit ne la remplace pas et ne force pas son activation.",
@@ -1638,6 +1708,42 @@
       "refreshed": "Usage actualisé",
       "usage": "Consommation",
       "tierOther": "Autre"
+    },
+    "background": {
+      "title": "Arrière-plan",
+      "description": "Modifie uniquement le fond de l’application. Les cartes de compte et commandes conservent leur apparence.",
+      "presets": "Fonds prédéfinis",
+      "default": "Par défaut",
+      "mist": "Brume",
+      "forest": "Forêt",
+      "dusk": "Crépuscule",
+      "sand": "Sable",
+      "custom": "Personnel",
+      "chooseImage": "Choisir une image",
+      "replaceImage": "Changer l’image",
+      "imageHint": "JPG, PNG ou WebP, 10 Mo maximum. Les grandes images sont réduites localement.",
+      "preview": "Aperçu",
+      "strength": "Intensité",
+      "blur": "Flou",
+      "pixels": "{{count}} pixels",
+      "position": "Position",
+      "center": "Centre",
+      "top": "Haut",
+      "bottom": "Bas",
+      "localHint": "Les modifications sont immédiates. L’image et les réglages de chaque thème sont enregistrés séparément sur cet appareil ; les images ne sont jamais envoyées. La réinitialisation conserve vos thèmes.",
+      "restore": "Rétablir",
+      "imageType": "Choisissez une image JPG, PNG ou WebP.",
+      "imageSize": "Choisissez une image de moins de 10 Mo.",
+      "imageRead": "Impossible de lire cette image. Essayez un autre fichier.",
+      "storage": "Échec du chargement ou de l’enregistrement. Réessayez ; le fond enregistré est conservé.",
+      "saveFailed": "Les modifications sont visibles, mais leur enregistrement a échoué. Réessayez ; les thèmes déjà enregistrés sont conservés.",
+      "builtInSkins": "Thèmes intégrés",
+      "mySkins": "Mes thèmes",
+      "addSkin": "Ajouter",
+      "rename": "Renommer",
+      "skinName": "Nom du thème",
+      "manageSkin": "Gérer le thème : {{name}}",
+      "deleteSkinConfirm": "Supprimer « {{name}} » ? Supprimer le thème actif rétablit le fond par défaut."
     }
   },
   "appPath": {
@@ -2363,6 +2469,14 @@
       "windowHint": "Les seuils suivent la durée réelle : une semaine ou plus utilise le seuil hebdomadaire. Les comptes avec uniquement ce quota ne vérifient que celui-ci. Sans durée, la correspondance des fenêtres principale et secondaire est conservée.",
       "rule": "Solde court <= {{shortCycle}}% ou hebdomadaire <= {{weekly}}%"
     },
+    "launchConfirmation": {
+      "title": "Démarrage à confirmer",
+      "description": "Le démarrage a été demandé, mais l’état du client reste à confirmer. Il est peut-être déjà ouvert. Évitez de le relancer.",
+      "check": "Vérifier l’état",
+      "notRunning": "L’instance cible n’a pas encore été détectée. Vérifiez plus tard ou fermez cette boîte de dialogue avant de réessayer le démarrage.",
+      "checkFailed": "Impossible de lire l’état d’exécution. Veuillez vérifier à nouveau plus tard.",
+      "maintenanceDeferred": "Une partie de la maintenance reste à terminer. L’historique est préservé ; réessayez depuis la gestion des conversations."
+    },
     "launchErrors": {
       "sessionRestoreFailed": "La réparation des sessions a échoué et la restauration est incomplète. Démarrage arrêté ; vérifiez les journaux et les sauvegardes avant de réessayer.",
       "sessionCheckTimeout": "Le contrôle des sessions a expiré. Démarrage arrêté ; réessayez ou consultez les journaux.",
@@ -2592,14 +2706,8 @@
       "unsupportedCountryRegion": "La région réseau actuelle ne permet pas de renouveler l’autorisation Codex. Le service d’autorisation OpenAI a refusé cette sortie réseau. Passez à une région prise en charge puis réessayez."
     },
     "switchAuth": {
-      "apiOnlyTitle": "Connexion client requise",
       "reauthorizeTitle": "Autorisation Codex expirée",
-      "apiOnlyDescription": "Le client actuel a été redirigé vers la page de connexion. Réautorisez-le pour rétablir son utilisation ; le service API reste utilisable pour le moment.",
-      "observationStatus": "Redirection vers la page de connexion détectée",
-      "observationTime": "Dernière vérification : {{time}}",
-      "loginRedirectTime": "Dernière redirection vers la page de connexion : {{time}}",
       "observationInstance": "Instance observée : {{instance}}",
-      "launchTime": "Heure de démarrage de l’instance : {{time}}",
       "reauthorizeDescription": "Les identifiants n’ont pas pu être renouvelés et le access_token n’est plus utilisable par le service API. Réautorisez le compte pour continuer.",
       "idTokenUnavailable": "L’identité du client a expiré et le renouvellement automatique n’a pas fourni de id_token valide.",
       "reasonLabel": "Raison",
@@ -2612,10 +2720,7 @@
       "startingInstanceAfterReauth": "Autorisation mise à jour. Redémarrage de l’instance...",
       "startInstanceAfterReauthFailed": "Autorisation mise à jour, mais l’instance n’a pas pu démarrer : {{error}}",
       "reauthorizedAndStartedInstance": "Réautorisé et instance démarrée",
-      "apiOnlyBadge": "Connexion requise",
-      "clearClientAuth": "Effacer l’avertissement",
-      "clearClientAuthSuccess": "Avertissement du client effacé",
-      "clearClientAuthFailed": "Impossible d’effacer l’avertissement du client : {{error}}"
+      "apiTokenUsableDescription": "Certaines informations de connexion nécessitent une nouvelle autorisation. Le jeton d’accès actuel reste utilisable avec le service API."
     },
     "current": "Actuel",
     "empty": {
@@ -2931,7 +3036,6 @@
         "quotaReserveInvalid": "Saisissez un entier compris entre 1 et 100.",
         "strictReserve": "Protection stricte",
         "strictReserveDesc": "La réserve de quota est protégée automatiquement avec une marge de sécurité. Près du seuil, une seule requête par compte est autorisée, puis le quota à jour est confirmé. L’utilisation des autres clients reste inchangée.",
-        "strictNativeOnly": "La protection stricte exige le moteur Rust. Désactivez-la avant de passer à Go.",
         "safetyMargin": "Marge de sécurité",
         "safetyMarginUnit": "points de pourcentage",
         "safetyMarginInvalid": "Saisissez un entier de 1 à 20.",
@@ -3014,17 +3118,7 @@
       "gatewayModeNewLabel": "Service API-Nouveau",
       "gatewayModeOldLabel": "Service API-Ancien",
       "gatewayModeSaveSuccess": "Le mode de passerelle du service API a ete mis a jour",
-      "gatewayEngineNative": "Rust natif",
-      "gatewayEngineSidecar": "Go (actuel)",
-      "gatewayEngineHint": "Rust est le moteur par défaut. La première mise à niveau passe à Rust ; vos choix ultérieurs sont conservés. Le changement redémarre le service API et peut interrompre les requêtes actives ; les fenêtres Codex restent ouvertes.",
-      "gatewayEngineSwitching": "Changement de moteur…",
-      "gatewayEngineSwitchFailed": "Échec du changement de moteur : {{error}}",
-      "gatewayEngineReadbackFailed": "Impossible de confirmer le moteur actuel. Actualisez avant de réessayer : {{error}}",
-      "gatewayEngineReadbackTimeout": "Délai de lecture de l’état dépassé",
       "gatewayEngineRequestsBusy": "Des requêtes sont en cours. Réessayez une fois terminées.",
-      "gatewayEngineOperationBusy": "Une autre opération du service est en cours. Réessayez dans un instant.",
-      "gatewayEngineSwitchRestored": "Le changement a échoué. Le moteur précédent a été rétabli.",
-      "gatewayEngineRestoreFailed": "Le changement et le rétablissement du moteur ont échoué. Vérifiez l’état du service avant de réessayer.",
       "gatewayEngineStopped": "Le service API est arrêté. Redémarrez-le avant de réessayer.",
       "gatewayGuideTitle": "Changez de passerelle ici",
       "gatewayGuideDesc": "La nouvelle passerelle est le choix par défaut. En cas de problème de compatibilité ou d'erreur côté client, revenez ici à l'ancienne passerelle.",
@@ -3188,7 +3282,7 @@
       "resetCreditStatusRedeemed": "Utilisé",
       "resetCreditStatusExpired": "Expiré",
       "resetCreditStatusUnknown": "Inconnu",
-      "resetCreditNextExpiry": "Prochaine expiration : {{time}}",
+      "resetCreditNextExpiry": "Prochaine expiration de réinitialisation {{time}}",
       "resetCreditDetailsTitle": "Détails des réinitialisations",
       "resetCreditNoRecords": "Aucun historique de réinitialisation",
       "resetCreditRecordsLoadFailed": "Impossible de charger l’historique de réinitialisation : {{error}}",
@@ -3204,7 +3298,12 @@
       "codeReview": "Revue de code",
       "codeReviewShort": "Revue",
       "monthlyCreditsHint": "Crédits mensuels restants",
-      "monthlyCreditsInline": "Crédits : {{value}}"
+      "monthlyCreditsInline": "Crédits : {{value}}",
+      "resetCreditExpiryHours": "{{hours}} h {{minutes}} min",
+      "resetCreditExpiryMinutes": "{{minutes}} min",
+      "resetCreditExpiryExpired": "Expiré · détails",
+      "resetCreditExpiryUrgent": "Expire bientôt : {{time}} · {{duration}}",
+      "resetCreditExpiryNormal": "Expire le {{time}} · {{duration}}"
     },
     "quotaError": {
       "badge": "Erreur de quota",
@@ -3592,9 +3691,9 @@
         "providerLoadFailed": "Échec du chargement des providers : {{error}}",
         "modeTitle": "Mode de réparation",
         "modeQuick": "Réparation rapide",
-        "modeQuickDesc": "Normalise les fournisseurs dans la base officielle et les index de sessions. Les fichiers rollout sont conservés. Adapté aux changements de compte.",
+        "modeQuickDesc": "Corrige les index de visibilité et les affectations avec un délai court. Fermez l’instance pour écrire les métadonnées des projets.",
         "modeDeep": "Réparation complète",
-        "modeDeepDesc": "Répare tous les fournisseurs historiques, catalogues, espaces de travail et index des sous-agents. Les fichiers rollout sont conservés. Fermez d’abord l’instance cible.",
+        "modeDeepDesc": "Inclut la réparation rapide, la restauration des projets depuis les sauvegardes et les index des conversations. Fermez l’instance avant application.",
         "scopeTitle": "Portée sessions",
         "scopeAll": "Toutes les sessions",
         "scopeAllDesc": "Répare {{count}} session(s) de la liste actuelle.",
@@ -3626,20 +3725,26 @@
         "previewFailedWithError": "Échec de la prévisualisation de la réparation des sessions : {{error}}",
         "confirmRepair": "Confirmer la réparation",
         "title": "Réparer l’historique",
-        "description": "Normalise les fournisseurs dans les index SQLite, le catalogue des sessions et les espaces de travail. Les fichiers rollout restent identiques octet par octet ; seuls leurs horodatages sont corrigés. Une sauvegarde locale est créée auparavant.",
+        "description": "La réparation rapide corrige les index de visibilité et les affectations actuelles. La réparation complète utilise aussi les sauvegardes historiques et répare les index des conversations. Une sauvegarde locale précède les écritures ; le contenu des journaux est préservé.",
         "stopInstanceHint": "Quittez complètement l’instance Codex App/ChatGPT sélectionnée avant la réparation complète. Vous pouvez toujours prévisualiser les changements.",
         "encryptedContentWarning": "Un historique chiffré par un autre fournisseur ou compte a été détecté. Les métadonnées peuvent être migrées, mais la poursuite ou la compression de ces sessions peut échouer ; revenez au fournisseur/compte d’origine ou démarrez une nouvelle session.",
         "modeHistory": "Édition/branches",
         "modeHistoryDesc": "Corrige les échecs de modification des messages et de création de branches dus à des index invalides.",
-        "historyStopHint": "Quittez complètement le client choisi et les CLI utilisant cette instance avant la réparation. L’aperçu reste disponible.",
-        "historyDescription": "Vérifier les discussions choisies et leur historique parent, puis réinitialiser uniquement les index paginés invalides. Les messages, comptes et Provider restent inchangés. Fermez le client cible et les CLI associés avant de lancer.",
+        "historyLiveHint": "La réparation est possible pendant que le client est ouvert. Redémarrez ensuite le client et rouvrez les discussions.",
+        "historyDescription": "Vérifie les discussions sélectionnées et leur historique parent et réinitialise uniquement les index de pagination invalides. Les messages, comptes et paramètres Provider restent inchangés. La réparation fonctionne avec le client ouvert ; redémarrez-le ensuite pour recharger les index.",
         "historyPreview": "{{count}} index d’historique invalides peuvent être reconstruits. Les messages restent inchangés.",
-        "historySuccess": "{{count}} index d’historique invalides ont été réinitialisés. Rouvrez le client et les discussions pour les reconstruire. Les sauvegardes sont conservées.",
+        "historySuccess": "{{count}} index d’historique invalides réinitialisés. Redémarrez le client et rouvrez les discussions pour les reconstruire. Les sauvegardes ont été conservées.",
         "historyNoChanges": "Aucun index d’historique invalide pouvant être reconstruit en toute sécurité n’a été trouvé.",
         "historyFailed": "La réparation des index d’historique n’a pas abouti : {{error}}",
-        "historyRunning": "Quittez complètement le client cible et les CLI utilisant cette instance, puis réessayez.",
+        "historyChanged": "Les données de discussion ont changé pendant la réparation. Cette réparation n’a pas été appliquée. Réessayez dans un instant.",
         "historyScan": "Vérification des index d’historique ({{current}}/{{total}})…",
-        "historyReset": "Sauvegarde et réinitialisation des index invalides…"
+        "historyReset": "Sauvegarde et réinitialisation des index invalides…",
+        "projectsChanged": "Les données ont changé. Actualisez l’aperçu et réessayez.",
+        "projectsFailed": "Échec de la restauration des projets locaux : {{error}}",
+        "projectsPreview": "Aperçu : {{projects}} projets, {{assignments}} affectations ; {{skipped}} projets et {{ambiguous}} conversations ambiguës ignorés.",
+        "projectsSuccess": "Restauration terminée : {{projects}} projets, {{assignments}} affectations ; {{skipped}} projets et {{ambiguous}} conversations ambiguës ignorés.",
+        "projectsPending": "Une restauration a été interrompue. Fermez l’instance et lancez la réparation complète pour rétablir les écritures inachevées.",
+        "projectsDeferred": "Certaines métadonnées sont en attente. Fermez l’instance puis relancez la réparation rapide, ou utilisez la réparation complète."
       },
       "importModal": {
         "title": "Importer des sessions",
@@ -4063,7 +4168,9 @@
         "chatCompletions": "Protocole Chat Completions",
         "deepseekResponsesHint": "Démarrez DeepSeek pour choisir la passerelle ou la connexion directe officielle, puis sélectionnez Flash ou Pro. La passerelle répertorie les modèles dans Codex ; la connexion directe contourne la passerelle.",
         "deepseekChatHint": "DeepSeek Chat Completions utilise le pont de passerelle local pour les anciens chemins. Choisissez Responses lorsque vous avez besoin du comportement d’outil officiel de Codex.",
-        "deepseekThirdPartyHint": "Cette adresse n'est pas un point de terminaison DeepSeek officiel : elle sera traitée comme un point de terminaison tiers compatible ; indiquez les vrais ID de modèles de l'amont et non les noms officiels."
+        "deepseekThirdPartyHint": "Cette adresse n'est pas un point de terminaison DeepSeek officiel : elle sera traitée comme un point de terminaison tiers compatible ; indiquez les vrais ID de modèles de l'amont et non les noms officiels.",
+        "anthropic": "Protocole Anthropic",
+        "gatewayRequired": "Ce protocole nécessite la passerelle locale. Choisissez ici le modèle de démarrage."
       },
       "selectSavedProvider": "Fournisseurs enregistrés",
       "selectSavedApiKey": "Clés API enregistrées",
@@ -4296,7 +4403,22 @@
       "importConfigPlaceholder": "Utilisez « Copier la configuration » sur la carte, puis collez le contenu ici",
       "importConfigAction": "Importer la configuration",
       "importConfigFromClipboard": "Lire le presse-papiers",
-      "settingsRestartHint": "Paramètres du fournisseur mis à jour. Redémarrez les instances Codex ou le service API utilisant ce fournisseur pour les appliquer."
+      "settingsRestartHint": "Paramètres du fournisseur mis à jour. Redémarrez les instances Codex ou le service API utilisant ce fournisseur pour les appliquer.",
+      "anthropic": {
+        "auth": "Authentification",
+        "hint": "Connectez une passerelle Anthropic Messages. Chargez les modèles ou saisissez-les.",
+        "fetch": "Charger les modèles",
+        "fetching": "Chargement…",
+        "fetchFailed": "Impossible de charger les modèles. Réessayez ou saisissez leurs identifiants.",
+        "import": "Importer la config.",
+        "importFailed": "Aucune configuration Claude Code ou Desktop Gateway valide trouvée."
+      },
+      "editor": {
+        "modelScope": "Portée des modèles",
+        "providerDefault": "Valeurs du fournisseur",
+        "sharedSettings": "Les modèles et leurs capacités concernent la portée choisie. Le protocole, l’authentification et l’adresse sont communs au fournisseur.",
+        "saveScope": "L’enregistrement actualise le fournisseur et les comptes liés. Si le compte actuel est concerné, la configuration locale de Codex et ses identifiants sont aussi actualisés. Le client ne démarre pas automatiquement."
+      }
     },
     "quickSwitch": {
       "action": "Changer rapidement de fournisseur",
@@ -4650,6 +4772,8 @@
         "allKinds": "Tous types",
         "allStatuses": "Tous états",
         "allGatewayModes": "Tous les modes",
+        "sessionFilter": "Session",
+        "sessionPlaceholder": "ID de session",
         "modelFilter": "Modèle",
         "modelPlaceholder": "ID modèle",
         "accountFilter": "Compte",
@@ -5432,7 +5556,7 @@
         "subscriptionUrl": "URL de l’abonnement",
         "nodeLinks": "Liens de nœuds ou configuration",
         "import": "Importer",
-        "importNotice": "Les URL et identifiants sont chiffrés localement. Les requêtes d’abonnement sont envoyées au fournisseur sans Token de compte.",
+        "importNotice": "Les instantanés de configuration et de ressources sont chiffrés au repos, puis déchiffrés dans un dossier d’exécution distinct. Les requêtes d’abonnement et de ressources n’incluent pas les jetons du compte.",
         "intro": "Importez et testez les abonnements ou les nœuds, puis sélectionnez-les et associez-les depuis la liste des comptes.",
         "emptyTitle": "Ajoutez votre premier proxy",
         "emptyHint": "Abonnements, liens de nœuds et HTTP / SOCKS5 sont pris en charge. Importation et test possibles sans compte.",
@@ -5477,7 +5601,7 @@
         "unsupported": "Non pris en charge",
         "invalidInput": "Saisissez un nom et une URL, un lien de nœud ou une configuration proxy valides.",
         "downloadFailed": "Échec du téléchargement de l’abonnement. Vérifiez le réseau et les paramètres du proxy, puis réessayez.",
-        "downloadRedirect": "Téléchargement de l’abonnement arrêté : redirection vers une autre origine ou trop de redirections.",
+        "downloadRedirect": "La redirection de l’abonnement est invalide ou dépasse la limite autorisée.",
         "downloadDenied": "Le serveur d’abonnement refuse l’accès (HTTP 401/403). Vérifiez le lien et sa validité.",
         "downloadTls": "Échec de la négociation TLS ou de la vérification du certificat de l’abonnement. Vérifiez le réseau et les paramètres du proxy.",
         "timeout": "Délai dépassé. Actualisez pour vérifier le résultat avant de réessayer.",
@@ -5495,6 +5619,7 @@
         "loadBalanceGroup": "Répartition de charge",
         "reasonStrategy": "Cette stratégie de groupe n’est pas prise en charge. Dépliez pour choisir un nœud disponible.",
         "reasonOptions": "Contient un protocole ou une option de configuration non pris en charge.",
+        "reasonProviderConfig": "La source, le filtre ou la transformation de ce fournisseur n’est pas pris en charge.",
         "reasonProvider": "Ce groupe dépend de fournisseurs de nœuds externes non chargés.",
         "reasonMembers": "Les membres du groupe n’ont pas passé la validation. Consultez les motifs individuels.",
         "reasonInvalid": "Des paramètres requis sont absents ou invalides.",
@@ -5516,6 +5641,14 @@
         "defaultProtocol": "Protocole si absent",
         "credentialFormat": "Format des identifiants",
         "recognizing": "Analyse…",
+        "nativePreview": "À l’import, Mihomo analyse directement la configuration et charge ses ressources. L’aperçu n’accède ni aux fichiers ni au réseau.",
+        "resourceDirectory": "Dossier de ressources",
+        "browseResources": "Choisir un dossier",
+        "resourceDirectoryHint": "Pour les fichiers locaux, sélectionnez le dossier de ressources de l’abonnement. Son contenu est copié dans un dossier d’exécution privé et enregistré sous forme d’instantanés chiffrés.",
+        "resourceDirectoryRequired": "Sélectionnez le dossier de ressources local de cet abonnement.",
+        "resourceMissing": "Ressources locales indisponibles. Vérifiez le dossier ou relancez l’import.",
+        "rulesName": "Règles de l’abonnement",
+        "pendingProviders": "L’import chargera {{count}} sources de nœuds distantes. L’aperçu ne les télécharge pas.",
         "previewCount": "Valides {{valid}} · À vérifier {{invalid}} · Doublons {{duplicates}}",
         "line": "Ligne {{line}}",
         "ambiguous": "Format ambigu. Choisissez un format ou utilisez une URL de proxy complète.",
@@ -5727,6 +5860,14 @@
       }
     },
     "requestDiagnostics": {
+      "requestSizeTitle": "Taille de requête",
+      "requestSizeHint": "Taille du JSON client décompressé ; champs en octets JSON compacts. Seules les tailles sont enregistrées.",
+      "requestBytes": "Requête",
+      "historyBytes": "Historique",
+      "toolsBytes": "Outils",
+      "instructionsBytes": "Consignes",
+      "overloadRetry": "Reprises de surcharge",
+      "overloadRecovery": "Temps de reprise",
       "recordPayloads": "Enregistrer les corps",
       "recordPayloadsHint": "Désactivé par défaut. Les requêtes client et amont sont conservées localement avec une taille limitée. La désactivation arrête les nouvelles captures ; les corps enregistrés peuvent être effacés séparément.",
       "privacyHint": "Les champs d’authentification sont masqués, mais des secrets peuvent subsister dans le texte. Vérifiez avant de copier ou partager.",
@@ -5892,6 +6033,37 @@
       "label": "Quota actif synchronisé",
       "description": "Sans service API. Les comptes locaux actifs sont actualisés toutes les 5 à 30 secondes ; les changements de fichiers de session déclenchent une vérification. Seules les métadonnées récentes sont examinées, sans lire les conversations. Les exclusions, filtres de forfait et règles de groupe restent appliqués. Désactivé par défaut.",
       "error": "Impossible de charger ou enregistrer ce réglage. Réessayez."
+    },
+    "pathRecovery": {
+      "title": "Définir le chemin de Codex",
+      "description": "Aucun chemin utilisable vers le client Codex n’a été trouvé. Sélectionnez l’application, ou ouvrez Codex manuellement puis lancez la détection.",
+      "reload": "Recharger",
+      "timeout": "Le délai de l’opération est dépassé. Réessayez ; le démarrage ne reprendra pas automatiquement.",
+      "noCandidates": "Codex n’a pas été détecté. Ouvrez le client manuellement puis relancez la détection, ou sélectionnez son chemin.",
+      "pathRequired": "Sélectionnez ou saisissez le chemin du client Codex.",
+      "invalidPath": "Ce chemin ne correspond pas à un client de bureau Codex valide. Sélectionnez à nouveau l’application.",
+      "candidates": "Applications détectées",
+      "autoLaunchHint": "Désactivez cette option pour changer de compte sans lancer l’application de bureau. Le démarrage manuel reste possible.",
+      "manualLaunchHint": "Désactiver le démarrage automatique ne termine pas ce lancement manuel. Enregistrer uniquement les réglages annule cette tentative.",
+      "saveAndRetry": "Enregistrer et relancer",
+      "saveWithoutLaunch": "Enregistrer et continuer",
+      "saveOnly": "Enregistrer seulement",
+      "validationBusy": "La vérification du chemin précédent est toujours en cours. Réessayez dans un instant."
+    },
+    "openaiUsage": {
+      "monthCost": "Dépenses du mois",
+      "scope": "Dépenses de l’organisation ; requêtes et jetons limités aux API texte. Statistiques en UTC.",
+      "loading": "Chargement des données OpenAI…",
+      "pending": "Données OpenAI en attente",
+      "permissionRequired": "Cette clé ne peut pas lire l’utilisation de l’organisation (api.usage.read).",
+      "permissionGuide": "Utiliser une clé administrateur : Admin keys → Restricted → Usage API Scope → Read. Fournit les dépenses et l’utilisation, sans le solde restant.",
+      "openAdminKeys": "Droits de consultation",
+      "invalidKey": "La clé est invalide ou expirée. Vérifiez la clé API actuelle.",
+      "networkFailed": "Connexion aux données OpenAI impossible. Actualisez ultérieurement.",
+      "queryFailed": "Échec de la consultation des données OpenAI. Réessayez ultérieurement."
+    },
+    "officialApi": {
+      "hint": "Compte avec clé API officielle OpenAI, identifié par son adresse de connexion réelle."
     }
   },
   "githubCopilot": {
@@ -6383,8 +6555,9 @@
       "desc": "Collez votre jeton d'accès Kiro ou les données JSON exportées."
     },
     "import": {
-      "localDesc": "Importez les données du compte Kiro à partir du client Kiro local ou d'un fichier JSON.",
-      "localClient": "Importer depuis Kiro local"
+      "localDesc": "Importez localement ou depuis JSON. Les comptes JSON sont enregistrés avant l’actualisation en arrière-plan de l’authentification et des quotas.",
+      "localClient": "Importer depuis Kiro local",
+      "invalidCredentials": "Des champs d’authentification sont absents ou non pris en charge. Exportez à nouveau le compte."
     },
     "injectToVSCode": "Passer à Kiro"
   },
@@ -7645,6 +7818,17 @@
       "family": "Groupe",
       "platform": "Système actuel",
       "unsupportedGroup": "Aucun client en un clic n’est disponible pour ce groupe."
+    },
+    "campaign": {
+      "badge": "11.11",
+      "title": "11,11 % de bonus sur les recharges",
+      "description": "Pour les nouveaux utilisateurs comme pour les utilisateurs actuels.",
+      "period": "Période : du 1er au 11 novembre 2026 (UTC+8)",
+      "terms": "Consultez les conditions sur la page de l’offre.",
+      "action": "Voir l’offre",
+      "inactive": "Cette offre n’est pas active actuellement.",
+      "label": "Offre limitée du 11.11",
+      "promotionDescription": "Profitez du 11.11 avec le partenaire officiel de relais API de Cockpit. Nouveaux utilisateurs et utilisateurs actuels reçoivent 11,11 % de bonus sur leurs recharges pendant l’offre. Accédez à Claude, ChatGPT, Gemini et à d’autres grands modèles."
     }
   },
   "grok": {
@@ -8043,7 +8227,7 @@
     "model": "Modèle de test",
     "selectModel": "Choisir un modèle",
     "verifyHint": "Le modèle sélectionné sert uniquement à tester la connexion et ne limite pas les autres modèles disponibles. La vérification envoie une courte requête et consomme une petite partie de votre quota.",
-    "serviceHint": "L’ajout au groupe actuel ne démarre pas le service API. Cette version nécessite le moteur natif.",
+    "serviceHint": "Ajouter un compte au groupe actuel ne démarre pas le service API.",
     "verify": "Tester seul",
     "verifyAndJoin": "Tester et ajouter",
     "remove": "Retirer du service",
@@ -8103,8 +8287,6 @@
       "verify": "La requête au modèle n’a pas abouti. Relancez le test.",
       "usage": "L’utilisation du forfait ou de l’application est limitée. Vérifiez les paramètres d’utilisation de ChatGPT.",
       "usageUnavailable": "Le service officiel ne peut pas confirmer l’utilisation pour le moment. Réessayez plus tard ; cela ne signifie pas que votre forfait est épuisé.",
-      "native": "L’accès au forfait nécessite le moteur natif. Changez d’abord de moteur dans le service API.",
-      "nativeSwitch": "Retirez les comptes liés à un forfait du service API avant de changer de moteur.",
       "browser": "Impossible d’ouvrir le navigateur. Copiez le lien de connexion et ouvrez-le manuellement.",
       "configuration": "L’enregistrement d’autorisation ne correspond pas. Réessayez la connexion ou reconnectez le forfait.",
       "notVerified": "Vérifiez ce forfait avant de l’ajouter au service API.",
@@ -8284,7 +8466,6 @@
     "title": "Relais de capacités",
     "hint": "Si un compte ne prend pas en charge une capacité requise, essayez les comptes de secours dans cet ordre avec les correspondances de modèles existantes.",
     "consent": "Le basculement envoie cette conversation au compte de secours et consomme son quota ou entraîne les frais applicables.",
-    "nativeOnly": "Ce moteur n’exécute pas le relais de capacités. Passez au moteur natif pour l’activer ; les réglages enregistrés peuvent être désactivés.",
     "backups": "Comptes de secours",
     "addBackup": "Ajouter un secours",
     "backupEmpty": "Choisissez des secours dans le groupe actuel du service API avant l’activation.",

@@ -158,6 +158,49 @@
     "providerClear": "Seçimi temizle"
   },
   "common": {
+    "profileRestoreBusy": "Oturum durumu geri yükleniyor. Biraz sonra yeniden deneyin.",
+    "profileRestoreInvalid": "Oturum yedeğinin yolu geçersiz. Hesabı yeniden içe aktarın.",
+    "profileRestoreRecoveryFailed": "Oturum geri yüklenemedi. Yedek korundu: {{detail}}",
+    "dataQueryBusy": "Veriler işleniyor. Lütfen biraz sonra tekrar deneyin.",
+    "apiBudget": {
+      "keyScope": "Bu anahtar",
+      "upgradeRequired": "İstatistikleri ve istek geçmişini görmek için ağ geçidi bilgisayarındaki Cockpit Tools uygulamasını güncelleyin.",
+      "gatewayName": "Cockpit Ağ Geçidi",
+      "accountingNote": "Kayıtlı kesintiler fiyatlar yeniden hesaplandığında değişmez; tahminler farklı olabilir. Bütçeler UTC’ye göre sıfırlanır.",
+      "preparing": "Geçmiş istatistikler arka planda hazırlanıyor. Biraz sonra yeniden deneyin.",
+      "settled": "Kayıtlı kesintiler",
+      "unrecorded": "Kayıt yok",
+      "unmeteredShort": "Ölçülmedi",
+      "rangeLimit": "Bugüne kadar geçerli tarihler seçin; en fazla 93 gün.",
+      "partialCharges": "{{count}} istekte kesinti kaydı veya ölçüm yok. Kesinti istatistikleri yalnızca kayıtlı tutarları içerir.",
+      "retention": "Geçmiş başlangıcı: {{time}}; yalnızca ağ geçidinde saklanan günlükler dahildir.",
+      "logFiltersNote": "Filtreler yalnızca aşağıdaki ayrıntıları etkiler. İstatistikler ve grafikler seçilen tarihleri kullanır.",
+      "timeout": "Zaman aşımı",
+      "textRequests": "Metin",
+      "imageEdits": "Görsel düzenleme",
+      "budget": "Kullanım bütçesi",
+      "period": "Dönem",
+      "lifetime": "Tek seferlik",
+      "daily": "Günlük",
+      "weekly": "Haftalık",
+      "monthly": "Aylık",
+      "dailyLimit": "Günlük sınır",
+      "concurrency": "Eşzamanlı istek",
+      "dailyImages": "Görsel isteği/gün",
+      "invalid": "İzin verilen aralıkta pozitif bir sayı girin.",
+      "hint": "Ayarlanan fiyatlarla hesaplanır. Fiyatı olmayan modeller kullanılamaz. Dönem UTC ile sıfırlanır ve devretmez. Süren istekler sınırı aşabilir.",
+      "unmetered": "Kullanım veya fiyat bilgisi olmayan istekler tutara dahil edilmez.",
+      "remote": "Uzak Cockpit",
+      "active": "Etkin",
+      "disabled": "Devre dışı",
+      "service_disabled": "Hizmet durdu",
+      "token_limit_reached": "Token sınırı doldu",
+      "budget_limit_reached": "Bütçe tükendi",
+      "images": "Görseller",
+      "consumed": "Kullanılan",
+      "resetsAt": "Sıfırlanma",
+      "offline": "Çevrimdışı · önbellek"
+    },
     "networkErrors": {
       "upstream": "üst hizmet",
       "proxyConnection": "“{{proxy}}” proxy’si üzerinden {{target}} bağlantısı başarısız oldu. Proxy veya ağ sorunu olabilir. Proxy’yi denetleyin ya da başka bir düğüm deneyin.",
@@ -387,7 +430,11 @@
           "statusSkipped": "Atlandı",
           "statusPending": "İçe aktarım bekleniyor"
         },
-        "invalidJson": "Geçersiz JSON. Dosyayı veya yapıştırılan içeriği kontrol edin."
+        "invalidJson": "Geçersiz JSON. Dosyayı veya yapıştırılan içeriği kontrol edin.",
+        "empty": "İçe aktarılacak veri boş.",
+        "sizeLimit": "Dosya {{limit}} MiB boyutunu aşamaz.",
+        "countLimit": "Bir defada en fazla {{count}} hesap içe aktarılabilir.",
+        "itemFailed": "Öğe {{index}}: {{error}}"
       },
       "externalImport": {
         "bundleInvalidJson": "İçe aktarma paketi geçerli JSON değil",
@@ -498,6 +545,8 @@
         "title": "Hesap Genel Bakışı"
       },
       "quota": {
+        "usageWithUnit": "Kullanım ({{unit}})",
+        "usage": "Kullanım",
         "noData": "Kota verisi yok",
         "queryFailed": "Kota sorgusu başarısız",
         "resetDone": "Sıfırlandı",
@@ -591,6 +640,29 @@
         "missingTiming": "Geçerli çıkış süresi kaydedilmedi.",
         "shortWindow": "Gözlenen çıkış aralığı 100 ms altında."
       }
+    },
+    "deviceRestriction": {
+      "title": "Cihaz kısıtlama kayıtları",
+      "badge": "Cihaz kısıtlı",
+      "paused": "Açık bir cihaz kısıtlaması algılandı. Bu işlem için otomatik denemeler duraklatıldı. Hesap sayfasındaki yerel kaydı inceleyin.",
+      "note": "Bunlar yerel gözlemlerdir, OpenAI cihaz kontenjanları değildir. Hesapları veya yerel kimlik bilgilerini silmek sunucudaki cihaz sınırını kaldırmayı garanti etmez.",
+      "retryNote": "Yeniden denemeye izin vermek kısıtlamayı çözülmüş olarak işaretlemez. Yeni bir açık ret, denemeleri tekrar duraklatır.",
+      "desktop": "Masaüstü girişi",
+      "quota": "Kota sorgusu",
+      "api": "API istekleri",
+      "oauth": "OAuth girişi",
+      "token": "Belirteç yenileme",
+      "recovered": "İşlem düzeldi",
+      "pausedLabel": "Denemeler duraklatıldı",
+      "retryEnabled": "Yeniden deneme açık",
+      "observed": "İlk: {{first}} · Son: {{last}} · {{count}} gözlem",
+      "check": "Yeniden kontrol et",
+      "allowRetry": "Denemeye izin ver",
+      "help": "Resmî yardım",
+      "support": "Desteğe ulaş",
+      "failed": "İşlem tamamlanamadı. Son bilinen durum korundu. Yeniden deneyin.",
+      "loginAttempt": "Hesabı belirlenemeyen giriş",
+      "removed": "Silinmiş yerel hesap"
     }
   },
   "nav": {
@@ -1329,8 +1401,6 @@
       "codexPreserveExternalBridge": "Harici köprüyü koru",
       "codexPreserveExternalBridgeDesc": "OAuth hesabı değiştirirken yerel kayıtlarla doğrulanan Codex Web GPT köprüsünü korur. Varsayılan olarak kapalıdır.",
       "codexEnhancements": {
-        "nativeFast": "Yerleşik Fast seçimi",
-        "nativeFastDesc": "API Key hesaplarında istemcinin yerleşik hız menüsünü açar ve modelin desteklediği kademeleri gösterir. Kullanılabilirlik ve ücretler API sağlayıcısına bağlıdır.",
         "quotaCompat": "Karma mod kota uyumu",
         "quotaCompatDesc": "Gerçek OAuth oturumu ve harici API yolu birlikte kullanıldığında abonelik kotasının yerel API mesajlarını engellemesini önler. Gerçek kullanım ve görsel kotaları değişmez.",
         "restartHint": "Varsayılan olarak açıktır. Değişiklikten sonra ilgili Codex örneklerini yeniden başlatın ve Cockpit Tools açık kalsın. Yerel dikte, istemcinin yeteneklerine ve ayarlarına bağlıdır; Cockpit bu işlevi devralmaz veya zorla etkinleştirmez.",
@@ -1638,6 +1708,42 @@
       "refreshed": "Kullanım yenilendi",
       "usage": "Kullanım",
       "tierOther": "Diğer"
+    },
+    "background": {
+      "title": "Arka plan",
+      "description": "Yalnızca uygulama arka planı değişir. Hesap kartları ve denetimler aynı kalır.",
+      "presets": "Hazır arka planlar",
+      "default": "Varsayılan",
+      "mist": "Sis",
+      "forest": "Orman",
+      "dusk": "Alacakaranlık",
+      "sand": "Kum",
+      "custom": "Özel",
+      "chooseImage": "Görsel seç",
+      "replaceImage": "Görseli değiştir",
+      "imageHint": "JPG, PNG veya WebP, en fazla 10 MB. Büyük görseller cihazda küçültülür.",
+      "preview": "Önizleme",
+      "strength": "Yoğunluk",
+      "blur": "Bulanıklık",
+      "pixels": "{{count}} piksel",
+      "position": "Görsel konumu",
+      "center": "Orta",
+      "top": "Üst",
+      "bottom": "Alt",
+      "localHint": "Değişiklikler hemen uygulanır. Her temanın resmi ve ayarları bu cihazda ayrı ayrı saklanır; resimler yüklenmez. Varsayılanları geri yüklemek temalarınızı silmez.",
+      "restore": "Sıfırla",
+      "imageType": "JPG, PNG veya WebP görseli seçin.",
+      "imageSize": "10 MB altında bir görsel seçin.",
+      "imageRead": "Görsel okunamadı. Başka bir dosya deneyin.",
+      "storage": "Arka plan yüklenemedi veya kaydedilemedi. Tekrar deneyin; önceki arka plan korunur.",
+      "saveFailed": "Değişiklikler görünüyor ancak kaydedilemedi. Tekrar deneyin; önceden kaydedilen temalar korunur.",
+      "builtInSkins": "Yerleşik temalar",
+      "mySkins": "Temalarım",
+      "addSkin": "Tema ekle",
+      "rename": "Adını değiştir",
+      "skinName": "Tema adı",
+      "manageSkin": "Temayı yönet: {{name}}",
+      "deleteSkinConfirm": "“{{name}}” silinsin mi? Etkin tema silinirse varsayılan arka plan geri yüklenir."
     }
   },
   "appPath": {
@@ -2363,6 +2469,14 @@
       "windowHint": "Eşikler gerçek süreye göre belirlenir: bir hafta veya daha uzun süre haftalık eşiği kullanır. Yalnızca haftalık kotası olan hesaplarda sadece bu kota kontrol edilir. Süre yoksa birincil/ikincil pencere eşlemesi korunur.",
       "rule": "Kısa dönem kalan <= {{shortCycle}}% veya haftalık kalan <= {{weekly}}%"
     },
+    "launchConfirmation": {
+      "title": "Başlatma doğrulanmadı",
+      "description": "Başlatma istendi, ancak istemcinin durumu henüz doğrulanmadı. Zaten açık olabilir. Lütfen tekrar başlatmayın.",
+      "check": "Durumu denetle",
+      "notRunning": "Hedef örnek henüz algılanmadı. Daha sonra denetleyin veya yeniden başlatmayı denemeden önce bu pencereyi kapatın.",
+      "checkFailed": "Çalışma durumu okunamadı. Lütfen daha sonra yeniden denetleyin.",
+      "maintenanceDeferred": "Oturum bakımının bir bölümü tamamlanamadı. Geçmiş korundu; daha sonra oturum yönetiminden yeniden deneyin."
+    },
     "launchErrors": {
       "sessionRestoreFailed": "Oturum onarımı başarısız oldu ve yedek geri yükleme tamamlanmadı. Başlatma durduruldu; yeniden denemeden önce günlükleri ve yedekleri inceleyin.",
       "sessionCheckTimeout": "Oturum denetimi zaman aşımına uğradı. Başlatma durduruldu; yeniden deneyin veya günlükleri inceleyin.",
@@ -2592,14 +2706,8 @@
       "unsupportedCountryRegion": "Geçerli ağ bölgesi Codex yetkilendirmesini yenilemeyi desteklemiyor. OpenAI yetkilendirme servisi bu ağ çıkışını reddetti. Desteklenen bir bölgeye geçip yeniden deneyin."
     },
     "switchAuth": {
-      "apiOnlyTitle": "İstemci girişi gerekli",
       "reauthorizeTitle": "Codex yetkilendirmesi sona erdi",
-      "apiOnlyDescription": "Geçerli istemci giriş sayfasına yönlendirildi. İstemciyi geri yüklemek için yeniden yetkilendirin; API hizmeti şimdilik kullanılmaya devam edilebilir.",
-      "observationStatus": "Giriş sayfasına yönlendirme algılandı",
-      "observationTime": "Son kontrol: {{time}}",
-      "loginRedirectTime": "Son giriş sayfası yönlendirmesi: {{time}}",
       "observationInstance": "Gözlemlenen örnek: {{instance}}",
-      "launchTime": "Örneğin başlatılma zamanı: {{time}}",
       "reauthorizeDescription": "Giriş bilgileri yenilenemedi ve access_token artık API hizmetinde kullanılamıyor. Devam etmek için hesabı yeniden yetkilendirin.",
       "idTokenUnavailable": "İstemci kimliği sona erdi ve otomatik yenileme geçerli bir id_token döndürmedi.",
       "reasonLabel": "Neden",
@@ -2612,10 +2720,7 @@
       "startingInstanceAfterReauth": "Yetkilendirme güncellendi. Örnek yeniden başlatılıyor...",
       "startInstanceAfterReauthFailed": "Yetkilendirme güncellendi ancak örnek başlatılamadı: {{error}}",
       "reauthorizedAndStartedInstance": "Yeniden yetkilendirildi ve örnek başlatıldı",
-      "apiOnlyBadge": "Giriş gerekli",
-      "clearClientAuth": "Uyarıyı temizle",
-      "clearClientAuthSuccess": "İstemci uyarısı temizlendi",
-      "clearClientAuthFailed": "İstemci uyarısı temizlenemedi: {{error}}"
+      "apiTokenUsableDescription": "Bazı giriş bilgileri yeniden yetkilendirme gerektiriyor. Mevcut erişim belirteci API hizmetinde kullanılmaya devam edebilir."
     },
     "current": "Geçerli",
     "empty": {
@@ -2931,7 +3036,6 @@
         "quotaReserveInvalid": "1 ile 100 arasında bir tam sayı girin.",
         "strictReserve": "Sıkı koruma",
         "strictReserveDesc": "Ayrılan kota, güvenlik payıyla otomatik korunur. Eşiğe yaklaşınca hesap başına tek istek gönderilir ve tamamlandıktan sonra güncel kota doğrulanır. Diğer istemcilerin kullanımı kısıtlanmaz.",
-        "strictNativeOnly": "Sıkı koruma Rust motoru gerektirir. Go motoruna geçmeden önce kapatın.",
         "safetyMargin": "Güvenlik payı",
         "safetyMarginUnit": "yüzde puan",
         "safetyMarginInvalid": "1 ile 20 arasında bir tam sayı girin.",
@@ -3014,17 +3118,7 @@
       "gatewayModeNewLabel": "API Hizmeti-Yeni",
       "gatewayModeOldLabel": "API Hizmeti-Eski",
       "gatewayModeSaveSuccess": "API hizmeti gecit modu guncellendi",
-      "gatewayEngineNative": "Yerel Rust",
-      "gatewayEngineSidecar": "Go (mevcut)",
-      "gatewayEngineHint": "Varsayılan motor Rust olur. İlk güncellemede Rust’a geçilir; sonraki seçimler korunur. Geçiş API hizmetini yeniden başlatır ve etkin istekleri kesebilir; Codex pencereleri açık kalır.",
-      "gatewayEngineSwitching": "Motor değiştiriliyor…",
-      "gatewayEngineSwitchFailed": "Motor değiştirilemedi: {{error}}",
-      "gatewayEngineReadbackFailed": "Geçerli motor doğrulanamadı. Yeniden denemeden önce durumu yenileyin: {{error}}",
-      "gatewayEngineReadbackTimeout": "Durum yenileme zaman aşımına uğradı",
       "gatewayEngineRequestsBusy": "İstekler hâlâ sürüyor. Tamamlandıklarında tekrar deneyin.",
-      "gatewayEngineOperationBusy": "Başka bir hizmet işlemi sürüyor. Kısa süre sonra tekrar deneyin.",
-      "gatewayEngineSwitchRestored": "Geçiş başarısız oldu. Önceki motor geri yüklendi.",
-      "gatewayEngineRestoreFailed": "Geçiş başarısız oldu ve önceki motor geri yüklenemedi. Tekrar denemeden önce hizmet durumunu kontrol edin.",
       "gatewayEngineStopped": "API hizmeti durdu. Tekrar denemeden önce yeniden başlatın.",
       "gatewayGuideTitle": "Ağ geçidini burada değiştirin",
       "gatewayGuideDesc": "Varsayılan yeni ağ geçididir. Uyumluluk sorunu veya istemci isteği hatası yaşarsanız buradan eski ağ geçidine dönebilirsiniz.",
@@ -3188,7 +3282,7 @@
       "resetCreditStatusRedeemed": "Kullanıldı",
       "resetCreditStatusExpired": "Süresi doldu",
       "resetCreditStatusUnknown": "Bilinmiyor",
-      "resetCreditNextExpiry": "En yakın bitiş: {{time}}",
+      "resetCreditNextExpiry": "Sonraki sıfırlama son kullanımı {{time}}",
       "resetCreditDetailsTitle": "Sıfırlama ayrıntıları",
       "resetCreditNoRecords": "Sıfırlama kaydı yok",
       "resetCreditRecordsLoadFailed": "Sıfırlama kayıtları yüklenemedi: {{error}}",
@@ -3204,7 +3298,12 @@
       "codeReview": "Kod inceleme",
       "codeReviewShort": "İnceleme",
       "monthlyCreditsHint": "Kalan aylık kredi",
-      "monthlyCreditsInline": "Kredi: {{value}}"
+      "monthlyCreditsInline": "Kredi: {{value}}",
+      "resetCreditExpiryHours": "{{hours}} sa {{minutes}} dk",
+      "resetCreditExpiryMinutes": "{{minutes}} dk",
+      "resetCreditExpiryExpired": "Süresi doldu · ayrıntılar",
+      "resetCreditExpiryUrgent": "Yakında doluyor: {{time}} · {{duration}}",
+      "resetCreditExpiryNormal": "Bitiş {{time}} · {{duration}}"
     },
     "quotaError": {
       "badge": "Kota hatası",
@@ -3592,9 +3691,9 @@
         "providerLoadFailed": "Provider adayları yüklenemedi: {{error}}",
         "modeTitle": "Onarım modu",
         "modeQuick": "Hızlı onarım",
-        "modeQuickDesc": "Resmî durum veritabanında ve oturum dizinlerinde sağlayıcıları düzenler. rollout dosyaları korunur. Normal hesap değişimleri için uygundur.",
+        "modeQuickDesc": "Dizinleri ve güncel bağlantıları kısa süre sınırıyla onarır. Proje bilgilerini yazmak için örneği kapatın.",
         "modeDeep": "Tam onarım",
-        "modeDeepDesc": "Geçmiş sağlayıcıları, katalogları, çalışma alanlarını ve alt aracı dizinlerini onarır. rollout dosyaları korunur. Önce hedef örneği kapatın.",
+        "modeDeepDesc": "Hızlı onarımı, kopyalardan proje kurtarmayı ve sohbet dizini onarımını içerir. Önce hedef örneği kapatın.",
         "scopeTitle": "Oturum kapsamı",
         "scopeAll": "Tüm oturumlar",
         "scopeAllDesc": "Geçerli listedeki {{count}} oturumu onarır.",
@@ -3626,20 +3725,26 @@
         "previewFailedWithError": "Oturum onarımı önizlemesi başarısız: {{error}}",
         "confirmRepair": "Onarımı onayla",
         "title": "Geçmişi onar",
-        "description": "SQLite dizinlerinde, oturum kataloğunda ve çalışma alanlarında sağlayıcı bilgilerini düzenler. rollout dosyalarının özgün baytları korunur; yalnızca zaman damgaları düzeltilir. Önce yerel yedek oluşturulur.",
+        "description": "Hızlı onarım görünürlük dizinlerini ve güncel proje bağlantılarını düzeltir. Tam onarım eski kopyaları da kullanır ve sohbet dizinlerini onarır. Yazmadan önce yerel yedek oluşturulur; günlük içerikleri korunur.",
         "stopInstanceHint": "Tam onarımdan önce seçili Codex App/ChatGPT örneğini tamamen kapatın. Değişiklikleri yine de önce önizleyebilirsiniz.",
         "encryptedContentWarning": "Başka bir sağlayıcı veya hesap tarafından şifrelenmiş geçmiş algılandı. Meta veriler taşınabilir ancak bu oturumları sürdürme veya sıkıştırma başarısız olabilir; özgün sağlayıcıya/hesaba dönün ya da yeni oturum başlatın.",
         "modeHistory": "Düzenleme/dallanma",
         "modeHistoryDesc": "Geçersiz dizinlerden kaynaklanan mesaj düzenleme ve sohbet dallandırma hatalarını giderir.",
-        "historyStopHint": "Onarımdan önce seçilen istemciyi ve bu örneği kullanan CLI süreçlerini tamamen kapatın. Değişiklikleri yine de önizleyebilirsiniz.",
-        "historyDescription": "Seçilen sohbetleri ve kaynak geçmişini denetler; yalnızca geçersiz sayfalama dizinlerini sıfırlar. Sohbet kayıtları, hesaplar ve Provider değişmez. Başlatmadan önce hedef istemciyi ve ilgili CLI süreçlerini kapatın.",
+        "historyLiveHint": "İstemci çalışırken onarım yapabilirsiniz. Ardından istemciyi yeniden başlatıp sohbetleri tekrar açın.",
+        "historyDescription": "Seçilen sohbetleri ve kaynak geçmişlerini denetleyip yalnızca geçersiz sayfalama dizinlerini sıfırlar. Mesajlar, hesaplar ve Provider ayarları değişmez. Onarım istemci açıkken yapılabilir; dizinleri yeniden yüklemek için ardından istemciyi yeniden başlatın.",
         "historyPreview": "Yeniden oluşturulabilecek {{count}} geçersiz geçmiş dizini bulundu. Sohbet kayıtları değişmez.",
-        "historySuccess": "{{count}} geçersiz geçmiş dizini sıfırlandı. Yeniden oluşturmak için istemciyi ve sohbetleri tekrar açın. Yedekler korundu.",
+        "historySuccess": "{{count}} geçersiz geçmiş dizini sıfırlandı. Yeniden oluşturmak için istemciyi yeniden başlatıp sohbetleri tekrar açın. Yedekler korundu.",
         "historyNoChanges": "Güvenle yeniden oluşturulabilecek geçersiz geçmiş dizini bulunamadı.",
         "historyFailed": "Geçmiş dizini onarımı tamamlanamadı: {{error}}",
-        "historyRunning": "Hedef istemciyi ve bu örneği kullanan CLI süreçlerini tamamen kapatıp tekrar deneyin.",
+        "historyChanged": "Onarım sırasında sohbet verileri değişti. Bu onarım uygulanmadı. Biraz sonra yeniden deneyin.",
         "historyScan": "Geçmiş dizinleri denetleniyor ({{current}}/{{total}})…",
-        "historyReset": "Geçersiz dizinler yedekleniyor ve sıfırlanıyor…"
+        "historyReset": "Geçersiz dizinler yedekleniyor ve sıfırlanıyor…",
+        "projectsChanged": "Proje verileri değişti. Önizlemeyi yenileyip tekrar deneyin.",
+        "projectsFailed": "Yerel projeler geri yüklenemedi: {{error}}",
+        "projectsPreview": "Önizleme: {{projects}} proje, {{assignments}} bağlantı; {{skipped}} proje ve {{ambiguous}} belirsiz sohbet atlandı.",
+        "projectsSuccess": "Geri yükleme tamamlandı: {{projects}} proje, {{assignments}} bağlantı; {{skipped}} proje ve {{ambiguous}} belirsiz sohbet atlandı.",
+        "projectsPending": "Önceki kurtarma kesildi. Yarım kalan yazmaları kurtarmak için örneği kapatıp tam onarımı çalıştırın.",
+        "projectsDeferred": "Bazı proje bilgileri ertelendi. Örneği kapatıp hızlı onarımı yeniden deneyin veya tam onarımı kullanın."
       },
       "importModal": {
         "title": "Oturumları içe aktar",
@@ -4063,7 +4168,9 @@
         "chatCompletions": "Chat Completions protokolü",
         "deepseekResponsesHint": "DeepSeek'i başlatıp ağ geçidini veya resmî doğrudan bağlantıyı seçin, ardından Flash veya Pro'yu seçin. Ağ geçidi modelleri Codex'te listeler; doğrudan bağlantı ağ geçidini atlar.",
         "deepseekChatHint": "DeepSeek Chat Completions, eski yollar için yerel ağ geçidi köprüsünü kullanır. Resmî Codex araç davranışına ihtiyacınız olduğunda Responses'ı seçin.",
-        "deepseekThirdPartyHint": "Bu adres resmi DeepSeek uç noktası olmadığı için üçüncü taraf uyumlu uç nokta olarak işlenir; model listesine üst kaynağın gerçek model kimliklerini yazın, resmi model adlarını kullanmayın."
+        "deepseekThirdPartyHint": "Bu adres resmi DeepSeek uç noktası olmadığı için üçüncü taraf uyumlu uç nokta olarak işlenir; model listesine üst kaynağın gerçek model kimliklerini yazın, resmi model adlarını kullanmayın.",
+        "anthropic": "Anthropic protokolü",
+        "gatewayRequired": "Bu protokol yerel ağ geçidi gerektirir. Başlangıç modelini buradan seçin."
       },
       "selectSavedProvider": "Kayıtlı sağlayıcılar",
       "selectSavedApiKey": "Kayıtlı API anahtarları",
@@ -4296,7 +4403,22 @@
       "importConfigPlaceholder": "Karttaki \"Yapılandırmayı kopyala\"yı kullanıp içeriği buraya yapıştırın",
       "importConfigAction": "Yapılandırmayı içe aktar",
       "importConfigFromClipboard": "Panoyu oku",
-      "settingsRestartHint": "Sağlayıcı ayarları güncellendi. Uygulamak için bu sağlayıcıyı kullanan çalışan Codex örneklerini veya API hizmetini yeniden başlatın."
+      "settingsRestartHint": "Sağlayıcı ayarları güncellendi. Uygulamak için bu sağlayıcıyı kullanan çalışan Codex örneklerini veya API hizmetini yeniden başlatın.",
+      "anthropic": {
+        "auth": "Kimlik doğrulama",
+        "hint": "Anthropic Messages ağ geçidine bağlanın. Modelleri alın veya elle girin.",
+        "fetch": "Modelleri al",
+        "fetching": "Alınıyor…",
+        "fetchFailed": "Modeller alınamadı. Yeniden deneyin veya model kimliklerini elle girin.",
+        "import": "Yapılandırma al",
+        "importFailed": "Geçerli bir Claude Code veya Desktop Gateway yapılandırması bulunamadı."
+      },
+      "editor": {
+        "modelScope": "Model kapsamı",
+        "providerDefault": "Sağlayıcı varsayılanı",
+        "sharedSettings": "Model listesi ve yetenekleri seçilen kapsama uygulanır. Protokol, kimlik doğrulama ve adres sağlayıcının ortak ayarlarıdır.",
+        "saveScope": "Kaydetme işlemi sağlayıcıyı ve bağlı hesapları günceller. Geçerli hesap etkilenirse yerel Codex ayarları ve kimlik bilgileri de güncellenir. İstemci otomatik başlatılmaz."
+      }
     },
     "quickSwitch": {
       "action": "Sağlayıcıyı hızlı değiştir",
@@ -4650,6 +4772,8 @@
         "allKinds": "Tüm türler",
         "allStatuses": "Tüm durumlar",
         "allGatewayModes": "Tum modlar",
+        "sessionFilter": "Oturum",
+        "sessionPlaceholder": "Oturum kimliği",
         "modelFilter": "Model adı",
         "modelPlaceholder": "Model ID​",
         "accountFilter": "Hesap",
@@ -5432,7 +5556,7 @@
         "subscriptionUrl": "Abonelik URL’si",
         "nodeLinks": "Düğüm bağlantıları veya yapılandırma",
         "import": "İçe aktar",
-        "importNotice": "URL ve kimlik bilgileri yerelde şifrelenir. Abonelik istekleri sağlayıcıya hesap Token bilgisi olmadan gönderilir.",
+        "importNotice": "Yapılandırma ve kaynak anlık görüntüleri şifreli saklanır ve ayrı bir çalışma klasöründe çözülür. Abonelik ve kaynak istekleri hesap belirteçlerini içermez.",
         "intro": "Abonelikleri veya düğümleri içe aktarın ve test edin; ardından hesap listesinden seçip bağlayın.",
         "emptyTitle": "İlk proxy’yi ekleyin",
         "emptyHint": "Abonelikler, düğüm bağlantıları ve HTTP / SOCKS5 desteklenir. Hesap eklemeden içe aktarabilir ve test edebilirsiniz.",
@@ -5477,7 +5601,7 @@
         "unsupported": "Desteklenmiyor",
         "invalidInput": "Ad ve geçerli URL, düğüm bağlantısı veya proxy yapılandırması girin.",
         "downloadFailed": "Abonelik indirilemedi. Ağ ve proxy ayarlarını kontrol edip tekrar deneyin.",
-        "downloadRedirect": "Farklı kökene yönlendirme veya çok fazla yönlendirme nedeniyle abonelik indirmesi durduruldu.",
+        "downloadRedirect": "Abonelik yönlendirmesi geçersiz veya yönlendirme sınırı aşıldı.",
         "downloadDenied": "Abonelik sunucusu erişimi reddetti (HTTP 401/403). Bağlantıyı ve geçerlilik süresini kontrol edin.",
         "downloadTls": "Abonelik bağlantısında TLS el sıkışması veya sertifika doğrulaması başarısız. Ağ ve proxy ayarlarını kontrol edin.",
         "timeout": "İşlem zaman aşımına uğradı. Yeniden denemeden önce sonucu yenileyerek doğrulayın.",
@@ -5495,6 +5619,7 @@
         "loadBalanceGroup": "Yük dengeleme",
         "reasonStrategy": "Bu grup stratejisi desteklenmiyor. Kullanılabilir bir düğüm seçmek için genişletin.",
         "reasonOptions": "Henüz desteklenmeyen bir protokol veya yapılandırma seçeneği içeriyor.",
+        "reasonProviderConfig": "Bu sağlayıcının kaynağı, filtresi veya dönüştürme ayarı desteklenmiyor.",
         "reasonProvider": "Bu grup, henüz yüklenmemiş harici düğüm sağlayıcıları gerektiriyor.",
         "reasonMembers": "Grup üyeleri doğrulamayı geçemedi. Her üyenin nedenini inceleyin.",
         "reasonInvalid": "Gerekli ayarlar eksik veya geçersiz.",
@@ -5516,6 +5641,14 @@
         "defaultProtocol": "Belirtilmeyen protokol",
         "credentialFormat": "Kimlik bilgisi biçimi",
         "recognizing": "Tanınıyor…",
+        "nativePreview": "İçe aktarırken Mihomo yapılandırmayı doğrudan işler ve kaynakları yükler. Önizleme dosyalara veya ağa erişmez.",
+        "resourceDirectory": "Kaynak klasörü",
+        "browseResources": "Klasör seç",
+        "resourceDirectoryHint": "Yerel dosyalar için aboneliğin kaynak klasörünü seçin. İçerik özel bir çalışma klasörüne kopyalanır ve şifreli anlık görüntüler olarak kaydedilir.",
+        "resourceDirectoryRequired": "Bu aboneliğin yerel kaynak klasörünü seçin.",
+        "resourceMissing": "Yerel kaynaklar kullanılamıyor. Klasörü kontrol edin veya yeniden içe aktarın.",
+        "rulesName": "Abonelik kuralları",
+        "pendingProviders": "İçe aktarırken {{count}} uzak düğüm kaynağı yüklenecek. Önizleme bunları indirmez.",
         "previewCount": "Geçerli {{valid}} · Kontrol {{invalid}} · Yinelenen {{duplicates}}",
         "line": "Satır {{line}}",
         "ambiguous": "Biçim belirsiz. Kimlik bilgisi biçimini seçin veya tam proxy URL’sini kullanın.",
@@ -5727,6 +5860,14 @@
       }
     },
     "requestDiagnostics": {
+      "requestSizeTitle": "İstek boyutu",
+      "requestSizeHint": "Sıkıştırması açılmış istemci JSON boyutu; alanlar sıkıştırılmış biçimli JSON baytlarıyla ölçülür. Yalnızca boyutlar kaydedilir.",
+      "requestBytes": "İstek",
+      "historyBytes": "Geçmiş",
+      "toolsBytes": "Araçlar",
+      "instructionsBytes": "Talimatlar",
+      "overloadRetry": "Yoğunluk denemeleri",
+      "overloadRecovery": "Kurtarma süresi",
       "recordPayloads": "İstek gövdelerini kaydet",
       "recordPayloadsHint": "Varsayılan olarak kapalıdır. İstemci ve sunucu isteklerinin sınırlı kopyaları yerel olarak saklanır. Kapatmak yeni kaydı durdurur; kayıtlı gövdeler ayrıca silinebilir.",
       "privacyHint": "Kimlik doğrulama alanları gizlenir, ancak konuşma metnindeki sırlar kalabilir. Kopyalamadan veya paylaşmadan önce kontrol edin.",
@@ -5892,6 +6033,37 @@
       "label": "Etkin kota eşitleme",
       "description": "API hizmetini başlatmak gerekmez. Etkin yerel hesaplar 5–30 saniyede bir yenilenir; oturum dosyası değişiklikleri ek sorgu başlatır. Yalnızca güncel dosya bilgileri incelenir, konuşma içeriği okunmaz. Hesap istisnaları, plan filtreleri ve grup kuralları korunur. Varsayılan olarak kapalıdır.",
       "error": "Ayar yüklenemedi veya kaydedilemedi. Yeniden deneyin."
+    },
+    "pathRecovery": {
+      "title": "Codex başlatma yolunu ayarla",
+      "description": "Kullanılabilir bir Codex istemci yolu bulunamadı. Uygulamayı seçin veya Codex'i elle açıp algılamayı başlatın.",
+      "reload": "Yeniden yükle",
+      "timeout": "İşlem zaman aşımına uğradı. Yeniden deneyin; başlatma otomatik olarak sürdürülmeyecek.",
+      "noCandidates": "Codex algılanamadı. İstemciyi elle açıp yeniden algılayın veya yolunu seçin.",
+      "pathRequired": "Codex istemcisinin yolunu seçin veya girin.",
+      "invalidPath": "Bu yol geçerli bir Codex masaüstü istemcisine ait değil. Uygulamayı yeniden seçin.",
+      "candidates": "Algılanan uygulamalar",
+      "autoLaunchHint": "Masaüstü uygulamasını başlatmadan hesap değiştirmek için bu seçeneği kapatın. Uygulamayı yine elle başlatabilirsiniz.",
+      "manualLaunchHint": "Otomatik başlatmayı kapatmak bu elle başlatmayı tamamlamaz. Yalnızca ayarları kaydetmek bu başlatma denemesini iptal eder.",
+      "saveAndRetry": "Kaydet ve tekrar dene",
+      "saveWithoutLaunch": "Kaydet ve devam et",
+      "saveOnly": "Yalnızca kaydet",
+      "validationBusy": "Önceki yolun denetimi hâlâ sürüyor. Lütfen biraz sonra yeniden deneyin."
+    },
+    "openaiUsage": {
+      "monthCost": "Aylık harcama",
+      "scope": "Kuruluş harcaması; istek ve token sayıları yalnızca metin API’lerini kapsar. UTC kullanılır.",
+      "loading": "OpenAI kullanımı sorgulanıyor…",
+      "pending": "OpenAI kullanımı bekleniyor",
+      "permissionRequired": "Bu anahtar kuruluş kullanımını okuma yetkisine sahip değil (api.usage.read).",
+      "permissionGuide": "Yönetici anahtarı kullanın: Admin keys → Restricted → Usage API Scope → Read. Harcama ve kullanım sorgulanabilir; kalan bakiye sağlanmaz.",
+      "openAdminKeys": "Kullanım izinleri",
+      "invalidKey": "Anahtar geçersiz veya süresi dolmuş. Mevcut API anahtarını kontrol edin.",
+      "networkFailed": "OpenAI kullanım hizmetine bağlanılamıyor. Daha sonra yenileyin.",
+      "queryFailed": "OpenAI kullanımı sorgulanamadı. Daha sonra tekrar deneyin."
+    },
+    "officialApi": {
+      "hint": "Gerçek bağlantı adresine göre tanımlanan resmî OpenAI API anahtarı hesabı."
     }
   },
   "githubCopilot": {
@@ -6383,8 +6555,9 @@
       "desc": "Kiro erişim belirtecinizi veya dışa aktarılan JSON verilerinizi yapıştırın."
     },
     "import": {
-      "localDesc": "Kiro hesap verilerini yerel Kiro istemcisinden veya bir JSON dosyasından içe aktarın.",
-      "localClient": "Yerel Kiro'dan ithalat"
+      "localDesc": "Yerel istemciden veya JSON’dan içe aktarın. JSON hesapları önce kaydedilir, ardından oturum bilgileri ve kotalar arka planda yenilenir.",
+      "localClient": "Yerel Kiro'dan ithalat",
+      "invalidCredentials": "Kimlik bilgisi alanları eksik veya desteklenmiyor. Hesabı yeniden dışa aktarın."
     },
     "injectToVSCode": "Kiro'ya geç"
   },
@@ -7645,6 +7818,17 @@
       "family": "Grup",
       "platform": "Geçerli sistem",
       "unsupportedGroup": "Bu grup için tek tıkla yazılabilen istemci yok."
+    },
+    "campaign": {
+      "badge": "11.11",
+      "title": "Bakiye yüklemelerine %11,11 bonus",
+      "description": "Yeni ve mevcut kullanıcılar için.",
+      "period": "Kampanya dönemi: 1–11 Kasım 2026 (UTC+8)",
+      "terms": "Koşullar için kampanya sayfasına bakın.",
+      "action": "Kampanyayı gör",
+      "inactive": "Bu kampanya şu anda etkin değil.",
+      "label": "Sınırlı süreli 11.11 kampanyası",
+      "promotionDescription": "Cockpit’in resmi API aracı hizmet ortağıyla 11.11 fırsatı. Yeni ve mevcut kullanıcılar kampanya boyunca bakiye yüklemelerinde %11,11 bonus kazanır. Claude, ChatGPT, Gemini ve diğer önde gelen modellere erişin."
     }
   },
   "grok": {
@@ -8043,7 +8227,7 @@
     "model": "Test modeli",
     "selectModel": "Model seç",
     "verifyHint": "Seçilen model yalnızca bağlantıyı test eder ve diğer kullanılabilir modelleri sınırlamaz. Doğrulama bir kısa istek gönderir ve abonelik kotanızın küçük bir bölümünü kullanır.",
-    "serviceHint": "Geçerli havuza ekleme API hizmetini başlatmaz. Bu sürüm yerel motor gerektirir.",
+    "serviceHint": "Geçerli havuza hesap eklemek API hizmetini başlatmaz.",
     "verify": "Yalnızca test et",
     "verifyAndJoin": "Test et ve ekle",
     "remove": "Hizmetten çıkar",
@@ -8103,8 +8287,6 @@
       "verify": "Model isteği tamamlanmadı. Doğrulamayı tekrarlayın.",
       "usage": "Plan veya uygulama kullanımı sınırlı. ChatGPT kullanım ayarlarını kontrol edin.",
       "usageUnavailable": "Resmî hizmet şu anda kullanımı doğrulayamıyor. Daha sonra deneyin; bu durum plan kotasının tükendiği anlamına gelmez.",
-      "native": "Plan erişimi yerel motor gerektirir. Önce API hizmetinden motoru değiştirin.",
-      "nativeSwitch": "Başka bir motora geçmeden önce plan hesaplarını API hizmetinden çıkarın.",
       "browser": "Tarayıcı açılamıyor. Giriş bağlantısını kopyalayıp elle açın.",
       "configuration": "Yetkilendirme kaydı eşleşmiyor. Girişi yeniden deneyin veya planı yeniden bağlayın.",
       "notVerified": "API hizmetine eklemeden önce bu planı doğrulayın.",
@@ -8284,7 +8466,6 @@
     "title": "Yetenek yedeği",
     "hint": "Bir hesap gereken yeteneği desteklemiyorsa mevcut model eşlemelerini kullanarak yedekleri bu sırayla deneyin.",
     "consent": "Geçiş bu konuşmayı yedek hesaba gönderir ve hesabın kotasını kullanır veya ilgili ücretlere yol açar.",
-    "nativeOnly": "Bu motor yetenek yedeğini çalıştırmaz. Açmak için yerel motora geçin; kayıtlı ayarlar kapatılabilir.",
     "backups": "Yedek hesaplar",
     "addBackup": "Yedek ekle",
     "backupEmpty": "Açmadan önce mevcut API hizmeti havuzundan yedek hesap seçin.",

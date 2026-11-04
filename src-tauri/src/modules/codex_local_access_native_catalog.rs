@@ -5,8 +5,9 @@ fn native_public_model_entry(
     account: &CodexAccount,
     id: &str,
     upstream: &str,
+    public_template: Option<&Value>,
 ) -> Value {
-    let template = account_model_template(account, upstream)
+    let template = public_template.cloned().or_else(||account_model_template(account, upstream))
         .or_else(|| codex_protocol::known_codex_model_template(upstream));
     let window = account
         .api_model_context_windows
@@ -14,7 +15,9 @@ fn native_public_model_entry(
         .copied()
         .filter(|n| *n > 0);
     let vision = native_catalog_vision(collection, plan, account, upstream);
-    let tools = !account.is_api_key_auth() || template.is_some();
+    let tools = !account.is_api_key_auth() || (template.is_some()
+        && (!codex_protocol::is_deepseek_model(upstream)
+            || codex_protocol::is_known_deepseek_model(upstream)));
     native_model_entry_from_metadata(id, template.as_ref(), window, vision, tools)
 }
 

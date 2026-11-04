@@ -768,12 +768,7 @@ pub async fn update_local_access_upstream_proxy_config(
     snapshot_state().await
 }
 
-pub async fn update_local_access_gateway_mode(
-    gateway_mode: CodexLocalAccessGatewayMode,
-) -> Result<CodexLocalAccessState, String> {
-    switch_native_aware_gateway(gateway_mode).await?;
-    snapshot_state().await
-}
+
 
 pub async fn update_local_access_debug_logs(
     debug_logs: bool,
@@ -1278,6 +1273,15 @@ pub async fn set_local_access_api_key_account_priority(
 }
 
 pub async fn update_local_access_api_key(
+    api_key_id: String, label: Option<String>, enabled: Option<bool>, model_prefix: Option<String>,
+    allowed_models: Option<Vec<String>>, excluded_models: Option<Vec<String>>, token_limit: Option<u64>,
+    account_ids: Option<Vec<String>>, inherit_account_pool: Option<bool>,
+) -> Result<CodexLocalAccessState, String> {
+    update_local_access_api_key_with_budget(api_key_id, label, enabled, model_prefix, allowed_models,
+        excluded_models, token_limit, account_ids, inherit_account_pool, None).await
+}
+
+pub async fn update_local_access_api_key_with_budget(
     api_key_id: String,
     label: Option<String>,
     enabled: Option<bool>,
@@ -1287,6 +1291,7 @@ pub async fn update_local_access_api_key(
     token_limit: Option<u64>,
     account_ids: Option<Vec<String>>,
     inherit_account_pool: Option<bool>,
+    budget: Option<CodexApiKeyBudget>,
 ) -> Result<CodexLocalAccessState, String> {
     ensure_runtime_loaded_without_start().await?;
     let (maybe_collection, historical_token_used) = {
@@ -1321,6 +1326,10 @@ pub async fn update_local_access_api_key(
     )?;
     if let Some(label) = label {
         collection.api_keys[index].label = normalize_api_key_label(Some(label.as_str()), "API Key");
+    }
+    if let Some(budget) = budget {
+        validate_key_budget(&budget)?;
+        collection.api_keys[index].budget = budget;
     }
     if let Some(enabled) = enabled {
         collection.api_keys[index].enabled = enabled;
@@ -1733,9 +1742,59 @@ pub async fn restore_local_access_gateway() {
     }
 }
 
+// Upgrade cleanup only: retired Go processes can be stopped, never started.
+#[cfg(target_os = "windows")]
+fn retired_sidecar_binary_file_names() -> Vec<String> {
+    let target = env!("COCKPIT_RUST_TARGET");
+    if cfg!(target_os = "windows") {
+        vec![
+            format!("{CODEX_LOCAL_ACCESS_SIDECAR_BIN_NAME}.exe"),
+            format!("{CODEX_LOCAL_ACCESS_SIDECAR_BIN_NAME}-{target}.exe"),
+        ]
+    } else {
+        vec![
+            CODEX_LOCAL_ACCESS_SIDECAR_BIN_NAME.to_string(),
+            format!("{CODEX_LOCAL_ACCESS_SIDECAR_BIN_NAME}-{target}"),
+        ]
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn push_retired_sidecar_binary_candidates(candidates: &mut Vec<PathBuf>, dir: &Path) {
+    for name in retired_sidecar_binary_file_names() {
+        let path = dir.join(name);
+        if !candidates.iter().any(|candidate| candidate == &path) {
+            candidates.push(path);
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn retired_sidecar_binary_candidates() -> Result<Vec<PathBuf>, String> {
+    let exe = std::env::current_exe().map_err(|e| format!("读取当前程序路径失败: {}", e))?;
+    let parent = exe
+        .parent()
+        .ok_or_else(|| format!("当前程序路径缺少父目录: {}", exe.display()))?;
+    let mut candidates = Vec::new();
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let dev_sidecar_dir = manifest_dir.join("../sidecars/cockpit-cliproxy/bin");
+
+    if cfg!(debug_assertions) {
+        push_retired_sidecar_binary_candidates(&mut candidates, &dev_sidecar_dir);
+    }
+    push_retired_sidecar_binary_candidates(&mut candidates, parent);
+    if let Some(contents_dir) = parent.parent() {
+        push_retired_sidecar_binary_candidates(&mut candidates, &contents_dir.join("Resources"));
+    }
+    if !cfg!(debug_assertions) {
+        push_retired_sidecar_binary_candidates(&mut candidates, &dev_sidecar_dir);
+    }
+    Ok(candidates)
+}
+
 #[cfg(target_os = "windows")]
 fn close_installed_sidecar_processes_by_path(timeout_secs: u64) -> Result<usize, String> {
-    let candidates = sidecar_binary_candidates()?
+    let candidates = retired_sidecar_binary_candidates()?
         .into_iter()
         .filter(|path| path.exists())
         .collect::<Vec<_>>();

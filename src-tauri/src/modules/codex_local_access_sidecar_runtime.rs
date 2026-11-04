@@ -1603,13 +1603,13 @@ impl ProfileModelDefinition {
     ) -> Self {
         let mut definition = Self::plain(model_id, display_name);
         definition.image_capable = image_capable;
-        definition.template = official_deepseek_template_for_model(accounts, &definition.model_id);
+        definition.template = provider_template_for_model(accounts, &definition.model_id);
         definition
     }
 }
 
-/// 官方 DeepSeek 账号的模型模板（按账号的模型列表/别名解析），用于还原官方显示名与能力字段。
-fn official_deepseek_template_for_model(
+/// 供应商模型模板：保留 DeepSeek 官方元数据与 Anthropic 网关的协议能力。
+fn provider_template_for_model(
     accounts: &[CodexAccount],
     model_id: &str,
 ) -> Option<Value> {
@@ -1618,14 +1618,12 @@ fn official_deepseek_template_for_model(
         return None;
     }
     for account in accounts {
-        if !is_official_deepseek_account(account)
-            || !automatic_api_service_account_model_slots(account)
-                .iter()
-                .any(|(client, _)| client.eq_ignore_ascii_case(key))
-        {
+        let slots = automatic_api_service_account_model_slots(account);
+        let Some((_, upstream)) = slots.iter().find(|(client, _)| client.eq_ignore_ascii_case(key)) else {
             continue;
-        }
-        if let Some(template) = account_model_template(account, key) {
+        };
+        if let Some(template) = account_model_template(account, key)
+            .or_else(|| account_model_template(account, upstream)) {
             return Some(template);
         }
     }
@@ -1637,6 +1635,11 @@ fn write_local_access_profile_model_catalog(
     supports_websockets: bool,
     definitions: &[ProfileModelDefinition],
 ) -> Result<(), String> {
+    let client_models=build_local_access_profile_catalog(definitions);
+    write_local_access_profile_client_models(profile_dir, supports_websockets, client_models)
+}
+
+fn build_local_access_profile_catalog(definitions:&[ProfileModelDefinition])->Value {
     let pairs = definitions
         .iter()
         .map(|definition| (definition.model_id.clone(), definition.display_name.clone()))
@@ -1644,7 +1647,9 @@ fn write_local_access_profile_model_catalog(
     let mut client_models =
         codex_protocol::build_codex_client_models_response_with_model_definitions(&pairs);
     apply_profile_model_definition_overrides(&mut client_models, definitions);
-    write_local_access_profile_client_models(profile_dir, supports_websockets, client_models)
+    if profile_catalog_allows_reserve(&client_models) {codex_protocol::ensure_codex_reserve_fallback(&mut client_models);}
+    apply_profile_model_ordering(&mut client_models);
+    client_models
 }
 
 /// 客户端按 `priority` 升序展示模型，这里让 GPT 官方推荐集固定排在最前面，
@@ -1814,6 +1819,12 @@ fn local_access_profile_model_definitions(
     api_key: &str,
     include_account_pool_models: bool,
 ) -> Result<Vec<ProfileModelDefinition>, String> {
+    let accounts=codex_account::list_accounts_checked().unwrap_or_default();
+    local_access_profile_model_definitions_with_accounts(profile_dir,collection,api_key,include_account_pool_models,&accounts)
+}
+
+fn local_access_profile_model_definitions_with_accounts(profile_dir:&Path,collection:&CodexLocalAccessCollection,
+    api_key:&str,include_account_pool_models:bool,accounts:&[CodexAccount])->Result<Vec<ProfileModelDefinition>,String> {
     let experimental_model_catalog_enabled =
         codex_account::read_quick_config_from_config_toml(profile_dir)?
             .experimental_model_catalog_enabled;
@@ -1823,7 +1834,7 @@ fn local_access_profile_model_definitions(
     // 生图账号」会让只加了 DeepSeek / Grok 的池也展示整套官方 GPT 模型。
     let pool_accounts: Vec<CodexAccount> = conversation_sidecar_account_ids(collection)
         .into_iter()
-        .filter_map(|account_id| codex_account::load_account(&account_id))
+        .filter_map(|account_id| accounts.iter().find(|account|account.id==account_id).cloned())
         .filter(|account| {
             is_local_access_eligible_account(account, collection.restrict_free_accounts)
         })
@@ -1892,7 +1903,6 @@ fn local_access_profile_model_definitions(
     let Some(resolved_key) = resolve_collection_api_key(collection, api_key) else {
         return Ok(definitions);
     };
-    let accounts = codex_account::list_accounts_checked().unwrap_or_default();
     let mut seen = definitions
         .iter()
         .map(|definition| definition.model_id.to_ascii_lowercase())
@@ -2154,7 +2164,7 @@ async fn write_local_access_profile_takeover(
 ///
 /// 只做增量补充：已有档位与其顺序保持不变，仅在配置缺失时以客户端默认集合为底，
 /// 避免缩小用户已经开放的推理档位。
-fn ensure_profile_max_reasoning_effort(profile_dir: &Path) -> Result<(), String> {
+pub(crate) fn ensure_profile_max_reasoning_effort(profile_dir: &Path) -> Result<(), String> {
     const DESKTOP_TABLE: &str = "desktop";
     const EFFORT_KEY: &str = "enabled-reasoning-efforts";
     const MAX_EFFORT: &str = "max";
@@ -2496,6 +2506,8 @@ fn build_local_access_api_key(label: Option<&str>) -> CodexLocalAccessApiKey {
         excluded_models: Vec::new(),
         token_limit: None,
         token_used: 0,
+        budget: Default::default(),
+        budget_usage: Default::default(),
         enabled: true,
         created_at: now,
         updated_at: now,
@@ -2528,6 +2540,8 @@ fn normalize_collection_api_keys(collection: &mut CodexLocalAccessCollection) ->
             excluded_models: Vec::new(),
             token_limit: None,
             token_used: 0,
+            budget: Default::default(),
+            budget_usage: Default::default(),
             enabled: true,
             created_at: now,
             updated_at: now,

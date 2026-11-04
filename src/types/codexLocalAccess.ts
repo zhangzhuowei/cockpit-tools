@@ -114,6 +114,8 @@ export interface CodexLocalAccessApiKey {
   excludedModels: string[];
   tokenLimit?: number | null;
   tokenUsed: number;
+  budget?: import('./codexRemoteService').CodexApiKeyBudget;
+  budgetUsage?: import('./codexRemoteService').CodexApiKeyBudgetUsage;
   enabled: boolean;
   createdAt: number;
   updatedAt: number;
@@ -407,6 +409,14 @@ export interface CodexServiceTierAdaptation {
 }
 
 export interface CodexLocalAccessRequestAttempt {
+  upstreamRequestBytes?: number | null;
+  requestSize?: {
+    totalBytes: number;
+    inputBytes: number;
+    toolsBytes: number;
+    instructionsBytes: number;
+  } | null;
+  overloadRetry?: { retry: number; waitMs: number; recoveryMs: number } | null;
   serviceTierAdaptation?: CodexServiceTierAdaptation | null;
   authorizationRoute?: 'official' | 'local_gateway' | null;
   authorizationFallback?: CodexAuthorizationFallbackTrace | null;
@@ -414,6 +424,7 @@ export interface CodexLocalAccessRequestAttempt {
   sequence: number;
   transportError?: string | null;
   transportPoolRetired?: boolean | null;
+  transportHttp1Fallback?: boolean | null;
   upstreamHttpVersion?: string | null;
   accountId: string;
   accountEmail?: string | null;
@@ -481,8 +492,12 @@ export interface CodexLocalAccessRequestLogQuery {
   endAt?: number | null;
   modelQuery?: string | null;
   accountQuery?: string | null;
+  /** Exact identity filters for contextual navigation; queries remain free text. */
+  accountId?: string | null;
+  apiKeyId?: string | null;
   apiKeyQuery?: string | null;
   instanceQuery?: string | null;
+  sessionQuery?: string | null;
   gatewayMode?: CodexLocalAccessGatewayMode | null;
   requestKind?: CodexLocalAccessRequestKind | null;
   success?: boolean | null;

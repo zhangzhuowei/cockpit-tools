@@ -222,6 +222,8 @@ pub struct CodexAccount {
     pub api_sync_model_catalog_to_codex: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_wire_api: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_auth_scheme: Option<String>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub api_supports_websockets: bool,
     #[serde(default)]
@@ -348,18 +350,6 @@ pub struct CodexAccount {
     pub requires_reauth: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reauth_reason: Option<String>,
-    /// 官方客户端实际页面认证状态，由实例 CDP 只读观察更新。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub client_auth_status: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_client_auth_observed_at: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_client_login_redirect_at: Option<i64>,
-    /// 最近一次启动并开始观测该 Codex 实例的时间（Unix seconds）。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_client_launch_at: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_client_auth_instance_id: Option<String>,
     pub quota: Option<CodexQuota>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team_quota_history: Option<CodexTeamQuotaHistory>,
@@ -678,6 +668,7 @@ impl CodexAccount {
             api_model_mappings: Vec::new(),
             api_sync_model_catalog_to_codex: false,
             api_wire_api: None,
+            api_auth_scheme: None,
             api_supports_websockets: false,
             api_supports_vision: false,
             api_model_vision_support: HashMap::new(),
@@ -718,11 +709,6 @@ impl CodexAccount {
             authorization_status: None,
             requires_reauth: false,
             reauth_reason: None,
-            client_auth_status: None,
-            last_client_auth_observed_at: None,
-            last_client_login_redirect_at: None,
-            last_client_launch_at: None,
-            last_client_auth_instance_id: None,
             quota: None,
             team_quota_history: None,
             quota_error: None,

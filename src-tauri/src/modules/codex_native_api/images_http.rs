@@ -58,6 +58,7 @@ async fn handle(
     let headers = incoming.headers().clone();
     let request = parse_request(&state, incoming, operation).await?;
     tracker.authorized(&caller, request.model.as_deref().unwrap_or(""));
+    tracker.admit(&caller).await?;
     let mut policy = match super::super::retry::execution_policy(&state).await {
         Ok(policy) => policy.for_images(),
         Err(error) => {
@@ -396,6 +397,7 @@ impl Execution {
             previous_open_deadline = Some(self.budget.open_deadline);
             let mut headers = outbound_headers(&self.headers);
             headers.extend(self.selected.route.headers.clone());
+            super::super::server::forward_remote_scope_headers(&self.headers,&self.selected.route,&mut headers);
             headers.remove(header::CONTENT_LENGTH);
             headers.remove(header::CONTENT_ENCODING);
             headers.remove(header::CONTENT_TYPE);
@@ -577,6 +579,7 @@ impl Execution {
             };
             self.tracker.upstream_http_version(response.version());
             self.tracker.upstream_response_headers(response.headers());
+            response = super::super::http_compression::decode_response(response)?;
             self.tracker.quota_headers(response.headers());
             if oauth && response.status().is_success() {
                 // The shared probe stops at the first business event or its
@@ -621,6 +624,7 @@ impl Execution {
             let mut failure_message = None;
             let mut model_unavailable = false;
             let mut request_scoped = false;
+            let mut execution_observed = false;
             if !response.status().is_success() {
                 let inspected = super::super::retry::inspect_status_error(
                     &self.state,
@@ -639,6 +643,7 @@ impl Execution {
                 failure_message = inspected.2;
                 model_unavailable = inspected.4;
                 request_scoped = inspected.5;
+                execution_observed = inspected.9;
                 self.tracker.capture_request_fault(request_scoped);
                 self.tracker.attempt_result(
                     response.status().as_u16(),
@@ -673,7 +678,11 @@ impl Execution {
                 (headers, body) => headers.or(body),
             };
             self.tracker.set_retry_after(retry_after);
-            if request_scoped {
+            if self.selected.route.chatgpt && failure_message.as_deref()
+                .is_some_and(crate::modules::codex_device_restrictions::explicit_message) {
+                return Ok((response, binding));
+            }
+            if request_scoped || execution_observed {
                 self.tracker.set_retry_after(retry_after);
                 return Ok((response, binding));
             }
@@ -817,7 +826,7 @@ impl Execution {
     }
 
     async fn renew_transport_after_tls(&mut self, error: &ServiceError) -> Result<(), ServiceError> {
-        if error.transport_failure != Some(super::super::contract::TransportFailureKind::TlsDecrypt) {
+        if !matches!(error.transport_failure, Some(super::super::contract::TransportFailureKind::TlsDecrypt | super::super::contract::TransportFailureKind::TlsDecryptHttp2)) {
             return Ok(());
         }
         self.tracker.release_route();

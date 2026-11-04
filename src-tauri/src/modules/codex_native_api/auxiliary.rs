@@ -59,6 +59,7 @@ async fn handle_tracked(
     tracker.context(request.method().as_str(), &path, request.headers(), false);
     let auth = bindings::authorize(&state, request.headers(), allow_secret).await?;
     tracker.authorized(&auth.caller, "");
+    tracker.admit(&auth.caller).await?;
     if path.contains("/translations") && path.contains("realtime")
         || path.ends_with("/transcription_sessions")
         || ["/accept", "/reject", "/refer"]
@@ -489,6 +490,7 @@ async fn websocket_tracked(
     tracker.context("GET", request.uri().path(), request.headers(), false);
     let auth = bindings::authorize(&state, request.headers(), true).await?;
     tracker.authorized(&auth.caller, "");
+    tracker.admit(&auth.caller).await?;
     let headers = request.headers().clone();
     let query: std::collections::HashMap<String, String> =
         url::form_urlencoded::parse(request.uri().query().unwrap_or_default().as_bytes())
@@ -645,7 +647,7 @@ async fn relay(
     model: String,
     connection: Option<bindings::CallConnection>,
     mut client: WebSocket,
-    mut upstream: tokio_tungstenite::WebSocketStream<reqwest::Upgraded>,
+    mut upstream: super::websocket_io::UpstreamSocket,
     mut tracker: RequestTracker,
 ) {
     use tokio_tungstenite::tungstenite::Message as U;
@@ -685,7 +687,7 @@ async fn relay(
         Ok(()) => tracker.complete(200, true, usage, None).await,
         Err(error) => tracker.fail(&error).await,
     }
-    let _ = tokio::time::timeout(std::time::Duration::from_secs(1), upstream.close(None)).await;
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(1), upstream.close()).await;
     let _ = tokio::time::timeout(std::time::Duration::from_secs(1), client.close()).await;
 }
 use axum::extract::FromRequestParts;
@@ -746,6 +748,7 @@ fn auth_headers(incoming: &HeaderMap, route: &Route) -> Result<HeaderMap, Servic
         }
     }
     headers.extend(route.headers.clone());
+    super::server::forward_remote_scope_headers(incoming,route,&mut headers);
     if !route.chatgpt && route.installation_profile.is_some() {
         // API-key audio is a provider-native endpoint. Its client is still
         // isolated by account, but no Codex installation is sent to it.
@@ -921,6 +924,7 @@ async fn send_until(
             return Err(error);
         }
     };
+    let response = super::http_compression::decode_response(response)?;
     tracker.quota_headers(response.headers());
     tracker.upstream_response_headers(response.headers());
     Ok(response)

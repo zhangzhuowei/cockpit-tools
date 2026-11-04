@@ -4,6 +4,9 @@ use tauri::{AppHandle, Emitter};
 use crate::models::kiro::{KiroAccount, KiroOAuthLoginStartOptions, KiroOAuthStartResponse};
 use crate::modules::{kiro_account, kiro_oauth, logger};
 
+#[path = "kiro_import_refresh.rs"]
+mod import_refresh;
+
 async fn refresh_kiro_account_after_login(account: KiroAccount) -> KiroAccount {
     let account_id = account.id.clone();
     match kiro_account::refresh_account_token(&account_id).await {
@@ -19,8 +22,10 @@ async fn refresh_kiro_account_after_login(account: KiroAccount) -> KiroAccount {
 }
 
 #[tauri::command]
-pub fn list_kiro_accounts() -> Result<Vec<KiroAccount>, String> {
-    kiro_account::list_accounts_checked()
+pub async fn list_kiro_accounts() -> Result<Vec<KiroAccount>, String> {
+    tauri::async_runtime::spawn_blocking(kiro_account::list_accounts_checked)
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -34,8 +39,19 @@ pub fn delete_kiro_accounts(account_ids: Vec<String>) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn import_kiro_from_json(json_content: String) -> Result<Vec<KiroAccount>, String> {
-    kiro_account::import_from_json(&json_content)
+pub async fn import_kiro_from_json(
+    app: AppHandle,
+    json_content: String,
+) -> Result<Vec<KiroAccount>, String> {
+    let accounts =
+        tauri::async_runtime::spawn_blocking(move || kiro_account::import_from_json(&json_content))
+            .await
+            .map_err(|error| error.to_string())??;
+    import_refresh::schedule(
+        app,
+        accounts.iter().map(|account| account.id.clone()).collect(),
+    );
+    Ok(accounts)
 }
 
 #[tauri::command]

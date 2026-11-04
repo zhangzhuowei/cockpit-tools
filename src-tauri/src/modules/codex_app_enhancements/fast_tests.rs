@@ -1801,3 +1801,9 @@ async fn page_worker_waits_for_browser_completion_before_replacing_its_owner() {
         3
     );
 }
+
+#[test]
+fn automatic_fast_does_not_supply_catalog_fallbacks() {
+    let runtime = bootstrap(true, false, true, false, "catalog-test");
+    assert!(!runtime.contains("serviceTierFallbacks"));
+}

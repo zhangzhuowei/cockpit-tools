@@ -1,4 +1,5 @@
-//! Manual, offline recovery of derived Codex history indexes. Durable rollouts are read-only.
+//! Manual recovery of derived Codex history indexes, including while the client runs.
+//! Durable rollouts are read-only; concurrent changes abort the repair.
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
@@ -230,14 +231,17 @@ pub(crate) fn scan(
 }
 
 /// Persist a typed, bounded backup before atomically invalidating only proven stale projections.
-/// The caller must check actual client/CLI processes, both here and before presenting completion.
-pub(crate) fn apply(
+pub(crate) fn apply(profile: &Path, plan: &Plan, backup_dir: &Path) -> Result<usize, String> {
+    apply_with_checkpoints(profile, plan, backup_dir, &|| {})
+}
+
+// Checkpoints let concurrency tests schedule real writes at transaction boundaries.
+fn apply_with_checkpoints(
     profile: &Path,
     plan: &Plan,
     backup_dir: &Path,
-    ensure_stopped: &dyn Fn() -> Result<(), String>,
+    checkpoint: &dyn Fn(),
 ) -> Result<usize, String> {
-    ensure_stopped()?;
     if files::profile_root(profile)? != plan.profile {
         return Err(error("CHANGED", "profile changed since scan"));
     }
@@ -266,7 +270,7 @@ pub(crate) fn apply(
         rows
     };
     storage::backup(backup_dir, plan, &snapshots, &mut budget)?;
-    ensure_stopped()?;
+    checkpoint();
     // Expensive decompression and hashing finished before acquiring the write transaction.
     for source in plan.sources.values() {
         source.check_stamp()?;
@@ -292,7 +296,7 @@ pub(crate) fn apply(
             .map_err(|e| error("DATABASE", e))?;
         }
     }
-    ensure_stopped()?;
+    checkpoint();
     for source in plan.sources.values() {
         source.check_stamp()?;
     }

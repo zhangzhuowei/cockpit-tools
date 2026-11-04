@@ -1,5 +1,7 @@
+import { isOpenAIOfficialUsageAccount } from "../utils/openaiOfficialUsage";
+
 export type CodexApiProviderMode = "openai_builtin" | "custom";
-export type CodexProviderWireApi = "responses" | "chat_completions";
+export type CodexProviderWireApi = "responses" | "chat_completions" | "anthropic";
 
 export interface CodexApiModelMapping {
   client_model: string;
@@ -100,6 +102,7 @@ export interface CodexAccount {
   api_model_mappings?: CodexApiModelMapping[];
   api_sync_model_catalog_to_codex?: boolean;
   api_wire_api?: CodexProviderWireApi | null;
+  api_auth_scheme?: "x-api-key" | "bearer" | null;
   api_supports_websockets?: boolean;
   api_supports_vision?: boolean;
   api_model_vision_support?: Record<string, boolean>;
@@ -135,7 +138,7 @@ export interface CodexAccount {
   /** Explicit direct mode; absent on older accounts means follow existing defaults. */
   egress_proxy_disabled?: boolean;
   /** Backend-provided safe proxy metadata; never contains credentials. */
-  egress_proxy?: { protocol: string; server?: string; port?: number; name?: string; sourceName?: string; sourceId?: string; itemId?: string; groupId?: string | null; selectedName?: string | null } | null;
+  egress_proxy?: { protocol: string; server?: string; port?: number; name?: string; sourceName?: string; sourceId?: string; itemId?: string; groupId?: string | null; selectedName?: string | null; selections?: Record<string, string> } | null;
   /** Legacy import/export metadata; no longer changes outgoing requests. */
   codex_fingerprint_mode?: CodexFingerprintMode;
   /** Legacy backup metadata; no longer restricts clients or reaches the sidecar. */
@@ -154,11 +157,6 @@ export interface CodexAccount {
   authorization_status?: string | null;
   requires_reauth?: boolean;
   reauth_reason?: string;
-  client_auth_status?: "available" | "login_required" | "unknown" | string | null;
-  last_client_auth_observed_at?: number | null;
-  last_client_login_redirect_at?: number | null;
-  last_client_launch_at?: number | null;
-  last_client_auth_instance_id?: string | null;
   quota?: CodexQuota;
   team_quota_history?: {
     user_id: string;
@@ -398,6 +396,7 @@ export interface CodexSessionVisibilityRepairItem {
   metadataRebuildFailed: boolean;
   backupDir?: string | null;
   running: boolean;
+  historyProjectionCount?: number;
 }
 
 export type CodexSessionVisibilityRepairMode = 'quick' | 'deep' | 'history';
@@ -469,6 +468,15 @@ export interface CodexSessionVisibilityRepairSummary {
   skippedSqliteFileCount: number;
   metadataRebuildFailedCount: number;
   historyProjectionCount?: number;
+  localProjectRecoveryDeferred?: boolean;
+  localProjectRecovery?: {
+    projects: number;
+    assignments: number;
+    threadRows: number;
+    catalogRows: number;
+    skippedProjects: number;
+    ambiguousThreads: number;
+  };
   items: CodexSessionVisibilityRepairItem[];
   backupDirs: string[];
   message: string;
@@ -1036,6 +1044,14 @@ export function isCodexApiKeyAccount(account: CodexAccount): boolean {
   return (account.auth_mode || "").trim().toLowerCase() === "apikey";
 }
 
+// Fixed account-type name requested by the product, like the existing API label.
+// This presentation category never changes the stored subscription or permissions.
+export const CODEX_OFFICIAL_API_LABEL = "官API";
+
+export function isCodexOfficialApiAccount(account: CodexAccount): boolean {
+  return isCodexApiKeyAccount(account) && isOpenAIOfficialUsageAccount(account);
+}
+
 /** A service reference to separate ChatGPT plan credentials, never a Codex login. */
 export function isCodexChatgptPlanAccount(account: CodexAccount): boolean {
   return account.api_provider_id === "cockpit_chatgpt_plan";
@@ -1074,12 +1090,13 @@ export function isCodexNewApiAccount(account: CodexAccount): boolean {
   );
 }
 
+/** Historical name: covers API-key protocols that require the local bridge. */
 export function isCodexChatCompletionsApiKeyAccount(
   account: CodexAccount,
 ): boolean {
   return (
     isCodexApiKeyAccount(account) &&
-    (account.api_wire_api || "").trim().toLowerCase() === "chat_completions"
+    ["chat_completions", "anthropic"].includes((account.api_wire_api || "").trim().toLowerCase())
   );
 }
 
@@ -1194,6 +1211,7 @@ function getCodexProTier(account: CodexAccount): 100 | 200 | 500 {
 
 function getCodexPlanBadgeLabel(account: CodexAccount): string {
   if (isCodexChatgptPlanAccount(account)) return account.plan_type?.trim() || "ChatGPT";
+  if (isCodexOfficialApiAccount(account)) return CODEX_OFFICIAL_API_LABEL;
   if (isCodexNewApiAccount(account)) {
     return account.plan_type?.trim() || "Cockpit Api";
   }
@@ -1210,6 +1228,7 @@ function getCodexPlanBadgeLabel(account: CodexAccount): string {
 }
 
 function getCodexPlanBadgeClass(account: CodexAccount): string {
+  if (isCodexOfficialApiAccount(account)) return "api-key codex-official-api";
   const official = isCodexChatgptPlanAccount(account);
   if (official && !account.plan_type?.trim()) return "api-key chatgpt-plan";
   if (isCodexNewApiAccount(account)) {
@@ -1244,7 +1263,7 @@ export function getCodexPlanBadgePresentation(
 ): CodexPlanBadgePresentation {
   if (isCodexChatgptPlanAccount(account) && account.service_source_plan_badge) return { ...account.service_source_plan_badge };
   // Plan labels stay text; appearance is handled by the existing capsule styles.
-  const label = options?.preserveRawNonProLabel && getCodexEffectivePlanKey(account) !== 'pro'
+  const label = options?.preserveRawNonProLabel && !isCodexOfficialApiAccount(account) && getCodexEffectivePlanKey(account) !== 'pro'
     ? account.plan_type?.trim() || account.auth_file_plan_type?.trim() || getCodexPlanBadgeLabel(account)
     : getCodexPlanBadgeLabel(account);
   return {
@@ -1270,6 +1289,7 @@ export function getCodexPlanBadgePresentationWithStyle(
 export function getCodexPlanFilterKey(account: CodexAccount): string {
   if (isCodexChatgptPlanAccount(account)) return "CHATGPT_PLAN";
   if (isCodexPendingOAuthAccount(account)) return "PENDING";
+  if (isCodexOfficialApiAccount(account)) return CODEX_OFFICIAL_API_LABEL;
   return getCodexEffectivePlanKey(account).toUpperCase();
 }
 

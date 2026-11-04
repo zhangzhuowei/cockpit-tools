@@ -158,6 +158,49 @@
     "providerClear": "選択を解除"
   },
   "common": {
+    "profileRestoreBusy": "ログイン状態を復元中です。しばらくして再試行してください。",
+    "profileRestoreInvalid": "ログイン状態の保存先が無効です。アカウントを再インポートしてください。",
+    "profileRestoreRecoveryFailed": "ログイン状態の復元に失敗しました。バックアップは保持されています：{{detail}}",
+    "dataQueryBusy": "データを処理中です。しばらくしてから再試行してください。",
+    "apiBudget": {
+      "keyScope": "この Key",
+      "upgradeRequired": "統計とリクエスト履歴を表示するには、ゲートウェイ側の Cockpit Tools を更新してください。",
+      "gatewayName": "Cockpit ゲートウェイ",
+      "accountingNote": "価格再計算でも記録済み課金額は変わりません。推定額とは異なる場合があります。予算は UTC 基準でリセットされます。",
+      "preparing": "履歴統計をバックグラウンドで準備中です。後で再試行してください。",
+      "settled": "記録済み課金",
+      "unrecorded": "記録なし",
+      "unmeteredShort": "未計測",
+      "rangeLimit": "今日以前の有効な日付を選んでください。最大93日です。",
+      "partialCharges": "{{count}} 件に課金記録または計測がありません。課金統計は記録済み金額のみです。",
+      "retention": "履歴開始：{{time}}。ゲートウェイに保存されたログのみが対象です。",
+      "logFiltersNote": "絞り込みは下の明細のみが対象です。統計とグラフは選択期間を使用します。",
+      "timeout": "タイムアウト",
+      "textRequests": "テキスト",
+      "imageEdits": "画像編集",
+      "budget": "利用予算",
+      "period": "期間",
+      "lifetime": "一回限り",
+      "daily": "毎日",
+      "weekly": "毎週",
+      "monthly": "毎月",
+      "dailyLimit": "日次上限",
+      "concurrency": "同時リクエスト",
+      "dailyImages": "1日画像要求",
+      "invalid": "範囲内の正の数を入力してください。",
+      "hint": "設定された精算単価で計量します。単価未設定のモデルは利用できません。UTC で更新し、繰り越しません。処理中の要求は上限を超える場合があります。",
+      "unmetered": "使用量または単価がない要求は金額に含まれません。",
+      "remote": "Cockpit リモート",
+      "active": "利用可能",
+      "disabled": "無効",
+      "service_disabled": "サービス停止",
+      "token_limit_reached": "トークン上限",
+      "budget_limit_reached": "予算上限",
+      "images": "画像生成",
+      "consumed": "使用済み",
+      "resetsAt": "次回更新",
+      "offline": "オフライン · キャッシュ"
+    },
     "networkErrors": {
       "upstream": "上流サービス",
       "proxyConnection": "プロキシ「{{proxy}}」経由で {{target}} に接続できません。プロキシまたはネットワークの問題が考えられます。設定を確認するか、別のノードで再試行してください。",
@@ -392,7 +435,11 @@
           "statusSkipped": "スキップ",
           "statusPending": "インポート待ち"
         },
-        "invalidJson": "JSON の形式が無効です。ファイルまたは貼り付けた内容を確認してください。"
+        "invalidJson": "JSON の形式が無効です。ファイルまたは貼り付けた内容を確認してください。",
+        "empty": "インポート内容が空です。",
+        "sizeLimit": "ファイルは {{limit}} MiB 以下にしてください。",
+        "countLimit": "一度にインポートできるのは {{count}} アカウントまでです。",
+        "itemFailed": "項目 {{index}}：{{error}}"
       },
       "externalImport": {
         "bundleInvalidJson": "インポートパッケージは有効な JSON ではありません",
@@ -503,6 +550,8 @@
         "title": "アカウント概要"
       },
       "quota": {
+        "usageWithUnit": "使用量（{{unit}}）",
+        "usage": "使用量",
         "noData": "クォータデータなし",
         "queryFailed": "割り当ての取得に失敗しました",
         "resetDone": "リセット済み",
@@ -591,6 +640,29 @@
         "missingTiming": "有効な出力時間が記録されていません。",
         "shortWindow": "出力の観測時間が100ミリ秒未満です。"
       }
+    },
+    "deviceRestriction": {
+      "title": "端末制限の記録",
+      "badge": "端末制限あり",
+      "paused": "明確な端末制限を検出したため、この操作の自動試行を停止しました。アカウント画面で記録を確認してください。",
+      "note": "これはこの端末での観測記録であり、OpenAI の端末枠ではありません。アカウントやローカル認証情報を削除しても、サーバー側の制限が解除されるとは限りません。",
+      "retryNote": "再試行を許可しても制限解除とは記録しません。再び明確な制限を受けると停止します。",
+      "desktop": "デスクトップ認証",
+      "quota": "使用枠の確認",
+      "api": "API リクエスト",
+      "oauth": "OAuth 認証",
+      "token": "トークン更新",
+      "recovered": "操作が復旧",
+      "pausedLabel": "試行を停止中",
+      "retryEnabled": "再試行を許可済み",
+      "observed": "初回：{{first}} · 最新：{{last}} · 観測 {{count}} 回",
+      "check": "再確認",
+      "allowRetry": "再試行を許可",
+      "help": "公式ヘルプ",
+      "support": "サポート",
+      "failed": "操作を完了できませんでした。直近の状態を保持しています。再試行してください。",
+      "loginAttempt": "アカウント未確認の認証",
+      "removed": "削除済みローカルアカウント"
     }
   },
   "nav": {
@@ -1329,8 +1401,6 @@
       "codexPreserveExternalBridge": "外部ブリッジを保持",
       "codexPreserveExternalBridgeDesc": "OAuth アカウント切替時、ローカル記録で検証済みの Codex Web GPT ブリッジを保持します。既定はオフです。",
       "codexEnhancements": {
-        "nativeFast": "標準 Fast 切替",
-        "nativeFastDesc": "API Key アカウントで公式の速度メニューを有効にし、モデルが対応する速度を表示します。実際の対応状況と料金は API 提供元によります。",
         "quotaCompat": "併用時の上限互換",
         "quotaCompatDesc": "実際の OAuth ログインと外部 API 経路の併用時のみ、契約の利用上限によるローカル API 送信の制限を防ぎます。実際の使用量と画像上限は変更しません。",
         "restartHint": "初期状態は有効です。変更後は対象の Codex インスタンスを再起動し、Cockpit Tools を起動したままにしてください。ネイティブの音声入力はクライアントの機能と設定に従います。Cockpit は処理を置き換えたり、強制的に有効化したりしません。",
@@ -1638,6 +1708,42 @@
       "refreshed": "使用量を更新しました",
       "usage": "使用量",
       "tierOther": "その他"
+    },
+    "background": {
+      "title": "背景",
+      "description": "アプリの背景だけを変更します。アカウントカードや操作部分の外観は変わりません。",
+      "presets": "背景プリセット",
+      "default": "標準",
+      "mist": "霧青",
+      "forest": "森林",
+      "dusk": "夕暮れ",
+      "sand": "砂色",
+      "custom": "カスタム",
+      "chooseImage": "画像を選択",
+      "replaceImage": "画像を変更",
+      "imageHint": "JPG・PNG・WebP、最大10 MB。大きな画像は端末内で縮小します。",
+      "preview": "プレビュー",
+      "strength": "濃さ",
+      "blur": "ぼかし",
+      "pixels": "{{count}} ピクセル",
+      "position": "画像の位置",
+      "center": "中央",
+      "top": "上",
+      "bottom": "下",
+      "localHint": "変更はすぐに反映されます。各スキンの画像と設定はこの端末に個別に保存され、画像はアップロードされません。初期設定に戻してもスキンは削除されません。",
+      "restore": "標準に戻す",
+      "imageType": "JPG・PNG・WebP画像を選んでください。",
+      "imageSize": "10 MB未満の画像を選んでください。",
+      "imageRead": "画像を読み込めません。別の画像をお試しください。",
+      "storage": "背景の読み込みまたは保存に失敗しました。保存済みの背景は保持されます。再試行してください。",
+      "saveFailed": "変更は表示されていますが、保存できませんでした。再試行してください。以前保存したスキンは保持されています。",
+      "builtInSkins": "標準スキン",
+      "mySkins": "マイスキン",
+      "addSkin": "スキン追加",
+      "rename": "名前を変更",
+      "skinName": "スキン名",
+      "manageSkin": "スキンを管理：{{name}}",
+      "deleteSkinConfirm": "「{{name}}」を削除しますか？使用中のスキンを削除すると、背景が初期設定に戻ります。"
     }
   },
   "appPath": {
@@ -2363,6 +2469,14 @@
       "windowHint": "実際の期間でしきい値を判定し、1週間以上は週次しきい値を使います。週次枠のみのアカウントはその枠だけを確認します。期間がない場合は主枠・副枠の対応を維持します。",
       "rule": "短期残量 <= {{shortCycle}}% または週次残量 <= {{weekly}}%"
     },
+    "launchConfirmation": {
+      "title": "起動確認待ち",
+      "description": "起動を要求しましたが、クライアントの状態は未確認です。すでに開いている可能性があるため、再度の起動はお控えください。",
+      "check": "状態を確認",
+      "notRunning": "対象のインスタンスはまだ検出されていません。後でもう一度確認するか、この画面を閉じてから起動を再試行してください。",
+      "checkFailed": "実行状態を取得できません。後でもう一度確認してください。",
+      "maintenanceDeferred": "一部の会話メンテナンスが未完了です。履歴は保持されています。後で会話管理から再試行できます。"
+    },
     "launchErrors": {
       "sessionRestoreFailed": "セッションの修復に失敗し、バックアップの復元が完了していません。起動を停止しました。再試行する前にログとバックアップを確認してください。",
       "sessionCheckTimeout": "セッションの確認がタイムアウトしました。起動を停止しました。再試行するか、ログを確認してください。",
@@ -2592,14 +2706,8 @@
       "unsupportedCountryRegion": "現在のネットワーク地域では Codex 認証を更新できません。OpenAI 認証サービスがこのネットワーク出口を拒否しました。対応地域に切り替えてから再試行してください。"
     },
     "switchAuth": {
-      "apiOnlyTitle": "クライアントのログインが必要",
       "reauthorizeTitle": "Codex の認証期限切れ",
-      "apiOnlyDescription": "現在のクライアントがログインページに移動しました。クライアントを復元するには再認証してください。しばらくは API サービスを引き続き利用できます。",
-      "observationStatus": "ログインページへのリダイレクトを検出しました",
-      "observationTime": "最新の確認：{{time}}",
-      "loginRedirectTime": "ログインページへの最新のリダイレクト：{{time}}",
       "observationInstance": "確認したインスタンス：{{instance}}",
-      "launchTime": "インスタンスの起動時刻：{{time}}",
       "reauthorizeDescription": "ログイン情報を更新できず、access_token も API サービスで利用できません。続行するには再認証してください。",
       "idTokenUnavailable": "クライアント ID 情報の期限が切れ、自動更新でも有効な id_token を取得できませんでした。",
       "reasonLabel": "理由",
@@ -2612,10 +2720,7 @@
       "startingInstanceAfterReauth": "認証情報を更新しました。インスタンスを再起動しています...",
       "startInstanceAfterReauthFailed": "認証情報は更新されましたが、インスタンスを起動できませんでした：{{error}}",
       "reauthorizedAndStartedInstance": "再認証してインスタンスを起動しました",
-      "apiOnlyBadge": "再認証必要",
-      "clearClientAuth": "警告をクリア",
-      "clearClientAuthSuccess": "クライアントの警告をクリアしました",
-      "clearClientAuthFailed": "クライアントの警告をクリアできませんでした：{{error}}"
+      "apiTokenUsableDescription": "一部のログイン認証情報には再認証が必要です。現在のアクセストークンは引き続き API サービスで使用できます。"
     },
     "current": "現在",
     "empty": {
@@ -2931,7 +3036,6 @@
         "quotaReserveInvalid": "1 から 100 の整数を入力してください。",
         "strictReserve": "厳格な保護",
         "strictReserveDesc": "予約枠を設定すると、安全マージンによる保護が自動で有効になります。しきい値付近ではアカウントごとに1件ずつ送信し、完了後に最新の残量を確認します。他のクライアントの使用量は制限しません。",
-        "strictNativeOnly": "厳格な保護には Rust エンジンが必要です。Go に切り替える前に無効にしてください。",
         "safetyMargin": "安全余裕",
         "safetyMarginUnit": "ポイント",
         "safetyMarginInvalid": "1〜20の整数を入力してください。",
@@ -3014,17 +3118,7 @@
       "gatewayModeNewLabel": "APIサービス-新",
       "gatewayModeOldLabel": "APIサービス-旧",
       "gatewayModeSaveSuccess": "APIサービスのゲートウェイモードを更新しました",
-      "gatewayEngineNative": "Rust ネイティブ",
-      "gatewayEngineSidecar": "Go（従来）",
-      "gatewayEngineHint": "既定は Rust です。初回アップグレード時に Rust へ切り替わり、その後は選択が保持されます。切り替えると API サービスが再起動し、処理中のリクエストが中断する場合があります。Codex のウィンドウは開いたままです。",
-      "gatewayEngineSwitching": "エンジン切り替え中…",
-      "gatewayEngineSwitchFailed": "エンジンの切り替えに失敗しました：{{error}}",
-      "gatewayEngineReadbackFailed": "現在のエンジンを確認できません。更新してから再試行してください：{{error}}",
-      "gatewayEngineReadbackTimeout": "状態の更新がタイムアウトしました",
       "gatewayEngineRequestsBusy": "リクエストを処理中です。完了後に再試行してください。",
-      "gatewayEngineOperationBusy": "別のサービス操作を実行中です。しばらくしてから再試行してください。",
-      "gatewayEngineSwitchRestored": "切り替えに失敗しました。元のエンジンに戻しました。",
-      "gatewayEngineRestoreFailed": "切り替えに失敗し、元のエンジンにも戻せませんでした。サービスの状態を確認して再試行してください。",
       "gatewayEngineStopped": "API サービスが停止しました。再起動してから再試行してください。",
       "gatewayGuideTitle": "ここでゲートウェイを切替",
       "gatewayGuideDesc": "既定は新ゲートウェイです。互換性の問題やクライアント要求の異常がある場合は、ここで旧ゲートウェイに戻せます。",
@@ -3188,7 +3282,7 @@
       "resetCreditStatusRedeemed": "使用済み",
       "resetCreditStatusExpired": "期限切れ",
       "resetCreditStatusUnknown": "不明",
-      "resetCreditNextExpiry": "次の有効期限: {{time}}",
+      "resetCreditNextExpiry": "次のリセット有効期限 {{time}}",
       "resetCreditDetailsTitle": "リセット明細",
       "resetCreditNoRecords": "リセット記録はありません",
       "resetCreditRecordsLoadFailed": "リセット記録の読み込みに失敗しました: {{error}}",
@@ -3204,7 +3298,12 @@
       "codeReview": "コードレビュー",
       "codeReviewShort": "レビュー",
       "monthlyCreditsHint": "今月のクレジット残量",
-      "monthlyCreditsInline": "Credits：{{value}}"
+      "monthlyCreditsInline": "Credits：{{value}}",
+      "resetCreditExpiryHours": "{{hours}}時間{{minutes}}分",
+      "resetCreditExpiryMinutes": "{{minutes}}分",
+      "resetCreditExpiryExpired": "期限切れ · 詳細",
+      "resetCreditExpiryUrgent": "まもなく失効 {{time}} · {{duration}}",
+      "resetCreditExpiryNormal": "有効期限 {{time}} · {{duration}}"
     },
     "quotaError": {
       "badge": "クォータエラー",
@@ -3592,9 +3691,9 @@
         "providerLoadFailed": "provider 候補の読み込みに失敗しました: {{error}}",
         "modeTitle": "修復モード",
         "modeQuick": "高速修復",
-        "modeQuickDesc": "公式状態 DB とセッションインデックスのプロバイダー情報を正規化します。rollout ファイルは保持します。通常のアカウント切り替え向けです。",
+        "modeQuickDesc": "短い時間枠で表示索引と現在の所属を補修します。プロジェクト情報の書き込み前に対象を終了してください。",
         "modeDeep": "完全修復",
-        "modeDeepDesc": "過去のプロバイダー情報、一覧、ワークスペース、サブエージェントのインデックスを修復します。rollout ファイルは保持します。先に対象インスタンスを終了してください。",
+        "modeDeepDesc": "クイック修復に加え、スナップショットからのプロジェクト復旧と会話索引の修復を行います。適用前に対象を終了してください。",
         "scopeTitle": "セッション範囲",
         "scopeAll": "すべてのセッション",
         "scopeAllDesc": "現在の管理リストの {{count}} 件のセッションを修復します。",
@@ -3626,20 +3725,26 @@
         "previewFailedWithError": "セッション修復のプレビューに失敗しました: {{error}}",
         "confirmRepair": "修復を確定",
         "title": "履歴を修復",
-        "description": "SQLite インデックス、セッション一覧、ワークスペースのプロバイダー情報を正規化します。元の rollout ファイルはバイト単位で保持し、日時のみ補正します。先にローカルバックアップを作成します。",
+        "description": "クイック修復は表示索引と現在のプロジェクト・所属を補修します。完全修復は履歴スナップショットと会話索引も復旧します。書き込み前にローカルバックアップを作成し、会話ログ本文は保持します。",
         "stopInstanceHint": "完全修復の前に、選択した Codex App/ChatGPT インスタンスを完全に終了してください。変更のプレビューは先に実行できます。",
         "encryptedContentWarning": "別のプロバイダーまたはアカウントで暗号化された履歴が見つかりました。メタデータは移行できますが、そのセッションの継続や圧縮は失敗する可能性があります。元のプロバイダー/アカウントに戻すか、新しいセッションを開始してください。",
         "modeHistory": "編集・分岐の修復",
         "modeHistoryDesc": "インデックスの異常によるメッセージ編集や会話の分岐の失敗を修復します。",
-        "historyStopHint": "修復前に、対象のクライアントと同じインスタンスを使う CLI を完全に終了してください。変更のプレビューは可能です。",
-        "historyDescription": "選択したチャットと継承元の履歴を確認し、異常なページ分割インデックスだけを再構築します。チャット記録、アカウント、Provider は変更しません。実行前に対象のクライアントと関連する CLI を終了してください。",
+        "historyLiveHint": "クライアントの実行中でも修復できます。完了後、クライアントを再起動してチャットを開き直してください。",
+        "historyDescription": "選択したチャットと継承元の履歴を確認し、異常なページ分割インデックスのみをリセットします。チャット記録、アカウント、Provider 設定は変更しません。実行中も修復でき、完了後の再起動でインデックスを再読み込みします。",
         "historyPreview": "再構築可能な異常な履歴インデックスが {{count}} 件見つかりました。チャット記録は変更しません。",
-        "historySuccess": "異常な履歴インデックスを {{count}} 件リセットしました。クライアントとチャットを開き直して再構築してください。バックアップは保存されています。",
+        "historySuccess": "異常な履歴インデックスを {{count}} 件リセットしました。クライアントを再起動してチャットを開き直すと再構築されます。バックアップは保存されています。",
         "historyNoChanges": "安全に再構築できる異常な履歴インデックスは見つかりませんでした。",
         "historyFailed": "履歴インデックスの修復が完了しませんでした：{{error}}",
-        "historyRunning": "対象のクライアントと同じインスタンスを使う CLI を完全に終了してから、再試行してください。",
+        "historyChanged": "修復中にチャットデータが変更されました。今回の修復は適用していません。少し待って再試行してください。",
         "historyScan": "履歴インデックスを確認中（{{current}}/{{total}}）…",
-        "historyReset": "異常なインデックスをバックアップしてリセット中…"
+        "historyReset": "異常なインデックスをバックアップしてリセット中…",
+        "projectsChanged": "プロジェクトデータが変更されました。再プレビューしてお試しください。",
+        "projectsFailed": "ローカルプロジェクトの復元に失敗：{{error}}",
+        "projectsPreview": "プレビュー：プロジェクト {{projects}} 件、所属 {{assignments}} 件。除外：プロジェクト {{skipped}} 件、所属不明の会話 {{ambiguous}} 件。",
+        "projectsSuccess": "復元完了：プロジェクト {{projects}} 件、所属 {{assignments}} 件。除外：プロジェクト {{skipped}} 件、所属不明の会話 {{ambiguous}} 件。",
+        "projectsPending": "前回の復旧が中断されました。対象を終了して完全修復を実行し、未完了の書き込みを復旧してください。",
+        "projectsDeferred": "一部のプロジェクト情報は保留されました。対象を終了してクイック修復を再試行するか、完全修復を使用してください。"
       },
       "importModal": {
         "title": "セッションを読み込み",
@@ -4063,7 +4168,9 @@
         "chatCompletions": "Chat Completions プロトコル",
         "deepseekResponsesHint": "DeepSeek を起動してゲートウェイまたは公式ダイレクト接続を選択し、Flash か Pro を選びます。ゲートウェイは Codex 内にモデルを表示します。ダイレクト接続はゲートウェイを経由しません。",
         "deepseekChatHint": "DeepSeek Chat Completions はレガシーパスでローカルゲートウェイブリッジを使用します。公式の Codex ツール動作が必要な場合は Responses を選択してください。",
-        "deepseekThirdPartyHint": "このアドレスは DeepSeek 公式のエンドポイントではないため、サードパーティ互換として扱います。モデルカタログには上流の実際のモデル ID を入力し、公式モデル名は使わないでください。"
+        "deepseekThirdPartyHint": "このアドレスは DeepSeek 公式のエンドポイントではないため、サードパーティ互換として扱います。モデルカタログには上流の実際のモデル ID を入力し、公式モデル名は使わないでください。",
+        "anthropic": "Anthropic プロトコル",
+        "gatewayRequired": "このプロトコルにはローカルゲートウェイが必要です。起動モデルを選択してください。"
       },
       "selectSavedProvider": "保存済みプロバイダー",
       "selectSavedApiKey": "保存済み API キー",
@@ -4296,7 +4403,22 @@
       "importConfigPlaceholder": "カードの「設定をコピー」を使い、内容をここに貼り付けます",
       "importConfigAction": "設定を読み込む",
       "importConfigFromClipboard": "クリップボードを読み取る",
-      "settingsRestartHint": "プロバイダー設定を更新しました。適用するには、このプロバイダーを使用中の Codex または API サービスを再起動してください。"
+      "settingsRestartHint": "プロバイダー設定を更新しました。適用するには、このプロバイダーを使用中の Codex または API サービスを再起動してください。",
+      "anthropic": {
+        "auth": "認証方式",
+        "hint": "Anthropic Messages ゲートウェイに接続します。モデルは取得または手動入力できます。",
+        "fetch": "モデル取得",
+        "fetching": "取得中…",
+        "fetchFailed": "取得に失敗しました。再試行するかモデル ID を手動入力してください。",
+        "import": "設定を読込",
+        "importFailed": "有効な Claude Code またはデスクトップ Gateway の設定が見つかりません。"
+      },
+      "editor": {
+        "modelScope": "モデル設定の範囲",
+        "providerDefault": "プロバイダー既定",
+        "sharedSettings": "モデル一覧と機能は選択した範囲に適用されます。プロトコル、認証方式、アドレスはプロバイダー全体の共通設定です。",
+        "saveScope": "保存するとプロバイダーと関連アカウントが更新されます。現在のアカウントが対象の場合、ローカルの Codex 設定と認証情報も更新されます。クライアントは自動起動しません。"
+      }
     },
     "quickSwitch": {
       "action": "プロバイダーをクイック切り替え",
@@ -4650,6 +4772,8 @@
         "allKinds": "全タイプ",
         "allStatuses": "全ステータス",
         "allGatewayModes": "すべてのモード",
+        "sessionFilter": "会話",
+        "sessionPlaceholder": "会話 ID",
         "modelFilter": "モデル",
         "modelPlaceholder": "モデル ID",
         "accountFilter": "アカウント",
@@ -5432,7 +5556,7 @@
         "subscriptionUrl": "サブスクリプション URL",
         "nodeLinks": "ノードリンクまたは設定",
         "import": "インポート",
-        "importNotice": "URL とノード認証情報はローカルで暗号化して保存します。取得リクエストにアカウントの Token は含めません。",
+        "importNotice": "設定とリソースのスナップショットは暗号化して保存し、実行時に専用フォルダーで復号します。サブスクリプションとリソースの取得にアカウントのトークンは送信しません。",
         "intro": "購読またはノードを取り込んでテストし、アカウント一覧から選択して割り当てます。",
         "emptyTitle": "最初のプロキシを追加",
         "emptyHint": "サブスクリプション、ノードリンク、HTTP / SOCKS5 に対応。アカウント追加前でもインポートとテストができます。",
@@ -5477,7 +5601,7 @@
         "unsupported": "未対応",
         "invalidInput": "名前と有効な URL、ノードリンク、またはプロキシ設定を入力してください。",
         "downloadFailed": "サブスクリプションをダウンロードできませんでした。ネットワークとプロキシ設定を確認して再試行してください。",
-        "downloadRedirect": "別のサイトへの転送または転送回数の超過により、サブスクリプションのダウンロードを停止しました。",
+        "downloadRedirect": "サブスクリプションのリダイレクトが無効か、上限を超えています。",
         "downloadDenied": "サブスクリプションサーバーがアクセスを拒否しました（HTTP 401/403）。リンクと有効期限を確認してください。",
         "downloadTls": "サブスクリプション接続の TLS ハンドシェイクまたは証明書検証に失敗しました。ネットワークとプロキシ設定を確認してください。",
         "timeout": "操作がタイムアウトしました。更新して結果を確認してから再試行してください。",
@@ -5495,6 +5619,7 @@
         "loadBalanceGroup": "負荷分散",
         "reasonStrategy": "このグループ方式には未対応です。展開して利用可能なノードを選んでください。",
         "reasonOptions": "未対応のプロトコルまたは設定項目が含まれています。",
+        "reasonProviderConfig": "このノード一覧の取得元、フィルター、変換設定には未対応です。",
         "reasonProvider": "このグループには、まだ読み込まれていない外部ノード配信元が必要です。",
         "reasonMembers": "グループのメンバーが検証に失敗しました。個別の理由を確認してください。",
         "reasonInvalid": "必須設定が不足しているか、形式が無効です。",
@@ -5516,6 +5641,14 @@
         "defaultProtocol": "省略時のプロトコル",
         "credentialFormat": "認証情報の形式",
         "recognizing": "解析中…",
+        "nativePreview": "インポート時に Mihomo が設定を直接解析し、リソースを読み込みます。プレビューではファイルやネットワークにアクセスしません。",
+        "resourceDirectory": "リソースフォルダー",
+        "browseResources": "フォルダー選択",
+        "resourceDirectoryHint": "ローカルファイルがある場合はリソースフォルダーを選択します。内容は専用の実行フォルダーにコピーされ、暗号化されたスナップショットとして保存されます。",
+        "resourceDirectoryRequired": "このサブスクリプションのリソースフォルダーを選択してください。",
+        "resourceMissing": "ローカルリソースを利用できません。フォルダーを確認するか再インポートしてください。",
+        "rulesName": "サブスクリプションのルール",
+        "pendingProviders": "インポート時に {{count}} 件のリモートノード一覧を読み込みます。プレビューではダウンロードしません。",
         "previewCount": "有効 {{valid}} · 要確認 {{invalid}} · 重複 {{duplicates}}",
         "line": "{{line}} 行目",
         "ambiguous": "形式を判別できません。認証情報の形式を選ぶか、完全なプロキシ URL を使用してください。",
@@ -5727,6 +5860,14 @@
       }
     },
     "requestDiagnostics": {
+      "requestSizeTitle": "リクエストサイズ",
+      "requestSizeHint": "展開後のクライアント JSON のサイズ。各項目は空白を省いた JSON のバイト数で、サイズのみ記録します。",
+      "requestBytes": "リクエスト",
+      "historyBytes": "履歴",
+      "toolsBytes": "ツール",
+      "instructionsBytes": "指示",
+      "overloadRetry": "混雑時の再試行",
+      "overloadRecovery": "復旧時間",
       "recordPayloads": "リクエスト本文を記録",
       "recordPayloadsHint": "初期設定はオフです。クライアントと上流の要求を長さ制限付きでローカル保存します。オフにすると新規記録を停止し、保存済み本文は別途削除できます。",
       "privacyHint": "認証フィールドは伏せられますが、会話中の機密情報は残る場合があります。コピーや共有前に確認してください。",
@@ -5892,6 +6033,37 @@
       "label": "使用中の残量を同期",
       "description": "API サービスの起動は不要です。使用中のローカルアカウントを 5～30 秒間隔で更新し、セッションファイルの変更時に再確認します。最近のファイル情報のみを確認し、会話内容は読みません。アカウント除外、プラン、グループ設定を維持します。既定はオフです。",
       "error": "設定の読み込みまたは保存に失敗しました。再試行してください。"
+    },
+    "pathRecovery": {
+      "title": "Codex の起動パスを設定",
+      "description": "利用可能な Codex クライアントのパスが見つかりません。アプリを選択するか、Codex を手動で開いてから検出してください。",
+      "reload": "再読み込み",
+      "timeout": "操作がタイムアウトしました。もう一度お試しください。起動は自動的に再開されません。",
+      "noCandidates": "Codex が検出されませんでした。クライアントを手動で開いて再検出するか、パスを選択してください。",
+      "pathRequired": "Codex クライアントのパスを選択または入力してください。",
+      "invalidPath": "有効な Codex デスクトップクライアントのパスではありません。アプリを選び直してください。",
+      "candidates": "検出結果",
+      "autoLaunchHint": "デスクトップアプリを起動せずにアカウントだけを切り替える場合は、オフにしてください。手動での起動は引き続き可能です。",
+      "manualLaunchHint": "自動起動をオフにしても、今回の手動起動は完了しません。設定のみ保存すると、今回の起動を取り消します。",
+      "saveAndRetry": "保存して再試行",
+      "saveWithoutLaunch": "保存して続行",
+      "saveOnly": "設定のみ保存",
+      "validationBusy": "前のパスを確認中です。しばらくしてから再試行してください。"
+    },
+    "openaiUsage": {
+      "monthCost": "今月の費用",
+      "scope": "組織全体の費用。リクエストとトークンはテキスト API のみ。UTC 集計。",
+      "loading": "公式の使用量を取得中…",
+      "pending": "公式の使用量の取得待ち",
+      "permissionRequired": "このキーには組織の使用量を読む権限がありません（api.usage.read）。",
+      "permissionGuide": "管理者キーを使用：Admin keys → Restricted → Usage API Scope → Read。費用と使用量を取得できますが、残高は取得できません。",
+      "openAdminKeys": "使用量の権限",
+      "invalidKey": "キーが無効か期限切れです。現在の API キーを確認してください。",
+      "networkFailed": "公式の使用量サービスに接続できません。後で更新してください。",
+      "queryFailed": "公式の使用量の取得に失敗しました。後で再試行してください。"
+    },
+    "officialApi": {
+      "hint": "実際の接続先アドレスで識別した、OpenAI 公式 API キーのアカウントです。"
     }
   },
   "githubCopilot": {
@@ -6383,8 +6555,9 @@
       "desc": "Kiro アクセス トークンまたはエクスポートされた JSON データを貼り付けます。"
     },
     "import": {
-      "localDesc": "ローカル Kiro クライアントまたは JSON ファイルから Kiro アカウント データをインポートします。",
-      "localClient": "地元キロから輸入"
+      "localDesc": "ローカルまたは JSON からインポートできます。JSON のアカウントは先に保存し、認証状態と利用枠をバックグラウンドで更新します。",
+      "localClient": "地元キロから輸入",
+      "invalidCredentials": "認証情報の項目が不足しているか未対応です。アカウントを再度エクスポートしてください。"
     },
     "injectToVSCode": "キロに切り替えます"
   },
@@ -7645,6 +7818,17 @@
       "family": "グループ",
       "platform": "現在のシステム",
       "unsupportedGroup": "このグループにはワンクリック書き込みできるクライアントがまだありません。"
+    },
+    "campaign": {
+      "badge": "11.11",
+      "title": "チャージで11.11%増額",
+      "description": "新規・既存ユーザーともに対象です。",
+      "period": "開催期間：2026年11月1日〜11日（UTC+8）",
+      "terms": "詳細条件はキャンペーンページをご確認ください。",
+      "action": "詳細を見る",
+      "inactive": "現在キャンペーン期間外です。",
+      "label": "11.11 期間限定キャンペーン",
+      "promotionDescription": "Cockpit 公式提携中継サービスの11.11キャンペーン。新規・既存ユーザーともに、期間中のチャージで11.11%増額。Claude、ChatGPT、Geminiなどの主要モデルに対応しています。"
     }
   },
   "grok": {
@@ -8043,7 +8227,7 @@
     "model": "接続確認モデル",
     "selectModel": "モデルを選択",
     "verifyHint": "選択したモデルは接続テスト専用で、利用できる他のモデルを制限しません。検証では短いリクエストを1回送り、プランの利用枠を少量消費します。",
-    "serviceHint": "現在のプールに追加しても API サービスは起動しません。このバージョンではネイティブエンジンが必要です。",
+    "serviceHint": "現在のアカウントプールに追加しても API サービスは起動しません。",
     "verify": "検証のみ",
     "verifyAndJoin": "検証して追加",
     "remove": "サービスから除外",
@@ -8103,8 +8287,6 @@
       "verify": "モデルのリクエストが完了しませんでした。再検証してください。",
       "usage": "プランまたはアプリの利用が制限されています。ChatGPT の使用量設定を確認してください。",
       "usageUnavailable": "公式サービスが一時的に使用量を確認できません。後で再試行してください。プランの上限に達したとは限りません。",
-      "native": "プランの利用にはネイティブエンジンが必要です。先に API サービスで切り替えてください。",
-      "nativeSwitch": "別のエンジンに切り替える前に、プランのアカウントを API サービスから除外してください。",
       "browser": "ブラウザーを開けません。認証リンクをコピーして手動で開いてください。",
       "configuration": "認証の登録情報が一致しません。再認証するか、プランを接続し直してください。",
       "notVerified": "API サービスに追加する前にプランを検証してください。",
@@ -8284,7 +8466,6 @@
     "title": "機能の代替経路",
     "hint": "必要な機能に対応できない場合、既存のモデル対応を使い、指定順に予備アカウントを試します。",
     "consent": "切り替えると今回の会話が予備アカウントに送信され、その利用枠を消費するか、該当する料金が発生します。",
-    "nativeOnly": "このエンジンでは代替経路は動作しません。有効化にはネイティブエンジンが必要です。保存済み設定の無効化は可能です。",
     "backups": "予備アカウント",
     "addBackup": "予備を追加",
     "backupEmpty": "有効化の前に、現在の API サービスプールから予備を選択してください。",

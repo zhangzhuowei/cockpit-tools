@@ -112,26 +112,28 @@ impl NativeHostBridge {
     ) -> Result<Vec<CodexAccount>, native_contract::ServiceError> {
         let accounts = self.load_accounts(ids).await?;
         let bindings = self.collection().await?.official_account_bindings;
-        if !official || self.profile_dir.is_some() || bindings.is_empty() {
-            return Ok(accounts);
-        }
-        tokio::task::spawn_blocking(move || {
+        let mut accounts = if !official || self.profile_dir.is_some() || bindings.is_empty() {
             accounts
-                .into_iter()
-                .map(|account| match bindings.get(&account.id) {
+        } else {
+            tokio::task::spawn_blocking(move || {
+                accounts.into_iter().map(|account| match bindings.get(&account.id) {
                     Some(id) => crate::modules::chatgpt_plan::official_runtime_overlay(account, id),
                     None => account,
-                })
-                .collect()
-        })
-        .await
-        .map_err(|_| {
-            native_error(
-                503,
-                "account_read_failed",
-                "Unable to read official authorization metadata",
-            )
-        })
+                }).collect::<Vec<_>>()
+            }).await.map_err(|_| native_error(503, "account_read_failed", "Unable to read official authorization metadata"))?
+        };
+        // Scope the pause to local OAuth API traffic. An independent official plan
+        // grant or API key must not inherit a local OAuth credential's restriction.
+        if self.account_overrides.is_empty() {
+            let ids = accounts.iter().filter(|a| native_device_restriction_applies(a))
+                .map(|a| a.id.clone()).collect();
+            let blocked = crate::modules::codex_device_restrictions::blocked(ids,
+                crate::modules::codex_device_restrictions::API).await.map_err(|_| native_error(
+                    503, "device_restriction_state_unavailable", &crate::modules::i18n::translate(
+                        &crate::modules::config::get_user_config().language, "common.deviceRestriction.failed", &[])))?;
+            accounts.retain(|a| !native_device_restriction_applies(a) || !blocked.contains(&a.id));
+        }
+        Ok(accounts)
     }
 
     async fn load_accounts(
@@ -148,6 +150,13 @@ impl NativeHostBridge {
             ids.iter()
                 .filter_map(|id| self.account_overrides.get(id).cloned()),
         );
+        for account in &mut accounts {
+            if let Some(remote) = crate::modules::codex_remote_service::for_routing_account(account) {
+                for model in remote.image_models {
+                    if !account.api_model_catalog.contains(&model) { account.api_model_catalog.push(model); }
+                }
+            }
+        }
         Ok(accounts)
     }
 }
@@ -395,6 +404,10 @@ async fn native_ensure_provider_profile(
                 }
                 codex_account::reapply_experimental_model_policy_if_enabled(profile)?;
                 reapply_deepseek_profile_config_overrides(profile, account)?;
+                if !crate::modules::codex_remote_service::is_known_account(account)
+                    && slots.iter().any(|slot| codex_protocol::deepseek_model_template(&slot.upstream_model).is_some()) {
+                    ensure_profile_max_reasoning_effort(profile)?;
+                }
                 runtime.block_on(native_sync_profile_catalog_tool_capabilities(
                     profile,
                     &published,

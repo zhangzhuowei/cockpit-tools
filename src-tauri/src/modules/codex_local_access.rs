@@ -2,6 +2,8 @@
 // 业务分片只在完整顶层 item 之间切开，通过 include! 保持同一模块作用域；
 // 调用方、网关生命周期、请求转换和账号池行为均与拆分前一致。
 include!("codex_local_access_foundation.rs");
+include!("codex_local_access_budget.rs");
+include!("codex_local_access_budget_storage.rs");
 include!("codex_local_access_quota_reserve.rs");
 include!("codex_local_access_quota_cooldown.rs");
 include!("codex_local_access_request_transform.rs");
@@ -37,6 +39,11 @@ include!("codex_local_access_native_routes.rs");
 include!("codex_local_access_native_capability.rs");
 include!("codex_local_access_native_images.rs");
 include!("codex_local_access_native_diagnostics.rs");
+include!("codex_local_access_remote_protocol.rs");
+include!("codex_local_access_remote_catalog.rs");
+include!("codex_local_access_remote_analytics.rs");
+include!("codex_local_access_remote_analytics_query.rs");
+include!("codex_local_access_remote_session.rs");
 include!("codex_local_access_native_profiles.rs");
 include!("codex_local_access_service_tier_control.rs");
 include!("codex_local_access_provider_gateway.rs");
@@ -53,7 +60,7 @@ include!("codex_local_access_service_members.rs");
 include!("codex_local_access_official_members.rs");
 include!("codex_local_access_http.rs");
 // The retired in-process WebSocket gateway is retained only as a test oracle.
-// Production traffic is handled by the native engine or the optional CLIProxyAPI sidecar.
+// Production traffic is handled exclusively by the native Rust engine.
 #[cfg(test)]
 include!("codex_local_access_recovery.rs");
 

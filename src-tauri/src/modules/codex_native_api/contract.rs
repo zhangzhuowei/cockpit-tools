@@ -187,6 +187,7 @@ pub enum WireApi {
     #[default]
     Responses,
     Chat,
+    Anthropic,
 }
 
 #[derive(Clone, Debug)]
@@ -212,6 +213,7 @@ pub struct ImageRoute {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TransportFailureKind {
     TlsDecrypt,
+    TlsDecryptHttp2,
 }
 
 #[derive(Clone, Debug)]
@@ -223,6 +225,7 @@ pub struct ServiceError {
     pub response_error: Option<Value>,
     pub retry_after: Option<Duration>,
     pub credential_scope: bool,
+    pub transient_rate_limit: bool,
     /// Local, typed transport evidence; never inferred from an upstream message.
     pub transport_failure: Option<TransportFailureKind>,
     /// Proven local build/connect failure before an HTTP request reached upstream.
@@ -239,6 +242,7 @@ impl ServiceError {
             response_error: None,
             retry_after: None,
             credential_scope: false,
+            transient_rate_limit: false,
             transport_failure: None,
             upstream_not_sent: false,
         }
@@ -250,12 +254,17 @@ impl ServiceError {
     }
 
     pub fn with_error_details(mut self, error: Value) -> Self {
+        self.transient_rate_limit = super::transient_rate_limit::applies(&error);
+        if self.transient_rate_limit {
+            self.status = 429;
+            self.credential_scope = false;
+        }
         self.response_error = Some(error);
         self
     }
 
     pub fn with_credential_scope(mut self, credential_scope: bool) -> Self {
-        self.credential_scope = credential_scope;
+        self.credential_scope = credential_scope && !self.transient_rate_limit;
         self
     }
 
@@ -275,6 +284,7 @@ impl std::error::Error for ServiceError {}
 
 #[derive(Clone, Debug)]
 pub struct RequestReport {
+    pub transient_rate_limit: bool,
     /// One-way fingerprint of the actual SIWC access token for stale-error fencing.
     /// Never serialized into public logs or request payloads.
     pub official_access_fingerprint: Option<String>,
@@ -319,6 +329,10 @@ pub trait Host: Send + Sync + 'static {
     /// existing streams keep their client clones and must not be cancelled.
     fn invalidate_transport(&self, _identity: &str) -> bool {
         false
+    }
+    /// Proven HTTP/2 TLS corruption; default hosts only retire the failed pool.
+    fn invalidate_http2_transport(&self, identity: &str) -> bool {
+        self.invalidate_transport(identity)
     }
     /// Caller-visible model profiles and protocol-derived multi-agent policy.
     /// Before routing only boundary/tool preparation is requested; a selected
@@ -423,6 +437,11 @@ pub trait Host: Send + Sync + 'static {
             message,
         )
     }
+    fn route_transient_rate_limited<'a>(
+        &'a self, route: &'a Route, model: &'a str, retry_after: Option<Duration>,
+    ) -> BoxFuture<'a, ()> {
+        self.route_failed_attempt(route, model, 429, retry_after, false, None)
+    }
     fn retry_cooldown_wait<'a>(
         &'a self,
         _caller: &'a Caller,
@@ -445,6 +464,12 @@ pub trait Host: Send + Sync + 'static {
         Box::pin(async { Ok(true) })
     }
     fn authorize<'a>(&'a self, bearer: &'a str) -> BoxFuture<'a, Result<Caller, ServiceError>>;
+    fn authorize_management<'a>(&'a self, bearer: &'a str) -> BoxFuture<'a, Result<Caller, ServiceError>> {
+        self.authorize(bearer)
+    }
+    fn caller_permit<'a>(&'a self, _caller: &'a Caller) -> BoxFuture<'a, Result<Option<Arc<dyn Send + Sync>>, ServiceError>> {
+        Box::pin(async { Ok(None) })
+    }
     fn route<'a>(
         &'a self,
         caller: &'a Caller,
@@ -461,6 +486,11 @@ pub trait Host: Send + Sync + 'static {
     ) -> BoxFuture<'a, Result<Route, ServiceError>> {
         self.route(caller, request)
     }
+    /// Validate a control on an already occupied socket without acquiring a
+    /// second concurrency permit or selecting a replacement account.
+    fn validate_websocket_control<'a>(
+        &'a self, _caller: &'a Caller, _route: &'a Route, _request: &'a RouteRequest,
+    ) -> BoxFuture<'a, Result<(), ServiceError>> { Box::pin(async { Ok(()) }) }
     /// Persist an observed upstream rejection before deciding whether history
     /// can be replayed. Candidate selection and local preflight are not attempts.
     fn observe_official_failure<'a>(

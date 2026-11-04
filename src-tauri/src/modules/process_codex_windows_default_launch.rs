@@ -177,6 +177,8 @@ fn try_windows_codex_default_path(
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
+    let mut receipt_pid = None;
+    let mut package_family = None;
     if route == CodexManagedLaunchRoute::PackageIdentity {
         let package = package.expect("registered package route");
         let mut env = managed_proxy_env_pairs()
@@ -197,13 +199,15 @@ fn try_windows_codex_default_path(
         ));
         let confirmed = activate_codex_default_package_with_refresh(
             package,
-            |package| run_codex_package_activation(package, codex_home, None, extra_args, &env),
+            |package| run_codex_package_activation(package, codex_home, None, extra_args, &env)
+                .map(|pid| { receipt_pid = Some(pid); }),
             || {
                 query_codex_registered_launch(selected)?
                     .ok_or_else(|| "No registered Codex GUI application".into())
             },
         )?;
         launch_path = PathBuf::from(confirmed.executable);
+        package_family = Some(confirmed.family_name);
     } else {
         crate::modules::logger::log_info(&format!(
             "[Codex Start] strategy=exe-path launch_path={}",
@@ -223,6 +227,7 @@ fn try_windows_codex_default_path(
         let child = spawn_command_with_trace(&mut command)
             .map_err(|error| NotStarted(format!("启动 Codex 失败: {error}")))?;
         crate::modules::logger::log_info(&format!("[Codex Start] exe launcher pid={}", child.id()));
+        receipt_pid = Some(child.id());
     }
     let pid = wait_for_codex_default_start_pid(
         &launch_path.to_string_lossy(),
@@ -230,9 +235,13 @@ fn try_windows_codex_default_path(
         default_app_dirs,
         launch_not_before_epoch_secs,
         Duration::from_secs(15),
+        receipt_pid,
+        package_family.as_deref(),
     )
     .ok_or_else(|| {
-        Dispatched("Codex startup confirmation failed: no stable new default process".into())
+        Dispatched(format!("CODEX_START_CONFIRMATION_UNCERTAIN:{}", serde_json::json!({
+            "beforePids": before_pids, "reason": "no stable new default process"
+        })))
     })?;
     Ok((pid, launch_path))
 }

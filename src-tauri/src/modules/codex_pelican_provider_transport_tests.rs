@@ -130,6 +130,7 @@ async fn pelican_provider_protocols_stream_and_clean_up_without_enrolling_accoun
     for wire in ["responses", "chat_completions"] {
         let (base_url, upstream) = mock_provider(wire).await;
         let request = CodexModelProviderGatewayChatTestRequest {
+        auth_scheme: None,
             run_id: uuid::Uuid::new_v4().to_string(),
             provider_id: "fixture-provider".into(),
             provider_name: "Fixture".into(),
@@ -178,12 +179,17 @@ async fn pelican_provider_cancel_closes_stream_and_removes_temporary_gateway() {
         stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n").await.unwrap();
         let _ = started.send(());
         let mut remaining = Vec::new();
-        timeout(Duration::from_secs(10), stream.read_to_end(&mut remaining))
+        let closed = timeout(Duration::from_secs(10), stream.read_to_end(&mut remaining))
             .await
-            .unwrap()
-            .unwrap();
+            .expect("cancellation must close the upstream connection");
+        if let Err(error) = closed {
+            // Cancellation may abort the socket with unread bytes rather than
+            // perform an orderly FIN. Both prove that the upstream was closed.
+            assert_eq!(error.kind(), std::io::ErrorKind::ConnectionReset);
+        }
     });
     let request = CodexModelProviderGatewayChatTestRequest {
+        auth_scheme: None,
         run_id: uuid::Uuid::new_v4().to_string(),
         provider_id: "cancel-fixture".into(),
         provider_name: "Fixture".into(),

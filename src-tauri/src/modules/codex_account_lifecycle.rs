@@ -151,11 +151,6 @@ pub fn upsert_agent_identity_account(identity: CodexAgentIdentity) -> Result<Cod
     account.requires_reauth = false;
     account.reauth_reason = None;
     account.authorization_status = None;
-    account.client_auth_status = None;
-    account.last_client_auth_observed_at = None;
-    account.last_client_login_redirect_at = None;
-    account.last_client_launch_at = None;
-    account.last_client_auth_instance_id = None;
     account.update_last_used();
     save_account_from_user_action(&mut account)?;
 
@@ -206,6 +201,7 @@ pub fn upsert_api_key_account(
     api_vision_routing_model: Option<String>,
     account_name: Option<String>,
     api_model_context_windows: Option<HashMap<String, i64>>,
+    api_auth_scheme: Option<String>,
 ) -> Result<CodexAccount, String> {
     let (api_key, api_base_url) = validate_api_key_credentials(&api_key, api_base_url.as_deref())?;
     let provider_config = resolve_api_provider_config(
@@ -233,6 +229,7 @@ pub fn upsert_api_key_account(
             api_model_vision_support.clone(),
             api_vision_routing_model.clone(),
             api_model_context_windows.clone(),
+            api_auth_scheme.clone(),
         );
         if acc.email.trim().is_empty() {
             acc.email = build_api_key_email(&api_key);
@@ -257,6 +254,7 @@ pub fn upsert_api_key_account(
         acc.account_name = account_name;
         acc.api_sync_model_catalog_to_codex = api_sync_model_catalog_to_codex.unwrap_or(false);
         acc.api_wire_api = normalize_api_wire_api(api_wire_api.clone());
+        acc.api_auth_scheme = api_auth_scheme.clone();
         acc.api_supports_websockets = api_supports_websockets;
         let _ = normalize_api_key_websocket_capability(&mut acc);
         acc.api_supports_vision = api_supports_vision;
@@ -483,11 +481,6 @@ fn upsert_account_with_hints_and_reauth_target(
     // login_required 只代表历史观测结果，不能继续污染这次授权后的状态。
     // 这里不能只依赖 reauth_target：用户从 OAuth 入口重新授权时可能没有
     // 携带旧卡片 ID，但仍然会复用同一个账号记录。
-    account.client_auth_status = None;
-    account.last_client_auth_observed_at = None;
-    account.last_client_login_redirect_at = None;
-    account.last_client_launch_at = None;
-    account.last_client_auth_instance_id = None;
 
     // 远端 API 鉴权拒绝描述的是旧 access_token。OAuth 已换入新凭据后继续
     // 保留它，会让 sidecar 账号池错误地把新凭据当成仍被远端拒绝。
@@ -667,6 +660,9 @@ pub fn remove_accounts(account_ids: &[String]) -> Result<(), String> {
         delete_account_file_unlocked(&account_id)?;
     }
     drop(_guard);
+    for id in &deleted_account_ids {
+        crate::modules::codex_device_restrictions::retire_account(id);
+    }
     // 账号删除后，引用它的混合模型路由必须自动关闭（渠道配置保留），
     // 否则后台监控会反复尝试恢复失败的网关，并弹出与删除账号无关的报错。
     match crate::modules::codex_instance::disable_model_routing_for_deleted_accounts(

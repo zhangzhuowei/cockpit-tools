@@ -10,6 +10,7 @@ import { Download, Copy, Check, Eye, EyeOff, FileText, FolderOpen } from "lucide
 import { useCodexAccountStore } from "../stores/useCodexAccountStore";
 import { useCodexInstanceStore } from "../stores/useCodexInstanceStore";
 import * as codexService from "../services/codexService";
+import { codexResetCreditDetails } from "../services/codexResetCreditService";
 import * as codexInstanceService from "../services/codexInstanceService";
 import * as codexLocalAccessService from "../services/codexLocalAccessService";
 import { maskJsonPreviewContent } from "../components/ExportJsonModal";
@@ -379,7 +380,6 @@ export function useCodexAccountsBaseController() {
       title?: string;
       summary?: string;
       reauthorizeAccountId?: string;
-      clearClientAuthObservationAccountId?: string;
       message: string;
     } | null>(null);
     const [editingAccountNoteId, setEditingAccountNoteId] = useState<
@@ -2123,7 +2123,8 @@ export function useCodexAccountsBaseController() {
         setResetCreditConfirmSnapshot(null);
 
         try {
-          const snapshot = await codexService.getCodexResetCredits(accountId);
+          const count = useCodexAccountStore.getState().accounts.find(account => account.id === accountId)?.quota?.reset_credits_available ?? 0;
+          const snapshot = await codexResetCreditDetails.load(accountId, count, true);
           if (resetCreditConfirmRequestSeqRef.current !== requestSeq) return;
           setResetCreditConfirmSnapshot({
             available_count: snapshot.available_count,
@@ -2185,6 +2186,7 @@ export function useCodexAccountsBaseController() {
 
       try {
         await codexService.consumeCodexResetCredit(account.id);
+        codexResetCreditDetails.invalidate(account.id);
         try {
           await refreshQuota(account.id);
           setMessage({

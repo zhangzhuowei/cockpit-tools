@@ -1,3 +1,5 @@
+import { ModalErrorMessage } from "../components/ModalErrorMessage";
+import { CodexKeyBudgetEditor, CodexKeyBudgetSummary } from '../components/codex/CodexKeyBudgetEditor';
 import { requestCodexOfficialAuthorizationManagement } from "../utils/codexAccountServiceNavigation";
 import { useChatGptPlanOverview } from "../hooks/useChatGptPlanOverview";
 import { CodexServiceAccountDetails } from "../components/codex/CodexServiceAccountDetails";
@@ -8,9 +10,9 @@ import { summarizeAccountPoolHealth } from "../components/codex/codexLocalAccess
 import { CodexServiceMemberAuthorization } from "../components/codex/CodexServiceMemberAuthorization";
 import { CodexServiceEmptyMembers } from "../components/codex/CodexServiceEmptyMembers";
 import { CodexApiRequestLogs } from "./CodexApiRequestLogs";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { isCodexChatgptPlanAccount } from "../types/codex";
-import { CodexGatewayModeControl, formatCodexGatewayModeError } from "../components/codex/CodexGatewayModeControl";
+import { formatCodexGatewayModeError } from "../utils/codexGatewayError";
 import { CodexSessionIdentityMappingControl } from "../components/codex/CodexSessionIdentityMappingControl";
 import { CodexSpeedControl } from "../components/codex/CodexSpeedControl";
 import { Activity, BadgeDollarSign, ChevronDown, Check, CircleAlert, Copy, Eye, EyeOff, FolderPlus, Gauge, Image, Pin, PinOff, Play, Plus, Power, RefreshCw, Route, Send, ShieldCheck, SlidersHorizontal, Trash2, Undo2, Wrench, X } from "lucide-react";
@@ -47,7 +49,6 @@ export type CodexApiServiceViewProps = ReturnType<typeof useCodexApiServicePageC
 
 /** 渲染 CodexApiServicePage 的界面；业务状态与动作统一由 Controller 提供。 */
 export function CodexApiServiceView(props: CodexApiServiceViewProps) {
-  const [gatewaySaving, setGatewaySaving] = useState(false);
   const {
     accessScope,
     inspectionNoticeKey,
@@ -63,6 +64,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
     accountModelRuleDrafts,
     accountModelRuleSelected,
     accountModelRulesOpen,
+    accountModelRuleError,
     accounts,
     accountsLoaded,
     activating,
@@ -269,7 +271,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
   const accountStats = useMemo(() => aggregateCodexServiceAccountStats(selectedStatsWindow?.accounts ?? [], accounts,
     planGrants.accounts, planGrants.displaySourceIds), [selectedStatsWindow?.accounts, accounts, planGrants.accounts, planGrants.displaySourceIds]);
   const displayPoolHealth = summarizeAccountPoolHealth(localAccessAccounts, memberIds, state);
-  const busy = controllerBusy || gatewaySaving;
+  const busy = controllerBusy;
   const localAccessStatus = resolveCodexLocalAccessRuntimeStatus(collection, state);
   const keyRecoveryRequired = isCodexGatewayKeyRecoveryError(state?.lastError);
   return (
@@ -580,9 +582,6 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                 <h2>{t("codex.localAccess.configTitle", "服务配置")}</h2>
               </div>
               <div className="codex-api-service-config-list">
-                <CodexGatewayModeControl state={state} onState={setState}
-                  disabled={busy || activating || testDialogRunning || sidecarRestarting}
-                  onError={setError} onNotice={setNotice} onSavingChange={setGatewaySaving} />
                 <label>
                   <span>Base URL</span>
                   <div className="codex-api-service-copy-row">
@@ -1122,6 +1121,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                         </div>
                       </div>
                     </div>
+                    <CodexKeyBudgetSummary apiKey={apiKey} />
                     <button
                       type="button"
                       className="codex-api-service-key-advanced-toggle"
@@ -1154,6 +1154,8 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
                     </button>
                     {policyExpanded && (
                       <div className="codex-api-service-key-policy">
+                        <CodexKeyBudgetEditor value={policyDraft.budget} disabled={busy}
+                          onChange={budget => setApiKeyPolicyDrafts(drafts => ({ ...drafts, [apiKey.id]: { ...(drafts[apiKey.id] ?? policyDraft), budget } }))} />
                         <div className="api-key-token-limit-editor">
                           <label>
                             <span>
@@ -2313,12 +2315,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
               </button>
             </div>
             <div className="modal-body codex-api-service-timeouts-body">
-              {timeoutsError && (
-                <div className="codex-api-service-message error">
-                  <CircleAlert size={15} />
-                  <span>{timeoutsError}</span>
-                </div>
-              )}
+              <ModalErrorMessage message={timeoutsError} className="codex-api-service-message error" />
               <section className="codex-api-service-timeout-section codex-api-service-timeout-preset-section">
                 <h3>
                   {t("codex.apiService.timeouts.presetTitle", "参数方案")}
@@ -2822,6 +2819,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
               </button>
             </div>
             <div className="modal-body codex-api-service-pricing-body">
+              <ModalErrorMessage message={accountModelRuleError} className="codex-api-service-message error" />
               <div className="codex-api-service-policy-actions">
                 <label className="codex-api-service-account-model-bulk">
                   <span>
@@ -3192,12 +3190,7 @@ export function CodexApiServiceView(props: CodexApiServiceViewProps) {
               </button>
             </div>
             <div className="modal-body codex-api-service-pricing-body">
-              {pricingError && (
-                <div className="codex-api-service-message error">
-                  <CircleAlert size={15} />
-                  <span>{pricingError}</span>
-                </div>
-              )}
+              <ModalErrorMessage message={pricingError} className="codex-api-service-message error" />
               {pricingRepriceProgress && (
                 <div
                   className={`codex-api-service-pricing-reprice is-${pricingRepriceProgress.phase}`}

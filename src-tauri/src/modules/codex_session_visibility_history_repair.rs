@@ -8,8 +8,9 @@ fn history_repair_message(key: &str, args: &[(&str, &str)]) -> String {
 }
 
 fn history_repair_error(error: String) -> String {
-    if error.starts_with("CODEX_HISTORY_REPAIR_RUNNING") {
-        history_repair_message("historyRunning", &[])
+    modules::logger::log_warn(&format!("[Codex History Index] {error}"));
+    if error.starts_with("CODEX_HISTORY_REPAIR_CHANGED") {
+        history_repair_message("historyChanged", &[])
     } else {
         history_repair_message("historyFailed", &[("error", &error)])
     }
@@ -22,9 +23,7 @@ fn repair_history_projections_for_instances(
     selection: RepairTargetSelection,
     instances: Vec<CodexSyncInstance>,
 ) -> Result<CodexSessionVisibilityRepairSummary, String> {
-    use modules::{
-        codex_history_projection_guard as guard, codex_history_projection_repair as history,
-    };
+    use modules::codex_history_projection_repair as history;
 
     if instances.is_empty() {
         return Err(history_repair_error(
@@ -39,6 +38,9 @@ fn repair_history_projections_for_instances(
     // Validate every selected instance before the first mutation. A malformed
     // chain in a later instance must not turn a failed preview into a partial repair.
     let mut plans = Vec::with_capacity(instances.len());
+    // Running state is informational; SQLite transactions and source checks
+    // protect the repair without requiring the desktop client or CLI to stop.
+    let process_entries = modules::process::collect_codex_process_entries();
     for (index, instance) in instances.iter().enumerate() {
         let progress = |current: usize, total: usize| {
             report_repair_progress(
@@ -54,19 +56,7 @@ fn repair_history_projections_for_instances(
         };
         let plan = history::scan(&instance.data_dir, selection.session_ids(), &progress)
             .map_err(history_repair_error)?;
-        let stopped = if plan.candidate_count() == 0 {
-            Ok(())
-        } else {
-            guard::ensure_stopped(&instance.data_dir)
-        };
-        let running = match stopped {
-            Ok(()) => false,
-            Err(error) if error.starts_with("CODEX_HISTORY_REPAIR_RUNNING") => true,
-            Err(error) => return Err(history_repair_error(error)),
-        };
-        if running && !options.dry_run && plan.candidate_count() > 0 {
-            return Err(history_repair_message("historyRunning", &[]));
-        }
+        let running = is_instance_running(instance, &process_entries);
         plans.push((plan, running));
     }
     let mut total = 0;
@@ -74,7 +64,6 @@ fn repair_history_projections_for_instances(
         let candidates = plan.candidate_count();
         let mut backup_dir = None;
         if candidates > 0 && !options.dry_run {
-            guard::ensure_stopped(&instance.data_dir).map_err(history_repair_error)?;
             let scope = modules::backup_storage::scope_for_path(&instance.data_dir);
             let backup = modules::backup_storage::behavior_backup_dir(
                 "codex",
@@ -96,16 +85,14 @@ fn repair_history_projections_for_instances(
                 instances.len(),
                 Some(instance),
             );
-            let repaired = history::apply(&instance.data_dir, &plan, &backup, &|| {
-                guard::ensure_stopped(&instance.data_dir)
-            })
-            .map_err(|error| {
+            let repaired = history::apply(&instance.data_dir, &plan, &backup).map_err(|error| {
                 // A later instance can change after preflight. Keep completed
                 // repairs and their backups observable rather than claiming an
                 // all-or-nothing outcome across independent SQLite databases.
                 let context = format!(
                     "{error}; repaired_projections={total}; completed_backups={:?}; backup={}",
-                    summary.backup_dirs, backup.display(),
+                    summary.backup_dirs,
+                    backup.display(),
                 );
                 history_repair_error(if total > 0 {
                     format!("CODEX_HISTORY_REPAIR_PARTIAL: {context}")
@@ -116,7 +103,8 @@ fn repair_history_projections_for_instances(
             total += repaired;
             let path = backup.to_string_lossy().into_owned();
             modules::logger::log_info(&format!(
-                "[Codex History Index] backup={}, reset_projections={repaired}", path,
+                "[Codex History Index] backup={}, reset_projections={repaired}",
+                path,
             ));
             summary.backup_dirs.push(path.clone());
             backup_dir = Some(path);
@@ -131,6 +119,7 @@ fn repair_history_projections_for_instances(
             instance_name: instance.name.clone(),
             running,
             backup_dir,
+            history_projection_count: Some(candidates),
             ..Default::default()
         });
         modules::logger::log_info(&format!(

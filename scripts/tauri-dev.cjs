@@ -1,4 +1,6 @@
 const { spawnSync } = require('node:child_process');
+const path = require('node:path');
+const { runDevCommand } = require('./dev-process-session.cjs');
 
 function resolveMacosSdkRoot() {
   if (process.platform !== 'darwin') {
@@ -31,27 +33,16 @@ if (macosSdkRoot) {
   env.SDKROOT = macosSdkRoot;
 }
 const extraArgs = process.argv.slice(2);
-// Windows 上 spawnSync 找不到 npm/tauri 的 .cmd 垫片，需显式指定并经 shell 启动。
-const isWin = process.platform === 'win32';
 
-const syncResult = spawnSync(isWin ? 'npm.cmd' : 'npm', ['run', 'sync-version'], {
-  stdio: 'inherit',
-  env,
-  shell: isWin,
-});
-
-if (syncResult.status !== 0) {
-  process.exit(syncResult.status ?? 1);
+async function main() {
+  const cwd = path.resolve(__dirname, '..');
+  const synced = await runDevCommand(process.execPath, [path.join(__dirname, 'sync-version.js')], { cwd, env });
+  if (synced !== 0) return synced;
+  return runDevCommand(process.execPath, [require.resolve('@tauri-apps/cli/tauri.js'),
+    'dev', '--config', 'src-tauri/tauri.dev.conf.json', ...extraArgs], { cwd, env });
 }
 
-const tauriResult = spawnSync(
-  isWin ? 'npx.cmd' : 'npx',
-  ['tauri', 'dev', '--config', 'src-tauri/tauri.dev.conf.json', ...extraArgs],
-  {
-    stdio: 'inherit',
-    env,
-    shell: isWin,
-  },
-);
-
-process.exit(tauriResult.status ?? 1);
+main().then(code => { process.exitCode = code; }).catch(error => {
+  console.error(`[tauri-dev] ${error.message}`);
+  process.exitCode = 1;
+});

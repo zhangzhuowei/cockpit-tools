@@ -490,12 +490,20 @@ async fn apply_launch_speed_after_auth(
             .unwrap_or_else(|| id.to_string())
     });
     tauri::async_runtime::spawn_blocking(move || {
+        modules::codex_model_catalog_capabilities::prepare_managed_catalog(&profile_dir)?;
         // DeepSeek deliberately removes service_tier as an unsupported option.
         if account_id.as_deref().and_then(modules::codex_account::load_account)
             .is_some_and(|account| modules::codex_account::is_deepseek_account(&account)) {
             return Ok(());
         }
-        modules::codex_speed::write_app_speed_for_dir(&profile_dir, speed).map(|_| ())
+        modules::codex_speed::write_app_speed_for_dir(&profile_dir, speed.clone())?;
+        if let Err(error) = modules::codex_app_enhancements::prepare_native_fast_for_profile(&profile_dir) {
+            if speed == CodexAppSpeed::Ultrafast {
+                return Err(format!("无法准备超高速请求能力: {error}"));
+            }
+            modules::logger::log_warn(&format!("[Codex Speed] {error}"));
+        }
+        Ok(())
     }).await.map_err(|error| error.to_string())?
 }
 
@@ -772,7 +780,7 @@ async fn repair_session_visibility_for_selected_instance(
     instance_id: &str,
     instance_name: &str,
     data_dir: &Path,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     let instance_id = instance_id.to_string();
     let instance_name = instance_name.to_string();
     let data_dir = data_dir.to_path_buf();
@@ -782,14 +790,18 @@ async fn repair_session_visibility_for_selected_instance(
             &instance_name,
             &data_dir,
         )
-        .map(|_| ())
-        .map_err(|error| {
-            format!(
+        .map(|summary| !summary.local_project_recovery_deferred)
+        .or_else(|error| {
+            if modules::codex_session_visibility::can_defer_launch_snapshot_error(&error) {
+                modules::logger::log_warn(&format!("[Codex Start] session maintenance deferred before writes: instance_id={instance_id}, error={error}"));
+                return Ok(false);
+            }
+            Err(format!(
                 "同步修复当前 Codex 实例的历史会话可见性失败 ({} / {}): {}",
                 instance_name,
                 data_dir.display(),
                 error
-            )
+            ))
         })
     })
     .await
@@ -1657,45 +1669,51 @@ pub async fn codex_get_instance_defaults() -> Result<modules::instance::Instance
 }
 
 #[tauri::command]
-pub async fn codex_list_instances() -> Result<Vec<CodexInstanceProfileView>, String> {
-    let store = modules::codex_instance::load_instance_store()?;
-    let default_dir = modules::codex_instance::get_default_codex_home()?;
+pub async fn codex_list_instances(fresh: Option<bool>) -> Result<Vec<CodexInstanceProfileView>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let store = modules::codex_instance::load_instance_store()?;
+        let default_dir = modules::codex_instance::get_default_codex_home()?;
 
-    let default_settings = store.default_settings.clone();
-    let process_entries = modules::process::collect_codex_process_entries();
-    let mut result: Vec<CodexInstanceProfileView> = store
-        .instances
-        .into_iter()
-        .map(|instance| {
-            let resolved_pid = modules::process::resolve_codex_pid_from_entries(
-                instance.last_pid,
-                Some(&instance.user_data_dir),
-                &process_entries,
-            );
-            let running = resolved_pid.is_some();
-            let initialized = is_profile_initialized(&instance.user_data_dir);
-            let mut view = CodexInstanceProfileView::from_profile(instance, running, initialized);
-            view.last_pid = resolved_pid;
-            view
-        })
-        .collect();
+        let default_settings = store.default_settings.clone();
+        let process_entries = if fresh.unwrap_or(false) {
+            modules::process::collect_codex_launch_confirmation_process_entries()?
+        } else {
+            modules::process::collect_codex_process_entries()
+        };
+        let mut result: Vec<CodexInstanceProfileView> = store
+            .instances
+            .into_iter()
+            .map(|instance| {
+                let resolved_pid = modules::process::resolve_codex_pid_from_entries(
+                    instance.last_pid,
+                    Some(&instance.user_data_dir),
+                    &process_entries,
+                );
+                let running = resolved_pid.is_some();
+                let initialized = is_profile_initialized(&instance.user_data_dir);
+                let mut view = CodexInstanceProfileView::from_profile(instance, running, initialized);
+                view.last_pid = resolved_pid;
+                view
+            })
+            .collect();
 
-    let default_pid = modules::process::resolve_codex_pid_from_entries(
-        default_settings.last_pid,
-        None,
-        &process_entries,
-    );
-    let default_running = default_pid.is_some();
-    let default_bind_account_id = resolve_default_account_id(&default_settings);
-    result.push(default_instance_view(
-        &default_dir,
-        &default_settings,
-        default_bind_account_id,
-        default_running,
-        default_pid,
-    ));
+        let default_pid = modules::process::resolve_codex_pid_from_entries(
+            default_settings.last_pid,
+            None,
+            &process_entries,
+        );
+        let default_running = default_pid.is_some();
+        let default_bind_account_id = resolve_default_account_id(&default_settings);
+        result.push(default_instance_view(
+            &default_dir,
+            &default_settings,
+            default_bind_account_id,
+            default_running,
+            default_pid,
+        ));
 
-    Ok(result)
+        Ok(result)
+    }).await.map_err(|error| format!("Codex status worker failed: {error}"))?
 }
 
 #[tauri::command]
@@ -2728,6 +2746,11 @@ async fn codex_start_instance_internal(
         }),
     );
     if let Some(account_id) = oauth_account_id.as_deref() {
+        if launch_mode_uses_desktop_runtime(&launch_target.launch_mode) {
+            modules::codex_device_restrictions::ensure_allowed(account_id,
+                modules::codex_device_restrictions::DESKTOP).await?;
+        }
+
         if skip_failed_step == Some("checkAccount") {
             emit_codex_instance_launch_step(
                 &app,
@@ -2772,7 +2795,6 @@ async fn codex_start_instance_internal(
                     > oauth_token_generation_before,
                 "localCredentialsValidated": skip_failed_step != Some("checkAccount"),
                 "skippedByUser": skip_failed_step == Some("checkAccount"),
-                "clientAuthStatus": checked_account.client_auth_status.clone(),
             }),
         );
     }
@@ -3008,13 +3030,17 @@ async fn codex_start_instance_internal(
         if should_skip_launch_step(skip_failed_step, "writeProfile") {
             modules::logger::log_warn("[Codex Start] 用户选择跳过会话可见性修复步骤");
         } else {
-            repair_session_visibility_for_selected_instance(
+            let repaired = repair_session_visibility_for_selected_instance(
                 DEFAULT_INSTANCE_ID,
                 "默认实例",
                 &default_dir,
             )
             .await
             .map_err(|error| format!("Codex 启动已取消: {}", error))?;
+            if !repaired {
+                emit_codex_instance_launch_step(&app, emit_launch_progress, &launch_target,
+                    "writeProfile", "warning", 80, serde_json::json!({ "sessionMaintenanceDeferred": true }));
+            }
             ensure_codex_instance_start_not_cancelled(&instance_id)?;
         }
         modules::logger::log_info(&format!(
@@ -3319,9 +3345,13 @@ async fn codex_start_instance_internal(
     if should_skip_launch_step(skip_failed_step, "writeProfile") {
         modules::logger::log_warn("[Codex Start] 用户选择跳过会话可见性修复步骤");
     } else {
-        repair_session_visibility_for_selected_instance(&instance.id, &instance.name, instance_dir)
+        let repaired = repair_session_visibility_for_selected_instance(&instance.id, &instance.name, instance_dir)
             .await
             .map_err(|error| format!("Codex 启动已取消: {}", error))?;
+        if !repaired {
+            emit_codex_instance_launch_step(&app, emit_launch_progress, &launch_target,
+                "writeProfile", "warning", 80, serde_json::json!({ "sessionMaintenanceDeferred": true }));
+        }
         ensure_codex_instance_start_not_cancelled(&instance_id)?;
     }
     modules::logger::log_info(&format!(
@@ -3710,6 +3740,13 @@ pub async fn codex_stop_instance(instance_id: String) -> Result<CodexInstancePro
         .find(|item| item.id == instance_id)
         .ok_or("实例不存在")?;
 
+    // A missing desktop path must not turn a failed process lookup into proof
+    // that an instance is stopped before its credentials are changed.
+    if launch_mode_uses_desktop_runtime(&instance.launch_mode) {
+        tauri::async_runtime::spawn_blocking(modules::process::ensure_codex_runtime_path_or_idle)
+            .await
+            .map_err(|error| error.to_string())??;
+    }
     modules::codex_app_injection::stop_for_profile(Path::new(&instance.user_data_dir));
     if modules::process::resolve_codex_pid(instance.last_pid, Some(&instance.user_data_dir)).is_some() {
         let target_home = instance.user_data_dir.clone();

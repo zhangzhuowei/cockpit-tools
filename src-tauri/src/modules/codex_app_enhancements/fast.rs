@@ -549,6 +549,7 @@ fn bootstrap(
     format!("{state}\n{GUARD_SCRIPT}\n{SCRIPT}\n{QUOTA_SCRIPT}\n{QUOTA_CURRENT_SCRIPT}\n;true;")
 }
 
+
 async fn rollback_preparation(registration: &mut Registration) {
     if let Some(context) = registration.session().context() {
         let expression = format!(

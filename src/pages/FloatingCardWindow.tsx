@@ -7,6 +7,7 @@ import { TauriEvent, emit, listen } from '@tauri-apps/api/event';
 import { useTranslation } from 'react-i18next';
 import { dismissBootSplash } from '../utils/bootSplash';
 import { useCodexQuotaSync } from '../hooks/useCodexQuotaSync';
+import { isCodexLaunchCancelled } from '../utils/codexLaunchCancellation';
 import {
   buildAntigravityAccountPresentation,
   buildClaudeAccountPresentation,
@@ -1135,10 +1136,14 @@ export function FloatingCardWindow() {
   ]);
 
   const isCurrentViewed = Boolean(viewedAccount?.id && viewedAccount.id === currentAccount?.id);
-  // Cursor's account page shows 3 primary bars (Total / Auto+Composer / API).
-  const visibleQuotaItemLimit =
-    selectedPlatform === 'antigravity' || selectedPlatform === 'cursor' ? 3 : 2;
-  const visibleQuotaItems = presentation?.quotaItems.slice(0, visibleQuotaItemLimit) ?? [];
+  // Antigravity's independent windows (including weekly/Argon) must not be
+  // truncated. Both runtime targets share the same quota presentation.
+  // Keep Cursor's 3 primary bars (excluding On-Demand) and other platform caps.
+  const quotaItems = presentation?.quotaItems ?? [];
+  const visibleQuotaItems =
+    selectedPlatform === 'antigravity' || selectedPlatform === 'antigravity_ide'
+      ? quotaItems
+      : quotaItems.slice(0, selectedPlatform === 'cursor' ? 3 : 2);
   const accountStateLabel = viewedAccount
     ? isCurrentViewed
       ? t('floatingCard.currentAccount', '当前账号')
@@ -1358,6 +1363,7 @@ export function FloatingCardWindow() {
       selectAccount(selectedPlatform, viewedAccount.id);
     } catch (error) {
       const rawError = String(error).replace(/^Error:\s*/, '').trim();
+      if (selectedPlatform === 'codex' && isCodexLaunchCancelled(error)) return;
       if (rawError.startsWith('APP_PATH_NOT_FOUND:claude')) {
         const detail = {
           app: 'claude',

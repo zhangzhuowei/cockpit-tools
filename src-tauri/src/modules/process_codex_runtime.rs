@@ -186,6 +186,8 @@ fn wait_for_codex_default_start_pid(
     default_app_dirs: &HashSet<String>,
     launch_not_before_epoch_secs: u64,
     timeout: Duration,
+    receipt_pid: Option<u32>,
+    package_family: Option<&str>,
 ) -> Option<u32> {
     let started = Instant::now();
     let mut stable_pid = None;
@@ -193,17 +195,20 @@ fn wait_for_codex_default_start_pid(
     let mut first_candidate_seen = false;
 
     while started.elapsed() < timeout {
-        let fast_entries = collect_codex_windows_default_process_entries(
-            expected_exe_path,
-            default_app_dirs,
-            true,
-        );
+        // Include child-inherited profile identities. A fast main-only scan can
+        // mistake a managed process for the default while it is still starting.
+        let (entries, _) = collect_codex_process_snapshot_from_sysinfo(expected_exe_path);
+        let fast_entries = filter_codex_windows_default_process_entries(&entries, default_app_dirs);
+        let receipt_candidate = codex_receipt_candidate(receipt_pid, before_default_pids, |pid| {
+            verify_codex_launch_receipt_pid(pid, expected_exe_path, package_family)
+        });
         let fast_pids = fast_entries
             .iter()
             .map(|(pid, _)| *pid)
             .collect::<Vec<u32>>();
+        let candidate_pids = receipt_candidate.map(|pid| vec![pid]).unwrap_or(fast_pids);
         let (candidate, streak) = next_codex_default_start_candidate(
-            &fast_pids,
+            &candidate_pids,
             before_default_pids,
             stable_pid,
             stable_count,
@@ -224,12 +229,7 @@ fn wait_for_codex_default_start_pid(
                 .copied()
                 .filter(|pid| is_pid_running(*pid))
                 .collect::<Vec<u32>>();
-            let full_entries = collect_codex_windows_default_process_entries(
-                expected_exe_path,
-                default_app_dirs,
-                false,
-            );
-            let full_pids = full_entries
+            let full_pids = fast_entries
                 .iter()
                 .map(|(pid, _)| *pid)
                 .collect::<HashSet<u32>>();
@@ -237,7 +237,7 @@ fn wait_for_codex_default_start_pid(
                 let started_after_launch =
                     codex_process_started_at_or_after(pid, launch_not_before_epoch_secs)
                         .unwrap_or(false);
-                if full_pids.contains(&pid)
+                if (receipt_candidate == Some(pid) || full_pids.contains(&pid))
                     && old_pids_still_running.is_empty()
                     && started_after_launch
                 {
@@ -570,7 +570,12 @@ fn codex_windows_process_snapshot_is_stale(process: Option<(&str, Option<&str>)>
 
 #[cfg(target_os = "windows")]
 fn close_codex_default_windows(timeout_secs: u64) -> Result<(), String> {
-    let launch_path = resolve_codex_launch_path()?;
+    let Some(launch_path) = codex_close_path_or_confirmed_idle(
+        resolve_codex_launch_path(),
+        confirm_no_codex_windows_runtime,
+    )? else {
+        return Ok(());
+    };
     let launch_path_text = launch_path.to_string_lossy().to_string();
     let default_home = crate::modules::codex_account::get_codex_home()
         .to_string_lossy()

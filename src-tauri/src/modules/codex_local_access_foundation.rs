@@ -264,6 +264,7 @@ const CODEX_PROVIDER_MODEL_SHELL_POOL: &[&str] = &["gpt-5.6-sol", "gpt-5.6-terra
 // overflow models. The retired model remains valid only for explicit API providers.
 const CODEX_PROVIDER_IDENTITY_ONLY_MODEL_IDS: &[&str] = &[
     "gpt-6.1-sol",
+    "gpt-6.1-terra",
     "gpt-6-astra",
     "gpt-6-sol",
     "gpt-6-luna",
@@ -362,7 +363,7 @@ const RESPONSE_AFFINITY_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 const MAX_RESPONSE_AFFINITY_BINDINGS: usize = 4096;
 const PREPARED_ACCOUNT_CACHE_TTL_MS: i64 = 30 * 1000;
 const STATE_RECENT_USAGE_EVENT_LIMIT: usize = 100;
-const DEFAULT_MODEL_PRICING_VERSION: u64 = 7;
+const DEFAULT_MODEL_PRICING_VERSION: u64 = 8;
 const MODEL_PRICING_REPRICE_BATCH_SIZE: i64 = 1_000;
 const MODEL_PRICING_REPRICE_PARALLEL_MIN_ROWS: usize = 2_000;
 const LOCAL_ACCESS_LOGS_DB_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -423,6 +424,7 @@ const CODEX_AUTO_REVIEW_MODEL_ID: &str = "codex-auto-review";
 /// 其它历史模型仍然可以路由，只是不再出现在客户端模型选择器里。
 const LOCAL_GATEWAY_VISIBLE_GPT_MODELS: &[(&str, &str)] = &[
     ("gpt-6.1-sol", "GPT-6.1 Sol"),
+    ("gpt-6.1-terra", "GPT-6.1 Terra"),
     ("gpt-6-astra", "GPT-6 Astra"),
     ("gpt-6-sol", "GPT-6 Sol"),
     ("gpt-6-luna", "GPT-6 Luna"),
@@ -1761,6 +1763,8 @@ fn preserve_runtime_collection_fields(
     for api_key in &mut collection.api_keys {
         if let Some(current_api_key) = current.api_keys.iter().find(|item| item.id == api_key.id) {
             api_key.token_used = api_key.token_used.max(current_api_key.token_used);
+            merge_key_budget_usage(&mut api_key.budget_usage, &current_api_key.budget_usage);
+            if current_api_key.updated_at > api_key.updated_at { api_key.budget = current_api_key.budget.clone(); }
         }
     }
 }
@@ -1782,10 +1786,9 @@ fn sync_runtime_collection(
     if let Some(current) = runtime.collection.as_ref() {
         preserve_runtime_collection_fields(&mut collection, current);
         collection.native_gateway_default_migrated |= current.native_gateway_default_migrated;
-        if current.gateway_mode != CodexLocalAccessGatewayMode::Legacy {
-            collection.gateway_mode = current.gateway_mode;
-        }
     }
+    collection.gateway_mode = CodexLocalAccessGatewayMode::Native;
+    collection.native_gateway_default_migrated = true;
     sync_quota_reserve_policy(&collection);
     REQUEST_PAYLOAD_LOGGING_ENABLED.store(collection.request_payload_logging, Ordering::SeqCst);
     if let Some(handle) = runtime.native_handle.as_ref() {

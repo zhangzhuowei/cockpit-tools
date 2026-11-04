@@ -1,4 +1,7 @@
 import { CodexAccountServiceHost } from './components/codex/CodexAccountServiceHost';
+import { AppBackground } from './components/AppBackground';
+import { CodexPathRecoveryDialog } from './components/codex/CodexPathRecoveryDialog';
+import { recoverLegacyCodexPath } from './utils/codexPathRecoveryEvents';
 import { listenSafely as listen } from "./utils/tauriEventListener";
 import {
   Suspense,
@@ -29,6 +32,7 @@ import { CodexPelicanHost } from './components/codex/pelican/CodexPelicanHost';
 import { AnnouncementHost } from './components/AnnouncementCenter';
 import { TopCenterPromoBanner } from './components/TopCenterPromoBanner';
 import type { QuickSettingsType } from './components/QuickSettingsPopover';
+import { requestCodexRequestLogsNavigation } from './utils/codexRequestLogsNavigation';
 import { isMainWindowNavigablePage, type Page } from './types/navigation';
 import type { TopRightAd } from './types/topRightAd';
 import { useAutoRefresh } from './hooks/useAutoRefresh';
@@ -58,12 +62,16 @@ import { useTopRightAdStore } from './stores/useTopRightAdStore';
 import { useSponsorStore } from './stores/useSponsorStore';
 import { useRemoteConfigStore } from './stores/useRemoteConfigStore';
 import type { UpdateCheckResult, UpdateInfo } from './components/UpdateNotification';
+import type {
+  VersionJumpInfo, UpdateRuntimeInfo, UpdateCheckSource,
+  LinuxUpdateProgressPayload, UpdateAction,
+} from './types/updater';
 import type { RemoteUpdatePromptMode } from './types/remoteConfig';
 import type { Update as UpdaterUpdate } from '@tauri-apps/plugin-updater';
 import {
-  parseUpdaterReleaseNotes,
-  resolveUpdaterDownloadUrl,
+  parseUpdaterReleaseNotes, resolveUpdaterDownloadUrl,
 } from './utils/updaterReleaseNotes';
+import { savePendingUpdateNotes } from './services/localUpdateNotes';
 import { FloatingCardWindow } from './pages/FloatingCardWindow';
 import { CodexWakeupConfirmation } from './components/CodexWakeupConfirmation';
 import { initWakeupNotificationListener } from './utils/wakeupNotificationListener';
@@ -417,7 +425,8 @@ type AppPathMissingDetail = {
   retry?:
     | { kind: 'default'; runtimeTarget?: string }
     | { kind: 'instance'; instanceId?: string; runtimeTarget?: string }
-    | { kind: 'switchAccount'; accountId?: string; runtimeTarget?: string };
+    | { kind: 'switchAccount'; accountId?: string; runtimeTarget?: string }
+    | { kind: 'codexCommand'; command: 'switch_codex_account' | 'codex_local_access_activate'; args: Record<string, unknown>; runtimeTarget?: undefined; instanceId?: undefined; accountId?: undefined };
 };
 
 type AppLaunchCandidate = {
@@ -509,37 +518,6 @@ type QuotaAlertPlatform =
   | 'trae'
   | 'workbuddy'
   | 'zed';
-type UpdateCheckSource = 'auto' | 'manual';
-type UpdateActionState = 'hidden' | 'available' | 'downloading' | 'installing' | 'ready';
-
-type UpdateRuntimeInfo = {
-  platform: string;
-  linux_install_kind: string;
-  linux_managed_install_supported: boolean;
-  updater_target?: string | null;
-};
-
-type LinuxUpdateProgressPhase =
-  | 'download_started'
-  | 'downloading'
-  | 'downloaded'
-  | 'auth_required'
-  | 'installing'
-  | 'completed';
-
-type LinuxUpdateProgressPayload = {
-  version: string;
-  phase: LinuxUpdateProgressPhase;
-  progress?: number | null;
-};
-
-type UpdateAction = {
-  state: UpdateActionState;
-  version: string | null;
-  progress: number;
-  requiresInstall: boolean;
-};
-
 function buildExternalImportDedupeKey(payload: {
   providerId: string;
   page: string;
@@ -873,12 +851,7 @@ function MainApp() {
   const [appLaunchCandidates, setAppLaunchCandidates] = useState<AppLaunchCandidate[]>([]);
   const [appPathActionError, setAppPathActionError] = useState('');
   const [appPathScanError, setAppPathScanError] = useState('');
-  const [versionJumpInfo, setVersionJumpInfo] = useState<{
-    previous_version: string;
-    current_version: string;
-    release_notes: string;
-    release_notes_zh: string;
-  } | null>(null);
+  const [versionJumpInfo, setVersionJumpInfo] = useState<VersionJumpInfo | null>(null);
   const [showVersionJumpNotification, setShowVersionJumpNotification] = useState(false);
   const [updateRuntimeInfo, setUpdateRuntimeInfo] = useState<UpdateRuntimeInfo | null>(null);
   const [updateRuntimeInfoLoaded, setUpdateRuntimeInfoLoaded] = useState(false);
@@ -1420,8 +1393,7 @@ function MainApp() {
       current_version: currentVersion,
       latest_version: update.version,
       download_url: resolveUpdaterDownloadUrl(update.version, update.rawJson),
-      release_notes: releaseNotes,
-      release_notes_zh: releaseNotesZh,
+      release_notes: releaseNotes, release_notes_zh: releaseNotesZh,
     };
   }, []);
 
@@ -1854,22 +1826,7 @@ function MainApp() {
             activeUpdateDownloadRef.current = candidate;
 
             const candidateVersion = candidate.version;
-            const { releaseNotes, releaseNotesZh } = parseUpdaterReleaseNotes(candidate.body);
-            await invoke('save_pending_update_notes', {
-              version: candidateVersion,
-              releaseNotes,
-              releaseNotesZh,
-            }).catch((error) => {
-              console.error('[App] Failed to cache shared update notes:', error);
-              writeUpdateLog(
-                'warn',
-                `缓存统一更新说明失败: version=${candidateVersion}, error=${sanitizeUpdaterErrorMessage(error)}`,
-              );
-            });
-            if (updateCancelRequestedRef.current || updateDownloadTaskIdRef.current !== taskId) {
-              throw createUpdaterCanceledError();
-            }
-
+            savePendingUpdateNotes(candidateVersion, candidate.body);
             const trackProgress = createUpdaterDownloadProgress();
             await candidate.download((event) => {
               if (!acceptingProgress || updateCancelRequestedRef.current
@@ -2656,12 +2613,7 @@ function MainApp() {
       try {
         console.log('[StartupPerf][VersionJump] detection started');
         const versionJumpInvokeStartedAt = performance.now();
-        const jumpInfo = await invoke<{
-          previous_version: string;
-          current_version: string;
-          release_notes: string;
-          release_notes_zh: string;
-        } | null>('check_version_jump');
+        const jumpInfo = await invoke<VersionJumpInfo | null>('check_version_jump');
         console.log(
           `[StartupPerf][VersionJump] check_version_jump completed in ${(performance.now() - versionJumpInvokeStartedAt).toFixed(2)}ms; hasJump=${Boolean(jumpInfo)}`,
         );
@@ -3126,9 +3078,12 @@ function MainApp() {
     const handlePayload = (payload: unknown) => {
       if (!payload || typeof payload !== 'object') return;
       const detail = payload as AppPathMissingDetail;
+      if (detail.app === 'codex') {
+        recoverLegacyCodexPath(detail.retry);
+        return;
+      }
       if (
         detail.app !== 'antigravity' &&
-        detail.app !== 'codex' &&
         detail.app !== 'claude' &&
         detail.app !== 'vscode' &&
         detail.app !== 'windsurf' &&
@@ -3215,9 +3170,6 @@ function MainApp() {
             appPathMissing.retry?.kind === 'instance' &&
             isClaudeWindowsAppLaunchTarget(normalizedPath);
           setAppPathDraft(shouldClearClaudeDefaultTarget ? '' : normalizedPath);
-          if (appPathMissing.app === 'codex' && config.codex_launch_on_switch === false) {
-            setAppPathMissing(null);
-          }
         }
       } catch (error) {
         console.error('Failed to load app path config:', error);
@@ -3461,7 +3413,9 @@ function MainApp() {
       .then((target) => {
         if (!target) return;
         const page = String(target);
-        if (isMainWindowNavigablePage(page)) {
+        if (requestCodexRequestLogsNavigation(page)) {
+          setPage('codex-api-service');
+        } else if (isMainWindowNavigablePage(page)) {
           setPage(page);
         }
       })
@@ -3475,7 +3429,9 @@ function MainApp() {
 
         listen<string>('tray:navigate', (event) => {
           const target = String(event.payload || '');
-          if (isMainWindowNavigablePage(target)) {
+          if (requestCodexRequestLogsNavigation(target)) {
+            setPage('codex-api-service');
+          } else if (isMainWindowNavigablePage(target)) {
             setPage(target);
           }
         }).then((fn) => { unlisten = fn; });
@@ -3630,6 +3586,7 @@ function MainApp() {
     <div
       className={`app-container${isWindowsPlatform() ? ' app-container-windows' : ''}${sideNavLayoutMode === 'classic' ? ' app-container-side-nav-classic' : ''}${sideNavLayoutMode === 'classic' && sideNavClassicCollapsed ? ' app-container-side-nav-classic-collapsed' : ''}`}
     >
+      <AppBackground />
       {/* 更新通知：活跃状态时保持挂载，关闭后继续保留当前更新状态 */}
       {shouldRenderUpdateNotification && (
         <div style={showUpdateNotification ? undefined : { display: 'none' }}>
@@ -3637,6 +3594,7 @@ function MainApp() {
           <UpdateNotification
             key={updateNotificationKey}
             updateInfo={updateNotificationInfo}
+            visible={showUpdateNotification}
             checking={updateNotificationChecking}
             onRestartUpdate={handleApplyPendingUpdate}
             actionState={updateAction.state}
@@ -3720,14 +3678,6 @@ function MainApp() {
                     {t(
                       'appPath.missing.claudeMultiInstanceRequiresExe',
                       'Claude 应用多开需要真实 Claude.exe 路径；Microsoft Store 启动目标仅适用于默认桌面端。',
-                    )}
-                  </p>
-                ) : null}
-                {appPathMissing.app === 'codex' ? (
-                  <p className="app-path-missing-hint">
-                    {t(
-                      'appPath.missing.codexLaunchHint',
-                      '切号已完成。启动应用请先设置路径；若切号后不需要启动，请到设置中关闭「切换 Codex 时自动启动 Codex App」。',
                     )}
                   </p>
                 ) : null}
@@ -4053,11 +4003,11 @@ function MainApp() {
 
 function App() {
   const windowLabel = getCurrentWindow().label;
-  if (windowLabel === 'floating-card' || windowLabel.startsWith('instance-floating-card-')) {
-    return <FloatingCardWindow />;
-  }
-
-  return <MainApp />;
+  const floating = windowLabel === 'floating-card' || windowLabel.startsWith('instance-floating-card-');
+  return <>
+    {floating ? <FloatingCardWindow /> : <MainApp />}
+    <CodexPathRecoveryDialog />
+  </>;
 }
 
 export default App;

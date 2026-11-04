@@ -134,7 +134,7 @@ fn history_projection_repair_zstd_ancestor_uses_physical_ids_and_keeps_original_
     assert_eq!(plan.candidate_count(), 1);
     assert_eq!(plan.scanned_files(), 2);
     let backup = f.root.join("repair-backup");
-    assert_eq!(apply(&f.root, &plan, &backup, &|| Ok(())).unwrap(), 1);
+    assert_eq!(apply(&f.root, &plan, &backup).unwrap(), 1);
     assert_eq!(f.count(ROOT), 0);
     assert_eq!(f.count(CHILD), 1);
     for table in storage::TABLES {
@@ -173,7 +173,7 @@ fn history_projection_repair_zstd_ancestor_uses_physical_ids_and_keeps_original_
     let again = f.plan();
     assert_eq!(again.candidate_count(), 0);
     assert_eq!(
-        apply(&f.root, &again, &f.root.join("unneeded-backup"), &|| Ok(())).unwrap(),
+        apply(&f.root, &again, &f.root.join("unneeded-backup")).unwrap(),
         0
     );
     assert!(!f.root.join("unneeded-backup").exists());
@@ -189,7 +189,7 @@ fn history_projection_repair_backup_preserves_sqlite_storage_types() {
         )
         .unwrap();
     let backup = f.root.join("typed-backup");
-    apply(&f.root, &f.plan(), &backup, &|| Ok(())).unwrap();
+    apply(&f.root, &f.plan(), &backup).unwrap();
     let copy = Connection::open(backup.join("history-projection.sqlite")).unwrap();
     let (kind, blob): (String, Vec<u8>) = copy
         .query_row(
@@ -250,7 +250,7 @@ fn history_projection_repair_selected_sessions_leave_unrelated_projections_untou
     let bytes = records(OTHER, None, 0);
     fs::write(&other, &bytes).unwrap();
     cache(&f.db(), OTHER, bytes.len() as i64 + 2000, 3);
-    apply(&f.root, &f.plan(), &f.root.join("backup"), &|| Ok(())).unwrap();
+    apply(&f.root, &f.plan(), &f.root.join("backup")).unwrap();
     assert_eq!(f.count(ROOT), 0);
     assert_eq!(f.count(OTHER), 1);
 }
@@ -267,7 +267,7 @@ fn history_projection_repair_detects_source_and_cursor_changes_before_deletion()
         } else {
             f.db().execute("UPDATE thread_history_projection_state SET next_rollout_byte_offset=1 WHERE thread_id=?1",[ROOT]).unwrap();
         }
-        assert!(apply(&f.root, &plan, &f.root.join("backup"), &|| Ok(()))
+        assert!(apply(&f.root, &plan, &f.root.join("backup"))
             .unwrap_err()
             .contains("CHANGED"));
         assert_eq!(f.count(ROOT), 1);
@@ -279,9 +279,9 @@ fn history_projection_repair_detects_changed_derived_rows_after_the_backup() {
     let f = Fixture::new();
     let plan = f.plan();
     let calls = Cell::new(0);
-    let result = apply(&f.root, &plan, &f.root.join("backup"), &|| {
+    let result = apply_with_checkpoints(&f.root, &plan, &f.root.join("backup"), &|| {
         calls.set(calls.get() + 1);
-        if calls.get() == 2 {
+        if calls.get() == 1 {
             f.db()
                 .execute(
                     "UPDATE thread_items SET item_json='new concurrent value' WHERE thread_id=?1",
@@ -289,7 +289,6 @@ fn history_projection_repair_detects_changed_derived_rows_after_the_backup() {
                 )
                 .unwrap();
         }
-        Ok(())
     });
     assert!(result.unwrap_err().contains("CHANGED"));
     assert_eq!(f.count(ROOT), 1);
@@ -305,31 +304,75 @@ fn history_projection_repair_detects_changed_derived_rows_after_the_backup() {
 }
 
 #[test]
-fn history_projection_repair_running_guard_prevents_changes_and_rolls_back_started_transaction() {
-    for fail_at in [1, 3] {
+fn history_projection_repair_allows_open_client_connections_and_retains_unrelated_writes() {
+    let f = Fixture::new();
+    let client = f.db();
+    client.pragma_update(None, "journal_mode", "WAL").unwrap();
+    cache(&client, OTHER, 20, 1);
+    let plan = f.plan();
+    let calls = Cell::new(0);
+    let backup = f.root.join("live-backup");
+    let repaired = apply_with_checkpoints(&f.root, &plan, &backup, &|| {
+        calls.set(calls.get() + 1);
+        if calls.get() == 1 {
+            client
+                .execute(
+                    "UPDATE thread_items SET item_json='new unrelated message' WHERE thread_id=?1",
+                    [OTHER],
+                )
+                .unwrap();
+        }
+    })
+    .unwrap();
+    assert_eq!(repaired, 1);
+    assert_eq!(f.count(ROOT), 0);
+    assert_eq!(f.count(CHILD), 1);
+    let value: String = client
+        .query_row(
+            "SELECT item_json FROM thread_items WHERE thread_id=?1",
+            [OTHER],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(value, "new unrelated message");
+    assert!(backup.join("history-projection.sqlite").is_file());
+}
+
+#[test]
+fn history_projection_repair_busy_client_fails_promptly_without_deleting_history() {
+    for writer in [true, false] {
         let f = Fixture::new();
+        let client = f.db();
+        if writer {
+            client.pragma_update(None, "journal_mode", "WAL").unwrap();
+        }
         let plan = f.plan();
-        let calls = Cell::new(0);
-        let result = apply(&f.root, &plan, &f.root.join("backup"), &|| {
-            calls.set(calls.get() + 1);
-            if calls.get() == fail_at {
-                Err("CLIENT_RUNNING".into())
+        client
+            .execute_batch(if writer {
+                "BEGIN IMMEDIATE"
             } else {
-                Ok(())
-            }
-        });
-        assert_eq!(result.unwrap_err(), "CLIENT_RUNNING");
+                "BEGIN; SELECT * FROM thread_items"
+            })
+            .unwrap();
+        let started = Instant::now();
+        let result = apply(&f.root, &plan, &f.root.join("busy-backup"));
+        assert!(result.unwrap_err().contains("DATABASE"));
+        assert!(started.elapsed() < Duration::from_secs(2));
+        client.execute_batch("ROLLBACK").unwrap();
         for table in storage::TABLES {
-            let count: i64 = f
-                .db()
+            let count: i64 = client
                 .query_row(
                     &format!("SELECT COUNT(*) FROM {table} WHERE thread_id=?1"),
                     [ROOT],
-                    |r| r.get(0),
+                    |row| row.get(0),
                 )
                 .unwrap();
             assert_eq!(count, 1);
         }
+        assert_eq!(
+            apply(&f.root, &f.plan(), &f.root.join("retry-backup")).unwrap(),
+            1
+        );
     }
 }
 
@@ -371,7 +414,7 @@ fn history_projection_repair_rejects_header_identity_mismatch_and_backup_failure
     let f = Fixture::new();
     let blocked = f.root.join("blocked-backup");
     fs::write(&blocked, b"existing user file").unwrap();
-    assert!(apply(&f.root, &f.plan(), &blocked, &|| Ok(()))
+    assert!(apply(&f.root, &f.plan(), &blocked)
         .unwrap_err()
         .contains("BACKUP"));
     assert_eq!(f.count(ROOT), 1);
@@ -379,18 +422,17 @@ fn history_projection_repair_rejects_header_identity_mismatch_and_backup_failure
 }
 
 #[test]
-fn history_projection_repair_source_change_during_final_guard_rolls_back() {
+fn history_projection_repair_source_change_before_commit_rolls_back() {
     let f = Fixture::new();
     let calls = Cell::new(0);
     let plan = f.plan();
-    let result = apply(&f.root, &plan, &f.root.join("backup"), &|| {
+    let result = apply_with_checkpoints(&f.root, &plan, &f.root.join("backup"), &|| {
         calls.set(calls.get() + 1);
-        if calls.get() == 3 {
+        if calls.get() == 2 {
             let mut bytes = fs::read(&f.child).unwrap();
             bytes.push(b'\n');
             fs::write(&f.child, bytes).unwrap();
         }
-        Ok(())
     });
     assert!(result.unwrap_err().contains("CHANGED"));
     assert_eq!(f.count(ROOT), 1);
@@ -405,13 +447,9 @@ fn history_projection_repair_budget_and_profile_scope_are_enforced() {
     assert!(budget.check().unwrap_err().contains("LIMIT"));
     let f = Fixture::new();
     let other = Fixture::new();
-    assert!(
-        apply(&other.root, &f.plan(), &other.root.join("backup"), &|| Ok(
-            ()
-        ))
+    assert!(apply(&other.root, &f.plan(), &other.root.join("backup"))
         .unwrap_err()
-        .contains("CHANGED")
-    );
+        .contains("CHANGED"));
     f.db().execute("UPDATE thread_history_projection_state SET next_rollout_byte_offset=-1 WHERE thread_id=?1", [ROOT]).unwrap();
     assert!(scan(&f.root, None, &|_, _| {})
         .unwrap_err()

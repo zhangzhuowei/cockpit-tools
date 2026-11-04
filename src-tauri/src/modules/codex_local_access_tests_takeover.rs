@@ -155,6 +155,7 @@ experimental_bearer_token = "agt_codex_test"
         let mut account_key = build_local_access_api_key(Some("DeepSeek pool"));
         account_key.id = "provider_gateway_deepseek".to_string();
         account_key.provider_gateway = Some(CodexLocalAccessProviderGateway {
+        auth_scheme: None,
             base_url: "https://api.deepseek.com/v1".to_string(),
             api_key: "sk-deepseek".to_string(),
             upstream_model: "deepseek-v4-pro".to_string(),
@@ -606,6 +607,7 @@ experimental_bearer_token = "agt_codex_test"
             label: "Provider Gateway: DeepSeek".to_string(),
             key: key.clone(),
             provider_gateway: Some(CodexLocalAccessProviderGateway {
+        auth_scheme: None,
                 base_url: "https://api.deepseek.com/v1".to_string(),
                 api_key: "sk-deepseek".to_string(),
                 upstream_model: "deepseek-v4-pro".to_string(),
@@ -625,6 +627,8 @@ experimental_bearer_token = "agt_codex_test"
             excluded_models: Vec::new(),
             token_limit: None,
             token_used: 0,
+            budget: Default::default(),
+            budget_usage: Default::default(),
             enabled: true,
             created_at: 0,
             updated_at: 0,
@@ -789,6 +793,7 @@ experimental_bearer_token = "agt_codex_test"
         );
 
         let provider_gateway = CodexLocalAccessProviderGateway {
+        auth_scheme: None,
             base_url: "https://relay.example/v1".to_string(),
             api_key: "sk-test".to_string(),
             upstream_model: "upstream-model".to_string(),
@@ -1613,7 +1618,7 @@ experimental_bearer_token = "agt_codex_test"
     }
 
     #[test]
-    fn sanitize_collection_migrates_legacy_gateway_to_sidecar() {
+    fn sanitize_collection_migrates_legacy_gateway_to_native() {
         let mut collection = test_local_access_collection(Vec::new());
         collection.gateway_mode = CodexLocalAccessGatewayMode::Legacy;
 
@@ -1623,7 +1628,7 @@ experimental_bearer_token = "agt_codex_test"
         assert!(changed);
         assert_eq!(
             collection.gateway_mode,
-            CodexLocalAccessGatewayMode::Sidecar
+            CodexLocalAccessGatewayMode::Native
         );
     }
 
@@ -1683,6 +1688,7 @@ experimental_bearer_token = "agt_codex_test"
         let mut api_key = build_local_access_api_key(Some("Provider Gateway"));
         api_key.inherit_account_pool = Some(false);
         api_key.provider_gateway = Some(CodexLocalAccessProviderGateway {
+        auth_scheme: None,
             base_url: "https://api.deepseek.com/v1".to_string(),
             api_key: "sk-test".to_string(),
             upstream_model: "deepseek-v4-pro".to_string(),
@@ -1735,6 +1741,7 @@ experimental_bearer_token = "agt_codex_test"
         let mut api_key = build_local_access_api_key(Some("Provider Gateway"));
         api_key.inherit_account_pool = Some(false);
         api_key.provider_gateway = Some(CodexLocalAccessProviderGateway {
+        auth_scheme: None,
             base_url: "https://api.deepseek.com/v1".to_string(),
             api_key: "sk-test".to_string(),
             upstream_model: "deepseek-v4-pro".to_string(),
@@ -2137,4 +2144,24 @@ experimental_bearer_token = "agt_codex_test"
 
         fs::remove_dir_all(profile_dir).expect("cleanup fixture");
         fs::remove_dir_all(gateway_profile_dir).expect("cleanup fixture");
+    }
+
+    #[test]
+    fn takeover_restore_does_not_revive_retired_speed_catalog() {
+        let dir = tempfile::tempdir().unwrap();
+        let legacy = crate::modules::codex_model_catalog_capabilities::FILE_NAME;
+        let current = "model_provider = 'codex_local_access'\nmodel_catalog_json = 'cockpit-model-catalog.json'\n";
+        for reference in [legacy.to_string(), dir.path().join(legacy).to_string_lossy().into_owned()] {
+            let backup = format!("model_catalog_json = '{reference}'\n[profiles.old]\nmodel_catalog_json = '{reference}'\n[profiles.custom]\nmodel_catalog_json = 'user.json'\n");
+            let restored = super::restore_profile_config_toml_from_takeover_backup(
+                dir.path(), Some(current), Some(&backup),
+            ).unwrap().unwrap();
+            let doc = restored.parse::<Document>().unwrap();
+            assert!(doc.get("model_catalog_json").is_none());
+            assert!(!restored.contains(legacy));
+            let custom = super::restore_profile_config_toml_from_takeover_backup(
+                dir.path(), Some(current), Some("model_catalog_json = 'user.json'\n"),
+            ).unwrap().unwrap();
+            assert!(custom.contains("user.json"));
+        }
     }

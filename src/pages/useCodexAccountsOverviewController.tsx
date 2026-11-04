@@ -2,6 +2,7 @@ import { codexOverviewMutableAccountIds } from "../utils/chatgptPlanOverview";
 import { resolveCodexAccountDisplayName } from "../utils/codexAccountDisplayName";
 import { useEffect, useMemo, useCallback, type MouseEvent as ReactMouseEvent } from "react";
 import { RefreshCw, RotateCw } from "lucide-react";
+import { CodexResetCreditExpiry } from '../components/CodexResetCreditExpiry';
 import * as codexService from "../services/codexService";
 import * as codexLocalAccessService from "../services/codexLocalAccessService";
 import { type CodexAccountGroup } from "../services/codexAccountGroupService";
@@ -348,12 +349,10 @@ export function useCodexAccountsOverviewController(context: Pick<ReturnType<type
                 .join(" · "),
           statusLabel: account.requires_reauth
             ? t("codex.authError.badge", "授权异常")
-            : account.client_auth_status === "login_required"
-              ? t("codex.switchAuth.apiOnlyBadge", "客户端需授权")
-              : overviewCurrentAccountId === account.id
+            : overviewCurrentAccountId === account.id
                 ? t("codex.current", "当前")
                 : undefined,
-          statusTone: account.requires_reauth || account.client_auth_status === "login_required"
+          statusTone: account.requires_reauth
             ? "warning"
             : overviewCurrentAccountId === account.id
               ? "success"
@@ -1650,7 +1649,7 @@ export function useCodexAccountsOverviewController(context: Pick<ReturnType<type
       [showAdditionalQuota, showCodeReviewQuota],
     );
   
-    const renderResetCreditControls = (account: CodexAccount) => {
+    const renderResetCreditControls = (account: CodexAccount, mode: 'controls' | 'expiry' = 'controls') => {
       if (isCodexApiKeyAccount(account) || isCodexAgentIdentityAccount(account))
         return null;
   
@@ -1662,6 +1661,14 @@ export function useCodexAccountsOverviewController(context: Pick<ReturnType<type
         availableCount ?? creditDetails.filter(isAvailableResetCredit).length;
       const isResetting = resettingResetCreditAccountId === account.id;
       const isDisabled = isResetting;
+      if (mode === 'expiry') {
+        return displayCount > 0 ? (
+          <div className="codex-account-reset-expiry-line">
+            <CodexResetCreditExpiry key={account.id} accountId={account.id} quota={account.quota}
+              disabled={isDisabled} onClick={() => openResetCreditConfirmModal(account)} />
+          </div>
+        ) : null;
+      }
       const titleText =
         displayCount > 0
           ? buildResetCreditsTitle(account, displayCount)

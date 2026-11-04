@@ -6,7 +6,6 @@ import ts from 'typescript';
 import type { DownloadEvent } from '@tauri-apps/plugin-updater';
 import { createUpdaterDownloadProgress } from '../src/utils/updaterDownloadProgress';
 import * as retry from '../src/utils/updaterRetry';
-import { parseUpdaterReleaseNotes } from '../src/utils/updaterReleaseNotes';
 import { deferred, settlePromises } from './helpers/reactHookHarness';
 
 // Exercise App's real callbacks without opening a desktop window or downloading a release.
@@ -58,6 +57,7 @@ function harness(options: {
   const timers: (() => void)[] = [];
   const updates: { previous: Action; update: (old: Action) => Action }[] = [];
   const notifications: unknown[] = [];
+  const savedNotes: { version: string; body?: string }[] = [];
   const refs = {
     updateCheckInFlightRef: { current: false },
     updateDownloadOwnerRef: { current: 'none' },
@@ -68,7 +68,7 @@ function harness(options: {
   };
   const exports: Record<string, any> = {};
   const context: Record<string, any> = {
-    exports, ...refs, ...retry, createUpdaterDownloadProgress, parseUpdaterReleaseNotes,
+    exports, ...refs, ...retry, createUpdaterDownloadProgress,
     UPDATE_DOWNLOAD_RETRY_DELAYS_MS: [0], UPDATE_CHECK_RETRY_DELAYS_MS: [],
     updateRuntimeInfoLoaded: true, isLinuxManagedUpdate: false, performance: { now: () => 0 },
     updatePromptPolicyRef: { current: { enabled: true, revision: 0 } },
@@ -80,7 +80,7 @@ function harness(options: {
         settingsReads++;
         return options.settings ? options.settings() : { auto_install: true };
       }
-      assert.ok(['save_pending_update_notes', 'update_last_check_time'].includes(command), command);
+      assert.equal(command, 'update_last_check_time');
     },
     async runUpdaterCheck() { checks++; return options.check ? options.check() : null; },
     async closeUpdaterHandle(update?: Candidate | null) { await update?.close(); },
@@ -88,7 +88,6 @@ function harness(options: {
     async prepareUpdateNotificationInfo(update: Candidate) {
       return options.prepareInfo ? options.prepareInfo() : {
         latest_version: update.version, current_version: update.currentVersion,
-        release_notes: '', release_notes_zh: '',
       };
     },
     setUpdateAction(next: Action | ((old: Action) => Action)) {
@@ -105,6 +104,7 @@ function harness(options: {
     setUpdateErrorDetails() {}, setSilentUpdateVersion() {},
     setUpdateNotificationInfo(value: unknown) { notifications.push(value); },
     applyUpdateReminderPreference() {}, openAutomaticUpdatePrompt() {}, writeUpdateLog() {},
+    savePendingUpdateNotes(version: string, body?: string) { savedNotes.push({ version, body }); },
     t: (key: string) => key,
   };
   for (const name of ['runSharedUpdateDownload', 'handleUpdateCheckResult']) {
@@ -118,7 +118,7 @@ function harness(options: {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
   }).outputText, context);
   return {
-    refs, updates, notifications, start: exports.runSharedUpdateDownload as (version: string, initial?: Candidate) => Promise<void>,
+    refs, updates, notifications, savedNotes, start: exports.runSharedUpdateDownload as (version: string, initial?: Candidate) => Promise<void>,
     background: exports.background as () => () => void,
     poll: () => timers.at(-1)!(), state: () => action, retryStatus: () => retryStatus,
     error: () => error, checks: () => checks, settingsReads: () => settingsReads,
@@ -139,6 +139,7 @@ test('manual download followed by the hourly check keeps one task and real progr
   assert.equal(h.settingsReads(), 0);
   assert.equal(h.checks(), 1);
   assert.equal(update.downloads, 1);
+  assert.deepEqual(h.savedNotes, [{ version: update.version, body: update.body }]);
   update.emit(chunk(400));
   assert.equal(h.state().progress, 72);
   update.emit(chunk(10));
@@ -149,6 +150,7 @@ test('manual download followed by the hourly check keeps one task and real progr
   h.poll(); await settlePromises();
   await h.start(update.version);
   assert.equal(h.checks(), 1, 'ready update must not be downloaded again');
+  assert.equal(h.savedNotes.length, 1, 'deduplicated downloads do not save duplicate notes');
   assert.equal(h.refs.pendingSilentUpdateRef.current, update);
 });
 

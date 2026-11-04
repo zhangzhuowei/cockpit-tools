@@ -226,3 +226,16 @@ fn launch_quick_repair_leaves_backup_retention_outside_critical_path() {
         fs::remove_dir_all(backup).unwrap();
     }
 }
+#[test]
+fn only_pre_mutation_process_snapshot_failures_can_be_deferred() {
+    assert!(can_defer_launch_snapshot_error("CODEX_SESSION_VISIBILITY_PROCESS_UNAVAILABLE"));
+    assert!(can_defer_launch_snapshot_error("CODEX_SESSION_VISIBILITY_TIMEOUT: CODEX_SESSION_VISIBILITY_TIMEOUT: stage=process_snapshot"));
+    for error in [
+        "CODEX_SESSION_VISIBILITY_TIMEOUT: stage=sqlite",
+        "CODEX_SESSION_VISIBILITY_TIMEOUT: stage=rollout_write",
+        "CODEX_SESSION_VISIBILITY_ROLLBACK_FAILED: CODEX_SESSION_VISIBILITY_TIMEOUT: stage=process_snapshot",
+        "database is locked",
+    ] {
+        assert!(!can_defer_launch_snapshot_error(error), "{error}");
+    }
+}
