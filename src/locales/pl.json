@@ -290,6 +290,7 @@
     "failureTime": "Czas błędu",
     "clearRecord": "Usuń wpis",
     "clearingRecord": "Usuwanie…",
+    "to": "do",
     "dragSortHint": "Przeciągnij lewy uchwyt, aby zmienić kolejność. Zmiany zapiszą się po puszczeniu.",
     "dragSortFilteredHint": "Wyczyść wyszukiwanie, aby zmienić kolejność.",
     "recycleBin": {
@@ -689,6 +690,7 @@
     "traeCn": "Trae CN​",
     "traeSoloCn": "TRAE SOLO CN​",
     "codebuddyCn": "CodeBuddy CN​",
+    "minimaxcode": "MiniMax Code",
     "zed": "Platforma Zed",
     "expandSidebar": "Rozwiń pasek boczny",
     "collapseSidebar": "Zwiń pasek boczny",
@@ -756,7 +758,12 @@
     "setAsDefaultInGroup": "Ustaw jako domyślną platformę w tej grupie",
     "removeFromGroup": "Usuń z grupy",
     "sidebarSelectedUnlimited": "Wybrano ({count})",
-    "tipWithGroupsUnlimited": "Ręczne sortowanie wybranych platform i grup"
+    "tipWithGroupsUnlimited": "Ręczne sortowanie wybranych platform i grup",
+    "enabledToggle": "Włączone",
+    "groupEnabledHint": "Włącz lub wyłącz wszystkie platformy w grupie",
+    "disabledHint": "Wyłączenie zatrzymuje zadania automatyczne i ukrywa ustawienia platformy. Widoczność pozycji ustawia się osobno",
+    "enableAll": "Włącz wszystkie",
+    "disableAll": "Wyłącz wszystkie"
   },
   "privacy": {
     "hideSensitive": "Ukryj e-maile",
@@ -1243,6 +1250,12 @@
       "workbuddyAppPathPlaceholder": "Domyślna ścieżka",
       "workbuddyPathSelect": "Wybierz",
       "workbuddyPathReset": "Przywróć domyślne",
+      "minimaxCodeAppPath": "Ścieżka uruchamiania MiniMax Code",
+      "minimaxCodeAppPathDesc": "Pozostaw puste, aby użyć domyślnej ścieżki",
+      "minimaxCodeAppPathPlaceholder": "Domyślna ścieżka",
+      "minimaxCodePathSelect": "Wybierz",
+      "minimaxCodeAppPathPathSelect": "Wybierz",
+      "minimaxCodePathReset": "Przywróć domyślne",
       "openclawAuthOverwrite": "Nadpisuj logowanie OpenClaw podczas przełączania Codex",
       "openclawAuthOverwriteDesc": "Gdy wyłączone, przełączany jest tylko Codex, a OpenClaw zachowuje bieżący stan logowania",
       "ghcpOpencodeAuthOverwrite": "Nadpisuj logowanie OpenCode podczas przełączania GitHub Copilot",
@@ -1314,6 +1327,8 @@
       "qoderPathSelect": "Wybierz",
       "workbuddyAutoRefresh": "Automatyczne odświeżanie limitu WorkBuddy",
       "workbuddyAutoRefreshDesc": "Częstotliwość automatycznego odświeżania w tle",
+      "minimaxCodeAutoRefresh": "Automatyczne odświeżanie limitu MiniMax Code",
+      "minimaxCodeAutoRefreshDesc": "Częstotliwość automatycznego odświeżania w tle",
       "codexLocalAccessEntryVisible": "Pokaż wpis usługi API",
       "codexLocalAccessEntryVisibleDesc": "Steruje tylko tym, czy wpis usługi API jest widoczny w przeglądzie Codex. Nie zatrzymuje lokalnej usługi API; możesz go ponownie włączyć tutaj lub w szybkich ustawieniach.",
       "codexLocalAccessEnabled": "Włącz usługę API",
@@ -1403,9 +1418,13 @@
       "codexEnhancements": {
         "quotaCompat": "Limity w trybie mieszanym",
         "quotaCompatDesc": "Przy prawdziwym logowaniu OAuth i zewnętrznej trasie API limit subskrypcji nie blokuje lokalnych wiadomości API. Rzeczywiste zużycie i limity obrazów nie zmieniają się.",
-        "restartHint": "Domyślnie włączone. Po zmianach uruchom ponownie odpowiednie instancje Codex i pozostaw Cockpit Tools włączony. Natywne dyktowanie zależy od możliwości i ustawień klienta; Cockpit go nie przejmuje ani nie wymusza jego włączenia.",
-        "configFailed": "Nie udało się odczytać lub zapisać ustawień: {{error}}"
-      }
+        "restartHint": "Natywne przewidywanie jest domyślnie wyłączone. Po zmianach uruchom ponownie odpowiednie instancje Codex i pozostaw Cockpit Tools włączony. Natywne dyktowanie zależy od możliwości i ustawień klienta; Cockpit go nie przejmuje ani nie wymusza jego włączenia.",
+        "configFailed": "Nie udało się odczytać lub zapisać ustawień: {{error}}",
+        "nativePredictions": "Natywne przewidywanie następnego kroku (Tab)",
+        "nativePredictionsDesc": "Generuje propozycje następnej wiadomości przy użyciu dostawcy API i modelu bieżącej rozmowy. Zużywa dodatkowe kredyty API; po zapisaniu uruchom ponownie Codex."
+      },
+      "timeDisplayMode": "Wyświetlany czas",
+      "timeDisplayModeDesc": "Czas na kartach i listach kont. Domyślnie czas przełączenia konta"
     },
     "network": {
       "apiTitle": "API kokpitu antygrawitacyjnego",
@@ -2089,7 +2108,13 @@
     "tagUpdated": "Tag zaktualizowany",
     "plan": {
       "personal": "Osobisty"
-    }
+    },
+    "lastSwitchTime": "Przełączenie",
+    "neverSwitched": "Brak przełączeń",
+    "refreshTime": "Odświeżenie",
+    "lastSwitchTimeFull": "Przełączenie: {{time}}",
+    "refreshTimeFull": "Odświeżenie: {{time}}",
+    "toggleTimeMode": "Pokaż czas przełączenia lub odświeżenia"
   },
   "overview": {
     "title": "Przegląd kont",
@@ -2453,6 +2478,22 @@
     "other_group": "Inne modele"
   },
   "codex": {
+    "overload": {
+      "setting": "Ponawiaj przy przeciążeniu",
+      "settingHint": "Dotyczy nowych żądań lokalnej usługi API Codex. Żądania, które można bezpiecznie ponowić, czekają na dostępność modelu.",
+      "retrying": "Model zajęty, ponawianie ({{count}})",
+      "count": "Przeciążenia: {{count}}",
+      "countHint": "Zlicza próby u dostawcy, także automatyczne. Historia obejmuje do 7 dni.",
+      "history": "Historia przeciążeń",
+      "empty": "W tym okresie nie było błędów przeciążenia.",
+      "attempt": "Próba {{number}}",
+      "sameAccount": "Wznowiono na tym samym koncie",
+      "otherAccount": "Wznowiono po zmianie konta",
+      "pending": "Oczekiwanie na wynik",
+      "cancelled": "Anulowano",
+      "failed": "Żądanie nie powiodło się",
+      "countUnavailable": "Statystyki przeciążenia są niedostępne"
+    },
     "instance": {
       "errors": {
         "threadSyncWorkerFailed": "Zadanie synchronizacji sesji nie powiodło się: {{error}}",
@@ -3273,7 +3314,7 @@
       "resetCreditDialogDesc": "Zresetuj limit szybkości, aby kontynuować pracę bez przerw. Dostępne resety: {{count}}.",
       "resetCreditDialogAction": "Resetuj użycie",
       "resetCreditNoCredits": "Brak dostępnych resetów",
-      "resetCreditConsumed": "Limit 5 godzin zresetowany",
+      "resetCreditConsumed": "Limit zresetowany",
       "resetCreditFailed": "Reset nieudany: {{error}}",
       "resetCreditRefreshAfterConsumeFailed": "Reset wysłany, ale odświeżenie limitu nieudane: {{error}}",
       "resetCreditsTitleWithExpiry": "Pozostałe resety okna 5 godzin: {{count}}. Najbliższe wygaśnięcie: {{time}}",
@@ -4144,7 +4185,7 @@
         "apiKeyUrlInvalid": "Użyj adresu HTTP(S) strony zarządzania bez danych logowania; klucz API wpisz w polu klucza."
       },
       "saveSuccess": "Dostawca modelu został zapisany.",
-      "deleteBlocked": "Ten dostawca jest powiązany z {{count}} kontami i nie można go usunąć.",
+      "confirmDeleteWithAccounts": "Usunąć dostawcę „{{name}}” i powiązane konta ({{count}})?",
       "confirmDelete": "Usunąć dostawcę „{{name}}”?",
       "deleteFailed": "Nie udało się usunąć dostawcy: {{error}}",
       "deleteApiKeyFailed": "Nie udało się usunąć klucza API: {{error}}",
@@ -4274,7 +4315,7 @@
         "selectVisible": "Wybierz widoczne",
         "resultSelectedCount": "Wybrano {{count}}",
         "selectFailed": "Wybierz nieudane",
-        "deleteConfirm": "Usunąć {{providerCount}} wybranych dostawców? Zostanie też usuniętych {{accountCount}} dokładnie powiązanych kont Codex API Key.",
+        "deleteConfirm": "Usunąć wybranych dostawców ({{providerCount}}) i powiązane konta ({{accountCount}})?",
         "deleteSuccess": "Usunięto {{providerCount}} dostawców i {{accountCount}} powiązanych kont.",
         "deleteFailed": "Nie udało się usunąć wybranych elementów: {{error}}",
         "protocolSummary": "{{protocol}} · {{mode}} · {{model}}",
@@ -5141,7 +5182,7 @@
       "boundProxyUnavailable": "Powiązane konto nie ma dostępnego proxy. Wybierz je ponownie.",
       "sourceUnavailable": "Źródło proxy lub węzeł jest niedostępny. Wybierz ponownie.",
       "operationTimeout": "Przekroczono limit czasu operacji proxy. Spróbuj ponownie.",
-      "cardScopeHint": "Uruchamiany klient komputerowy Codex korzysta z proxy tej karty. Połączenia bram modeli z dostawcami zachowują własne trasy.",
+      "cardScopeHint": "Proxy kont z kluczem API dotyczy klientów komputerowych i żądań wychodzących usługi API. Proxy karty usługi API dotyczy tylko klientów komputerowych. Systemowe proxy pozostaje bez zmian.",
       "display": {
         "title": "Widok proxy",
         "compact": "Zwięzły",
@@ -5442,7 +5483,7 @@
       "modeDefaultHint": "To konto nie używa proxy i zachowuje poprzednie domyślne wyjście.",
       "modeStaleHint": "Powiązane źródło lub węzeł nie jest już dostępny. Wybierz ponownie.",
       "management": "Zarządzanie proxy",
-      "managementHint": "Ustaw proxy dla kart kont OAuth, API i usługi API bez zmiany systemowego proxy. Na kartach API dotyczy ono uruchamianego klienta komputerowego; bramy modeli zachowują własne trasy.",
+      "managementHint": "Proxy kont z kluczem API dotyczy klientów komputerowych i żądań wychodzących usługi API. Proxy karty usługi API dotyczy tylko klientów komputerowych. Systemowe proxy pozostaje bez zmian.",
       "emptyTitle": "Osobne połączenie dla konta",
       "emptyDescription": "Brak obsługiwanych kart kont. Dodaj konto OAuth lub API albo włącz kartę usługi API, a następnie wybierz tutaj proxy.",
       "search": "Szukaj kont",
@@ -5750,7 +5791,7 @@
         "assign": "Przypisz proxy",
         "specific": "Wybrane konta",
         "shared": "Wspólne proxy",
-        "sharedHint": "Obsługiwane karty bez własnego proxy używają tego proxy, także nowo dodane. Własne ustawienia i Bez proxy mają pierwszeństwo. Karty API używają go dla klienta komputerowego; bramy modeli zachowują własne trasy.",
+        "sharedHint": "Konta bez własnego proxy dziedziczą to proxy, także nowe konta. Własne proxy i Bez proxy mają pierwszeństwo. Konta z kluczem API używają go dla klientów komputerowych i żądań API; karta usługi API tylko dla klientów komputerowych.",
         "apply": "Przypisz"
       },
       "managerResources": {
@@ -5877,7 +5918,7 @@
       "title": "Szczegóły żądania",
       "totalLatency": "Łączny czas",
       "firstResponse": "Pierwsza odpowiedź",
-      "firstResponseHint": "Czas od początku żądania do pierwszego fragmentu odpowiedzi serwera, niekoniecznie do pierwszego wygenerowanego tokenu.",
+      "firstResponseHint": "W nowych żądaniach strumieniowych Responses czas jest mierzony od przetworzenia treści żądania przez bramę do pierwszego zdarzenia odpowiedzi serwera nadrzędnego. Sygnały podtrzymania połączenia i powiadomienia o limitach są pomijane.",
       "unavailable": "Brak danych diagnostycznych. Odśwież później. Starsze żądania nie są uzupełniane.",
       "attempts": "Próby",
       "noAttempts": "Nie zapisano historii prób.",
@@ -6057,10 +6098,27 @@
       "pending": "Oczekiwanie na użycie OpenAI",
       "permissionRequired": "Klucz nie ma prawa do odczytu użycia organizacji (api.usage.read).",
       "permissionGuide": "Użyj klucza administratora: Admin keys → Restricted → Usage API Scope → Read. Udostępnia koszty i użycie, bez pozostałego salda.",
-      "openAdminKeys": "Uprawnienia użycia",
-      "invalidKey": "Klucz jest nieprawidłowy lub wygasł. Sprawdź bieżący klucz API.",
+      "openAdminKeys": "Utwórz klucz admina",
+      "invalidKey": "Klucz odczytu jest nieprawidłowy lub wygasł. Sprawdź klucz API administratora.",
       "networkFailed": "Brak połączenia ze statystykami OpenAI. Odśwież później.",
-      "queryFailed": "Nie udało się pobrać użycia OpenAI. Spróbuj później."
+      "queryFailed": "Nie udało się pobrać użycia OpenAI. Spróbuj później.",
+      "organization": "Użycie organizacji",
+      "configure": "Ustaw odczyt",
+      "settings": "Ustawienia odczytu",
+      "title": "Konfiguruj odczyt użycia",
+      "optional": "Odczyt użycia (opcjonalny)",
+      "queryKey": "Klucz API administratora",
+      "callKey": "Klucz API modelu",
+      "notConfigured": "Dodaj klucz administratora, aby odczytać koszty i użycie organizacji.",
+      "purpose": "Użyj klucza administratora z tej samej organizacji co klucz modelu. Służy on tylko do odczytu użycia i nie zastępuje klucza modelu.",
+      "saveVerify": "Zapisz i sprawdź",
+      "remove": "Usuń konfigurację",
+      "keyRequired": "Wpisz klucz API administratora.",
+      "saveFailed": "Nie udało się zapisać ustawień. Spróbuj ponownie.",
+      "configChanged": "Konto lub klucz odczytu uległ zmianie. Otwórz ustawienia ponownie.",
+      "openFailed": "Nie udało się otworzyć strony kluczy. Spróbuj ponownie.",
+      "costUnavailable": "Brak kwoty",
+      "costUnavailableHint": "Oficjalne API kosztów nie zwróciło kwot dla tego okresu. Żądania i tokeny pochodzą z osobnego API użycia; brak kwot nie oznacza zerowych wydatków."
     },
     "officialApi": {
       "hint": "Konto z oficjalnym kluczem API OpenAI, rozpoznane na podstawie rzeczywistego adresu połączenia."
@@ -6330,6 +6388,10 @@
     "workbuddy": {
       "title": "Ustawienia WorkBuddy",
       "appPath": "Ścieżka WorkBuddy"
+    },
+    "minimaxCode": {
+      "title": "Ustawienia MiniMax Code",
+      "appPath": "Ścieżka MiniMax Code"
     },
     "zcode": {
       "title": "Ustawienia ZCode",
@@ -7149,6 +7211,17 @@
       "resetUnknown": "Nieznany czas resetu",
       "statusUnknown": "Status: nieznany",
       "statusNormal": "Status: normalny",
+      "statusSynced": "Status: sync",
+      "statusSyncedPending": "Status: sync, reszta do potw.",
+      "fastAvailable": "Szybkie: {{times}}",
+      "fastTimes": "{{count}}",
+      "fastUnlimited": "Bez limitu",
+      "fastPerMonth": "Szybkie/mc: {{count}}",
+      "fastChannelPerMonth": "Express: {{count}}/mc",
+      "fastChannelStatus": "Szybki kanał: {{status}}",
+      "freeRemainingUnknown": "Free zostało: --",
+      "timesRemainingUnknown": "Zostało: --",
+      "soloParallel": "Pakiet: Solo ×{{count}}",
       "statusExhaustedFree": "Status: limit zuzycia wyczerpany, zalecamy wyzszy plan",
       "statusExhaustedPro": "Status: limit zuzycia wyczerpany, uaktualnij plan lub wlacz rozliczanie za uzycie",
       "bonusUsed": "Dodatkowy bonus: +{{amount}}",
@@ -7161,17 +7234,8 @@
       "payAsYouGoEnabled": "Rozliczanie za uzycie: wlaczone",
       "payAsYouGoEmpty": "Rozliczanie za uzycie: --",
       "payAsYouGoLabel": "Uzycie na zadanie",
-      "statusSynced": "Status: sync",
-      "statusSyncedPending": "Status: sync, reszta do potw.",
-      "fastAvailable": "Szybkie: {{times}}",
-      "fastTimes": "{{count}}",
-      "fastUnlimited": "Bez limitu",
-      "fastPerMonth": "Szybkie/mc: {{count}}",
-      "fastChannelPerMonth": "Express: {{count}}/mc",
-      "fastChannelStatus": "Szybki kanał: {{status}}",
-      "freeRemainingUnknown": "Free zostało: --",
-      "timesRemainingUnknown": "Zostało: --",
-      "soloParallel": "Pakiet: Solo ×{{count}}"
+      "creditsMember": "Kredyty członkowskie",
+      "creditsBonus": "Kredyty bonusowe"
     },
     "flowNotice": {
       "title": "Przewodnik po kontach Trae (kliknij, aby rozwinac/zwinac)",
@@ -7187,6 +7251,18 @@
     "token": {
       "jsonOnlyDesc": "Wklej pełny JSON konta Trae CN. Surowy token nie jest obsługiwany.",
       "jsonOnlyPlaceholder": "Pełny JSON Trae CN..."
+    },
+    "checkin": {
+      "modalTitle": "Codzienne zameldowanie",
+      "durationMs": "{{ms}} ms",
+      "durationSeconds": "{{seconds}} s",
+      "durationTitle": "Łączny czas check-in",
+      "logSuccess": "Sukces ({{done}}/{{total}})",
+      "logPartial": "Częściowy ({{done}}/{{total}})",
+      "logIncomplete": "Nieukończone",
+      "detailSuccess": "Check-in zakończony",
+      "detailAlreadyClaimed": "Już odebrane dzisiaj",
+      "detailError": "Błąd check-in"
     }
   },
   "codebuddyCn": {
@@ -7216,6 +7292,35 @@
     "syncToWorkbuddy": "Synchronizuj z WorkBuddy"
   },
   "workbuddy": {
+    "credits": {
+      "planBase": "Kredyty podstawowe",
+      "planBonus": "Bonus planu",
+      "benefit": "Nagrody platformy",
+      "addon": "Kupione kredyty",
+      "total": "Łącznie pozostało",
+      "details": "Szczegóły kredytów",
+      "usedOf": "Użyto {{used}}/{{total}}",
+      "remainingPercent": "Pozostało {{percent}}%",
+      "nearestExpiry": "Najbliższa ważność do {{time}}",
+      "nextRefresh": "Następne odnowienie {{time}}",
+      "expiring": "Część kredytów wkrótce wygaśnie",
+      "valid": "Ważne",
+      "expired": "Wygasłe",
+      "expiresAt": "Wygasa {{time}}",
+      "expiryHours": "Wygasa w ciągu 24 godz.",
+      "expiryDays": "Wygasa w ciągu 3 dni",
+      "empty": "Brak danych",
+      "loadFailed": "Nie udało się wczytać ({{error}})",
+      "overview": "Przegląd",
+      "remaining": "Pozostało {{amount}}",
+      "loadMore": "Wczytaj więcej",
+      "usage": "Historia zużycia",
+      "requestAndTime": "Żądanie i czas",
+      "creditUsed": "Zużyte kredyty",
+      "model": "Model AI",
+      "recentUsage": "Ostatnie 5 wpisów",
+      "viewMore": "Zobacz więcej"
+    },
     "title": "Zarządzanie kontami WorkBuddy",
     "noAccounts": "Brak kont WorkBuddy",
     "addAccount": "Dodaj konto WorkBuddy",
@@ -7223,7 +7328,7 @@
       "title": "Informacje o zarządzaniu kontami WorkBuddy (kliknij, aby rozwinąć/zwinąć)",
       "desc": "Przełączenie konta zapisuje lokalny plik logowania zgodnie z najnowszym układem oficjalnego klienta WorkBuddy; import lokalny czyta ten sam plik. Dane są przetwarzane wyłącznie lokalnie.",
       "permission": "Zakres uprawnień: odczyt i zapis pliku logowania WorkBuddy (CodeBuddyExtension/Data/Public/auth/workbuddy-desktop.info) dla importu lokalnego i przełączania kont; starszy state.vscdb nie jest już czytany ani modyfikowany.",
-      "network": "Zakres sieci: logowanie OAuth i odświeżanie tokenu wymagają żądań do WorkBuddy; zapytania o limity wywołują API rozliczeń. Lokalne pliki logowania ani surowe poświadczenia nie są wysyłane."
+      "network": "Logowanie OAuth i odświeżanie tokena łączą się z WorkBuddy. Saldo i szczegóły kredytów są pobierane z usługi rozliczeń za pomocą tokena konta. Pliki logowania i klucze systemowe pozostają na urządzeniu."
     },
     "nickname": "Pseudonim",
     "enterprise": "Firmowe",
@@ -7240,8 +7345,8 @@
       "oauth": {
         "title": "Tylko logowanie IDE",
         "item1": "Dodaj konto po zakończeniu OAuth w przeglądarce, a następnie użyj go do przełączania IDE.",
-        "item2": "Parametry zapytania limitu nie są automatycznie powiązywane.",
-        "item3": "Jeśli potrzebujesz podglądu limitu, uruchom ręcznie „Zapytaj limit” na karcie konta."
+        "item2": "Po autoryzacji saldo kredytów jest pobierane automatycznie.",
+        "item3": "Karta pokazuje przegląd kredytów. W szczegółach znajdziesz przyznane kredyty i daty ich ważności."
       }
     },
     "oauthWebviewTab": "OAuth przez WebView",
@@ -7357,8 +7462,169 @@
       "startTime": "Czas rozpoczęcia",
       "endTime": "Czas zakończenia",
       "timeRangeHint": "Wybiera codziennie losową godzinę w tym przedziale, aby dokończyć meldowanie w tle.",
+      "errors": "Błędy",
+      "tabSettings": "Ustawienia automatycznego meldowania",
+      "tabHistory": "Historia automatycznego meldowania",
+      "manualTest": "Uruchom test",
+      "clearLogs": "Wyczyść",
+      "clearLogsFailed": "Nie udało się wyczyścić historii odpraw: {{message}}",
+      "historyLoading": "Wczytywanie historii automatycznych odpraw...",
+      "historyLoadFailed": "Nie udało się wczytać historii automatycznych odpraw: {{message}}",
+      "totalCredits": "{{credits}} kredytów",
+      "historyRangeHint": "Przechowywane są tylko wpisy automatycznego meldowania z ostatnich 30 dni (łącznie: {{count}})",
+      "noHistory": "Brak wpisów automatycznego meldowania z ostatnich 30 dni",
+      "saveFailed": "Nie udało się zapisać ustawień automatycznego meldowania: {{message}}",
+      "manualTestPartialFailure": "Meldowanie nie powiodło się dla niektórych kont. Zobacz wpisy; ponowna próba odbędzie się później w tle.",
+      "manualTestAlreadyRunning": "Zadanie automatycznego meldowania jest już uruchomione. Sprawdź wpisy później.",
+      "manualTestFailed": "Test nie powiódł się: {{message}}",
       "timeRangeError": "Czas rozpoczęcia nie może być późniejszy niż czas zakończenia"
     }
+  },
+  "minimaxCode": {
+    "title": "Zarządzanie kontami MiniMax Code",
+    "noAccounts": "Brak kont MiniMax Code",
+    "addAccount": "Dodaj konto MiniMax Code",
+    "flowNotice": {
+      "title": "Informacje o zarządzaniu kontami MiniMax Code (kliknij, aby rozwinąć/zwinąć)",
+      "desc": "Przełączenie konta zapisuje lokalny plik logowania zgodnie z najnowszym układem oficjalnego klienta MiniMax Code; import lokalny czyta ten sam plik. Dane są przetwarzane wyłącznie lokalnie.",
+      "permission": "Zakres uprawnień: odczyt i zapis pliku logowania MiniMax Code (~/.minimax/auth/auth.json) dla importu lokalnego i przełączania kont; starszy state.vscdb nie jest już czytany ani modyfikowany.",
+      "network": "Zakres sieci: logowanie OAuth i odświeżanie tokenu wymagają żądań do MiniMax Code; zapytania o limity wywołują API rozliczeń. Lokalne pliki logowania ani surowe poświadczenia nie są wysyłane."
+    },
+    "nickname": "Pseudonim",
+    "enterprise": "Firmowe",
+    "usage": "Stan użycia",
+    "creditsBalance": "Saldo kredytów",
+    "usageNormal": "Normalny",
+    "usageAbnormal": "Nieprawidłowy",
+    "usageViewDetail": "Zobacz szczegóły",
+    "usageDetailTitle": "Szczegóły stanu użycia",
+    "oauthWaiting": "Oczekiwanie na autoryzację...",
+    "oauthDesc": "Kliknij przycisk poniżej, aby otworzyć stronę autoryzacji MiniMax Code w przeglądarce.",
+    "oauthDescWebview": "Kliknij przycisk poniżej, aby otworzyć stronę autoryzacji MiniMax Code we wbudowanym WebView.",
+    "oauthFeature": {
+      "oauth": {
+        "title": "Tylko logowanie IDE",
+        "item1": "Dodaj konto po zakończeniu OAuth w przeglądarce, a następnie użyj go do przełączania IDE.",
+        "item2": "Parametry zapytania limitu nie są automatycznie powiązywane.",
+        "item3": "Jeśli potrzebujesz podglądu limitu, uruchom ręcznie „Zapytaj limit” na karcie konta."
+      }
+    },
+    "oauthWebviewTab": "OAuth przez WebView",
+    "oauthOpenWebview": "Otwórz w WebView",
+    "oauthOpenWebviewIncognito": "Otwórz w prywatnym WebView",
+    "oauthOpenWebviewFailed": "Nie udało się otworzyć WebView: {{error}}",
+    "oauthOpenBrowserFallback": "Otwórz w przeglądarce (awaryjnie)",
+    "oauthOpenBrowserFailed": "Nie udało się otworzyć przeglądarki: {{error}}",
+    "oauthWebviewProgressHint": "U góry WebView wyświetlany jest poziomy pasek kroków, aby wskazać zablokowany etap.",
+    "oauthFlow": {
+      "prepare": "Przygotuj link OAuth",
+      "authorize": "Otwórz link autoryzacji i potwierdź",
+      "bind": "Odpytaj wynik autoryzacji i powiąż konto",
+      "retryPrepare": "Wygeneruj link OAuth ponownie",
+      "retryAuthorize": "Ponownie poproś o link autoryzacji",
+      "retryBind": "Ponów odpytywanie autoryzacji",
+      "error": "Błąd przepływu: {{error}}"
+    },
+    "tokenDesc": "Wklej token dostępu MiniMax Code:",
+    "jsonDesc": "Wybierz plik JSON zawierający konta MiniMax Code:",
+    "import": {
+      "localDesc": "Importuj dane konta z lokalnego klienta MiniMax Code lub z pliku JSON.",
+      "localClient": "Importuj z lokalnego MiniMax Code"
+    },
+    "search": "Szukaj kont MiniMax Code...",
+    "quotaQuery": {
+      "failedRefreshCompact": "Odświeżanie limitu nieudane",
+      "sectionTitle": "Zapytanie limitu",
+      "empty": "Brak powiązanych informacji o zapytaniu limitu",
+      "packageUnknown": "Nieznany pakiet",
+      "quotaLabel": "Pozostały limit",
+      "updatedAt": "Ostatnie zapytanie: {{time}}",
+      "cycleRange": "Cykl: {{start}} - {{end}}",
+      "cycleUnknown": "Brak informacji o cyklu",
+      "expireAt": "Wygasa: {{time}}",
+      "expireUnknown": "Wygasa: brak danych",
+      "packageTitle": {
+        "base": "Podstawowy pakiet doświadczenia",
+        "activity": "Pakiet prezentowy z wydarzeń"
+      }
+    },
+    "extraCredit": {
+      "title": "Pakiet kredytów"
+    },
+    "oauthUrlInputPlaceholder": "Możesz ręcznie wpisać URL autoryzacji",
+    "oauthInvalidUrl": "Nieprawidłowy URL autoryzacji. Wprowadź pełny URL.",
+    "oauthGotoWebview": "Przejdź w otwartym WebView do podanego URL",
+    "oauthGotoWebviewSuccess": "Wysłano żądanie nawigacji WebView do podanego URL.",
+    "oauthGotoWebviewFailed": "Nie udało się nawigować WebView: {{error}}",
+    "oauthWebviewInlineUrlPlaceholder": "Wprowadź URL, aby przejść w tym WebView",
+    "oauthWebviewInlineGo": "Przejdź",
+    "oauthSuccessClosePrompt": "Konto dodano pomyślnie. Zamknąć teraz to WebView?\nWybierz „Zamknij WebView”, aby zamknąć teraz, albo „Później”, aby pozostawić otwarte.",
+    "oauthSuccessCloseTitle": "Konto dodane",
+    "oauthSuccessCloseNowLabel": "Zamknij WebView",
+    "oauthSuccessCloseLaterLabel": "Później",
+    "oauthSuccessCloseNowStatus": "✅ Konto dodane. Zamykanie okna...",
+    "oauthSuccessCloseLaterStatus": "✅ Konto dodane. To WebView pozostanie otwarte.",
+    "oauthWebviewOverlay": {
+      "steps": {
+        "prepare": "1 Przygotuj link OAuth",
+        "authorize": "2 Otwórz link autoryzacji i potwierdź",
+        "bind": "3 Odpytaj wynik autoryzacji i powiąż konto",
+        "complete": "5 Gotowe (zamknij ręcznie)"
+      },
+      "status": {
+        "loginConfirm": "Na tej stronie dokończ logowanie i autoryzację."
+      }
+    },
+    "instances": {
+      "unsupported": {
+        "descPlatform": "Wiele instancji MiniMax Code jest obsługiwane tylko na macOS, Windows i Linux."
+      }
+    },
+    "quota": {
+      "usedOfTotal": "{{used}} / {{total}}​"
+    },
+    "checkin": {
+      "title": "Codzienne zameldowanie",
+      "modalTitle": "Codzienne zameldowanie",
+      "status": "Status zameldowania",
+      "checkedIn": "Zameldowano",
+      "notCheckedIn": "Brak zameldowania",
+      "button": "Zamelduj",
+      "button.loading": "Trwa zameldowanie...",
+      "done": "Gotowe",
+      "success": "Zameldowanie udane! Seria {{days}} dni",
+      "failure": "Zameldowanie nie powiodło się: {{message}}",
+      "failure.network": "Błąd sieci, spróbuj ponownie później",
+      "lastCheckin": "Ostatnie zameldowanie: {{time}}",
+      "streak": "Seria {{days}} dni",
+      "reward": "Nagroda: {{reward}}",
+      "refreshStatus": "Odśwież",
+      "checkAll": "Zamelduj wszystkie",
+      "noAccounts": "Brak kont",
+      "querying": "Ładowanie...",
+      "streakDays": "{{days}} dni",
+      "streakRewardCountdown": "Do nagrody bonusowej pozostało {{days}} dni",
+      "streakRewardToday": "Nagroda bonusowa dostępna dzisiaj!",
+      "recentDates": "Ostatnie: ",
+      "claimed": "Odebrano",
+      "queryFailed": "Zapytanie nieudane",
+      "retry": "Ponów",
+      "inactive": "Niedostępne",
+      "inactiveHint": "Check-in nieaktywny dla tego konta",
+      "autoCheckinSettings": "Ustawienia automatycznego meldowania",
+      "autoCheckinLabel": "Automatyczne meldowanie",
+      "autoCheckinOff": "Automatyczne meldowanie wyłączone",
+      "autoCheckinEnabledHint": "Automatyczne meldowanie włączone: losowe meldowanie między {{start}} a {{end}}",
+      "autoCheckinDisabledHint": "Automatyczne meldowanie wyłączone",
+      "enableAutoCheckin": "Włącz automatyczne meldowanie",
+      "enableAutoCheckinDesc": "Wykonuje codzienne losowe meldowanie w określonym przedziale czasowym",
+      "randomTimeRange": "Losowy przedział czasowy meldowania",
+      "startTime": "Czas rozpoczęcia",
+      "endTime": "Czas zakończenia",
+      "timeRangeHint": "Wybiera codziennie losową godzinę w tym przedziale, aby dokończyć meldowanie w tle.",
+      "timeRangeError": "Czas rozpoczęcia nie może być późniejszy niż czas zakończenia"
+    },
+    "placeholder": "Zarządzanie kontami MiniMax Code wkrótce będzie dostępne."
   },
   "zcode": {
     "search": "Szukaj kont ZCode...",

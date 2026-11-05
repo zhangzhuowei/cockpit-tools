@@ -113,6 +113,9 @@ pub struct UserConfig {
     /// 官方客户端增强，仅在重启目标实例后应用。
     #[serde(default = "default_codex_app_enhancements_enabled")]
     pub codex_app_api_quota_compat_enabled: bool,
+    /// 本地 API 模式下的原生下一步预测；额外消耗供应商额度，默认关闭。
+    #[serde(default)]
+    pub codex_app_native_predictions_enabled: bool,
     /// Codex WSL 配置目录 (Windows Only)
     #[serde(default = "default_codex_wsl_config_dir")]
     pub codex_wsl_config_dir: String,
@@ -155,6 +158,9 @@ pub struct UserConfig {
     /// WorkBuddy 自动刷新间隔（分钟），-1 表示禁用
     #[serde(default = "default_workbuddy_auto_refresh")]
     pub workbuddy_auto_refresh_minutes: i32,
+    /// MiniMax Code 自动刷新间隔（分钟），-1 表示禁用
+    #[serde(default = "default_minimax_code_auto_refresh")]
+    pub minimax_code_auto_refresh_minutes: i32,
     /// Qoder 自动刷新间隔（分钟），-1 表示禁用
     #[serde(default = "default_qoder_auto_refresh")]
     pub qoder_auto_refresh_minutes: i32,
@@ -383,6 +389,12 @@ pub struct UserConfig {
     /// WorkBuddy 启动路径（为空则使用默认路径）
     #[serde(default = "default_workbuddy_app_path")]
     pub workbuddy_app_path: String,
+    /// MiniMax Code 启动路径（为空则使用默认路径）
+    #[serde(default = "default_minimax_code_app_path")]
+    pub minimax_code_app_path: String,
+    /// MiniMax Code 区域
+    #[serde(default = "default_minimax_code_region")]
+    pub minimax_code_region: String,
     /// 切换 WorkBuddy 账号时是否在本机账号间合并本地会话
     #[serde(default = "default_workbuddy_share_sessions_on_switch")]
     pub workbuddy_share_sessions_on_switch: bool,
@@ -579,6 +591,12 @@ pub struct UserConfig {
     /// WorkBuddy 配额预警阈值（百分比）
     #[serde(default = "default_workbuddy_quota_alert_threshold")]
     pub workbuddy_quota_alert_threshold: i32,
+    /// 是否启用 MiniMax Code 配额预警通知
+    #[serde(default = "default_minimax_code_quota_alert_enabled")]
+    pub minimax_code_quota_alert_enabled: bool,
+    /// MiniMax Code 配额预警阈值（百分比）
+    #[serde(default = "default_minimax_code_quota_alert_threshold")]
+    pub minimax_code_quota_alert_threshold: i32,
 }
 
 /// 窗口关闭行为
@@ -778,6 +796,9 @@ fn default_codebuddy_cn_auto_refresh() -> i32 {
 fn default_workbuddy_auto_refresh() -> i32 {
     10
 }
+fn default_minimax_code_auto_refresh() -> i32 {
+    -1
+}
 fn default_qoder_auto_refresh() -> i32 {
     10
 }
@@ -824,6 +845,14 @@ fn default_startup_page() -> String {
     "last".to_string()
 }
 
+/// 规范化 MiniMax Code 区域；仅支持 `cn` / `en`，非法值回退为 `cn`。
+pub fn normalize_minimax_code_region(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "en" | "global" | "us" => "en".to_string(),
+        _ => "cn".to_string(),
+    }
+}
+
 /// 规范化启动页配置；非法值回退为 `last`。
 pub fn normalize_startup_page(value: &str) -> String {
     let normalized = value.trim().to_ascii_lowercase();
@@ -854,6 +883,7 @@ pub fn normalize_startup_page(value: &str) -> String {
         "trae-cn",
         "trae-solo-cn",
         "workbuddy",
+        "minimaxcode",
         "zed",
         "instances",
         "wakeup",
@@ -1014,6 +1044,12 @@ fn default_trae_app_scan_roots() -> String {
 }
 fn default_workbuddy_app_path() -> String {
     String::new()
+}
+fn default_minimax_code_app_path() -> String {
+    String::new()
+}
+fn default_minimax_code_region() -> String {
+    "cn".to_string()
 }
 fn default_workbuddy_share_sessions_on_switch() -> bool {
     true
@@ -1214,6 +1250,12 @@ fn default_workbuddy_quota_alert_enabled() -> bool {
 fn default_workbuddy_quota_alert_threshold() -> i32 {
     20
 }
+fn default_minimax_code_quota_alert_enabled() -> bool {
+    false
+}
+fn default_minimax_code_quota_alert_threshold() -> i32 {
+    200
+}
 
 impl Default for UserConfig {
     fn default() -> Self {
@@ -1242,6 +1284,7 @@ impl Default for UserConfig {
             codex_sync_wsl: default_codex_sync_wsl(),
             codex_app_ui_injection_enabled: default_codex_app_ui_injection_enabled(),
             codex_app_api_quota_compat_enabled: default_codex_app_enhancements_enabled(),
+            codex_app_native_predictions_enabled: false,
             codex_wsl_config_dir: default_codex_wsl_config_dir(),
             zed_auto_refresh_minutes: default_zed_auto_refresh(),
             ghcp_auto_refresh_minutes: default_ghcp_auto_refresh(),
@@ -1257,6 +1300,7 @@ impl Default for UserConfig {
             codebuddy_auto_refresh_minutes: default_codebuddy_auto_refresh(),
             codebuddy_cn_auto_refresh_minutes: default_codebuddy_cn_auto_refresh(),
             workbuddy_auto_refresh_minutes: default_workbuddy_auto_refresh(),
+            minimax_code_auto_refresh_minutes: default_minimax_code_auto_refresh(),
             qoder_auto_refresh_minutes: default_qoder_auto_refresh(),
             zcode_auto_refresh_minutes: default_zcode_auto_refresh(),
             trae_auto_refresh_minutes: default_trae_auto_refresh(),
@@ -1340,6 +1384,8 @@ impl Default for UserConfig {
             trae_cn_app_scan_roots: default_trae_app_scan_roots(),
             trae_solo_cn_app_scan_roots: default_trae_app_scan_roots(),
             workbuddy_app_path: default_workbuddy_app_path(),
+            minimax_code_app_path: default_minimax_code_app_path(),
+            minimax_code_region: default_minimax_code_region(),
             workbuddy_share_sessions_on_switch: default_workbuddy_share_sessions_on_switch(),
             opencode_sync_on_switch: default_opencode_sync_on_switch(),
             opencode_auth_overwrite_on_switch: default_opencode_auth_overwrite_on_switch(),
@@ -1411,6 +1457,8 @@ impl Default for UserConfig {
             trae_solo_cn_quota_alert_threshold: default_trae_quota_alert_threshold(),
             workbuddy_quota_alert_enabled: default_workbuddy_quota_alert_enabled(),
             workbuddy_quota_alert_threshold: default_workbuddy_quota_alert_threshold(),
+            minimax_code_quota_alert_enabled: default_minimax_code_quota_alert_enabled(),
+            minimax_code_quota_alert_threshold: default_minimax_code_quota_alert_threshold(),
         }
     }
 }
@@ -1703,6 +1751,20 @@ pub fn load_user_config() -> Result<UserConfig, String> {
                 .unwrap_or_else(default_workbuddy_auto_refresh);
             obj.insert(
                 "workbuddy_auto_refresh_minutes".to_string(),
+                json!(inherited_refresh),
+            );
+        }
+
+        if !obj.contains_key("minimax_code_auto_refresh_minutes") {
+            let inherited_refresh = obj
+                .get("workbuddy_auto_refresh_minutes")
+                .or_else(|| obj.get("codebuddy_cn_auto_refresh_minutes"))
+                .or_else(|| obj.get("codebuddy_auto_refresh_minutes"))
+                .and_then(|v| v.as_i64())
+                .map(|v| v as i32)
+                .unwrap_or_else(default_minimax_code_auto_refresh);
+            obj.insert(
+                "minimax_code_auto_refresh_minutes".to_string(),
                 json!(inherited_refresh),
             );
         }
@@ -2319,6 +2381,18 @@ pub fn load_user_config() -> Result<UserConfig, String> {
                 json!(legacy_threshold),
             );
         }
+        if !obj.contains_key("minimax_code_quota_alert_enabled") {
+            obj.insert(
+                "minimax_code_quota_alert_enabled".to_string(),
+                json!(legacy_enabled),
+            );
+        }
+        if !obj.contains_key("minimax_code_quota_alert_threshold") {
+            obj.insert(
+                "minimax_code_quota_alert_threshold".to_string(),
+                json!(legacy_threshold),
+            );
+        }
     }
 
     let mut config: UserConfig = match serde_json::from_value(value) {
@@ -2852,6 +2926,34 @@ mod tests {
         let restored: UserConfig =
             serde_json::from_value(serde_json::to_value(config).unwrap()).unwrap();
         assert!(restored.codex_app_api_quota_compat_enabled);
+    }
+
+    #[test]
+    fn codex_native_predictions_remain_opt_in_across_config_upgrades() {
+        for config in [
+            UserConfig::default(),
+            serde_json::from_value(serde_json::json!({})).unwrap(),
+            serde_json::from_value(serde_json::json!({
+                "codex_app_native_fast_enabled": false,
+                "codex_app_api_quota_compat_enabled": true
+            }))
+            .unwrap(),
+        ] {
+            assert!(!config.codex_app_native_predictions_enabled);
+        }
+        for enabled in [true, false] {
+            let config: UserConfig = serde_json::from_value(serde_json::json!({
+                "codex_app_native_fast_enabled": false,
+                "codex_app_api_quota_compat_enabled": true,
+                "codex_app_native_predictions_enabled": enabled
+            }))
+            .expect("read an explicit prediction preference");
+            let restored: UserConfig =
+                serde_json::from_value(serde_json::to_value(config).unwrap()).unwrap();
+            assert_eq!(restored.codex_app_native_predictions_enabled, enabled);
+
+            assert!(restored.codex_app_api_quota_compat_enabled);
+        }
     }
 
     #[test]

@@ -479,6 +479,89 @@ pub fn close_trae_platform_instances(
     Ok(())
 }
 
+/// Close the MiniMax Code instance(s) belonging to `user_data_dirs`.
+///
+/// Every managed instance is launched with its own Electron `--user-data-dir`
+/// (`<data root>/electron-user-data`), and Electron's child processes **do** carry that
+/// path on their command line. That gives us a per-instance handle the data root alone
+/// cannot provide: we close only the processes whose userData dir matches, so starting
+/// instance B no longer kills instance A.
+///
+/// The Electron *main* process runs as `"…\MiniMax Code.exe"` with no data-dir argument,
+/// so it is matched by exe path only when its userData dir cannot be established. When no
+/// per-instance marker is available at all we fall back to a global close and say so in
+/// the logs — account bindings stay isolated either way, since each instance owns its own
+/// `auth.json` under its own data root.
+pub fn close_minimax_code_instances(
+    user_data_dirs: &[String],
+    timeout_secs: u64,
+) -> Result<(), String> {
+    let normalized: Vec<String> = user_data_dirs
+        .iter()
+        .map(|dir| normalize_path_for_compare(dir.trim()))
+        .filter(|value| !value.is_empty())
+        .collect();
+
+    if normalized.is_empty() {
+        return crate::modules::minimax_code_account::close_minimax_code_instances(timeout_secs);
+    }
+
+    let entries = collect_minimax_code_process_entries();
+    let target_pids = minimax_code_pids_for_user_data_dirs(&entries, &normalized);
+    if target_pids.is_empty() {
+        crate::modules::logger::log_info(
+            "[MiniMax Code Close] 未匹配到目标实例的 Electron userData 目录，无需关闭",
+        );
+        return Ok(());
+    }
+
+    crate::modules::logger::log_info(&format!(
+        "[MiniMax Code Close] 按实例关闭 target_dirs={} pids={}",
+        normalized.join(", "),
+        summarize_pid_list_for_log(&target_pids)
+    ));
+    for pid in target_pids {
+        close_pid(pid, timeout_secs)?;
+    }
+    // Electron 主进程可能不带 userData 参数，按 exe 路径兜底（仅当仍有残留进程时）。
+    let remaining = collect_minimax_code_process_entries();
+    let remaining_targets = minimax_code_pids_for_user_data_dirs(&remaining, &normalized);
+    if remaining_targets.is_empty() && !remaining.is_empty() {
+        crate::modules::logger::log_warn(
+            "[MiniMax Code Close] 仍有 MiniMax Code 进程残留，按 exe 路径兜底关闭（会关闭全部窗口）",
+        );
+        return crate::modules::minimax_code_account::close_minimax_code_instances(timeout_secs);
+    }
+    Ok(())
+}
+
+/// 从进程条目里挑出属于目标 Electron userData 目录的 PID。
+fn minimax_code_pids_for_user_data_dirs(
+    entries: &[(u32, Option<String>)],
+    user_data_dirs: &[String],
+) -> Vec<u32> {
+    let mut pids = Vec::new();
+    for (pid, dir) in entries {
+        let Some(dir) = dir.as_deref() else {
+            continue;
+        };
+        let normalized = normalize_path_for_compare(dir);
+        if normalized.is_empty() {
+            continue;
+        }
+        if user_data_dirs.iter().any(|target| {
+            normalized == *target
+                || normalized.starts_with(&format!("{target}\\"))
+                || normalized.starts_with(&format!("{target}/"))
+        }) {
+            pids.push(*pid);
+        }
+    }
+    pids.sort_unstable();
+    pids.dedup();
+    pids
+}
+
 pub fn close_workbuddy_instances(
     user_data_dirs: &[String],
     timeout_secs: u64,
@@ -1187,19 +1270,12 @@ pub fn start_antigravity_with_args(
 ) -> Result<u32, String> {
     crate::modules::logger::log_info("正在启动 Antigravity IDE...");
 
-    #[cfg(target_os = "macos")]
-    let launch_path = resolve_antigravity_launch_path().ok();
-    #[cfg(not(target_os = "macos"))]
     let launch_path = resolve_antigravity_launch_path()?;
 
     #[cfg(target_os = "macos")]
     {
-        let app_root = resolve_macos_app_root_from_config("antigravity").or_else(|| {
-            launch_path
-                .as_ref()
-                .and_then(|path| normalize_macos_app_root(path))
-        });
-        let app_root = app_root.ok_or_else(|| app_path_missing_error("antigravity"))?;
+        let app_root = normalize_macos_app_root(&launch_path)
+            .ok_or_else(|| app_path_missing_error("antigravity"))?;
 
         let user_data_dir_trimmed = user_data_dir.trim();
         let mut args: Vec<String> = Vec::new();
@@ -1676,13 +1752,63 @@ fn close_captured_codex_direct_app_servers(
         "[Codex Close] direct app-server remained after main process exit; closing captured pids={}",
         summarize_pid_list_for_log(&remaining)
     ));
-    close_pids(&remaining, timeout_secs.min(5).max(1)).map_err(|error| {
-        format!(
-            "failed to close Codex direct app-server before auth switch: {}",
-            error
+    let mut close_errors = remaining
+        .iter()
+        .filter_map(|pid| send_close_signal(*pid))
+        .collect::<Vec<_>>();
+    if wait_pids_exit(&remaining, timeout_secs.clamp(1, 5)) {
+        return Ok(());
+    }
+
+    // app-server can keep draining work after SIGTERM. The desktop has already exited,
+    // so finish stopping only its captured children before writing the new credentials.
+    let remaining = collect_running_pids(&remaining);
+    crate::modules::logger::log_warn(&format!(
+        "[Codex Close] direct app-server did not exit after SIGTERM; sending SIGKILL to pids={}",
+        summarize_pid_list_for_log(&remaining)
+    ));
+    for pid in &remaining {
+        if unsafe { libc::kill(*pid as libc::pid_t, libc::SIGKILL) } != 0 {
+            let error = std::io::Error::last_os_error();
+            if error.raw_os_error() != Some(libc::ESRCH) {
+                close_errors.push(format!("pid {pid}: SIGKILL failed: {error}"));
+            }
+        }
+    }
+    if wait_pids_exit(&remaining, timeout_secs.clamp(1, 5)) {
+        crate::modules::logger::log_info(
+            "[Codex Close] captured direct app-server processes exited after SIGKILL",
+        );
+        return Ok(());
+    }
+
+    let remaining = collect_running_pids(&remaining);
+    if remaining.is_empty() {
+        return Ok(());
+    }
+    let reason = if close_errors.is_empty() {
+        "目标进程在等待超时后仍在运行".to_string()
+    } else {
+        close_errors.join(" | ")
+    };
+    Err(format!(
+        "failed to close Codex direct app-server before auth switch: {}",
+        crate::modules::windows_operation::format_error(
+            "stop_process",
+            "无法关闭实例进程",
+            &reason,
+            None,
+            &remaining,
+            true,
+            true,
+            true,
         )
-    })
+    ))
 }
+
+#[cfg(all(test, target_os = "macos"))]
+#[path = "process_codex_app_server_close_tests.rs"]
+mod codex_app_server_close_tests;
 
 #[cfg(target_os = "windows")]
 fn collect_codex_process_entries_from_powershell(

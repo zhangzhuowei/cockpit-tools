@@ -1,5 +1,6 @@
-import { resolveAccountUsageBaseUrl, isOpenAIOfficialUsageAccount } from '../utils/openaiOfficialUsage';
+import { resolveOpenAIUsageConfig, resolveAccountUsageBaseUrl, isOpenAIOfficialUsageAccount } from '../utils/openaiOfficialUsage';
 import { prepareCodexServiceJoins } from "../utils/codexServiceJoin";
+import { scrollElementIntoView } from "../utils/reducedMotion";
 import { chatGptPlanErrorKey, listChatGptPlanAccounts } from "../services/chatgptPlanService";
 import { canChooseCodexServiceAuthorization } from "../utils/codexAccountServiceNavigation";
 import { resolveCodexAccountDisplayName } from "../utils/codexAccountDisplayName";
@@ -41,7 +42,7 @@ import { resolveCodexModelProviderAccountName } from "../utils/codexModelProvide
 import { CODEX_API_PROVIDER_CUSTOM_ID, findCodexApiProviderPresetById, resolveCodexApiProviderPresetId } from "../utils/codexProviderPresets";
 import { APIKEY_FUN_PROVIDER_BASE_URL } from "../utils/apikeyFunLinks";
 import { APIKEY_FUN_PREFILL_EVENT, consumeApiKeyFunPrefill, type ApiKeyFunPrefillPayload } from "../utils/apiKeyFunPrefill";
-import { findCodexModelProviderById, findCodexModelProviderByBaseUrl, queryCodexModelProviderUsage, saveCodexModelProviderDetectedIntegrationType, type CodexModelProvider, mergeCodexModelProviderApiKeysFromAccounts, upsertCodexModelProviderFromCredential } from "../services/codexModelProviderService";
+import { OPENAI_USAGE_CONFIG_CHANGED_EVENT, findCodexModelProviderById, findCodexModelProviderByBaseUrl, queryCodexModelProviderUsage, saveCodexModelProviderDetectedIntegrationType, type CodexModelProvider, mergeCodexModelProviderApiKeysFromAccounts, upsertCodexModelProviderFromCredential } from "../services/codexModelProviderService";
 import { resolveCodexModelProviderForApiKey } from "../utils/codexModelProviderKeyConfig";
 import { buildCodexModelProviderAccountSnapshot, mergeCodexModelProviderCredentialInput } from "../utils/codexModelProviderAccountSync";
 import { CODEX_API_KEY_USAGE_REFRESHED_EVENT, readCodexApiKeyUsageCache, writeCodexApiKeyUsageCache, type CodexApiKeyUsageState } from "../services/codexApiKeyUsageRefreshService";
@@ -399,7 +400,7 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
           const target = fieldErrors.hourlyPercent
             ? oauthBindingHourlyReserveInputRef.current
             : oauthBindingWeeklyReserveInputRef.current;
-          target?.scrollIntoView({ behavior: "smooth", block: "center" });
+          scrollElementIntoView(target, { block: "center" });
           target?.focus();
         });
         return;
@@ -2460,7 +2461,7 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
       }
     }, []);
 
-    const handleApiKeyLogin = async () => {
+    const handleApiKeyLogin = async (usageApiKey?: string) => {
       const validation = validateApiKeyCredentialInputs(
         apiKeyInput,
         apiBaseUrlInput,
@@ -2532,6 +2533,7 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
               providerName: providerPayload.apiProviderName ?? null,
               apiBaseUrl: validation.apiBaseUrl || DEFAULT_CODEX_API_BASE_URL,
               apiKey: validation.apiKey,
+              usageApiKey: usageApiKey?.trim() || undefined,
               apiKeyName: providerPayload.accountName,
               sourceTag: providerPayload.sponsorTemplate?.id ?? null,
               modelCatalog: providerPayload.apiModelCatalog,
@@ -2998,7 +3000,7 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
           findCodexModelProviderById(managedProviders, account.api_provider_id) ??
           findCodexModelProviderByBaseUrl(
             managedProviders,
-            (account.api_base_url || "").trim(),
+            resolveAccountUsageBaseUrl(account),
           );
         return provider ?? null;
       },
@@ -3022,16 +3024,18 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
         const apiKey = (account.openai_api_key || "").trim();
         const baseUrl =
           resolveAccountUsageBaseUrl(account, targetProvider?.baseUrl);
-        if (!baseUrl || !apiKey) return;
-        if (apiKeyUsageInFlightRef.current.has(account.id)) {
-          return;
-        }
-        apiKeyUsageInFlightRef.current.add(account.id);
+        const usageConfig = resolveOpenAIUsageConfig(targetProvider, apiKey);
+        if (!baseUrl || !apiKey || (isOpenAIOfficialUsageAccount(account, baseUrl) && !usageConfig)) return;
+        const queryId = usageConfig ? `${account.id}:${usageConfig.binding}` : account.id;
+        if (apiKeyUsageInFlightRef.current.has(queryId)) return;
+        apiKeyUsageInFlightRef.current.add(queryId);
         setApiKeyUsageMap((previous) => ({
           ...previous,
           [account.id]: {
             ...previous[account.id],
             loading: true,
+            sourceBinding: usageConfig?.binding,
+            summary: previous[account.id]?.sourceBinding === usageConfig?.binding ? previous[account.id]?.summary : undefined,
             error: undefined,
             unavailable: false,
           },
@@ -3040,6 +3044,7 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
           const summary = await queryCodexModelProviderUsage({
             baseUrl,
             apiKey,
+            usageApiKey: usageConfig?.apiKey,
             integrationType: targetProvider?.integrationType ?? null,
           });
           const updatedAt = Date.now();
@@ -3054,17 +3059,18 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
             );
             await reloadManagedProviders();
           }
-          setApiKeyUsageMap((previous) => ({
+          setApiKeyUsageMap((previous) => previous[account.id]?.sourceBinding !== usageConfig?.binding ? previous : ({
             ...previous,
-            [account.id]: { loading: false, summary, updatedAt },
+            [account.id]: { loading: false, sourceBinding: usageConfig?.binding, summary, updatedAt },
           }));
         } catch (error) {
           const updatedAt = Date.now();
-          setApiKeyUsageMap((previous) => ({
+          setApiKeyUsageMap((previous) => previous[account.id]?.sourceBinding !== usageConfig?.binding ? previous : ({
             ...previous,
             [account.id]: {
               loading: false,
-              summary: previous[account.id]?.summary,
+              sourceBinding: usageConfig?.binding,
+              summary: previous[account.id]?.sourceBinding === usageConfig?.binding ? previous[account.id]?.summary : undefined,
               error: isModelProviderUsageUnavailableError(error)
                 ? undefined
                 : String(error).replace(/^Error:\s*/, ""),
@@ -3073,7 +3079,7 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
             },
           }));
         } finally {
-          apiKeyUsageInFlightRef.current.delete(account.id);
+          apiKeyUsageInFlightRef.current.delete(queryId);
         }
       },
       [reloadManagedProviders, resolveUsageProviderForApiKeyAccount],
@@ -3098,7 +3104,7 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
         const apiKey = (account.openai_api_key || "").trim();
         const baseUrl =
           resolveAccountUsageBaseUrl(account, targetProvider?.baseUrl);
-        return Boolean(apiKey && baseUrl);
+        return Boolean(apiKey && baseUrl && (!isOpenAIOfficialUsageAccount(account, baseUrl) || resolveOpenAIUsageConfig(targetProvider, apiKey)));
       },
       [resolveUsageProviderForApiKeyAccount],
     );
@@ -3112,6 +3118,8 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
         if (state?.loading || apiKeyUsageInFlightRef.current.has(account.id)) {
           return false;
         }
+        const config = resolveOpenAIUsageConfig(provider ?? resolveUsageProviderForApiKeyAccount(account), account.openai_api_key ?? '');
+        if (config && state?.sourceBinding !== config.binding) return true;
         if (state?.unavailable) {
           return (
             (isDeepSeekAccount(account) || isOpenAIOfficialUsageAccount(account) || isApiKeyFunUsageAccount(account)) &&
@@ -3121,8 +3129,20 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
         }
         return !state?.updatedAt;
       },
-      [apiKeyUsageMap, canRefreshApiKeyUsage],
+      [apiKeyUsageMap, canRefreshApiKeyUsage, resolveUsageProviderForApiKeyAccount],
     );
+
+    useEffect(() => {
+      const onConfigChanged = (event: Event) => {
+        const { providerId, apiKeyId, binding } = (event as CustomEvent<{ providerId: string; apiKeyId: string; binding: string }>).detail;
+        const prefix = `${providerId}:${apiKeyId}:`;
+        void reloadManagedProviders().then(() => setApiKeyUsageMap(previous => Object.fromEntries(
+          Object.entries(previous).map(([id, state]) => [id, state.sourceBinding?.startsWith(prefix) && state.sourceBinding !== binding ? { loading: false } : state]),
+        )));
+      };
+      window.addEventListener(OPENAI_USAGE_CONFIG_CHANGED_EVENT, onConfigChanged);
+      return () => window.removeEventListener(OPENAI_USAGE_CONFIG_CHANGED_EVENT, onConfigChanged);
+    }, [reloadManagedProviders]);
 
     const refreshApiKeyUsageByAccountId = useCallback(
       async (accountId: string, options?: { force?: boolean }) => {
@@ -3256,6 +3276,7 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
           provider,
           variant,
           usageState: apiKeyUsageMap[account.id],
+          onRefresh: () => { void refreshApiKeyUsage(account, provider); },
           t,
           formatApiKeyUsagePercent,
           formatApiKeyUsageMoney,
@@ -3267,6 +3288,7 @@ export function useCodexAccountsAccessController(context: CodexAccountsAccessCon
         }),
       [
         apiKeyUsageMap,
+        refreshApiKeyUsage,
         formatApiKeyUsagePercent,
         formatApiKeyUsageMoney,
         formatApiKeyUsageQuotaValue,

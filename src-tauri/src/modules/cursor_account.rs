@@ -147,10 +147,17 @@ pub fn load_account(account_id: &str) -> Option<CursorAccount> {
 
 fn save_account_file(account: &CursorAccount) -> Result<(), String> {
     let path = resolve_account_file_path(account.id.as_str())?;
-    let content =
-        crate::modules::secure_account_storage::serialize_account_file("cursor", account)?;
-    crate::modules::atomic_write::write_string_atomic(&path, &content)
+    crate::modules::secure_account_storage::write_account_preserving_switch_time(&path, "cursor", account)
         .map_err(|e| format!("保存账号失败: {}", e))
+}
+
+// Record credential-switch success separately from refresh activity.
+pub fn touch_last_used(account_id: &str) -> Result<(), String> {
+    let mut account = load_account(account_id)
+        .ok_or_else(|| format!("Cursor account not found: {}", account_id))?;
+    account.last_switched_at = Some(now_ts());
+    save_account_file(&account)?;
+    Ok(())
 }
 
 fn delete_account_file(account_id: &str) -> Result<(), String> {
@@ -614,6 +621,7 @@ fn merge_duplicate_account(primary: &mut CursorAccount, duplicate: &CursorAccoun
     primary.tags = merge_string_list(primary.tags.clone(), duplicate.tags.clone());
     primary.created_at = primary.created_at.min(duplicate.created_at);
     primary.last_used = primary.last_used.max(duplicate.last_used);
+    primary.last_switched_at = primary.last_switched_at.max(duplicate.last_switched_at);
 }
 
 fn choose_primary_account_index(group: &[usize], accounts: &[CursorAccount]) -> usize {
@@ -1010,6 +1018,7 @@ pub fn upsert_account(payload: CursorImportPayload) -> Result<CursorAccount, Str
     let created_at = existing.as_ref().map(|acc| acc.created_at).unwrap_or(now);
 
     let mut account = existing.unwrap_or(CursorAccount {
+        last_switched_at: None,
         id: account_id.clone(),
         email: payload.email.clone(),
         auth_id: incoming_auth_id.clone(),
@@ -1570,11 +1579,15 @@ fn write_account_auth_to_storage_json(
         .map_err(|e| format!("写入 storage.json 失败: {}", e))
 }
 
+/// 切号写入成功后同时更新 last_used 与 last_switched_at。凭据已经写进 Cursor，
+/// 这里写失败只记日志，不让切号整体报失败。
 fn touch_account_last_used(account_id: &str) {
     let Some(mut account) = load_account(account_id) else {
         return;
     };
-    account.last_used = now_ts();
+    let now = now_ts();
+    account.last_used = now;
+    account.last_switched_at = Some(now);
     if let Err(err) = upsert_account_record(account) {
         logger::log_warn(&format!(
             "[Cursor Account] 更新 last_used 失败: id={}, error={}",
@@ -1635,6 +1648,12 @@ pub fn inject_to_cursor_at_path(db_path: &std::path::Path, account_id: &str) -> 
             ));
         }
     }
+    if let Err(err) = touch_last_used(account_id) {
+        logger::log_warn(&format!(
+            "[Cursor Account] 更新 last_switched_at 失败: id={}, error={}",
+            account_id, err
+        ));
+    }
 
     logger::log_info(&format!(
         "[Cursor Account] 注入成功(自定义路径): id={}, email={}, path={}",
@@ -1660,6 +1679,8 @@ const CURSOR_USAGE_SUMMARY_URL: &str = "https://cursor.com/api/usage-summary";
 const CURSOR_SAND_USAGE_STATUS_URL: &str = "https://cursor.com/api/dashboard/get-sand-usage-status";
 const CURSOR_GET_SAND_USAGE_STATUS_URL: &str =
     "https://api2.cursor.sh/aiserver.v1.DashboardService/GetSandUsageStatus";
+const CURSOR_GET_PLAN_INFO_URL: &str =
+    "https://api2.cursor.sh/aiserver.v1.DashboardService/GetPlanInfo";
 const CURSOR_GET_USER_META_URL: &str = "https://api2.cursor.sh/aiserver.v1.AuthService/GetUserMeta";
 const CURSOR_FULL_STRIPE_PROFILE_URL: &str = "https://api2.cursor.sh/auth/full_stripe_profile";
 const CURSOR_STRIPE_PROFILE_URL: &str = "https://api2.cursor.sh/auth/stripe_profile";
@@ -1969,6 +1990,26 @@ async fn fetch_stripe_profile_with_client(
         }
         _ => Ok(None),
     }
+}
+
+async fn fetch_plan_info_with_client(
+    client: &reqwest::Client,
+    access_token: &str,
+) -> Result<Option<Value>, String> {
+    let response = client
+        .post(CURSOR_GET_PLAN_INFO_URL)
+        .bearer_auth(access_token)
+        .header("Connect-Protocol-Version", "1")
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .and_then(reqwest::Response::error_for_status)
+        .map_err(|error| format!("请求 Cursor GetPlanInfo 失败: {}", format_reqwest_error(&error)))?;
+    let body: Value = response
+        .json()
+        .await
+        .map_err(|error| format!("解析 Cursor GetPlanInfo 失败: {}", format_reqwest_error(&error)))?;
+    Ok(body.get("planInfo").filter(|plan| plan.is_object()).cloned())
 }
 
 async fn fetch_usage_summary_with_client(
@@ -2757,6 +2798,25 @@ async fn refresh_account_async_once(account_id: &str) -> Result<CursorAccount, S
                 ));
             } else if let Some(sand) = previous_sand {
                 attach_usage_object(&mut usage, "sandUsage", sand);
+            }
+            if let Some(summary) = usage.as_object_mut() {
+                let is_unified = account.membership_type.as_deref().is_some_and(|tier| {
+                    tier.trim().to_ascii_lowercase().starts_with("unified_")
+                }) || ["unifiedIncludedUsage", "unified_included_usage"]
+                    .iter()
+                    .any(|key| summary.get(*key).and_then(Value::as_bool) == Some(true));
+                let has_reset = ["includedUsageResetsAt", "included_usage_resets_at"]
+                    .iter()
+                    .any(|key| summary.get(*key).is_some_and(|value| !value.is_null()));
+                if is_unified && !has_reset {
+                    match fetch_plan_info_with_client(&client, &account.access_token).await {
+                        Ok(Some(plan)) => {
+                            summary.insert("planInfo".into(), plan);
+                        }
+                        Ok(None) => {}
+                        Err(error) => logger::log_warn(&format!("[Cursor Refresh] {error}")),
+                    }
+                }
             }
             account.cursor_usage_raw = Some(usage);
             account.quota_query_last_error = None;

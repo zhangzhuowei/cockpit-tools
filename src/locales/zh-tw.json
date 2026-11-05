@@ -290,6 +290,7 @@
     "failureTime": "失敗時間",
     "clearRecord": "清除紀錄",
     "clearingRecord": "清除中…",
+    "to": "至",
     "dragSortHint": "拖曳左側把手調整順序，放開後自動儲存。",
     "dragSortFilteredHint": "清除搜尋後可調整順序。",
     "recycleBin": {
@@ -689,6 +690,7 @@
     "traeCn": "Trae CN​",
     "traeSoloCn": "TRAE SOLO CN​",
     "codebuddyCn": "CodeBuddy CN",
+    "minimaxcode": "MiniMax Code",
     "zed": "Zed 平台",
     "expandSidebar": "展開側邊欄",
     "collapseSidebar": "收起側邊欄",
@@ -756,7 +758,12 @@
     "setAsDefaultInGroup": "設為群組內預設平台",
     "removeFromGroup": "移出群組",
     "sidebarSelectedUnlimited": "已選 ({count})",
-    "tipWithGroupsUnlimited": "手動排序已選擇的平台和分組"
+    "tipWithGroupsUnlimited": "手動排序已選擇的平台和分組",
+    "enabledToggle": "啟用",
+    "groupEnabledHint": "啟用或停用此群組所有平台",
+    "disabledHint": "停用後停止自動活動並隱藏平台設定；入口顯示另行控制",
+    "enableAll": "全部啟用",
+    "disableAll": "全部停用"
   },
   "privacy": {
     "hideSensitive": "隱藏電子郵件",
@@ -1239,6 +1246,12 @@
       "workbuddyAppPathPlaceholder": "預設路徑",
       "workbuddyPathSelect": "選擇",
       "workbuddyPathReset": "重設預設",
+      "minimaxCodeAppPath": "MiniMax Code 啟動路徑",
+      "minimaxCodeAppPathDesc": "留空則使用預設路徑",
+      "minimaxCodeAppPathPlaceholder": "預設路徑",
+      "minimaxCodePathSelect": "選擇",
+      "minimaxCodeAppPathPathSelect": "選擇",
+      "minimaxCodePathReset": "重設預設",
       "openclawAuthOverwrite": "切換 Codex 時覆蓋 OpenClaw 登入",
       "openclawAuthOverwriteDesc": "關閉時，僅切換 Codex，OpenClaw 保持目前登入狀態",
       "ghcpOpencodeAuthOverwrite": "切換 GitHub Copilot 時覆蓋 OpenCode 登入",
@@ -1314,6 +1327,8 @@
       "qoderPathSelect": "選擇",
       "workbuddyAutoRefresh": "WorkBuddy 自動刷新配額",
       "workbuddyAutoRefreshDesc": "背景自動更新頻率",
+      "minimaxCodeAutoRefresh": "MiniMax Code 自動刷新配額",
+      "minimaxCodeAutoRefreshDesc": "背景自動更新頻率",
       "codexLocalAccessEntryVisible": "顯示 API 服務入口",
       "codexLocalAccessEntryVisibleDesc": "僅控制 Codex 總覽中的 API 服務入口是否顯示，不會停止本機 API 服務；關閉後可在這裡或快速設定中重新開啟。",
       "codexLocalAccessEnabled": "啟用 API 服務",
@@ -1403,9 +1418,13 @@
       "codexEnhancements": {
         "quotaCompat": "混合模式額度相容",
         "quotaCompatDesc": "僅真實 OAuth 登入且使用外部 API 路由時，避免訂閱額度攔截本機 API 訊息；不改變實際用量及圖像額度。",
-        "restartHint": "預設開啟。修改後需重新啟動各目標 Codex 執行個體，並保持 Cockpit Tools 執行。原生聽寫由用戶端功能與設定決定，Cockpit 不接管或強制啟用。",
-        "configFailed": "設定讀取或儲存失敗：{{error}}"
-      }
+        "restartHint": "原生下一步預測預設關閉。修改後需重新啟動各目標 Codex 執行個體，並保持 Cockpit Tools 執行。原生聽寫由用戶端功能與設定決定，Cockpit 不接管或強制啟用。",
+        "configFailed": "設定讀取或儲存失敗：{{error}}",
+        "nativePredictions": "原生下一步預測（Tab）",
+        "nativePredictionsDesc": "使用目前對話的 API 供應商和模型產生下一則訊息建議，會額外消耗 API 額度；儲存後重新啟動 Codex 生效。"
+      },
+      "timeDisplayMode": "時間顯示",
+      "timeDisplayModeDesc": "選擇帳號卡片與列表的時間內容，預設為切換時間"
     },
     "network": {
       "apiTitle": "反重力駕駛艙 API",
@@ -2089,7 +2108,13 @@
     "tagUpdated": "標籤已更新",
     "plan": {
       "personal": "個人"
-    }
+    },
+    "lastSwitchTime": "切換時間",
+    "neverSwitched": "尚未切換",
+    "refreshTime": "更新時間",
+    "lastSwitchTimeFull": "切換時間：{{time}}",
+    "refreshTimeFull": "更新時間：{{time}}",
+    "toggleTimeMode": "切換顯示切換或更新時間"
   },
   "overview": {
     "title": "帳號總覽",
@@ -2453,6 +2478,22 @@
     "other_group": "其他模型"
   },
   "codex": {
+    "overload": {
+      "setting": "滿載時持續重試",
+      "settingHint": "僅用於本機 Codex API 服務。開啟後，可安全重試的請求會持續等待模型恢復。設定對新請求生效。",
+      "retrying": "模型忙碌，正在重試（{{count}}）",
+      "count": "上游滿載 {{count}} 次",
+      "countHint": "按上游嘗試計數，含自動重試。記錄最多保留 7 天。",
+      "history": "滿載明細",
+      "empty": "此時間範圍內沒有滿載記錄。",
+      "attempt": "第 {{number}} 次嘗試",
+      "sameAccount": "同帳號恢復",
+      "otherAccount": "換帳號恢復",
+      "pending": "結果待定",
+      "cancelled": "已取消",
+      "failed": "請求失敗",
+      "countUnavailable": "暫時無法讀取滿載統計"
+    },
     "instance": {
       "errors": {
         "threadSyncWorkerFailed": "工作階段同步作業失敗：{{error}}",
@@ -3404,7 +3445,7 @@
       "resetCreditDialogDesc": "重置速率限制後，可以繼續不中斷地工作。你還有 {{count}} 次重置可用。",
       "resetCreditDialogAction": "重置使用次數",
       "resetCreditNoCredits": "沒有可用的主動重置次數",
-      "resetCreditConsumed": "已重置 5 小時額度",
+      "resetCreditConsumed": "已重置額度",
       "resetCreditFailed": "重置失敗：{{error}}",
       "resetCreditRefreshAfterConsumeFailed": "已送出重置，但重新整理配額失敗：{{error}}",
       "resetCreditsTitleWithExpiry": "可用於重置目前 5 小時視窗的剩餘次數：{{count}}，最近到期：{{time}}",
@@ -4144,7 +4185,7 @@
         "apiKeyUrlInvalid": "請填寫不含內嵌憑證的 HTTP(S) 管理頁網址；API Key 請填入金鑰欄。"
       },
       "saveSuccess": "模型供應商已儲存",
-      "deleteBlocked": "此供應商已連結 {{count}} 個帳號，無法刪除。",
+      "confirmDeleteWithAccounts": "確定刪除供應商「{{name}}」及其關聯的 {{count}} 個帳號嗎？",
       "confirmDelete": "確定刪除供應商「{{name}}」嗎？",
       "deleteFailed": "刪除供應商失敗：{{error}}",
       "deleteApiKeyFailed": "刪除 API Key 失敗：{{error}}",
@@ -4274,7 +4315,7 @@
         "selectVisible": "選擇目前結果",
         "resultSelectedCount": "已選 {{count}} 個",
         "selectFailed": "選擇失敗",
-        "deleteConfirm": "確認刪除選中的 {{providerCount}} 個供應商嗎？會同時刪除 {{accountCount}} 個精確關聯的 Codex API Key 帳號。",
+        "deleteConfirm": "確定刪除選取的 {{providerCount}} 個供應商及其關聯的 {{accountCount}} 個帳號嗎？",
         "deleteSuccess": "已刪除 {{providerCount}} 個供應商和 {{accountCount}} 個關聯帳號。",
         "deleteFailed": "刪除所選項失敗：{{error}}",
         "protocolSummary": "{{protocol}} · {{mode}} · {{model}}",
@@ -5141,7 +5182,7 @@
       "boundProxyUnavailable": "綁定帳號沒有可用代理，請重新選擇。",
       "sourceUnavailable": "代理來源或節點已失效，請重新選擇。",
       "operationTimeout": "代理操作逾時，請重試。",
-      "cardScopeHint": "此卡片代理用於啟動的 Codex 桌面用戶端；模型閘道上游仍使用各自出口。",
+      "cardScopeHint": "API Key 帳號代理同時用於桌面用戶端和 API 服務上游請求；API 服務卡片代理仍僅用於桌面用戶端。不修改系統代理。",
       "display": {
         "title": "代理顯示",
         "compact": "簡略",
@@ -5442,7 +5483,7 @@
       "modeDefaultHint": "該帳號未使用代理，依原有預設出口連線。",
       "modeStaleHint": "綁定的來源或節點已失效，請重新選擇。",
       "management": "代理管理",
-      "managementHint": "為 OAuth、API 帳號與 API 服務卡片設定代理，不修改系統代理。API 卡片僅用於啟動的桌面用戶端，模型閘道上游仍使用各自出口。",
+      "managementHint": "API Key 帳號代理同時用於桌面用戶端和 API 服務上游請求；API 服務卡片代理仍僅用於桌面用戶端。不修改系統代理。",
       "emptyTitle": "為帳號準備獨立出口",
       "emptyDescription": "暫無適用帳號卡片。新增 OAuth 或 API 帳號，或啟用 API 服務卡片後，即可在這裡選擇代理。",
       "search": "搜尋帳號",
@@ -5750,7 +5791,7 @@
         "assign": "指派代理",
         "specific": "指定帳號",
         "shared": "設為共用代理",
-        "sharedHint": "未單獨設定的適用卡片使用此代理，新增卡片也會跟隨。獨立代理和「不使用代理」優先。API 卡片用於桌面用戶端，模型閘道上游仍使用各自出口。",
+        "sharedHint": "未單獨設定的帳號繼承此代理，新增帳號也會跟隨。獨立代理和「不使用代理」優先。API Key 帳號的用戶端與 API 請求均生效；API 服務卡片僅影響用戶端。",
         "apply": "確認指派"
       },
       "managerResources": {
@@ -5877,7 +5918,7 @@
       "title": "請求詳情",
       "totalLatency": "總耗時",
       "firstResponse": "首響",
-      "firstResponseHint": "首響為請求開始到首個上游回應片段的耗時，不等同於首個產生的 Token。",
+      "firstResponseHint": "新的 Responses 串流請求在閘道處理完請求本文後開始計首響，直至首個有效上游事件，略過保活與限額通知。",
       "unavailable": "此請求暫無診斷詳情，可稍後重新整理。舊請求不會補記。",
       "attempts": "嘗試軌跡",
       "noAttempts": "未記錄嘗試軌跡。",
@@ -6057,10 +6098,27 @@
       "pending": "等待查詢官方用量",
       "permissionRequired": "目前金鑰缺少組織用量讀取權限（api.usage.read）。",
       "permissionGuide": "使用管理員金鑰：Admin keys → Restricted → Usage API Scope → Read。可查詢支出與用量，不提供剩餘餘額。",
-      "openAdminKeys": "設定查詢權限",
-      "invalidKey": "金鑰無效或已過期，請檢查目前的 API 金鑰。",
+      "openAdminKeys": "前往建立",
+      "invalidKey": "查詢 Key 無效或已過期，請檢查管理員 API Key。",
       "networkFailed": "無法連線至官方用量服務，請稍後重新整理。",
-      "queryFailed": "官方用量查詢失敗，請稍後重試。"
+      "queryFailed": "官方用量查詢失敗，請稍後重試。",
+      "organization": "組織用量",
+      "configure": "設定查詢",
+      "settings": "查詢設定",
+      "title": "設定用量查詢",
+      "optional": "用量查詢（選填）",
+      "queryKey": "管理員 API Key",
+      "callKey": "呼叫 API Key",
+      "notConfigured": "設定管理員 Key 可查看組織支出與用量。",
+      "purpose": "請使用與呼叫 Key 屬於同一組織的管理員 Key。此 Key 僅用於用量查詢，不取代呼叫 Key。",
+      "saveVerify": "儲存並驗證",
+      "remove": "移除設定",
+      "keyRequired": "請輸入管理員 API Key。",
+      "saveFailed": "儲存查詢設定失敗，請重試。",
+      "configChanged": "帳號或查詢 Key 已變更，請重新開啟設定後再試。",
+      "openFailed": "開啟金鑰頁面失敗，請重試。",
+      "costUnavailable": "暫無紀錄",
+      "costUnavailableHint": "官方成本介面未回傳對應時段的金額紀錄。請求數與 Token 來自獨立的用量介面，沒有金額紀錄不代表支出為零。"
     },
     "officialApi": {
       "hint": "OpenAI 官方 API Key 接入，依實際位址識別。"
@@ -6330,6 +6388,10 @@
     "workbuddy": {
       "title": "WorkBuddy 設定",
       "appPath": "WorkBuddy 路徑"
+    },
+    "minimaxCode": {
+      "title": "MiniMax Code 設定",
+      "appPath": "MiniMax Code 路徑"
     },
     "zcode": {
       "title": "ZCode 設定",
@@ -7149,6 +7211,17 @@
       "resetUnknown": "重設時間未知",
       "statusUnknown": "狀態：--",
       "statusNormal": "狀態：正常",
+      "statusSynced": "狀態：已同步",
+      "statusSyncedPending": "狀態：已同步，剩餘額待確認",
+      "fastAvailable": "速通可用 {{times}}",
+      "fastTimes": "{{count}} 次",
+      "fastUnlimited": "無限次",
+      "fastPerMonth": "快請求/月：{{count}}",
+      "fastChannelPerMonth": "快通道: {{count}}/月",
+      "fastChannelStatus": "快通道: {{status}}",
+      "freeRemainingUnknown": "免費剩餘：--",
+      "timesRemainingUnknown": "剩餘次數：--",
+      "soloParallel": "權益包: Solo 並發 {{count}}",
       "statusExhaustedFree": "狀態：用量已耗盡，建議升級方案",
       "statusExhaustedPro": "狀態：用量已耗盡，建議升級方案或開啟超額自動扣費",
       "bonusUsed": "Bonus：+{{amount}}",
@@ -7161,17 +7234,8 @@
       "payAsYouGoEnabled": "超額自動扣費：已開啟",
       "payAsYouGoEmpty": "超額自動扣費：--",
       "payAsYouGoLabel": "超額自動扣費",
-      "statusSynced": "狀態：已同步",
-      "statusSyncedPending": "狀態：已同步，剩餘額待確認",
-      "fastAvailable": "速通可用 {{times}}",
-      "fastTimes": "{{count}} 次",
-      "fastUnlimited": "無限次",
-      "fastPerMonth": "快請求/月：{{count}}",
-      "fastChannelPerMonth": "快通道: {{count}}/月",
-      "fastChannelStatus": "快通道: {{status}}",
-      "freeRemainingUnknown": "免費剩餘：--",
-      "timesRemainingUnknown": "剩餘次數：--",
-      "soloParallel": "權益包: Solo 並發 {{count}}"
+      "creditsMember": "會員積分",
+      "creditsBonus": "獎勵積分"
     },
     "flowNotice": {
       "title": "Trae 帳號接入說明（點擊展開/收起）",
@@ -7187,6 +7251,18 @@
     "token": {
       "jsonOnlyDesc": "貼上完整 Trae CN 帳號 JSON。暫不支援裸 Token，避免匯入後無法穩定識別帳號或寫入不可用登入態。",
       "jsonOnlyPlaceholder": "貼上完整 Trae CN JSON..."
+    },
+    "checkin": {
+      "modalTitle": "每日簽到",
+      "durationMs": "{{ms}} 毫秒",
+      "durationSeconds": "{{seconds}} 秒",
+      "durationTitle": "累計簽到耗時",
+      "logSuccess": "成功 ({{done}}/{{total}})",
+      "logPartial": "部分成功 ({{done}}/{{total}})",
+      "logIncomplete": "未完成",
+      "detailSuccess": "簽到成功",
+      "detailAlreadyClaimed": "今日已領",
+      "detailError": "簽到異常"
     }
   },
   "codebuddyCn": {
@@ -7216,6 +7292,35 @@
     "syncToWorkbuddy": "同步至 WorkBuddy"
   },
   "workbuddy": {
+    "credits": {
+      "planBase": "方案基礎點數",
+      "planBonus": "方案贈送點數",
+      "benefit": "平台獎勵點數",
+      "addon": "購買點數",
+      "total": "剩餘點數總計",
+      "details": "點數明細",
+      "usedOf": "已使用 {{used}}/{{total}}",
+      "remainingPercent": "剩餘 {{percent}}%",
+      "nearestExpiry": "最近到期時間 {{time}}",
+      "nextRefresh": "下次更新時間 {{time}}",
+      "expiring": "包含即將到期的點數",
+      "valid": "有效期限內",
+      "expired": "已過期",
+      "expiresAt": "到期時間 {{time}}",
+      "expiryHours": "24 小時內到期",
+      "expiryDays": "3 天內到期",
+      "empty": "沒有明細",
+      "loadFailed": "載入失敗 ({{error}})",
+      "overview": "點數總覽",
+      "remaining": "剩餘 {{amount}}",
+      "loadMore": "載入更多",
+      "usage": "消耗明細",
+      "requestAndTime": "請求與時間",
+      "creditUsed": "消耗點數",
+      "model": "模型",
+      "recentUsage": "僅顯示最近 5 筆資料",
+      "viewMore": "查看更多"
+    },
     "title": "WorkBuddy 帳號管理",
     "noAccounts": "暫無 WorkBuddy 帳號",
     "addAccount": "新增 WorkBuddy 帳號",
@@ -7223,7 +7328,7 @@
       "title": "WorkBuddy 帳號管理說明（點擊展開/收起）",
       "desc": "切換帳號會依新版 WorkBuddy 官方用戶端規則寫入本機登入檔；本機匯入讀取同一檔案，資料僅在本機處理。",
       "permission": "權限範圍：讀取並寫入 WorkBuddy 登入檔（CodeBuddyExtension/Data/Public/auth/workbuddy-desktop.info），用於本機匯入與帳號切換；不再讀取或修改舊版 state.vscdb。",
-      "network": "網路範圍：OAuth 登入與 Token 刷新需連線請求 WorkBuddy；配額查詢需呼叫計費 API。不會上傳本機登入檔或憑證原文。"
+      "network": "OAuth 登入與 Token 更新會連線至 WorkBuddy 服務。點數餘額與明細會使用帳號 Token 向 WorkBuddy 計費服務查詢。本機登入檔案和系統金鑰保留在裝置上。"
     },
     "nickname": "暱稱",
     "enterprise": "企業",
@@ -7240,8 +7345,8 @@
       "oauth": {
         "title": "僅授權 IDE 登入資訊",
         "item1": "在瀏覽器完成 OAuth 後即可新增帳號並用於 IDE 切換。",
-        "item2": "不會自動綁定配額查詢參數。",
-        "item3": "如需顯示配額，請在帳號卡片中手動執行「查詢配額」綁定。"
+        "item2": "授權完成後會自動查詢點數餘額。",
+        "item3": "帳號卡片顯示點數總覽，可開啟「點數明細」查看點數紀錄和到期時間。"
       }
     },
     "oauthWebviewTab": "WebView 授權",
@@ -7357,8 +7462,169 @@
       "startTime": "開始時間",
       "endTime": "結束時間",
       "timeRangeHint": "應用程式保持執行時，會在這個時間段內隨機選取一個時間點完成背景自動簽到。",
+      "errors": "異常",
+      "tabSettings": "自動簽到設定",
+      "tabHistory": "自動簽到紀錄",
+      "manualTest": "測試執行",
+      "clearLogs": "清空",
+      "clearLogsFailed": "清空簽到記錄失敗：{{message}}",
+      "historyLoading": "正在讀取自動簽到記錄...",
+      "historyLoadFailed": "讀取自動簽到記錄失敗：{{message}}",
+      "totalCredits": "{{credits}} 積分",
+      "historyRangeHint": "僅保留近 30 天的自動簽到紀錄（共 {{count}} 條）",
+      "noHistory": "暫無近 30 天的自動簽到紀錄",
+      "saveFailed": "自動簽到設定儲存失敗：{{message}}",
+      "manualTestPartialFailure": "部分帳號簽到失敗，請查看紀錄；背景稍後會自動重試。",
+      "manualTestAlreadyRunning": "自動簽到任務正在執行，請稍後查看紀錄。",
+      "manualTestFailed": "測試執行失敗：{{message}}",
       "timeRangeError": "開始時間不能晚於結束時間"
     }
+  },
+  "minimaxCode": {
+    "title": "MiniMax Code 帳號管理",
+    "noAccounts": "暫無 MiniMax Code 帳號",
+    "addAccount": "新增 MiniMax Code 帳號",
+    "flowNotice": {
+      "title": "MiniMax Code 帳號管理說明（點擊展開/收起）",
+      "desc": "切換帳號會依新版 MiniMax Code 官方用戶端規則寫入本機登入檔；本機匯入讀取同一檔案，資料僅在本機處理。",
+      "permission": "權限範圍：讀取並寫入 MiniMax Code 登入檔（~/.minimax/auth/auth.json），用於本機匯入與帳號切換；不再讀取或修改舊版 state.vscdb。",
+      "network": "網路範圍：OAuth 登入與 Token 刷新需連線請求 MiniMax Code；配額查詢需呼叫計費 API。不會上傳本機登入檔或憑證原文。"
+    },
+    "nickname": "暱稱",
+    "enterprise": "企業",
+    "usage": "用量狀態",
+    "creditsBalance": "積分餘額",
+    "usageNormal": "正常",
+    "usageAbnormal": "異常",
+    "usageViewDetail": "查看詳情",
+    "usageDetailTitle": "用量狀態詳情",
+    "oauthWaiting": "等待授權完成...",
+    "oauthDesc": "點擊下方按鈕將在瀏覽器中開啟 MiniMax Code 授權頁面。",
+    "oauthDescWebview": "點擊下方按鈕將在內建 WebView 中開啟 MiniMax Code 授權頁面。",
+    "oauthFeature": {
+      "oauth": {
+        "title": "僅授權 IDE 登入資訊",
+        "item1": "在瀏覽器完成 OAuth 後即可新增帳號並用於 IDE 切換。",
+        "item2": "不會自動綁定配額查詢參數。",
+        "item3": "如需顯示配額，請在帳號卡片中手動執行「查詢配額」綁定。"
+      }
+    },
+    "oauthWebviewTab": "WebView 授權",
+    "oauthOpenWebview": "在 WebView 中開啟",
+    "oauthOpenWebviewIncognito": "在無痕 WebView 中開啟",
+    "oauthOpenWebviewFailed": "開啟 WebView 失敗：{{error}}",
+    "oauthOpenBrowserFallback": "在瀏覽器中開啟（備用）",
+    "oauthOpenBrowserFailed": "開啟瀏覽器失敗：{{error}}",
+    "oauthWebviewProgressHint": "WebView 頂部會顯示橫向步驟條，便於定位卡住的步驟。",
+    "oauthFlow": {
+      "prepare": "準備授權連結",
+      "authorize": "開啟授權連結並確認授權",
+      "bind": "輪詢授權結果並綁定帳號",
+      "retryPrepare": "重新產生授權連結",
+      "retryAuthorize": "重新請求授權連結",
+      "retryBind": "重新輪詢授權結果",
+      "error": "流程異常：{{error}}"
+    },
+    "tokenDesc": "貼上 MiniMax Code 的 access token：",
+    "jsonDesc": "選擇包含 MiniMax Code 帳號的 JSON 檔案：",
+    "import": {
+      "localDesc": "支援從本機 MiniMax Code 用戶端或 JSON 檔案匯入帳號資料。",
+      "localClient": "從本機 MiniMax Code 匯入"
+    },
+    "search": "搜尋 MiniMax Code 帳號...",
+    "quotaQuery": {
+      "failedRefreshCompact": "刷新配額失敗",
+      "sectionTitle": "配額查詢",
+      "empty": "暫無綁定的配額查詢資訊",
+      "packageUnknown": "套餐資訊未知",
+      "quotaLabel": "剩餘配額",
+      "updatedAt": "最近查詢：{{time}}",
+      "cycleRange": "週期：{{start}} - {{end}}",
+      "cycleUnknown": "週期資訊暫無",
+      "expireAt": "到期時間：{{time}}",
+      "expireUnknown": "到期時間：暫無",
+      "packageTitle": {
+        "base": "基礎體驗包",
+        "activity": "活動贈送包"
+      }
+    },
+    "extraCredit": {
+      "title": "加量包"
+    },
+    "oauthUrlInputPlaceholder": "可手動輸入授權網址",
+    "oauthInvalidUrl": "授權連結格式不正確，請輸入完整 URL。",
+    "oauthGotoWebview": "讓已開啟的 WebView 跳轉到輸入網址",
+    "oauthGotoWebviewSuccess": "已請求 WebView 跳轉到輸入網址。",
+    "oauthGotoWebviewFailed": "WebView 跳轉失敗：{{error}}",
+    "oauthWebviewInlineUrlPlaceholder": "在此輸入網址並在目前 WebView 跳轉",
+    "oauthWebviewInlineGo": "跳轉",
+    "oauthSuccessClosePrompt": "帳號新增完成，是否關閉 WebView？\n點擊「關閉 WebView」將立即關閉；點擊「稍後再說」則保持目前頁面開啟。",
+    "oauthSuccessCloseTitle": "帳號新增完成",
+    "oauthSuccessCloseNowLabel": "關閉 WebView",
+    "oauthSuccessCloseLaterLabel": "稍後再說",
+    "oauthSuccessCloseNowStatus": "✅ 帳號新增完成，視窗即將關閉…",
+    "oauthSuccessCloseLaterStatus": "✅ 帳號新增完成，已保持目前頁面開啟。",
+    "oauthWebviewOverlay": {
+      "steps": {
+        "prepare": "1 準備授權連結",
+        "authorize": "2 開啟授權連結並確認授權",
+        "bind": "3 輪詢授權結果並綁定帳號",
+        "complete": "5 完成（手動關閉）"
+      },
+      "status": {
+        "loginConfirm": "請在此頁面完成登入與授權。"
+      }
+    },
+    "instances": {
+      "unsupported": {
+        "descPlatform": "MiniMax Code 多執行個體僅在 macOS、Windows 和 Linux 上支援。"
+      }
+    },
+    "quota": {
+      "usedOfTotal": "{{used}} / {{total}}"
+    },
+    "checkin": {
+      "title": "每日簽到",
+      "modalTitle": "每日簽到",
+      "status": "簽到狀態",
+      "checkedIn": "已簽到",
+      "notCheckedIn": "未簽到",
+      "button": "簽到",
+      "button.loading": "簽到中...",
+      "done": "已完成",
+      "success": "簽到成功！連續簽到 {{days}} 天",
+      "failure": "簽到失敗：{{message}}",
+      "failure.network": "網路異常，請稍後重試",
+      "lastCheckin": "最後簽到：{{time}}",
+      "streak": "連續簽到 {{days}} 天",
+      "reward": "獎勵：{{reward}}",
+      "refreshStatus": "刷新狀態",
+      "checkAll": "一鍵簽到",
+      "noAccounts": "暫無帳號",
+      "querying": "查詢中...",
+      "streakDays": "{{days}} 天",
+      "streakRewardCountdown": "再簽 {{days}} 天可得大禮包",
+      "streakRewardToday": "今日可獲得大禮包！",
+      "recentDates": "近期簽到：",
+      "claimed": "已領取",
+      "queryFailed": "狀態查詢失敗",
+      "retry": "重試",
+      "inactive": "不可用",
+      "inactiveHint": "簽到活動未開啟或不適用目前帳號",
+      "autoCheckinSettings": "自動簽到設定",
+      "autoCheckinLabel": "自動簽到",
+      "autoCheckinOff": "自動簽到未開啟",
+      "autoCheckinEnabledHint": "自動簽到已開啟：將在 {{start}} 至 {{end}} 隨機簽到",
+      "autoCheckinDisabledHint": "自動簽到未開啟",
+      "enableAutoCheckin": "開啟自動簽到",
+      "enableAutoCheckinDesc": "每天在指定時間段內隨機選取一個時間完成自動簽到",
+      "randomTimeRange": "隨機簽到時間段",
+      "startTime": "開始時間",
+      "endTime": "結束時間",
+      "timeRangeHint": "應用程式保持執行時，會在這個時間段內隨機選取一個時間點完成背景自動簽到。",
+      "timeRangeError": "開始時間不能晚於結束時間"
+    },
+    "placeholder": "MiniMax Code 帳號管理即將推出。"
   },
   "zcode": {
     "search": "搜尋 ZCode 帳號...",

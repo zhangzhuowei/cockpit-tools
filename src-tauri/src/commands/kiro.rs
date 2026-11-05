@@ -208,6 +208,7 @@ pub async fn inject_kiro_to_vscode(app: AppHandle, account_id: String) -> Result
     let account = kiro_account::load_account(&account_id)
         .ok_or_else(|| format!("Kiro account not found: {}", account_id))?;
 
+
     if let Err(err) = crate::modules::kiro_instance::update_default_settings(
         Some(Some(account_id.clone())),
         None,
@@ -241,6 +242,7 @@ pub async fn inject_kiro_to_vscode(app: AppHandle, account_id: String) -> Result
             }
         }
     };
+
 
     let _ = crate::modules::tray::update_tray_menu(&app);
 

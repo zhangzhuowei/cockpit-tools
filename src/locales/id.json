@@ -290,6 +290,7 @@
     "failureTime": "Waktu gagal",
     "clearRecord": "Hapus catatan",
     "clearingRecord": "Menghapus…",
+    "to": "sampai",
     "dragSortHint": "Seret pegangan kiri untuk mengubah urutan. Perubahan otomatis disimpan saat dilepas.",
     "dragSortFilteredHint": "Hapus pencarian untuk mengubah urutan.",
     "recycleBin": {
@@ -742,6 +743,7 @@
     "traeCn": "Trae CN​",
     "traeSoloCn": "TRAE SOLO CN​",
     "codebuddyCn": "CodeBuddy CN​",
+    "minimaxcode": "MiniMax Code",
     "switchClassicLayoutEntry": "Beralih ke tata letak klasik",
     "switchClassicLayoutTitle": "Beralih ke tata letak bilah sisi klasik",
     "switchClassicLayoutDesc": "Tata letak klasik menampilkan navigasi platform secara lengkap dan mendukung penciutan bilah sisi. Anda dapat beralih kembali kapan saja di Pengaturan > Umum > Tata Letak Bilah Sisi.",
@@ -803,7 +805,12 @@
     "customIconDeleteConfirm": "Hapus ikon kustom ini?",
     "editChildPlatform": "Edit platform anak",
     "setAsDefaultInGroup": "Tetapkan sebagai platform bawaan dalam grup ini",
-    "removeFromGroup": "Keluarkan dari grup"
+    "removeFromGroup": "Keluarkan dari grup",
+    "enabledToggle": "Aktif",
+    "groupEnabledHint": "Aktifkan atau nonaktifkan semua platform dalam grup",
+    "disabledHint": "Menonaktifkan akan menghentikan tugas otomatis dan menyembunyikan pengaturan platform. Tampilan entri diatur terpisah",
+    "enableAll": "Aktifkan semua",
+    "disableAll": "Nonaktifkan semua"
   },
   "privacy": {
     "hideSensitive": "Sembunyikan email",
@@ -1324,6 +1331,12 @@
       "workbuddyAppPathPlaceholder": "Jalur bawaan",
       "workbuddyPathSelect": "Pilih",
       "workbuddyPathReset": "Atur ulang ke bawaan",
+      "minimaxCodeAppPath": "Jalur Peluncuran MiniMax Code",
+      "minimaxCodeAppPathDesc": "Biarkan kosong untuk jalur bawaan",
+      "minimaxCodeAppPathPlaceholder": "Jalur bawaan",
+      "minimaxCodePathSelect": "Pilih",
+      "minimaxCodeAppPathPathSelect": "Pilih",
+      "minimaxCodePathReset": "Atur ulang ke bawaan",
       "openclawAuthOverwrite": "Timpa login OpenClaw saat mengganti Codex",
       "openclawAuthOverwriteDesc": "Jika dinonaktifkan, hanya Codex yang diganti dan OpenClaw mempertahankan status login saat ini",
       "ghcpOpencodeAuthOverwrite": "Timpa login OpenCode saat mengganti GitHub Copilot",
@@ -1361,6 +1374,8 @@
       "qoderPathSelect": "Pilih",
       "workbuddyAutoRefresh": "Auto Refresh Kuota WorkBuddy",
       "workbuddyAutoRefreshDesc": "Frekuensi auto-refresh di latar belakang",
+      "minimaxCodeAutoRefresh": "Auto Refresh Kuota MiniMax Code",
+      "minimaxCodeAutoRefreshDesc": "Frekuensi auto-refresh di latar belakang",
       "codexLocalAccessEntryVisible": "Tampilkan entri Layanan API",
       "codexLocalAccessEntryVisibleDesc": "Hanya mengatur apakah entri Layanan API ditampilkan di ringkasan Codex. Ini tidak menghentikan layanan API lokal; Anda bisa menyalakannya lagi di sini atau di Pengaturan Cepat.",
       "codexLocalAccessEnabled": "Aktifkan Layanan API",
@@ -1450,9 +1465,13 @@
       "codexEnhancements": {
         "quotaCompat": "Kuota mode campuran",
         "quotaCompatDesc": "Dengan login OAuth asli dan rute API eksternal, kuota langganan tidak memblokir pesan API lokal. Penggunaan nyata dan kuota gambar tidak berubah.",
-        "restartHint": "Aktif secara bawaan. Mulai ulang tiap instans Codex terkait setelah perubahan dan biarkan Cockpit Tools berjalan. Dikte bawaan mengikuti kemampuan dan pengaturan klien; Cockpit tidak mengambil alih atau memaksakan pengaktifannya.",
-        "configFailed": "Gagal membaca atau menyimpan pengaturan: {{error}}"
-      }
+        "restartHint": "Prediksi bawaan nonaktif secara default. Mulai ulang tiap instans Codex terkait setelah perubahan dan biarkan Cockpit Tools berjalan. Dikte bawaan mengikuti kemampuan dan pengaturan klien; Cockpit tidak mengambil alih atau memaksakan pengaktifannya.",
+        "configFailed": "Gagal membaca atau menyimpan pengaturan: {{error}}",
+        "nativePredictions": "Prediksi langkah berikutnya bawaan (Tab)",
+        "nativePredictionsDesc": "Membuat saran pesan berikutnya dengan penyedia API dan model percakapan saat ini. Menggunakan kredit API tambahan; mulai ulang Codex setelah menyimpan."
+      },
+      "timeDisplayMode": "Tampilan waktu",
+      "timeDisplayModeDesc": "Waktu pada kartu dan daftar akun. Bawaan menggunakan waktu pergantian akun"
     },
     "network": {
       "apiTitle": "API Antigravity Cockpit",
@@ -2136,7 +2155,13 @@
     "tagUpdated": "Tag diperbarui",
     "plan": {
       "personal": "Pribadi"
-    }
+    },
+    "lastSwitchTime": "Pergantian",
+    "neverSwitched": "Belum pernah beralih",
+    "refreshTime": "Pembaruan",
+    "lastSwitchTimeFull": "Pergantian: {{time}}",
+    "refreshTimeFull": "Pembaruan: {{time}}",
+    "toggleTimeMode": "Tampilkan waktu pergantian atau pembaruan"
   },
   "overview": {
     "title": "Ringkasan",
@@ -2500,6 +2525,22 @@
     "other_group": "Model Lainnya"
   },
   "codex": {
+    "overload": {
+      "setting": "Coba lagi saat penuh",
+      "settingHint": "Berlaku untuk permintaan baru di layanan API Codex lokal. Permintaan yang aman diulang akan menunggu hingga model tersedia.",
+      "retrying": "Model sibuk, mencoba lagi ({{count}})",
+      "count": "Kapasitas penuh: {{count}}",
+      "countHint": "Menghitung percobaan ke penyedia, termasuk percobaan otomatis. Riwayat disimpan hingga 7 hari.",
+      "history": "Riwayat kapasitas",
+      "empty": "Tidak ada kesalahan kapasitas pada rentang ini.",
+      "attempt": "Percobaan {{number}}",
+      "sameAccount": "Pulih dengan akun yang sama",
+      "otherAccount": "Pulih setelah berganti akun",
+      "pending": "Menunggu hasil",
+      "cancelled": "Dibatalkan",
+      "failed": "Permintaan gagal",
+      "countUnavailable": "Statistik kapasitas tidak tersedia"
+    },
     "instance": {
       "errors": {
         "threadSyncWorkerFailed": "Tugas sinkronisasi sesi gagal: {{error}}",
@@ -3454,7 +3495,7 @@
       "resetCreditDialogDesc": "Setel ulang batas laju agar Anda bisa terus bekerja tanpa gangguan. Reset tersedia: {{count}}.",
       "resetCreditDialogAction": "Reset penggunaan",
       "resetCreditNoCredits": "Tidak ada reset tersedia",
-      "resetCreditConsumed": "Kuota 5 jam disetel ulang",
+      "resetCreditConsumed": "Kuota disetel ulang",
       "resetCreditFailed": "Gagal reset: {{error}}",
       "resetCreditRefreshAfterConsumeFailed": "Reset dikirim, tetapi pembaruan kuota gagal: {{error}}",
       "resetCreditsTitleWithExpiry": "Sisa reset untuk jendela 5 jam: {{count}}. Kedaluwarsa terdekat: {{time}}",
@@ -4191,7 +4232,7 @@
         "apiKeyUrlInvalid": "Gunakan URL pengelolaan HTTP(S) tanpa kredensial tertanam; masukkan kunci API di kolom kunci."
       },
       "saveSuccess": "Penyedia model disimpan.",
-      "deleteBlocked": "Penyedia ini tertaut ke {{count}} akun dan tidak bisa dihapus.",
+      "confirmDeleteWithAccounts": "Hapus penyedia “{{name}}” beserta {{count}} akun tertaut?",
       "confirmDelete": "Hapus penyedia \"{{name}}\"?",
       "deleteFailed": "Gagal menghapus penyedia: {{error}}",
       "deleteApiKeyFailed": "Gagal menghapus API Key: {{error}}",
@@ -4321,7 +4362,7 @@
         "selectVisible": "Pilih yang terlihat",
         "resultSelectedCount": "{{count}} dipilih",
         "selectFailed": "Pilih gagal",
-        "deleteConfirm": "Hapus {{providerCount}} penyedia yang dipilih? Ini juga akan menghapus {{accountCount}} akun Codex API Key yang tertaut tepat.",
+        "deleteConfirm": "Hapus {{providerCount}} penyedia terpilih beserta {{accountCount}} akun tertaut?",
         "deleteSuccess": "Menghapus {{providerCount}} penyedia dan {{accountCount}} akun tertaut.",
         "deleteFailed": "Gagal menghapus item terpilih: {{error}}",
         "protocolSummary": "{{protocol}} · {{mode}} · {{model}}",
@@ -5188,7 +5229,7 @@
       "boundProxyUnavailable": "Akun tertaut tidak memiliki proksi yang tersedia. Pilih lagi.",
       "sourceUnavailable": "Sumber proksi atau simpul tidak tersedia. Pilih lagi.",
       "operationTimeout": "Operasi proksi kehabisan waktu. Coba lagi.",
-      "cardScopeHint": "Klien desktop Codex yang diluncurkan memakai proksi kartu ini. Koneksi gerbang model ke penyedia tetap memakai rutenya masing-masing.",
+      "cardScopeHint": "Proksi akun API Key berlaku untuk klien desktop dan permintaan keluar layanan API. Proksi kartu layanan API hanya berlaku untuk klien desktop. Pengaturan proksi sistem tidak berubah.",
       "display": {
         "title": "Tampilan proksi",
         "compact": "Ringkas",
@@ -5489,7 +5530,7 @@
       "modeDefaultHint": "Akun ini tidak memakai proksi dan tetap memakai keluaran default sebelumnya.",
       "modeStaleHint": "Sumber atau simpul yang terikat sudah tidak tersedia. Pilih lagi.",
       "management": "Kelola proksi",
-      "managementHint": "Atur proksi untuk kartu akun OAuth, API, dan layanan API tanpa mengubah proksi sistem. Pada kartu API, proksi berlaku untuk klien desktop yang diluncurkan; gerbang model tetap memakai rutenya masing-masing.",
+      "managementHint": "Proksi akun API Key berlaku untuk klien desktop dan permintaan keluar layanan API. Proksi kartu layanan API hanya berlaku untuk klien desktop. Pengaturan proksi sistem tidak berubah.",
       "emptyTitle": "Koneksi khusus untuk akun Anda",
       "emptyDescription": "Belum ada kartu akun yang didukung. Tambahkan akun OAuth atau API, atau aktifkan kartu layanan API, lalu pilih proksi di sini.",
       "search": "Cari akun",
@@ -5797,7 +5838,7 @@
         "assign": "Tetapkan proksi",
         "specific": "Akun terpilih",
         "shared": "Proksi bersama",
-        "sharedHint": "Kartu yang didukung tanpa proksi sendiri mengikuti proksi ini, termasuk kartu baru. Pengaturan mandiri dan Tanpa proksi diprioritaskan. Kartu API memakainya untuk klien desktop; gerbang model tetap memakai rutenya masing-masing.",
+        "sharedHint": "Akun tanpa proksi sendiri mewarisi proksi ini, termasuk akun baru. Proksi mandiri dan Tanpa proksi diprioritaskan. Akun API Key memakainya untuk desktop dan permintaan API; kartu layanan API hanya untuk desktop.",
         "apply": "Tetapkan"
       },
       "managerResources": {
@@ -5924,7 +5965,7 @@
       "title": "Detail permintaan",
       "totalLatency": "Waktu total",
       "firstResponse": "Respons pertama",
-      "firstResponseHint": "Waktu sejak permintaan dimulai hingga fragmen respons pertama dari server, bukan selalu token pertama yang dihasilkan.",
+      "firstResponseHint": "Untuk permintaan streaming Responses baru, pengukuran dimulai setelah gateway memproses isi permintaan dan berakhir pada peristiwa respons pertama dari server hulu. Sinyal penjaga koneksi dan pemberitahuan batas laju dilewati.",
       "unavailable": "Belum ada diagnostik. Segarkan nanti. Permintaan lama tidak dilengkapi.",
       "attempts": "Percobaan",
       "noAttempts": "Riwayat percobaan tidak direkam.",
@@ -6104,10 +6145,27 @@
       "pending": "Menunggu penggunaan OpenAI",
       "permissionRequired": "Kunci ini tidak dapat membaca penggunaan organisasi (api.usage.read).",
       "permissionGuide": "Gunakan kunci admin: Admin keys → Restricted → Usage API Scope → Read. Menampilkan biaya dan penggunaan, bukan sisa saldo.",
-      "openAdminKeys": "Izin penggunaan",
-      "invalidKey": "Kunci tidak valid atau kedaluwarsa. Periksa kunci API saat ini.",
+      "openAdminKeys": "Buat kunci admin",
+      "invalidKey": "Kunci kueri tidak valid atau kedaluwarsa. Periksa kunci API admin.",
       "networkFailed": "Tidak dapat terhubung ke layanan penggunaan OpenAI. Segarkan nanti.",
-      "queryFailed": "Gagal mengambil penggunaan OpenAI. Coba lagi nanti."
+      "queryFailed": "Gagal mengambil penggunaan OpenAI. Coba lagi nanti.",
+      "organization": "Penggunaan organisasi",
+      "configure": "Atur penggunaan",
+      "settings": "Setelan penggunaan",
+      "title": "Atur kueri penggunaan",
+      "optional": "Kueri penggunaan (opsional)",
+      "queryKey": "Kunci API admin",
+      "callKey": "Kunci API model",
+      "notConfigured": "Tambahkan kunci admin untuk melihat biaya dan penggunaan organisasi.",
+      "purpose": "Gunakan kunci admin dari organisasi yang sama dengan kunci model. Kunci ini hanya untuk kueri penggunaan dan tidak menggantikan kunci model.",
+      "saveVerify": "Simpan dan periksa",
+      "remove": "Hapus pengaturan",
+      "keyRequired": "Masukkan kunci API admin.",
+      "saveFailed": "Gagal menyimpan setelan. Coba lagi.",
+      "configChanged": "Akun atau kunci kueri telah berubah. Buka kembali setelan.",
+      "openFailed": "Gagal membuka halaman kunci. Coba lagi.",
+      "costUnavailable": "Belum ada",
+      "costUnavailableHint": "API biaya resmi tidak mengembalikan catatan biaya untuk periode ini. Permintaan dan token berasal dari API penggunaan terpisah; tidak adanya catatan biaya bukan berarti pengeluaran nol."
     },
     "officialApi": {
       "hint": "Akun dengan kunci API resmi OpenAI, dikenali berdasarkan alamat koneksi yang digunakan."
@@ -6485,6 +6543,10 @@
     "workbuddy": {
       "title": "WorkBuddy Settings​",
       "appPath": "WorkBuddy Path​"
+    },
+    "minimaxCode": {
+      "title": "MiniMax Code Settings​",
+      "appPath": "MiniMax Code Path​"
     },
     "filterPersistence": {
       "title": "Simpan Filter",
@@ -7324,6 +7386,17 @@
       "resetUnknown": "Reset langganan: --",
       "statusUnknown": "Status: --​",
       "statusNormal": "Status: Normal​",
+      "statusSynced": "Status: tersinkron",
+      "statusSyncedPending": "Status: sinkron, sisa menunggu",
+      "fastAvailable": "Cepat sisa {{times}}",
+      "fastTimes": "{{count}}×",
+      "fastUnlimited": "Tak terbatas",
+      "fastPerMonth": "Cepat/bln: {{count}}",
+      "fastChannelPerMonth": "Express: {{count}}/bln",
+      "fastChannelStatus": "Saluran cepat: {{status}}",
+      "freeRemainingUnknown": "Free sisa: --",
+      "timesRemainingUnknown": "Sisa: --",
+      "soloParallel": "Paket: Solo ×{{count}}",
       "statusExhaustedFree": "Status: Penggunaan habis, disarankan upgrade",
       "statusExhaustedPro": "Status: Penggunaan habis, upgrade atau aktifkan penggunaan on-demand",
       "bonusUsed": "Bonus: +{{amount}}​",
@@ -7336,17 +7409,8 @@
       "payAsYouGoConsuming": "Penggunaan On-Demand: Mengonsumsi",
       "payAsYouGoEnabled": "Penggunaan On-Demand: Diaktifkan",
       "payAsYouGoEmpty": "Penggunaan On-Demand: --",
-      "statusSynced": "Status: tersinkron",
-      "statusSyncedPending": "Status: sinkron, sisa menunggu",
-      "fastAvailable": "Cepat sisa {{times}}",
-      "fastTimes": "{{count}}×",
-      "fastUnlimited": "Tak terbatas",
-      "fastPerMonth": "Cepat/bln: {{count}}",
-      "fastChannelPerMonth": "Express: {{count}}/bln",
-      "fastChannelStatus": "Saluran cepat: {{status}}",
-      "freeRemainingUnknown": "Free sisa: --",
-      "timesRemainingUnknown": "Sisa: --",
-      "soloParallel": "Paket: Solo ×{{count}}"
+      "creditsMember": "Kredit keanggotaan",
+      "creditsBonus": "Kredit bonus"
     },
     "flowNotice": {
       "title": "Panduan akun Trae (klik untuk perluas/ciutkan)",
@@ -7362,6 +7426,18 @@
     "token": {
       "jsonOnlyDesc": "Tempel JSON akun Trae CN lengkap. Token mentah tidak didukung.",
       "jsonOnlyPlaceholder": "JSON Trae CN lengkap..."
+    },
+    "checkin": {
+      "modalTitle": "Check-in harian",
+      "durationMs": "{{ms}} ms",
+      "durationSeconds": "{{seconds}} detik",
+      "durationTitle": "Total waktu check-in",
+      "logSuccess": "Berhasil ({{done}}/{{total}})",
+      "logPartial": "Sebagian ({{done}}/{{total}})",
+      "logIncomplete": "Tidak selesai",
+      "detailSuccess": "Check-in berhasil",
+      "detailAlreadyClaimed": "Sudah diklaim hari ini",
+      "detailError": "Kesalahan check-in"
     }
   },
   "codebuddyCn": {
@@ -7391,6 +7467,35 @@
     "syncToWorkbuddy": "Sinkronkan ke WorkBuddy"
   },
   "workbuddy": {
+    "credits": {
+      "planBase": "Kredit dasar paket",
+      "planBonus": "Kredit bonus paket",
+      "benefit": "Kredit hadiah platform",
+      "addon": "Kredit yang dibeli",
+      "total": "Total kredit tersisa",
+      "details": "Rincian kredit",
+      "usedOf": "Digunakan {{used}}/{{total}}",
+      "remainingPercent": "{{percent}}% tersisa",
+      "nearestExpiry": "Kedaluwarsa berikutnya {{time}}",
+      "nextRefresh": "Pembaruan berikutnya {{time}}",
+      "expiring": "Termasuk kredit yang akan segera kedaluwarsa",
+      "valid": "Berlaku",
+      "expired": "Kedaluwarsa",
+      "expiresAt": "Kedaluwarsa {{time}}",
+      "expiryHours": "Kedaluwarsa dalam 24 jam",
+      "expiryDays": "Kedaluwarsa dalam 3 hari",
+      "empty": "Belum ada informasi",
+      "loadFailed": "Gagal memuat ({{error}})",
+      "overview": "Ringkasan",
+      "remaining": "Sisa {{amount}}",
+      "loadMore": "Muat lagi",
+      "usage": "Rincian pemakaian",
+      "requestAndTime": "Permintaan dan waktu",
+      "creditUsed": "Kredit terpakai",
+      "model": "Model AI",
+      "recentUsage": "5 catatan terakhir",
+      "viewMore": "Lihat lainnya"
+    },
     "title": "Akun WorkBuddy",
     "noAccounts": "Tidak ada akun WorkBuddy",
     "addAccount": "Tambah Akun WorkBuddy",
@@ -7398,7 +7503,7 @@
       "title": "Info Akun WorkBuddy (klik untuk perluas/ciutkan)",
       "desc": "Penggantian akun menulis file masuk lokal sesuai tata letak terbaru klien resmi WorkBuddy; impor lokal membaca file yang sama. Data hanya diproses secara lokal.",
       "permission": "Cakupan izin: baca dan tulis file masuk WorkBuddy (CodeBuddyExtension/Data/Public/auth/workbuddy-desktop.info) untuk impor lokal dan penggantian akun; state.vscdb lama tidak lagi dibaca atau diubah.",
-      "network": "Cakupan jaringan: Login OAuth dan penyegaran token memerlukan permintaan jaringan ke WorkBuddy; kueri kuota memanggil API penagihan. File masuk lokal dan kredensial mentah tidak diunggah."
+      "network": "Login OAuth dan pembaruan token menghubungi WorkBuddy. Saldo dan rincian kredit diambil dari layanan penagihan dengan token akun. Berkas login dan kunci sistem tetap di perangkat ini."
     },
     "nickname": "Nama panggilan",
     "enterprise": "Perusahaan",
@@ -7415,8 +7520,8 @@
       "oauth": {
         "title": "IDE sign-in only​",
         "item1": "Add the account after completing OAuth in your browser, then use it for IDE switching.​",
-        "item2": "Resource-package quota data will refresh automatically after authorization.​",
-        "item3": "Account cards show quota amount, progress, and refresh/expiry time by resource package.​"
+        "item2": "Saldo kredit diperiksa otomatis setelah otorisasi.",
+        "item3": "Kartu akun menampilkan ringkasan kredit. Buka rincian untuk melihat setiap kredit dan tanggal kedaluwarsanya."
       }
     },
     "oauthWebviewTab": "WebView OAuth​",
@@ -7532,8 +7637,169 @@
       "startTime": "Waktu Mulai",
       "endTime": "Waktu Selesai",
       "timeRangeHint": "Memilih waktu acak dalam rentang ini setiap hari untuk menyelesaikan check-in latar belakang.",
+      "errors": "Error",
+      "tabSettings": "Pengaturan Check-in Otomatis",
+      "tabHistory": "Riwayat Check-in Otomatis",
+      "manualTest": "Jalankan Uji Coba",
+      "clearLogs": "Hapus",
+      "clearLogsFailed": "Gagal menghapus riwayat check-in: {{message}}",
+      "historyLoading": "Memuat riwayat check-in otomatis...",
+      "historyLoadFailed": "Gagal memuat riwayat check-in otomatis: {{message}}",
+      "totalCredits": "{{credits}} kredit",
+      "historyRangeHint": "Hanya catatan check-in otomatis 30 hari terakhir yang disimpan (total {{count}})",
+      "noHistory": "Tidak ada catatan check-in otomatis dalam 30 hari terakhir",
+      "saveFailed": "Gagal menyimpan pengaturan check-in otomatis: {{message}}",
+      "manualTestPartialFailure": "Check-in gagal untuk beberapa akun. Lihat catatan; percobaan ulang akan dijalankan di latar belakang nanti.",
+      "manualTestAlreadyRunning": "Tugas check-in otomatis sedang berjalan. Periksa catatan nanti.",
+      "manualTestFailed": "Uji coba gagal: {{message}}",
       "timeRangeError": "Waktu mulai tidak boleh lebih lambat dari waktu selesai"
     }
+  },
+  "minimaxCode": {
+    "title": "Akun MiniMax Code",
+    "noAccounts": "Tidak ada akun MiniMax Code",
+    "addAccount": "Tambah Akun MiniMax Code",
+    "flowNotice": {
+      "title": "Info Akun MiniMax Code (klik untuk perluas/ciutkan)",
+      "desc": "Penggantian akun menulis file masuk lokal sesuai tata letak terbaru klien resmi MiniMax Code; impor lokal membaca file yang sama. Data hanya diproses secara lokal.",
+      "permission": "Cakupan izin: baca dan tulis file masuk MiniMax Code (~/.minimax/auth/auth.json) untuk impor lokal dan penggantian akun; state.vscdb lama tidak lagi dibaca atau diubah.",
+      "network": "Cakupan jaringan: Login OAuth dan penyegaran token memerlukan permintaan jaringan ke MiniMax Code; kueri kuota memanggil API penagihan. File masuk lokal dan kredensial mentah tidak diunggah."
+    },
+    "nickname": "Nama panggilan",
+    "enterprise": "Perusahaan",
+    "usage": "Status Penggunaan",
+    "creditsBalance": "Saldo Kredit",
+    "usageNormal": "Status normal",
+    "usageAbnormal": "Abnormal​",
+    "usageViewDetail": "Lihat detail",
+    "usageDetailTitle": "Detail Status Penggunaan",
+    "oauthWaiting": "Menunggu otorisasi...",
+    "oauthDesc": "Klik tombol di bawah ini untuk membuka halaman otorisasi MiniMax Code di peramban Anda.",
+    "oauthDescWebview": "Klik tombol di bawah ini untuk membuka halaman otorisasi MiniMax Code di WebView bawaan.",
+    "oauthFeature": {
+      "oauth": {
+        "title": "IDE sign-in only​",
+        "item1": "Add the account after completing OAuth in your browser, then use it for IDE switching.​",
+        "item2": "Resource-package quota data will refresh automatically after authorization.​",
+        "item3": "Account cards show quota amount, progress, and refresh/expiry time by resource package.​"
+      }
+    },
+    "oauthWebviewTab": "WebView OAuth​",
+    "oauthOpenWebview": "Open in WebView​",
+    "oauthOpenWebviewIncognito": "Open in Incognito WebView​",
+    "oauthOpenWebviewFailed": "Failed to open WebView: {{error}}​",
+    "oauthOpenBrowserFallback": "Open in Browser (Fallback)​",
+    "oauthOpenBrowserFailed": "Failed to open browser: {{error}}​",
+    "oauthWebviewProgressHint": "A horizontal step bar is shown at the top of the WebView to locate stuck stages.​",
+    "oauthFlow": {
+      "prepare": "Prepare OAuth link​",
+      "authorize": "Open authorization link and confirm​",
+      "bind": "Poll auth result and bind account​",
+      "retryPrepare": "Regenerate OAuth link​",
+      "retryAuthorize": "Request authorization link again​",
+      "retryBind": "Retry auth polling​",
+      "error": "Flow error: {{error}}​"
+    },
+    "oauthWebviewOverlay": {
+      "steps": {
+        "prepare": "1 Prepare OAuth link​",
+        "authorize": "2 Open authorization link and confirm​",
+        "bind": "3 Poll auth result and bind account​",
+        "complete": "5 Done (close manually)​"
+      },
+      "status": {
+        "loginConfirm": "Please complete sign-in and authorization on this page.​"
+      }
+    },
+    "tokenDesc": "Tempel token akses MiniMax Code Anda:",
+    "jsonDesc": "Pilih berkas JSON yang berisi akun MiniMax Code:",
+    "import": {
+      "localDesc": "Impor data akun dari klien MiniMax Code lokal atau berkas JSON.",
+      "localClient": "Impor dari MiniMax Code lokal"
+    },
+    "search": "Cari akun MiniMax Code...",
+    "quota": {
+      "usedOfTotal": "{{used}} / {{total}}​"
+    },
+    "quotaQuery": {
+      "failedRefreshCompact": "Quota query failed​",
+      "sectionTitle": "Quota Query​",
+      "empty": "No quota data available​",
+      "packageUnknown": "Unknown package​",
+      "quotaLabel": "Remaining quota​",
+      "updatedAt": "Next refresh time: {{time}}​",
+      "cycleRange": "Cycle: {{start}} - {{end}}​",
+      "cycleUnknown": "Cycle info unavailable​",
+      "expireAt": "Expires at: {{time}}​",
+      "expireUnknown": "Expires at: N/A​",
+      "packageTitle": {
+        "base": "Base Experience Package​",
+        "activity": "Activity Gift Package​"
+      }
+    },
+    "extraCredit": {
+      "title": "Credit Package​"
+    },
+    "oauthUrlInputPlaceholder": "You can enter an authorization URL manually​",
+    "oauthInvalidUrl": "Invalid authorization URL. Please enter a full URL.​",
+    "oauthGotoWebview": "Navigate opened WebView to input URL​",
+    "oauthGotoWebviewSuccess": "Requested WebView to navigate to the input URL.​",
+    "oauthGotoWebviewFailed": "Failed to navigate WebView: {{error}}​",
+    "oauthWebviewInlineUrlPlaceholder": "Enter a URL to navigate within this WebView​",
+    "oauthWebviewInlineGo": "Go​",
+    "oauthSuccessClosePrompt": "Account added successfully. Close this WebView now?\nChoose \"Close WebView\" to close now, or \"Later\" to keep it open.​",
+    "oauthSuccessCloseTitle": "Account Added​",
+    "oauthSuccessCloseNowLabel": "Close WebView​",
+    "oauthSuccessCloseLaterLabel": "Later​",
+    "oauthSuccessCloseNowStatus": "Ã¢Å“â€¦ Account added. Closing window...",
+    "oauthSuccessCloseLaterStatus": "Ã¢Å“â€¦ Account added. This WebView stays open.",
+    "instances": {
+      "unsupported": {
+        "descPlatform": "Multi-instansi MiniMax Code didukung hanya di macOS, Windows, dan Linux."
+      }
+    },
+    "checkin": {
+      "title": "Check-in Harian",
+      "modalTitle": "Check-in Harian",
+      "status": "Status Check-in",
+      "checkedIn": "Sudah Check-in",
+      "notCheckedIn": "Belum Check-in",
+      "button": "Absen",
+      "button.loading": "Melakukan check-in...",
+      "done": "Selesai",
+      "success": "Check-in berhasil! Streak {{days}} hari",
+      "failure": "Absen gagal: {{message}}",
+      "failure.network": "Kesalahan jaringan, silakan coba lagi nanti",
+      "lastCheckin": "Check-in terakhir: {{time}}",
+      "streak": "Streak {{days}} hari",
+      "reward": "Hadiah: {{reward}}",
+      "refreshStatus": "Segarkan",
+      "checkAll": "Check In Semua",
+      "noAccounts": "Tidak ada akun",
+      "querying": "Memuat...",
+      "streakDays": "{{days}} hari",
+      "streakRewardCountdown": "{{days}} hari lagi untuk hadiah bonus",
+      "streakRewardToday": "Hadiah bonus tersedia hari ini!",
+      "recentDates": "Terbaru: ",
+      "claimed": "Diklaim",
+      "queryFailed": "Kueri gagal",
+      "retry": "Coba lagi",
+      "inactive": "Tidak tersedia",
+      "inactiveHint": "Check-in tidak aktif untuk akun ini",
+      "autoCheckinSettings": "Pengaturan Check-in Otomatis",
+      "autoCheckinLabel": "Check-in Otomatis",
+      "autoCheckinOff": "Check-in Otomatis Mati",
+      "autoCheckinEnabledHint": "Check-in otomatis aktif: Check-in acak antara {{start}} dan {{end}}",
+      "autoCheckinDisabledHint": "Check-in otomatis nonaktif",
+      "enableAutoCheckin": "Aktifkan Check-in Otomatis",
+      "enableAutoCheckinDesc": "Melakukan check-in harian secara acak dalam rentang waktu yang ditentukan",
+      "randomTimeRange": "Rentang Waktu Check-in Acak",
+      "startTime": "Waktu Mulai",
+      "endTime": "Waktu Selesai",
+      "timeRangeHint": "Memilih waktu acak dalam rentang ini setiap hari untuk menyelesaikan check-in latar belakang.",
+      "timeRangeError": "Waktu mulai tidak boleh lebih lambat dari waktu selesai"
+    },
+    "placeholder": "Manajemen akun MiniMax Code akan segera hadir."
   },
   "mfaVault": {
     "pageDesc": "Simpan dan kelola kode pemulihan cadangan MFA, set kode sandi, dan data autentikasi sensitif lainnya dengan aman. Catatan MFA disimpan secara lokal saja. Menghapus catatan, membersihkan cache, atau mengganti/kehilangan perangkat dapat menyebabkan kehilangan MFA. Simpan cadangan dan impor dari cadangan saat diperlukan.",

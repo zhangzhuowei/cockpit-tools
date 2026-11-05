@@ -290,6 +290,7 @@
     "failureTime": "Hata zamanı",
     "clearRecord": "Kaydı sil",
     "clearingRecord": "Siliniyor…",
+    "to": "ile",
     "dragSortHint": "Sıralamayı değiştirmek için soldaki tutamacı sürükleyin. Bıraktığınızda otomatik kaydedilir.",
     "dragSortFilteredHint": "Sıralamayı değiştirmek için aramayı temizleyin.",
     "recycleBin": {
@@ -689,6 +690,7 @@
     "traeCn": "Trae CN​",
     "traeSoloCn": "TRAE SOLO CN​",
     "codebuddyCn": "CodeBuddy CN​",
+    "minimaxcode": "MiniMax Code",
     "zed": "Zed Platformu",
     "expandSidebar": "Kenar çubuğunu genişlet",
     "collapseSidebar": "Kenar çubuğunu daralt",
@@ -756,7 +758,12 @@
     "setAsDefaultInGroup": "Bu grupta varsayılan platform olarak ayarla",
     "removeFromGroup": "Gruptan kaldır",
     "sidebarSelectedUnlimited": "Seçilen ({count})",
-    "tipWithGroupsUnlimited": "Seçili platformları ve grupları manuel olarak sıralayın"
+    "tipWithGroupsUnlimited": "Seçili platformları ve grupları manuel olarak sıralayın",
+    "enabledToggle": "Etkin",
+    "groupEnabledHint": "Gruptaki tüm platformları birlikte etkinleştir veya devre dışı bırak",
+    "disabledHint": "Devre dışı bırakma otomatik görevleri durdurur ve platform ayarlarını gizler. Girişin görünürlüğü ayrı ayarlanır",
+    "enableAll": "Tümünü etkinleştir",
+    "disableAll": "Tümünü devre dışı bırak"
   },
   "privacy": {
     "hideSensitive": "E-postaları gizle",
@@ -1243,6 +1250,12 @@
       "workbuddyAppPathPlaceholder": "Varsayılan yol",
       "workbuddyPathSelect": "Seç",
       "workbuddyPathReset": "Varsayılana sıfırla",
+      "minimaxCodeAppPath": "MiniMax Code Başlatma Yolu",
+      "minimaxCodeAppPathDesc": "Varsayılan yol için boş bırakın",
+      "minimaxCodeAppPathPlaceholder": "Varsayılan yol",
+      "minimaxCodePathSelect": "Seç",
+      "minimaxCodeAppPathPathSelect": "Seç",
+      "minimaxCodePathReset": "Varsayılana sıfırla",
       "openclawAuthOverwrite": "Codex'i değiştirirken OpenClaw oturum açma bilgilerinin üzerine yazın",
       "openclawAuthOverwriteDesc": "Kapalıyken yalnızca Codex açılır ve OpenClaw mevcut oturum açma durumunu korur",
       "ghcpOpencodeAuthOverwrite": "GitHub Copilot değiştirirken OpenCode oturum açma bilgilerinin üzerine yazın",
@@ -1314,6 +1327,8 @@
       "qoderPathSelect": "Seç",
       "workbuddyAutoRefresh": "WorkBuddy Otomatik Kota Yenileme",
       "workbuddyAutoRefreshDesc": "Arka planda otomatik yenileme sıklığı",
+      "minimaxCodeAutoRefresh": "MiniMax Code Otomatik Kota Yenileme",
+      "minimaxCodeAutoRefreshDesc": "Arka planda otomatik yenileme sıklığı",
       "codexLocalAccessEntryVisible": "API Hizmeti girişini göster",
       "codexLocalAccessEntryVisibleDesc": "Yalnızca API Hizmeti girişinin Codex genel görünümünde gösterilip gösterilmeyeceğini kontrol eder. Yerel API hizmetini durdurmaz; buradan veya Hızlı Ayarlar'dan yeniden açabilirsiniz.",
       "codexLocalAccessEnabled": "API Hizmetini etkinleştir",
@@ -1403,9 +1418,13 @@
       "codexEnhancements": {
         "quotaCompat": "Karma mod kota uyumu",
         "quotaCompatDesc": "Gerçek OAuth oturumu ve harici API yolu birlikte kullanıldığında abonelik kotasının yerel API mesajlarını engellemesini önler. Gerçek kullanım ve görsel kotaları değişmez.",
-        "restartHint": "Varsayılan olarak açıktır. Değişiklikten sonra ilgili Codex örneklerini yeniden başlatın ve Cockpit Tools açık kalsın. Yerel dikte, istemcinin yeteneklerine ve ayarlarına bağlıdır; Cockpit bu işlevi devralmaz veya zorla etkinleştirmez.",
-        "configFailed": "Ayarlar okunamadı veya kaydedilemedi: {{error}}"
-      }
+        "restartHint": "Yerel tahminler varsayılan olarak kapalıdır. Değişiklikten sonra ilgili Codex örneklerini yeniden başlatın ve Cockpit Tools açık kalsın. Yerel dikte, istemcinin yeteneklerine ve ayarlarına bağlıdır; Cockpit bu işlevi devralmaz veya zorla etkinleştirmez.",
+        "configFailed": "Ayarlar okunamadı veya kaydedilemedi: {{error}}",
+        "nativePredictions": "Yerel sonraki adım tahminleri (Tab)",
+        "nativePredictionsDesc": "Geçerli konuşmanın API sağlayıcısı ve modeliyle sonraki mesaj önerileri oluşturur. Ek API kredisi kullanır; kaydettikten sonra Codex’i yeniden başlatın."
+      },
+      "timeDisplayMode": "Zaman gösterimi",
+      "timeDisplayModeDesc": "Hesap kartları ve listelerindeki zaman. Varsayılan, hesap değiştirme zamanıdır"
     },
     "network": {
       "apiTitle": "Yerçekimine Karşı Kokpit API'si",
@@ -2089,7 +2108,13 @@
     "tagUpdated": "Etiket güncellendi",
     "plan": {
       "personal": "Kişisel"
-    }
+    },
+    "lastSwitchTime": "Değiştirme",
+    "neverSwitched": "Henüz değiştirilmedi",
+    "refreshTime": "Yenileme",
+    "lastSwitchTimeFull": "Değiştirme: {{time}}",
+    "refreshTimeFull": "Yenileme: {{time}}",
+    "toggleTimeMode": "Değiştirme veya yenileme zamanını göster"
   },
   "overview": {
     "title": "Hesap Genel Bakışı",
@@ -2453,6 +2478,22 @@
     "other_group": "Diğer modeller"
   },
   "codex": {
+    "overload": {
+      "setting": "Yoğunlukta yeniden dene",
+      "settingHint": "Yerel Codex API hizmetindeki yeni istekler içindir. Güvenle yinelenebilen istekler modelin yeniden kullanılabilir olmasını bekler.",
+      "retrying": "Model meşgul, yeniden deneniyor ({{count}})",
+      "count": "Yoğunluk: {{count}}",
+      "countHint": "Otomatik denemeler dahil sağlayıcıya yapılan denemeleri sayar. Geçmiş en fazla 7 gün saklanır.",
+      "history": "Yoğunluk geçmişi",
+      "empty": "Bu aralıkta yoğunluk hatası yok.",
+      "attempt": "Deneme {{number}}",
+      "sameAccount": "Aynı hesapta düzeldi",
+      "otherAccount": "Hesap değişince düzeldi",
+      "pending": "Sonuç bekleniyor",
+      "cancelled": "İptal edildi",
+      "failed": "İstek başarısız",
+      "countUnavailable": "Yoğunluk istatistikleri kullanılamıyor"
+    },
     "instance": {
       "errors": {
         "threadSyncWorkerFailed": "Oturum eşitleme görevi başarısız oldu: {{error}}",
@@ -3273,7 +3314,7 @@
       "resetCreditDialogDesc": "Hız sınırını sıfırlayarak kesintisiz çalışmaya devam edin. Kullanılabilir sıfırlama: {{count}}.",
       "resetCreditDialogAction": "Kullanımı sıfırla",
       "resetCreditNoCredits": "Kullanılabilir sıfırlama yok",
-      "resetCreditConsumed": "5 saatlik kota sıfırlandı",
+      "resetCreditConsumed": "Kota sıfırlandı",
       "resetCreditFailed": "Sıfırlama başarısız: {{error}}",
       "resetCreditRefreshAfterConsumeFailed": "Sıfırlama gönderildi, ancak kota yenileme başarısız: {{error}}",
       "resetCreditsTitleWithExpiry": "5 saatlik pencere için kalan sıfırlama: {{count}}. En yakın bitiş: {{time}}",
@@ -4144,7 +4185,7 @@
         "apiKeyUrlInvalid": "Gömülü kimlik bilgisi içermeyen HTTP(S) yönetim adresi kullanın; API anahtarını anahtar alanına girin."
       },
       "saveSuccess": "Model sağlayıcı kaydedildi.",
-      "deleteBlocked": "Bu sağlayıcı {{count}} hesapla bağlantılı olduğu için silinemez.",
+      "confirmDeleteWithAccounts": "“{{name}}” sağlayıcısı ve bağlantılı {{count}} hesap silinsin mi?",
       "confirmDelete": "\"{{name}}\" sağlayıcısı silinsin mi?",
       "deleteFailed": "Sağlayıcı silinemedi: {{error}}",
       "deleteApiKeyFailed": "API anahtarı silinemedi: {{error}}",
@@ -4274,7 +4315,7 @@
         "selectVisible": "Görünenleri seç",
         "resultSelectedCount": "{{count}} seçildi",
         "selectFailed": "Başarısızları seç",
-        "deleteConfirm": "Seçili {{providerCount}} sağlayıcı silinsin mi? Tam olarak bağlı {{accountCount}} Codex API Key hesabı da silinecek.",
+        "deleteConfirm": "Seçilen {{providerCount}} sağlayıcı ve bağlantılı {{accountCount}} hesap silinsin mi?",
         "deleteSuccess": "{{providerCount}} sağlayıcı ve {{accountCount}} bağlı hesap silindi.",
         "deleteFailed": "Seçili öğeler silinemedi: {{error}}",
         "protocolSummary": "{{protocol}} · {{mode}} · {{model}}",
@@ -5141,7 +5182,7 @@
       "boundProxyUnavailable": "Bağlı hesabın kullanılabilir vekili yok. Yeniden seçin.",
       "sourceUnavailable": "Vekil kaynağı veya düğüm kullanılamıyor. Yeniden seçin.",
       "operationTimeout": "Vekil işlemi zaman aşımına uğradı. Yeniden deneyin.",
-      "cardScopeHint": "Bu kartın vekilini başlatılan Codex masaüstü istemcisi kullanır. Model ağ geçitlerinin sağlayıcılara bağlantıları kendi yollarını korur.",
+      "cardScopeHint": "API Key hesaplarının vekilleri hem masaüstü istemcilerine hem de API hizmetinin giden isteklerine uygulanır. API hizmeti kartının vekili yalnızca masaüstü istemcilerine uygulanır. Sistem vekili ayarları değişmez.",
       "display": {
         "title": "Vekil görünümü",
         "compact": "Kısa",
@@ -5442,7 +5483,7 @@
       "modeDefaultHint": "Bu hesap proxy kullanmaz ve önceki varsayılan çıkışı korur.",
       "modeStaleHint": "Bağlı kaynak veya düğüm artık kullanılamıyor. Yeniden seçin.",
       "management": "Vekil yönetimi",
-      "managementHint": "Sistem vekilini değiştirmeden OAuth, API hesabı ve API hizmeti kartları için vekil ayarlayın. API kartlarında başlatılan masaüstü istemcisine uygulanır; model ağ geçitleri kendi yollarını korur.",
+      "managementHint": "API Key hesaplarının vekilleri hem masaüstü istemcilerine hem de API hizmetinin giden isteklerine uygulanır. API hizmeti kartının vekili yalnızca masaüstü istemcilerine uygulanır. Sistem vekili ayarları değişmez.",
       "emptyTitle": "Hesabınıza özel bağlantı",
       "emptyDescription": "Desteklenen hesap kartı yok. OAuth veya API hesabı ekleyin ya da API hizmeti kartını açın, ardından burada bir vekil seçin.",
       "search": "Hesap ara",
@@ -5750,7 +5791,7 @@
         "assign": "Vekil sunucu ata",
         "specific": "Seçili hesaplar",
         "shared": "Ortak vekil",
-        "sharedHint": "Kendi vekili olmayan desteklenen kartlar, yeni eklenenler dahil bu vekili kullanır. Bağımsız ayarlar ve Vekil yok önceliklidir. API kartları masaüstü istemcisi için kullanır; model ağ geçitleri kendi yollarını korur.",
+        "sharedHint": "Kendi vekili olmayan hesaplar, yeni hesaplar dahil bu vekili devralır. Bağımsız vekiller ve Vekil yok önceliklidir. API Key hesapları bunu masaüstü ve API istekleri için kullanır; API hizmeti kartı yalnızca masaüstü için kullanır.",
         "apply": "Ata"
       },
       "managerResources": {
@@ -5877,7 +5918,7 @@
       "title": "İstek ayrıntıları",
       "totalLatency": "Toplam süre",
       "firstResponse": "İlk yanıt",
-      "firstResponseHint": "İstek başlangıcından sunucunun ilk yanıt parçasına kadar geçen süredir; ilk üretilen token süresi olmak zorunda değildir.",
+      "firstResponseHint": "Yeni Responses akış isteklerinde süre, ağ geçidi istek gövdesini işledikten sonra başlar ve üst sunucunun ilk yanıt olayında biter. Bağlantıyı canlı tutma sinyalleri ve hız sınırı bildirimleri atlanır.",
       "unavailable": "Henüz tanılama yok. Daha sonra yenileyin. Eski istekler sonradan doldurulmaz.",
       "attempts": "Denemeler",
       "noAttempts": "Deneme geçmişi kaydedilmedi.",
@@ -6057,10 +6098,27 @@
       "pending": "OpenAI kullanımı bekleniyor",
       "permissionRequired": "Bu anahtar kuruluş kullanımını okuma yetkisine sahip değil (api.usage.read).",
       "permissionGuide": "Yönetici anahtarı kullanın: Admin keys → Restricted → Usage API Scope → Read. Harcama ve kullanım sorgulanabilir; kalan bakiye sağlanmaz.",
-      "openAdminKeys": "Kullanım izinleri",
-      "invalidKey": "Anahtar geçersiz veya süresi dolmuş. Mevcut API anahtarını kontrol edin.",
+      "openAdminKeys": "Yönetici anahtarı oluştur",
+      "invalidKey": "Sorgu anahtarı geçersiz veya süresi dolmuş. Yönetici API anahtarını kontrol edin.",
       "networkFailed": "OpenAI kullanım hizmetine bağlanılamıyor. Daha sonra yenileyin.",
-      "queryFailed": "OpenAI kullanımı sorgulanamadı. Daha sonra tekrar deneyin."
+      "queryFailed": "OpenAI kullanımı sorgulanamadı. Daha sonra tekrar deneyin.",
+      "organization": "Kuruluş kullanımı",
+      "configure": "Sorguyu ayarla",
+      "settings": "Sorgu ayarları",
+      "title": "Kullanım sorgusunu ayarla",
+      "optional": "Kullanım sorgusu (isteğe bağlı)",
+      "queryKey": "Yönetici API anahtarı",
+      "callKey": "Model API anahtarı",
+      "notConfigured": "Kuruluş harcamalarını ve kullanımını görmek için yönetici anahtarı ekleyin.",
+      "purpose": "Model anahtarıyla aynı kuruluşa ait bir yönetici anahtarı kullanın. Bu anahtar yalnızca kullanım sorguları içindir ve model anahtarının yerini almaz.",
+      "saveVerify": "Kaydet ve doğrula",
+      "remove": "Ayarı kaldır",
+      "keyRequired": "Yönetici API anahtarını girin.",
+      "saveFailed": "Sorgu ayarları kaydedilemedi. Tekrar deneyin.",
+      "configChanged": "Hesap veya sorgu anahtarı değişti. Ayarları yeniden açın.",
+      "openFailed": "Anahtar sayfası açılamadı. Tekrar deneyin.",
+      "costUnavailable": "Tutar yok",
+      "costUnavailableHint": "Resmî maliyet API’si bu dönem için tutar döndürmedi. İstekler ve tokenlar ayrı bir kullanım API’sinden gelir; maliyet kaydı olmaması harcamanın sıfır olduğu anlamına gelmez."
     },
     "officialApi": {
       "hint": "Gerçek bağlantı adresine göre tanımlanan resmî OpenAI API anahtarı hesabı."
@@ -6330,6 +6388,10 @@
     "workbuddy": {
       "title": "WorkBuddy Ayarları",
       "appPath": "WorkBuddy Yolu"
+    },
+    "minimaxCode": {
+      "title": "MiniMax Code Ayarları",
+      "appPath": "MiniMax Code Yolu"
     },
     "zcode": {
       "title": "ZCode Ayarları",
@@ -7149,6 +7211,17 @@
       "resetUnknown": "Sifirlama zamani bilinmiyor",
       "statusUnknown": "Durum: bilinmiyor",
       "statusNormal": "Durum: normal",
+      "statusSynced": "Durum: senkron",
+      "statusSyncedPending": "Durum: senkron, kalan belirsiz",
+      "fastAvailable": "Hızlı: {{times}}",
+      "fastTimes": "{{count}}",
+      "fastUnlimited": "Sınırsız",
+      "fastPerMonth": "Hızlı/ay: {{count}}",
+      "fastChannelPerMonth": "Express: {{count}}/ay",
+      "fastChannelStatus": "Hızlı kanal: {{status}}",
+      "freeRemainingUnknown": "Free kalan: --",
+      "timesRemainingUnknown": "Kalan: --",
+      "soloParallel": "Paket: Solo ×{{count}}",
       "statusExhaustedFree": "Durum: kullanim tukendi, plan yukseltmesi onerilir",
       "statusExhaustedPro": "Durum: kullanim tukendi, plani yukseltin veya kullandikca odemeyi etkinlestirin",
       "bonusUsed": "Ek bonus: +{{amount}}",
@@ -7161,17 +7234,8 @@
       "payAsYouGoEnabled": "Kullandikca odeme: etkin",
       "payAsYouGoEmpty": "Kullandikca odeme: --",
       "payAsYouGoLabel": "Istege bagli kullanim",
-      "statusSynced": "Durum: senkron",
-      "statusSyncedPending": "Durum: senkron, kalan belirsiz",
-      "fastAvailable": "Hızlı: {{times}}",
-      "fastTimes": "{{count}}",
-      "fastUnlimited": "Sınırsız",
-      "fastPerMonth": "Hızlı/ay: {{count}}",
-      "fastChannelPerMonth": "Express: {{count}}/ay",
-      "fastChannelStatus": "Hızlı kanal: {{status}}",
-      "freeRemainingUnknown": "Free kalan: --",
-      "timesRemainingUnknown": "Kalan: --",
-      "soloParallel": "Paket: Solo ×{{count}}"
+      "creditsMember": "Üyelik kredileri",
+      "creditsBonus": "Bonus kredileri"
     },
     "flowNotice": {
       "title": "Trae hesap kilavuzu (genisletmek/daraltmak icin tiklayin)",
@@ -7187,6 +7251,18 @@
     "token": {
       "jsonOnlyDesc": "Tam Trae CN hesap JSON yapıştırın. Ham token desteklenmez.",
       "jsonOnlyPlaceholder": "Tam Trae CN JSON..."
+    },
+    "checkin": {
+      "modalTitle": "Günlük giriş",
+      "durationMs": "{{ms}} ms",
+      "durationSeconds": "{{seconds}} sn",
+      "durationTitle": "Toplam check-in süresi",
+      "logSuccess": "Başarılı ({{done}}/{{total}})",
+      "logPartial": "Kısmi ({{done}}/{{total}})",
+      "logIncomplete": "Tamamlanmadı",
+      "detailSuccess": "Check-in başarılı",
+      "detailAlreadyClaimed": "Bugün zaten alındı",
+      "detailError": "Check-in hatası"
     }
   },
   "codebuddyCn": {
@@ -7216,6 +7292,35 @@
     "syncToWorkbuddy": "WorkBuddy ile Senkronize Et"
   },
   "workbuddy": {
+    "credits": {
+      "planBase": "Temel plan kredisi",
+      "planBonus": "Plan bonusu",
+      "benefit": "Platform ödülleri",
+      "addon": "Satın alınan kredi",
+      "total": "Toplam kalan kredi",
+      "details": "Kredi ayrıntıları",
+      "usedOf": "Kullanılan {{used}}/{{total}}",
+      "remainingPercent": "%{{percent}} kaldı",
+      "nearestExpiry": "İlk sona erme {{time}}",
+      "nextRefresh": "Sonraki yenileme {{time}}",
+      "expiring": "Bazı krediler yakında sona eriyor",
+      "valid": "Geçerli",
+      "expired": "Süresi dolmuş",
+      "expiresAt": "Bitiş {{time}}",
+      "expiryHours": "24 saat içinde sona erer",
+      "expiryDays": "3 gün içinde sona erer",
+      "empty": "Kayıt yok",
+      "loadFailed": "Yüklenemedi ({{error}})",
+      "overview": "Özet",
+      "remaining": "Kalan {{amount}}",
+      "loadMore": "Daha fazla yükle",
+      "usage": "Kullanım ayrıntıları",
+      "requestAndTime": "İstek ve saat",
+      "creditUsed": "Kullanılan kredi",
+      "model": "Model adı",
+      "recentUsage": "Son 5 kayıt",
+      "viewMore": "Daha fazla göster"
+    },
     "title": "WorkBuddy Hesap Yönetimi",
     "noAccounts": "WorkBuddy hesabı yok",
     "addAccount": "WorkBuddy Hesabı Ekle",
@@ -7223,7 +7328,7 @@
       "title": "WorkBuddy hesap yönetimi bilgisi (genişlet/daralt için tıklayın)",
       "desc": "Hesap değiştirme, en yeni resmi WorkBuddy istemci düzenine göre yerel oturum açma dosyasını yazar; yerel içe aktarma aynı dosyayı okur. Veriler yalnızca yerelde işlenir.",
       "permission": "İzin kapsamı: yerel içe aktarma ve hesap değiştirme için WorkBuddy oturum açma dosyasını (CodeBuddyExtension/Data/Public/auth/workbuddy-desktop.info) okuma ve yazma; eski state.vscdb artık okunmaz veya değiştirilmez.",
-      "network": "Ağ kapsamı: OAuth girişi ve belirteç yenileme için WorkBuddy'ye ağ istekleri gerekir; kota sorguları faturalama API'lerini çağırır. Yerel oturum açma dosyaları veya ham kimlik bilgileri yüklenmez."
+      "network": "OAuth girişi ve belirteç yenileme WorkBuddy’ye bağlanır. Kredi bakiyesi ve ayrıntılar, hesap belirteciyle faturalandırma hizmetinden alınır. Oturum dosyaları ve sistem anahtarları cihazda kalır."
     },
     "nickname": "Takma ad",
     "enterprise": "Kurumsal",
@@ -7240,8 +7345,8 @@
       "oauth": {
         "title": "Yalnızca IDE girişi",
         "item1": "Tarayıcıda OAuth tamamlandıktan sonra hesabı ekleyin ve IDE geçişi için kullanın.",
-        "item2": "Kota sorgu parametreleri otomatik bağlanmaz.",
-        "item3": "Kota görüntülemek gerekiyorsa hesap kartında \"Kota Sorgula\"yı elle çalıştırın."
+        "item2": "Yetkilendirmeden sonra kredi bakiyesi otomatik sorgulanır.",
+        "item3": "Hesap kartı kredi özetini gösterir. Ayrıntılarda verilen kredileri ve son kullanma tarihlerini görebilirsiniz."
       }
     },
     "oauthWebviewTab": "WebView ile OAuth",
@@ -7357,8 +7462,169 @@
       "startTime": "Başlangıç Zamanı",
       "endTime": "Bitiş Zamanı",
       "timeRangeHint": "Arka planda girişi tamamlamak için her gün bu aralıkta rastgele bir zaman seçer.",
+      "errors": "Hatalar",
+      "tabSettings": "Otomatik giriş ayarları",
+      "tabHistory": "Otomatik giriş geçmişi",
+      "manualTest": "Test çalıştır",
+      "clearLogs": "Temizle",
+      "clearLogsFailed": "Check-in kayıtları temizlenemedi: {{message}}",
+      "historyLoading": "Otomatik check-in kayıtları okunuyor...",
+      "historyLoadFailed": "Otomatik check-in kayıtları okunamadı: {{message}}",
+      "totalCredits": "{{credits}} kredi",
+      "historyRangeHint": "Yalnızca son 30 güne ait otomatik giriş kayıtları saklanır (toplam {{count}})",
+      "noHistory": "Son 30 günde otomatik giriş kaydı yok",
+      "saveFailed": "Otomatik giriş ayarları kaydedilemedi: {{message}}",
+      "manualTestPartialFailure": "Bazı hesaplar için giriş başarısız oldu. Kayıtlara bakın; arka planda daha sonra tekrar denenecek.",
+      "manualTestAlreadyRunning": "Bir otomatik giriş görevi çalışıyor. Lütfen kayıtları daha sonra kontrol edin.",
+      "manualTestFailed": "Test çalıştırılamadı: {{message}}",
       "timeRangeError": "Başlangıç zamanı bitiş zamanından sonra olamaz"
     }
+  },
+  "minimaxCode": {
+    "title": "MiniMax Code Hesap Yönetimi",
+    "noAccounts": "MiniMax Code hesabı yok",
+    "addAccount": "MiniMax Code Hesabı Ekle",
+    "flowNotice": {
+      "title": "MiniMax Code hesap yönetimi bilgisi (genişlet/daralt için tıklayın)",
+      "desc": "Hesap değiştirme, en yeni resmi MiniMax Code istemci düzenine göre yerel oturum açma dosyasını yazar; yerel içe aktarma aynı dosyayı okur. Veriler yalnızca yerelde işlenir.",
+      "permission": "İzin kapsamı: yerel içe aktarma ve hesap değiştirme için MiniMax Code oturum açma dosyasını (~/.minimax/auth/auth.json) okuma ve yazma; eski state.vscdb artık okunmaz veya değiştirilmez.",
+      "network": "Ağ kapsamı: OAuth girişi ve belirteç yenileme için MiniMax Code'ye ağ istekleri gerekir; kota sorguları faturalama API'lerini çağırır. Yerel oturum açma dosyaları veya ham kimlik bilgileri yüklenmez."
+    },
+    "nickname": "Takma ad",
+    "enterprise": "Kurumsal",
+    "usage": "Kullanım durumu",
+    "creditsBalance": "Kredi bakiyesi",
+    "usageNormal": "Normal​",
+    "usageAbnormal": "Anormal",
+    "usageViewDetail": "Ayrıntıları görüntüle",
+    "usageDetailTitle": "Kullanım durumu ayrıntıları",
+    "oauthWaiting": "Yetkilendirme bekleniyor...",
+    "oauthDesc": "Tarayıcınızda MiniMax Code yetkilendirme sayfasını açmak için aşağıdaki düğmeye tıklayın.",
+    "oauthDescWebview": "Yerleşik WebView'da MiniMax Code yetkilendirme sayfasını açmak için aşağıdaki düğmeye tıklayın.",
+    "oauthFeature": {
+      "oauth": {
+        "title": "Yalnızca IDE girişi",
+        "item1": "Tarayıcıda OAuth tamamlandıktan sonra hesabı ekleyin ve IDE geçişi için kullanın.",
+        "item2": "Kota sorgu parametreleri otomatik bağlanmaz.",
+        "item3": "Kota görüntülemek gerekiyorsa hesap kartında \"Kota Sorgula\"yı elle çalıştırın."
+      }
+    },
+    "oauthWebviewTab": "WebView ile OAuth",
+    "oauthOpenWebview": "WebView'da aç",
+    "oauthOpenWebviewIncognito": "Gizli WebView'da aç",
+    "oauthOpenWebviewFailed": "WebView açılamadı: {{error}}",
+    "oauthOpenBrowserFallback": "Tarayıcıda aç (yedek)",
+    "oauthOpenBrowserFailed": "Tarayıcı açılamadı: {{error}}",
+    "oauthWebviewProgressHint": "Takılan aşamayı bulmak için WebView üstünde yatay adım çubuğu gösterilir.",
+    "oauthFlow": {
+      "prepare": "OAuth bağlantısını hazırla",
+      "authorize": "Yetkilendirme bağlantısını aç ve onayla",
+      "bind": "Yetkilendirme sonucunu yokla ve hesabı bağla",
+      "retryPrepare": "OAuth bağlantısını yeniden oluştur",
+      "retryAuthorize": "Yetkilendirme bağlantısını yeniden iste",
+      "retryBind": "Yetki yoklamasını yeniden dene",
+      "error": "Akış hatası: {{error}}"
+    },
+    "tokenDesc": "MiniMax Code erişim belirtecinizi yapıştırın:",
+    "jsonDesc": "MiniMax Code hesaplarını içeren bir JSON dosyası seçin:",
+    "import": {
+      "localDesc": "Hesap verilerini yerel MiniMax Code istemcisinden veya bir JSON dosyasından içe aktarın.",
+      "localClient": "Yerel MiniMax Code'den içe aktar"
+    },
+    "search": "MiniMax Code hesaplarını ara...",
+    "quotaQuery": {
+      "failedRefreshCompact": "Kota yenileme başarısız",
+      "sectionTitle": "Kota Sorgusu",
+      "empty": "Henüz bağlı kota sorgu bilgisi yok",
+      "packageUnknown": "Bilinmeyen paket",
+      "quotaLabel": "Kalan kota",
+      "updatedAt": "Son sorgu: {{time}}",
+      "cycleRange": "Döngü: {{start}} - {{end}}",
+      "cycleUnknown": "Döngü bilgisi yok",
+      "expireAt": "Bitiş: {{time}}",
+      "expireUnknown": "Bitiş: Yok",
+      "packageTitle": {
+        "base": "Temel deneyim paketi",
+        "activity": "Etkinlik hediye paketi"
+      }
+    },
+    "extraCredit": {
+      "title": "Kredi Paketi"
+    },
+    "oauthUrlInputPlaceholder": "Yetkilendirme URL'sini elle girebilirsiniz",
+    "oauthInvalidUrl": "Geçersiz yetkilendirme URL'si. Lütfen tam bir URL girin.",
+    "oauthGotoWebview": "Açık WebView'ı girilen URL'ye yönlendir",
+    "oauthGotoWebviewSuccess": "WebView'ın girilen URL'ye gitmesi istendi.",
+    "oauthGotoWebviewFailed": "WebView yönlendirme başarısız: {{error}}",
+    "oauthWebviewInlineUrlPlaceholder": "Bu WebView içinde gitmek için bir URL girin",
+    "oauthWebviewInlineGo": "Git",
+    "oauthSuccessClosePrompt": "Hesap başarıyla eklendi. Bu WebView şimdi kapatılsın mı?\nHemen kapatmak için \"WebView'ı Kapat\", açık bırakmak için \"Daha Sonra\" seçin.",
+    "oauthSuccessCloseTitle": "Hesap Eklendi",
+    "oauthSuccessCloseNowLabel": "WebView'ı Kapat",
+    "oauthSuccessCloseLaterLabel": "Daha Sonra",
+    "oauthSuccessCloseNowStatus": "✅ Hesap eklendi. Pencere kapatılıyor...",
+    "oauthSuccessCloseLaterStatus": "✅ Hesap eklendi. Bu WebView açık kalacak.",
+    "oauthWebviewOverlay": {
+      "steps": {
+        "prepare": "1 OAuth bağlantısını hazırla",
+        "authorize": "2 Yetkilendirme bağlantısını aç ve onayla",
+        "bind": "3 Yetkilendirme sonucunu yokla ve hesabı bağla",
+        "complete": "5 Tamamlandı (elle kapat)"
+      },
+      "status": {
+        "loginConfirm": "Lütfen bu sayfada giriş ve yetkilendirmeyi tamamlayın."
+      }
+    },
+    "instances": {
+      "unsupported": {
+        "descPlatform": "MiniMax Code çoklu örneği yalnızca macOS, Windows ve Linux'ta desteklenir."
+      }
+    },
+    "quota": {
+      "usedOfTotal": "{{used}} / {{total}}​"
+    },
+    "checkin": {
+      "title": "Günlük check-in",
+      "modalTitle": "Günlük check-in",
+      "status": "Check-in durumu",
+      "checkedIn": "Check-in yapıldı",
+      "notCheckedIn": "Check-in yapılmadı",
+      "button": "Yoklama",
+      "button.loading": "Check-in yapılıyor...",
+      "done": "Tamam",
+      "success": "Check-in başarılı! {{days}} günlük seri",
+      "failure": "Yoklama başarısız: {{message}}",
+      "failure.network": "Ağ hatası, lütfen daha sonra tekrar deneyin",
+      "lastCheckin": "Son check-in: {{time}}",
+      "streak": "{{days}} günlük seri",
+      "reward": "Ödül: {{reward}}",
+      "refreshStatus": "Yenile",
+      "checkAll": "Tümünü check-in yap",
+      "noAccounts": "Hesap yok",
+      "querying": "Yükleniyor...",
+      "streakDays": "{{days}} gün",
+      "streakRewardCountdown": "Bonus ödüle {{days}} gün kaldı",
+      "streakRewardToday": "Bonus ödül bugün kullanılabilir!",
+      "recentDates": "Son: ",
+      "claimed": "Alındı",
+      "queryFailed": "Sorgu başarısız",
+      "retry": "Yeniden dene",
+      "inactive": "Kullanılamaz",
+      "inactiveHint": "Bu hesap için check-in etkin değil",
+      "autoCheckinSettings": "Otomatik Giriş Ayarları",
+      "autoCheckinLabel": "Otomatik Giriş",
+      "autoCheckinOff": "Otomatik Giriş Kapalı",
+      "autoCheckinEnabledHint": "Otomatik giriş etkin: {{start}} ile {{end}} arasında rastgele giriş",
+      "autoCheckinDisabledHint": "Otomatik giriş devre dışı",
+      "enableAutoCheckin": "Otomatik Girişi Etkinleştir",
+      "enableAutoCheckinDesc": "Belirtilen zaman aralığında günlük olarak rastgele giriş yapar",
+      "randomTimeRange": "Rastgele Giriş Zaman Aralığı",
+      "startTime": "Başlangıç Zamanı",
+      "endTime": "Bitiş Zamanı",
+      "timeRangeHint": "Arka planda girişi tamamlamak için her gün bu aralıkta rastgele bir zaman seçer.",
+      "timeRangeError": "Başlangıç zamanı bitiş zamanından sonra olamaz"
+    },
+    "placeholder": "MiniMax Code hesap yönetimi yakında geliyor."
   },
   "zcode": {
     "search": "ZCode hesaplarını ara...",

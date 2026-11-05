@@ -290,6 +290,7 @@
     "failureTime": "失敗日時",
     "clearRecord": "記録を消去",
     "clearingRecord": "消去中…",
+    "to": "〜",
     "dragSortHint": "左のハンドルをドラッグして並べ替えます。離すと自動保存されます。",
     "dragSortFilteredHint": "並べ替えるには検索をクリアしてください。",
     "recycleBin": {
@@ -689,6 +690,7 @@
     "traeCn": "Trae CN​",
     "traeSoloCn": "TRAE SOLO CN​",
     "codebuddyCn": "CodeBuddy CN​",
+    "minimaxcode": "MiniMax Code",
     "zed": "Zed プラットフォーム",
     "expandSidebar": "サイドバーを展開",
     "collapseSidebar": "サイドバーを折りたたむ",
@@ -756,7 +758,12 @@
     "setAsDefaultInGroup": "このグループのデフォルトプラットフォームに設定",
     "removeFromGroup": "グループから削除",
     "sidebarSelectedUnlimited": "選択済み ({count})",
-    "tipWithGroupsUnlimited": "選択したプラットフォームとグループを手動で並べ替える"
+    "tipWithGroupsUnlimited": "選択したプラットフォームとグループを手動で並べ替える",
+    "enabledToggle": "有効",
+    "groupEnabledHint": "グループ内の全プラットフォームを一括で有効・無効にします",
+    "disabledHint": "無効にすると自動処理を停止し、設定欄を非表示にします。入口の表示は個別に設定します",
+    "enableAll": "すべて有効",
+    "disableAll": "すべて無効"
   },
   "privacy": {
     "hideSensitive": "メールを隠す",
@@ -1243,6 +1250,12 @@
       "workbuddyAppPathPlaceholder": "デフォルトパス",
       "workbuddyPathSelect": "選択",
       "workbuddyPathReset": "デフォルトに戻す",
+      "minimaxCodeAppPath": "MiniMax Code 起動パス",
+      "minimaxCodeAppPathDesc": "空欄の場合はデフォルトパスを使用します",
+      "minimaxCodeAppPathPlaceholder": "デフォルトパス",
+      "minimaxCodePathSelect": "選択",
+      "minimaxCodeAppPathPathSelect": "選択",
+      "minimaxCodePathReset": "デフォルトに戻す",
       "openclawAuthOverwrite": "Codex 切り替え時に OpenClaw のログインを上書きする",
       "openclawAuthOverwriteDesc": "オフの場合は Codex のみ切り替え、OpenClaw は現在のログイン状態を維持します",
       "ghcpOpencodeAuthOverwrite": "GitHub Copilot 切り替え時に OpenCode のログインを上書きする",
@@ -1314,6 +1327,8 @@
       "qoderPathSelect": "選択",
       "workbuddyAutoRefresh": "WorkBuddy 自動配額更新",
       "workbuddyAutoRefreshDesc": "バックグラウンド自動更新頻度",
+      "minimaxCodeAutoRefresh": "MiniMax Code 自動配額更新",
+      "minimaxCodeAutoRefreshDesc": "バックグラウンド自動更新頻度",
       "codexLocalAccessEntryVisible": "APIサービス入口を表示",
       "codexLocalAccessEntryVisibleDesc": "Codex 概要で API サービス入口を表示するかどうかだけを切り替えます。ローカル API サービス自体は停止せず、ここかクイック設定から再表示できます。",
       "codexLocalAccessEnabled": "APIサービスを有効化",
@@ -1403,9 +1418,13 @@
       "codexEnhancements": {
         "quotaCompat": "併用時の上限互換",
         "quotaCompatDesc": "実際の OAuth ログインと外部 API 経路の併用時のみ、契約の利用上限によるローカル API 送信の制限を防ぎます。実際の使用量と画像上限は変更しません。",
-        "restartHint": "初期状態は有効です。変更後は対象の Codex インスタンスを再起動し、Cockpit Tools を起動したままにしてください。ネイティブの音声入力はクライアントの機能と設定に従います。Cockpit は処理を置き換えたり、強制的に有効化したりしません。",
-        "configFailed": "設定の読み込みまたは保存に失敗：{{error}}"
-      }
+        "restartHint": "ネイティブの予測は初期状態では無効です。変更後は対象の Codex インスタンスを再起動し、Cockpit Tools を起動したままにしてください。ネイティブの音声入力はクライアントの機能と設定に従います。Cockpit は処理を置き換えたり、強制的に有効化したりしません。",
+        "configFailed": "設定の読み込みまたは保存に失敗：{{error}}",
+        "nativePredictions": "ネイティブの次のステップ予測（Tab）",
+        "nativePredictionsDesc": "現在の会話の API プロバイダーとモデルを使って、次のメッセージを提案します。API クレジットを追加で消費します。保存後に Codex を再起動してください。"
+      },
+      "timeDisplayMode": "時刻表示",
+      "timeDisplayModeDesc": "アカウントカードと一覧に表示する時刻。既定は切替時刻です"
     },
     "network": {
       "apiTitle": "反重力コックピット API",
@@ -2089,7 +2108,13 @@
     "tagUpdated": "タグを更新しました",
     "plan": {
       "personal": "個人"
-    }
+    },
+    "lastSwitchTime": "切替時刻",
+    "neverSwitched": "切替履歴なし",
+    "refreshTime": "更新時刻",
+    "lastSwitchTimeFull": "切替：{{time}}",
+    "refreshTimeFull": "更新：{{time}}",
+    "toggleTimeMode": "切替時刻と更新時刻を切り替える"
   },
   "overview": {
     "title": "アカウント概要",
@@ -2453,6 +2478,22 @@
     "other_group": "その他のモデル"
   },
   "codex": {
+    "overload": {
+      "setting": "混雑時に再試行を続ける",
+      "settingHint": "ローカルの Codex API サービス向け。安全に再試行できるリクエストはモデルの復旧を待ちます。新規リクエストに適用されます。",
+      "retrying": "モデル混雑中、再試行中（{{count}}）",
+      "count": "上流の混雑 {{count}} 回",
+      "countHint": "自動再試行を含む上流への試行を集計します。履歴は最大7日間保存されます。",
+      "history": "混雑履歴",
+      "empty": "この期間に混雑エラーはありません。",
+      "attempt": "試行 {{number}} 回目",
+      "sameAccount": "同じアカウントで復旧",
+      "otherAccount": "切り替え後に復旧",
+      "pending": "結果待ち",
+      "cancelled": "キャンセル済み",
+      "failed": "リクエスト失敗",
+      "countUnavailable": "混雑の集計を取得できません"
+    },
     "instance": {
       "errors": {
         "threadSyncWorkerFailed": "セッションの同期タスクが失敗しました：{{error}}",
@@ -3273,7 +3314,7 @@
       "resetCreditDialogDesc": "レート制限をリセットすると、中断せずに作業を続けられます。利用可能なリセット: {{count}} 回。",
       "resetCreditDialogAction": "使用量をリセット",
       "resetCreditNoCredits": "利用可能なリセット回数がありません",
-      "resetCreditConsumed": "5時間クォータをリセットしました",
+      "resetCreditConsumed": "クォータをリセットしました",
       "resetCreditFailed": "リセット失敗: {{error}}",
       "resetCreditRefreshAfterConsumeFailed": "リセットを送信しましたが、クォータ更新に失敗しました: {{error}}",
       "resetCreditsTitleWithExpiry": "5時間枠の残りリセット回数: {{count}}。次の有効期限: {{time}}",
@@ -4144,7 +4185,7 @@
         "apiKeyUrlInvalid": "認証情報を含まない HTTP(S) 管理ページ URL を入力してください。API Key はキー欄に入力します。"
       },
       "saveSuccess": "モデルプロバイダーを保存しました。",
-      "deleteBlocked": "このプロバイダーは {{count}} 件のアカウントに関連付けられているため、削除できません。",
+      "confirmDeleteWithAccounts": "プロバイダー「{{name}}」と関連する {{count}} 件のアカウントを削除しますか？",
       "confirmDelete": "プロバイダー「{{name}}」を削除しますか？",
       "deleteFailed": "プロバイダーの削除に失敗しました: {{error}}",
       "deleteApiKeyFailed": "API キーの削除に失敗しました: {{error}}",
@@ -4274,7 +4315,7 @@
         "selectVisible": "表示中を選択",
         "resultSelectedCount": "{{count}} 件選択済み",
         "selectFailed": "失敗を選択",
-        "deleteConfirm": "選択した {{providerCount}} 件のプロバイダーを削除しますか？正確に関連付けられた Codex API Key アカウント {{accountCount}} 件も削除されます。",
+        "deleteConfirm": "選択した {{providerCount}} 件のプロバイダーと関連する {{accountCount}} 件のアカウントを削除しますか？",
         "deleteSuccess": "{{providerCount}} 件のプロバイダーと {{accountCount}} 件の関連アカウントを削除しました。",
         "deleteFailed": "選択項目の削除に失敗しました：{{error}}",
         "protocolSummary": "{{protocol}} · {{mode}} · {{model}}",
@@ -5141,7 +5182,7 @@
       "boundProxyUnavailable": "紐付けたアカウントに利用可能なプロキシがありません。選び直してください。",
       "sourceUnavailable": "プロキシソースまたはノードを利用できません。選び直してください。",
       "operationTimeout": "プロキシ操作がタイムアウトしました。再試行してください。",
-      "cardScopeHint": "このカードのプロキシは、起動する Codex デスクトップクライアントに適用されます。モデルゲートウェイから上流への接続は、それぞれの経路を維持します。",
+      "cardScopeHint": "API Key アカウントのプロキシは、デスクトップクライアントと API サービスの上流リクエストの両方に適用されます。API サービスカードのプロキシはデスクトップクライアントのみに適用されます。システムプロキシは変更しません。",
       "display": {
         "title": "プロキシ表示",
         "compact": "簡易",
@@ -5442,7 +5483,7 @@
       "modeDefaultHint": "このアカウントはプロキシを使用せず、元の既定の出口で接続します。",
       "modeStaleHint": "紐付けた取得元またはノードが利用できません。もう一度選択してください。",
       "management": "プロキシ管理",
-      "managementHint": "システムプロキシを変更せず、OAuth・API アカウント・API サービスのカードにプロキシを設定します。API カードでは起動するデスクトップクライアントに適用され、モデルゲートウェイはそれぞれの経路を維持します。",
+      "managementHint": "API Key アカウントのプロキシは、デスクトップクライアントと API サービスの上流リクエストの両方に適用されます。API サービスカードのプロキシはデスクトップクライアントのみに適用されます。システムプロキシは変更しません。",
       "emptyTitle": "アカウント専用の接続経路",
       "emptyDescription": "対応するアカウントカードがありません。OAuth または API アカウントを追加するか、API サービスカードを有効にしてから、ここでプロキシを選択してください。",
       "search": "アカウントを検索",
@@ -5750,7 +5791,7 @@
         "assign": "プロキシを割り当て",
         "specific": "指定アカウント",
         "shared": "共通プロキシ",
-        "sharedHint": "独立プロキシのない対応カードは、新規カードも含めてこのプロキシを使用します。独立設定と「プロキシなし」が優先されます。API カードではデスクトップクライアントに適用され、モデルゲートウェイはそれぞれの経路を維持します。",
+        "sharedHint": "個別のプロキシがないアカウントは、新規アカウントも含めてこのプロキシを継承します。個別プロキシと「プロキシなし」が優先されます。API Key アカウントではデスクトップと API リクエストの両方に、API サービスカードではデスクトップのみに適用されます。",
         "apply": "割り当て"
       },
       "managerResources": {
@@ -5877,7 +5918,7 @@
       "title": "リクエスト詳細",
       "totalLatency": "合計時間",
       "firstResponse": "初回応答",
-      "firstResponseHint": "要求開始から上流の最初の応答断片までの時間です。最初の生成トークンまでの時間とは限りません。",
+      "firstResponseHint": "新しい Responses ストリーミング要求では、ゲートウェイが要求本文を処理し終えてから、上流の最初の応答イベントまでを計測します。キープアライブとレート制限の通知は除外します。",
       "unavailable": "診断情報はまだありません。後で更新してください。過去の要求は補完されません。",
       "attempts": "試行履歴",
       "noAttempts": "試行履歴は記録されていません。",
@@ -6057,10 +6098,27 @@
       "pending": "公式の使用量の取得待ち",
       "permissionRequired": "このキーには組織の使用量を読む権限がありません（api.usage.read）。",
       "permissionGuide": "管理者キーを使用：Admin keys → Restricted → Usage API Scope → Read。費用と使用量を取得できますが、残高は取得できません。",
-      "openAdminKeys": "使用量の権限",
-      "invalidKey": "キーが無効か期限切れです。現在の API キーを確認してください。",
+      "openAdminKeys": "管理者キーを作成",
+      "invalidKey": "照会キーが無効または期限切れです。管理者 API キーを確認してください。",
       "networkFailed": "公式の使用量サービスに接続できません。後で更新してください。",
-      "queryFailed": "公式の使用量の取得に失敗しました。後で再試行してください。"
+      "queryFailed": "公式の使用量の取得に失敗しました。後で再試行してください。",
+      "organization": "組織の使用量",
+      "configure": "照会を設定",
+      "settings": "照会設定",
+      "title": "使用量の照会設定",
+      "optional": "使用量の照会（任意）",
+      "queryKey": "管理者 API キー",
+      "callKey": "モデル API キー",
+      "notConfigured": "管理者キーを設定すると組織の費用と使用量を確認できます。",
+      "purpose": "モデルキーと同じ組織の管理者キーを使用してください。このキーは使用量の照会専用で、モデルキーを置き換えません。",
+      "saveVerify": "保存して検証",
+      "remove": "設定を削除",
+      "keyRequired": "管理者 API キーを入力してください。",
+      "saveFailed": "照会設定を保存できませんでした。再試行してください。",
+      "configChanged": "アカウントまたは照会キーが変更されました。設定を開き直してください。",
+      "openFailed": "キーのページを開けませんでした。再試行してください。",
+      "costUnavailable": "記録なし",
+      "costUnavailableHint": "公式の費用 API から、この期間の金額が返されていません。リクエスト数と Token は別の使用量 API から取得されます。金額の記録がないことは、費用がゼロであることを意味しません。"
     },
     "officialApi": {
       "hint": "実際の接続先アドレスで識別した、OpenAI 公式 API キーのアカウントです。"
@@ -6330,6 +6388,10 @@
     "workbuddy": {
       "title": "WorkBuddy 設定",
       "appPath": "WorkBuddy パス"
+    },
+    "minimaxCode": {
+      "title": "MiniMax Code 設定",
+      "appPath": "MiniMax Code パス"
     },
     "zcode": {
       "title": "ZCode 設定",
@@ -7149,6 +7211,17 @@
       "resetUnknown": "リセット時刻不明",
       "statusUnknown": "状態：不明",
       "statusNormal": "状態：正常",
+      "statusSynced": "状態：同期済み",
+      "statusSyncedPending": "状態：同期済み、残量未確定",
+      "fastAvailable": "高速枠 {{times}}",
+      "fastTimes": "{{count}} 回",
+      "fastUnlimited": "無制限",
+      "fastPerMonth": "高速/月：{{count}}",
+      "fastChannelPerMonth": "高速枠: {{count}}/月",
+      "fastChannelStatus": "高速枠: {{status}}",
+      "freeRemainingUnknown": "無料残量：--",
+      "timesRemainingUnknown": "残回数：--",
+      "soloParallel": "特典: Solo 並列 {{count}}",
       "statusExhaustedFree": "状態：利用量上限に達しました。プランのアップグレードを推奨します",
       "statusExhaustedPro": "状態：利用量上限に達しました。プランのアップグレードまたは従量課金の有効化を推奨します",
       "bonusUsed": "ボーナス：+{{amount}}",
@@ -7161,17 +7234,8 @@
       "payAsYouGoEnabled": "従量課金：有効",
       "payAsYouGoEmpty": "従量課金：--",
       "payAsYouGoLabel": "従量課金",
-      "statusSynced": "状態：同期済み",
-      "statusSyncedPending": "状態：同期済み、残量未確定",
-      "fastAvailable": "高速枠 {{times}}",
-      "fastTimes": "{{count}} 回",
-      "fastUnlimited": "無制限",
-      "fastPerMonth": "高速/月：{{count}}",
-      "fastChannelPerMonth": "高速枠: {{count}}/月",
-      "fastChannelStatus": "高速枠: {{status}}",
-      "freeRemainingUnknown": "無料残量：--",
-      "timesRemainingUnknown": "残回数：--",
-      "soloParallel": "特典: Solo 並列 {{count}}"
+      "creditsMember": "会員クレジット",
+      "creditsBonus": "ボーナスクレジット"
     },
     "flowNotice": {
       "title": "Trae アカウントガイド（クリックで展開/折りたたみ）",
@@ -7187,6 +7251,18 @@
     "token": {
       "jsonOnlyDesc": "完全な Trae CN アカウント JSON を貼り付けてください。生トークンは不安定な識別や利用不能なログイン状態を避けるため非対応です。",
       "jsonOnlyPlaceholder": "完全な Trae CN JSON を貼り付け..."
+    },
+    "checkin": {
+      "modalTitle": "毎日チェックイン",
+      "durationMs": "{{ms}} ms",
+      "durationSeconds": "{{seconds}} 秒",
+      "durationTitle": "合計チェックイン時間",
+      "logSuccess": "成功 ({{done}}/{{total}})",
+      "logPartial": "一部成功 ({{done}}/{{total}})",
+      "logIncomplete": "未完了",
+      "detailSuccess": "チェックイン成功",
+      "detailAlreadyClaimed": "本日受領済み",
+      "detailError": "チェックインエラー"
     }
   },
   "codebuddyCn": {
@@ -7216,6 +7292,35 @@
     "syncToWorkbuddy": "WorkBuddyに同期"
   },
   "workbuddy": {
+    "credits": {
+      "planBase": "プラン基本クレジット",
+      "planBonus": "プラン特典クレジット",
+      "benefit": "プラットフォーム報酬",
+      "addon": "購入クレジット",
+      "total": "残りクレジット合計",
+      "details": "クレジット明細",
+      "usedOf": "使用済み {{used}}/{{total}}",
+      "remainingPercent": "残り {{percent}}%",
+      "nearestExpiry": "直近の有効期限 {{time}}",
+      "nextRefresh": "次回更新 {{time}}",
+      "expiring": "まもなく期限切れのクレジットを含む",
+      "valid": "有効",
+      "expired": "期限切れ",
+      "expiresAt": "有効期限 {{time}}",
+      "expiryHours": "24時間以内に期限切れ",
+      "expiryDays": "3日以内に期限切れ",
+      "empty": "明細なし",
+      "loadFailed": "読み込めませんでした（{{error}}）",
+      "overview": "クレジット概要",
+      "remaining": "残り {{amount}}",
+      "loadMore": "さらに表示",
+      "usage": "消費明細",
+      "requestAndTime": "リクエストと時刻",
+      "creditUsed": "消費クレジット",
+      "model": "モデル",
+      "recentUsage": "最新の5件",
+      "viewMore": "もっと見る"
+    },
     "title": "WorkBuddyアカウント管理",
     "noAccounts": "WorkBuddy アカウントがありません",
     "addAccount": "WorkBuddy アカウントを追加",
@@ -7223,7 +7328,7 @@
       "title": "WorkBuddy アカウント管理ガイド（クリックで展開/折りたたみ）",
       "desc": "アカウント切り替えでは、最新の WorkBuddy 公式クライアントの形式に従ってローカルのログインファイルを書き込みます。ローカルインポートも同じファイルを読み取ります。データはローカルでのみ処理されます。",
       "permission": "権限範囲：ローカルインポートとアカウント切り替えのために WorkBuddy のログインファイル（CodeBuddyExtension/Data/Public/auth/workbuddy-desktop.info）を読み書きします。旧 state.vscdb は読み取りも変更もしません。",
-      "network": "ネットワーク範囲：OAuth ログインと Token 更新では WorkBuddy へのリクエストが必要で、クォータ照会では課金 API を呼び出します。ローカルのログインファイルや生の認証情報はアップロードされません。"
+      "network": "OAuth ログインとトークン更新では WorkBuddy に接続します。残高と明細の取得には、アカウントのトークンを使って課金サービスに接続します。ログインファイルとシステムキーは端末内に保存されます。"
     },
     "nickname": "ニックネーム",
     "enterprise": "企業",
@@ -7240,8 +7345,8 @@
       "oauth": {
         "title": "IDE ログイン情報のみを認証",
         "item1": "ブラウザで OAuth を完了すると、アカウントを追加して IDE 切り替えに利用できます。",
-        "item2": "クォータ照会パラメータは自動では紐付けられません。",
-        "item3": "クォータ表示が必要な場合は、アカウントカードで「クォータ照会」を手動実行してください。"
+        "item2": "認証後にクレジット残高を自動で照会します。",
+        "item3": "アカウントカードに残高の概要が表示されます。明細では付与履歴と有効期限を確認できます。"
       }
     },
     "oauthWebviewTab": "WebView 認証",
@@ -7357,8 +7462,169 @@
       "startTime": "開始時間",
       "endTime": "終了時間",
       "timeRangeHint": "バックグラウンドチェックインを完了するため、この時間帯から毎日ランダムな時間を自動選択します。",
+      "errors": "エラー",
+      "tabSettings": "自動チェックイン設定",
+      "tabHistory": "自動チェックイン履歴",
+      "manualTest": "テスト実行",
+      "clearLogs": "クリア",
+      "clearLogsFailed": "チェックイン履歴のクリアに失敗しました：{{message}}",
+      "historyLoading": "自動チェックイン履歴を読み込んでいます...",
+      "historyLoadFailed": "自動チェックイン履歴の読み込みに失敗しました：{{message}}",
+      "totalCredits": "{{credits}} ポイント",
+      "historyRangeHint": "直近 30 日間の自動チェックイン記録のみ保持されます（全 {{count}} 件）",
+      "noHistory": "直近 30 日間の自動チェックイン記録はありません",
+      "saveFailed": "自動チェックイン設定の保存に失敗しました：{{message}}",
+      "manualTestPartialFailure": "一部のアカウントのチェックインに失敗しました。記録を確認してください。後ほどバックグラウンドで再試行されます。",
+      "manualTestAlreadyRunning": "自動チェックインタスクが実行中です。後ほど記録を確認してください。",
+      "manualTestFailed": "テスト実行に失敗しました：{{message}}",
       "timeRangeError": "開始時間は終了時間より後にできません"
     }
+  },
+  "minimaxCode": {
+    "title": "MiniMax Codeアカウント管理",
+    "noAccounts": "MiniMax Code アカウントがありません",
+    "addAccount": "MiniMax Code アカウントを追加",
+    "flowNotice": {
+      "title": "MiniMax Code アカウント管理ガイド（クリックで展開/折りたたみ）",
+      "desc": "アカウント切り替えでは、最新の MiniMax Code 公式クライアントの形式に従ってローカルのログインファイルを書き込みます。ローカルインポートも同じファイルを読み取ります。データはローカルでのみ処理されます。",
+      "permission": "権限範囲：ローカルインポートとアカウント切り替えのために MiniMax Code のログインファイル（~/.minimax/auth/auth.json）を読み書きします。旧 state.vscdb は読み取りも変更もしません。",
+      "network": "ネットワーク範囲：OAuth ログインと Token 更新では MiniMax Code へのリクエストが必要で、クォータ照会では課金 API を呼び出します。ローカルのログインファイルや生の認証情報はアップロードされません。"
+    },
+    "nickname": "ニックネーム",
+    "enterprise": "企業",
+    "usage": "使用状況",
+    "creditsBalance": "クレジット残高",
+    "usageNormal": "正常",
+    "usageAbnormal": "異常",
+    "usageViewDetail": "詳細を見る",
+    "usageDetailTitle": "利用状態の詳細",
+    "oauthWaiting": "認証完了を待機中...",
+    "oauthDesc": "下のボタンをクリックすると、ブラウザで MiniMax Code の認証ページを開きます。",
+    "oauthDescWebview": "下のボタンをクリックすると、内蔵 WebView で MiniMax Code の認証ページを開きます。",
+    "oauthFeature": {
+      "oauth": {
+        "title": "IDE ログイン情報のみを認証",
+        "item1": "ブラウザで OAuth を完了すると、アカウントを追加して IDE 切り替えに利用できます。",
+        "item2": "クォータ照会パラメータは自動では紐付けられません。",
+        "item3": "クォータ表示が必要な場合は、アカウントカードで「クォータ照会」を手動実行してください。"
+      }
+    },
+    "oauthWebviewTab": "WebView 認証",
+    "oauthOpenWebview": "WebView で開く",
+    "oauthOpenWebviewIncognito": "シークレット WebView で開く",
+    "oauthOpenWebviewFailed": "WebView を開けませんでした：{{error}}",
+    "oauthOpenBrowserFallback": "ブラウザで開く（代替）",
+    "oauthOpenBrowserFailed": "ブラウザを開けませんでした：{{error}}",
+    "oauthWebviewProgressHint": "WebView 上部に横向きのステップバーを表示し、停止した段階を特定しやすくします。",
+    "oauthFlow": {
+      "prepare": "認証リンクを準備",
+      "authorize": "認証リンクを開いて承認",
+      "bind": "認証結果をポーリングしてアカウントに紐付け",
+      "retryPrepare": "認証リンクを再生成",
+      "retryAuthorize": "認証リンクを再要求",
+      "retryBind": "認証ポーリングを再試行",
+      "error": "フローエラー：{{error}}"
+    },
+    "tokenDesc": "MiniMax Code の access token を貼り付けてください：",
+    "jsonDesc": "MiniMax Code アカウントを含む JSON ファイルを選択してください：",
+    "import": {
+      "localDesc": "ローカルの MiniMax Code クライアントまたは JSON ファイルからアカウントデータを取り込めます。",
+      "localClient": "ローカルの MiniMax Code から取り込む"
+    },
+    "search": "MiniMax Code アカウントを検索...",
+    "quotaQuery": {
+      "failedRefreshCompact": "クォータ更新失敗",
+      "sectionTitle": "クォータ照会",
+      "empty": "まだクォータ照会情報が紐付けられていません",
+      "packageUnknown": "プラン情報不明",
+      "quotaLabel": "残りクォータ",
+      "updatedAt": "最終照会：{{time}}",
+      "cycleRange": "期間：{{start}} - {{end}}",
+      "cycleUnknown": "期間情報なし",
+      "expireAt": "有効期限：{{time}}",
+      "expireUnknown": "有効期限：なし",
+      "packageTitle": {
+        "base": "基本体験パッケージ",
+        "activity": "アクティビティ特典パッケージ"
+      }
+    },
+    "extraCredit": {
+      "title": "追加クレジット"
+    },
+    "oauthUrlInputPlaceholder": "認証 URL を手動入力できます",
+    "oauthInvalidUrl": "認証 URL の形式が正しくありません。完全な URL を入力してください。",
+    "oauthGotoWebview": "開いている WebView を入力 URL に移動",
+    "oauthGotoWebviewSuccess": "WebView に入力 URL への移動を要求しました。",
+    "oauthGotoWebviewFailed": "WebView の移動に失敗しました：{{error}}",
+    "oauthWebviewInlineUrlPlaceholder": "この WebView 内で移動する URL を入力",
+    "oauthWebviewInlineGo": "移動",
+    "oauthSuccessClosePrompt": "アカウントの追加が完了しました。今すぐこの WebView を閉じますか？\n「WebView を閉じる」を選ぶとすぐ閉じ、「後で」を選ぶと開いたままにします。",
+    "oauthSuccessCloseTitle": "アカウント追加完了",
+    "oauthSuccessCloseNowLabel": "WebView を閉じる",
+    "oauthSuccessCloseLaterLabel": "後で",
+    "oauthSuccessCloseNowStatus": "✅ アカウント追加が完了しました。ウィンドウを閉じます...",
+    "oauthSuccessCloseLaterStatus": "✅ アカウント追加が完了しました。この WebView は開いたままです。",
+    "oauthWebviewOverlay": {
+      "steps": {
+        "prepare": "1 認証リンクを準備",
+        "authorize": "2 認証リンクを開いて承認",
+        "bind": "3 認証結果をポーリングしてアカウントに紐付け",
+        "complete": "5 完了（手動で閉じる）"
+      },
+      "status": {
+        "loginConfirm": "このページでサインインと認可を完了してください。"
+      }
+    },
+    "instances": {
+      "unsupported": {
+        "descPlatform": "MiniMax Code のマルチインスタンスは macOS、Windows、Linux のみ対応しています。"
+      }
+    },
+    "quota": {
+      "usedOfTotal": "{{used}} / {{total}}​"
+    },
+    "checkin": {
+      "title": "デイリーチェックイン",
+      "modalTitle": "デイリーチェックイン",
+      "status": "チェックイン状態",
+      "checkedIn": "チェックイン済み",
+      "notCheckedIn": "未チェックイン",
+      "button": "チェックイン",
+      "button.loading": "チェックイン中...",
+      "done": "完了",
+      "success": "チェックイン成功！{{days}}日連続",
+      "failure": "チェックイン失敗: {{message}}",
+      "failure.network": "ネットワークエラーです。しばらくしてから再試行してください",
+      "lastCheckin": "最終チェックイン: {{time}}",
+      "streak": "{{days}}日連続",
+      "reward": "報酬: {{reward}}",
+      "refreshStatus": "更新",
+      "checkAll": "一括チェックイン",
+      "noAccounts": "アカウントがありません",
+      "querying": "読み込み中...",
+      "streakDays": "{{days}}日",
+      "streakRewardCountdown": "ボーナス報酬まであと{{days}}日",
+      "streakRewardToday": "本日はボーナス報酬を受け取れます！",
+      "recentDates": "最近: ",
+      "claimed": "受取済み",
+      "queryFailed": "照会失敗",
+      "retry": "再試行",
+      "inactive": "利用不可",
+      "inactiveHint": "このアカウントではチェックインが無効です",
+      "autoCheckinSettings": "自動チェックイン設定",
+      "autoCheckinLabel": "自動チェックイン",
+      "autoCheckinOff": "自動チェックインオフ",
+      "autoCheckinEnabledHint": "自動チェックイン有効：{{start}} から {{end}} の間にランダムチェックイン",
+      "autoCheckinDisabledHint": "自動チェックイン無効",
+      "enableAutoCheckin": "自動チェックインを有効化",
+      "enableAutoCheckinDesc": "指定された時間帯内で毎日ランダムにチェックインします",
+      "randomTimeRange": "ランダムチェックイン時間帯",
+      "startTime": "開始時間",
+      "endTime": "終了時間",
+      "timeRangeHint": "バックグラウンドチェックインを完了するため、この時間帯から毎日ランダムな時間を自動選択します。",
+      "timeRangeError": "開始時間は終了時間より後にできません"
+    },
+    "placeholder": "MiniMax Code アカウント管理は近日公開予定です。"
   },
   "zcode": {
     "search": "ZCode アカウントを検索...",

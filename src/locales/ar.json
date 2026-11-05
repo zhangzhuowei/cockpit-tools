@@ -290,6 +290,7 @@
     "failureTime": "وقت الفشل",
     "clearRecord": "مسح السجل",
     "clearingRecord": "جارٍ المسح…",
+    "to": "إلى",
     "dragSortHint": "اسحب المقبض الأيسر لتغيير الترتيب. يُحفظ تلقائيًا عند الإفلات.",
     "dragSortFilteredHint": "امسح البحث لتغيير الترتيب.",
     "recycleBin": {
@@ -736,6 +737,7 @@
     "traeCn": "Trae CN​",
     "traeSoloCn": "TRAE SOLO CN​",
     "codebuddyCn": "CodeBuddy CN​",
+    "minimaxcode": "MiniMax Code",
     "zed": "منصة Zed",
     "expandSidebar": "توسيع الشريط الجانبي",
     "collapseSidebar": "طي الشريط الجانبي",
@@ -803,7 +805,12 @@
     "setAsDefaultInGroup": "تعيينها كمنصة افتراضية في هذه المجموعة",
     "removeFromGroup": "إزالة من المجموعة",
     "sidebarSelectedUnlimited": "محدد ({count})",
-    "tipWithGroupsUnlimited": "فرز المنصات والمجموعات المحددة يدوياً"
+    "tipWithGroupsUnlimited": "فرز المنصات والمجموعات المحددة يدوياً",
+    "enabledToggle": "مفعّل",
+    "groupEnabledHint": "تفعيل أو تعطيل جميع منصات المجموعة",
+    "disabledHint": "يوقف التعطيل المهام التلقائية ويخفي إعدادات المنصة. يُضبط ظهور المدخل بشكل مستقل",
+    "enableAll": "تفعيل الكل",
+    "disableAll": "تعطيل الكل"
   },
   "privacy": {
     "hideSensitive": "إخفاء البريد الإلكتروني",
@@ -1286,6 +1293,12 @@
       "workbuddyAppPathPlaceholder": "المسار الافتراضي",
       "workbuddyPathSelect": "اختيار",
       "workbuddyPathReset": "إعادة إلى الافتراضي",
+      "minimaxCodeAppPath": "مسار تشغيل MiniMax Code",
+      "minimaxCodeAppPathDesc": "اتركه فارغًا لاستخدام المسار الافتراضي",
+      "minimaxCodeAppPathPlaceholder": "المسار الافتراضي",
+      "minimaxCodePathSelect": "اختيار",
+      "minimaxCodeAppPathPathSelect": "اختيار",
+      "minimaxCodePathReset": "إعادة إلى الافتراضي",
       "openclawAuthOverwrite": "استبدال تسجيل دخول OpenClaw عند تبديل Codex",
       "openclawAuthOverwriteDesc": "عند التعطيل، يتم تبديل Codex فقط ويحتفظ OpenClaw بحالة تسجيل الدخول الحالية",
       "ghcpOpencodeAuthOverwrite": "استبدال تسجيل دخول OpenCode عند تبديل GitHub Copilot",
@@ -1361,6 +1374,8 @@
       "qoderPathSelect": "اختر",
       "workbuddyAutoRefresh": "تحديث تلقائي لحصة WorkBuddy",
       "workbuddyAutoRefreshDesc": "تكرار التحديث التلقائي في الخلفية",
+      "minimaxCodeAutoRefresh": "تحديث تلقائي لحصة MiniMax Code",
+      "minimaxCodeAutoRefreshDesc": "تكرار التحديث التلقائي في الخلفية",
       "codexLocalAccessEntryVisible": "إظهار مدخل خدمة API",
       "codexLocalAccessEntryVisibleDesc": "يتحكم هذا فقط في ظهور مدخل خدمة API ضمن نظرة Codex العامة. لن يوقف خدمة API المحلية؛ ويمكنك إعادة إظهاره هنا أو من الإعدادات السريعة.",
       "codexLocalAccessEnabled": "تفعيل خدمة API",
@@ -1450,9 +1465,13 @@
       "codexEnhancements": {
         "quotaCompat": "حصص الوضع المختلط",
         "quotaCompatDesc": "مع تسجيل دخول OAuth فعلي ومسار API خارجي، يمنع حصة الاشتراك من حظر رسائل API المحلية. لا يغير الاستخدام الفعلي أو حصص الصور.",
-        "restartHint": "مفعّل افتراضيًا. أعد تشغيل نسخ Codex المعنية بعد التغيير وأبقِ Cockpit Tools قيد التشغيل. يعتمد الإملاء الأصلي على إمكانات العميل وإعداداته؛ ولا يتولى Cockpit تشغيله أو يفرض تفعيله.",
-        "configFailed": "تعذرت قراءة الإعدادات أو حفظها: {{error}}"
-      }
+        "restartHint": "توقعات الرسالة التالية الأصلية معطّلة افتراضيًا. أعد تشغيل نسخ Codex المعنية بعد التغيير وأبقِ Cockpit Tools قيد التشغيل. يعتمد الإملاء الأصلي على إمكانات العميل وإعداداته؛ ولا يتولى Cockpit تشغيله أو يفرض تفعيله.",
+        "configFailed": "تعذرت قراءة الإعدادات أو حفظها: {{error}}",
+        "nativePredictions": "توقعات الخطوة التالية الأصلية (Tab)",
+        "nativePredictionsDesc": "ينشئ اقتراحات للرسالة التالية باستخدام مزود API ونموذج المحادثة الحالية. يستهلك رصيد API إضافيًا؛ أعد تشغيل Codex بعد الحفظ."
+      },
+      "timeDisplayMode": "عرض الوقت",
+      "timeDisplayModeDesc": "الوقت المعروض في بطاقات الحسابات وقوائمها. الافتراضي هو وقت تبديل الحساب"
     },
     "network": {
       "apiTitle": "واجهة برمجة تطبيقات قمرة القيادة المضادة للجاذبية",
@@ -2136,7 +2155,13 @@
     "tagUpdated": "تم تحديث الوسم",
     "plan": {
       "personal": "شخصي"
-    }
+    },
+    "lastSwitchTime": "وقت التبديل",
+    "neverSwitched": "لم يُبدّل بعد",
+    "refreshTime": "وقت التحديث",
+    "lastSwitchTimeFull": "التبديل: {{time}}",
+    "refreshTimeFull": "التحديث: {{time}}",
+    "toggleTimeMode": "عرض وقت التبديل أو التحديث"
   },
   "overview": {
     "title": "نظرة عامة على الحسابات",
@@ -2500,6 +2525,22 @@
     "other_group": "نماذج أخرى"
   },
   "codex": {
+    "overload": {
+      "setting": "إعادة المحاولة عند الازدحام",
+      "settingHint": "للطلبات الجديدة في خدمة Codex API المحلية. تنتظر الطلبات القابلة لإعادة المحاولة بأمان حتى يتاح النموذج.",
+      "retrying": "النموذج مشغول، جارٍ إعادة المحاولة ({{count}})",
+      "count": "حالات الازدحام: {{count}}",
+      "countHint": "يحسب محاولات المزوّد بما فيها الإعادة التلقائية. يُحفظ السجل حتى 7 أيام.",
+      "history": "سجل الازدحام",
+      "empty": "لا توجد أخطاء ازدحام في هذه الفترة.",
+      "attempt": "المحاولة {{number}}",
+      "sameAccount": "نجح بالحساب نفسه",
+      "otherAccount": "نجح بعد تبديل الحساب",
+      "pending": "بانتظار النتيجة",
+      "cancelled": "أُلغي",
+      "failed": "فشل الطلب",
+      "countUnavailable": "إحصاءات الازدحام غير متاحة"
+    },
     "instance": {
       "errors": {
         "threadSyncWorkerFailed": "فشلت مهمة مزامنة الجلسات: {{error}}",
@@ -3320,7 +3361,7 @@
       "resetCreditDialogDesc": "أعد ضبط حد المعدل لتواصل العمل بلا انقطاع. عمليات إعادة الضبط المتاحة: {{count}}.",
       "resetCreditDialogAction": "إعادة ضبط الاستخدام",
       "resetCreditNoCredits": "لا توجد مرات إعادة ضبط متاحة",
-      "resetCreditConsumed": "تمت إعادة ضبط حصة 5 ساعات",
+      "resetCreditConsumed": "تمت إعادة ضبط الحصة",
       "resetCreditFailed": "فشلت إعادة الضبط: {{error}}",
       "resetCreditRefreshAfterConsumeFailed": "تم إرسال إعادة الضبط، لكن تحديث الحصة فشل: {{error}}",
       "resetCreditsTitleWithExpiry": "عمليات إعادة التعيين المتبقية لنافذة 5 ساعات: {{count}}. أقرب انتهاء: {{time}}",
@@ -4191,7 +4232,7 @@
         "apiKeyUrlInvalid": "استخدم عنوان إدارة HTTP(S) دون بيانات اعتماد مضمّنة؛ أدخل مفتاح API في حقل المفتاح."
       },
       "saveSuccess": "تم حفظ مزوّد النموذج.",
-      "deleteBlocked": "هذا المزوّد مرتبط بـ {{count}} حساب(ات)، ولا يمكن حذفه.",
+      "confirmDeleteWithAccounts": "هل تريد حذف المزوّد «{{name}}» والحسابات المرتبطة به وعددها {{count}}؟",
       "confirmDelete": "هل تريد حذف المزوّد \"{{name}}\"؟",
       "deleteFailed": "فشل حذف المزوّد: {{error}}",
       "deleteApiKeyFailed": "فشل حذف مفتاح API: {{error}}",
@@ -4321,7 +4362,7 @@
         "selectVisible": "تحديد الظاهر",
         "resultSelectedCount": "تم تحديد {{count}}",
         "selectFailed": "تحديد الفاشلة",
-        "deleteConfirm": "حذف {{providerCount}} مزوّد محدد؟ سيتم أيضاً حذف {{accountCount}} حساب Codex API Key مرتبط بدقة.",
+        "deleteConfirm": "هل تريد حذف {{providerCount}} من المزوّدين المحددين و{{accountCount}} من الحسابات المرتبطة بهم؟",
         "deleteSuccess": "تم حذف {{providerCount}} مزوّد و{{accountCount}} حساب مرتبط.",
         "deleteFailed": "فشل حذف العناصر المحددة: {{error}}",
         "protocolSummary": "{{protocol}} · {{mode}} · {{model}}",
@@ -5188,7 +5229,7 @@
       "boundProxyUnavailable": "لا يوجد وكيل متاح للحساب المرتبط. اختر وكيلاً مجددًا.",
       "sourceUnavailable": "مصدر الوكيل أو العقدة غير متاح. أعد اختياره.",
       "operationTimeout": "انتهت مهلة عملية الوكيل. حاول مجددًا.",
-      "cardScopeHint": "يستخدم عميل Codex لسطح المكتب الذي يتم تشغيله وكيل هذه البطاقة. وتحتفظ اتصالات بوابة النماذج بالخوادم بمساراتها الخاصة.",
+      "cardScopeHint": "تُطبَّق وكلاء حسابات API Key على عملاء سطح المكتب وطلبات خدمة API إلى الخوادم معًا. أما وكيل بطاقة خدمة API فيُطبَّق على عملاء سطح المكتب فقط. لا تتغير إعدادات وكيل النظام.",
       "display": {
         "title": "عرض الوكيل",
         "compact": "موجز",
@@ -5489,7 +5530,7 @@
       "modeDefaultHint": "هذا الحساب لا يستخدم وكيلًا ويحتفظ بالخروج الافتراضي السابق.",
       "modeStaleHint": "المصدر أو العقدة المرتبطة لم تعد متاحة. اخترها من جديد.",
       "management": "إدارة الوكيل",
-      "managementHint": "عيّن وكلاء لبطاقات حسابات OAuth وAPI وخدمة API دون تغيير وكيل النظام. في بطاقات API يُطبَّق الوكيل على عميل سطح المكتب، وتحتفظ اتصالات بوابة النماذج بمساراتها الخاصة.",
+      "managementHint": "تُطبَّق وكلاء حسابات API Key على عملاء سطح المكتب وطلبات خدمة API إلى الخوادم معًا. أما وكيل بطاقة خدمة API فيُطبَّق على عملاء سطح المكتب فقط. لا تتغير إعدادات وكيل النظام.",
       "emptyTitle": "اتصال مخصص لحسابك",
       "emptyDescription": "لا توجد بطاقات حسابات مؤهلة. أضف حساب OAuth أو API، أو فعّل بطاقة خدمة API، ثم اختر وكيلاً هنا.",
       "search": "البحث عن حساب",
@@ -5797,7 +5838,7 @@
         "assign": "تعيين وكيل",
         "specific": "حسابات محددة",
         "shared": "وكيل مشترك",
-        "sharedHint": "تستخدم البطاقات المؤهلة التي ليس لها وكيل مستقل هذا الوكيل، بما فيها البطاقات الجديدة. للإعدادات المستقلة وخيار «بدون وكيل» الأولوية. تستخدمه بطاقات API لعميل سطح المكتب، بينما تحتفظ اتصالات بوابة النماذج بمساراتها الخاصة.",
+        "sharedHint": "ترث الحسابات التي ليس لها وكيل مستقل هذا الوكيل، بما فيها الحسابات الجديدة. للوكلاء المستقلين وخيار «بدون وكيل» الأولوية. تستخدمه حسابات API Key لسطح المكتب وطلبات API؛ وتستخدمه بطاقة خدمة API لسطح المكتب فقط.",
         "apply": "تعيين"
       },
       "managerResources": {
@@ -5924,7 +5965,7 @@
       "title": "تفاصيل الطلب",
       "totalLatency": "المدة الكلية",
       "firstResponse": "أول استجابة",
-      "firstResponseHint": "الوقت من بدء الطلب إلى أول جزء من استجابة الخادم، وليس بالضرورة أول رمز مولّد.",
+      "firstResponseHint": "في طلبات Responses الجديدة المتدفقة، يبدأ القياس بعد معالجة البوابة لمتن الطلب وينتهي عند أول حدث استجابة من الخادم المصدر، مع تجاوز إشارات إبقاء الاتصال وإشعارات حدود المعدل.",
       "unavailable": "لا توجد تفاصيل تشخيصية بعد. حدّث لاحقاً. لا تُستكمل الطلبات القديمة.",
       "attempts": "المحاولات",
       "noAttempts": "لم يُسجل تسلسل المحاولات.",
@@ -6104,10 +6145,27 @@
       "pending": "بانتظار استخدام OpenAI",
       "permissionRequired": "لا يملك المفتاح صلاحية قراءة استخدام المؤسسة (api.usage.read).",
       "permissionGuide": "استخدم مفتاح مسؤول: Admin keys → Restricted → Usage API Scope → Read. يتيح الإنفاق والاستخدام، دون الرصيد المتبقي.",
-      "openAdminKeys": "صلاحيات الاستخدام",
-      "invalidKey": "المفتاح غير صالح أو منتهي الصلاحية. تحقق من مفتاح API الحالي.",
+      "openAdminKeys": "إنشاء مفتاح مسؤول",
+      "invalidKey": "مفتاح الاستعلام غير صالح أو منتهي الصلاحية. تحقق من مفتاح API للمسؤول.",
       "networkFailed": "تعذر الاتصال بخدمة استخدام OpenAI. حدّث لاحقًا.",
-      "queryFailed": "فشل جلب استخدام OpenAI. أعد المحاولة لاحقًا."
+      "queryFailed": "فشل جلب استخدام OpenAI. أعد المحاولة لاحقًا.",
+      "organization": "استخدام المؤسسة",
+      "configure": "إعداد الاستعلام",
+      "settings": "إعدادات الاستعلام",
+      "title": "إعداد استعلام الاستخدام",
+      "optional": "استعلام الاستخدام (اختياري)",
+      "queryKey": "مفتاح API للمسؤول",
+      "callKey": "مفتاح API للنموذج",
+      "notConfigured": "أضف مفتاح مسؤول للاطلاع على إنفاق المؤسسة واستخدامها.",
+      "purpose": "استخدم مفتاح مسؤول من المؤسسة نفسها التي ينتمي إليها مفتاح النموذج. يُستخدم هذا المفتاح للاستعلام عن الاستخدام فقط ولا يحل محل مفتاح النموذج.",
+      "saveVerify": "حفظ وتحقق",
+      "remove": "إزالة الإعداد",
+      "keyRequired": "أدخل مفتاح API للمسؤول.",
+      "saveFailed": "تعذر حفظ إعدادات الاستعلام. حاول مجددًا.",
+      "configChanged": "تغير الحساب أو مفتاح الاستعلام. افتح الإعدادات مجددًا.",
+      "openFailed": "تعذر فتح صفحة المفاتيح. حاول مجددًا.",
+      "costUnavailable": "لا بيانات",
+      "costUnavailableHint": "لم تُرجع واجهة التكاليف الرسمية مبالغ لهذه الفترة. تأتي الطلبات والرموز من واجهة استخدام منفصلة؛ غياب المبالغ لا يعني أن الإنفاق صفر."
     },
     "officialApi": {
       "hint": "حساب بمفتاح API الرسمي من OpenAI، يُحدَّد حسب عنوان الاتصال الفعلي."
@@ -6377,6 +6435,10 @@
     "workbuddy": {
       "title": "إعدادات WorkBuddy",
       "appPath": "مسار WorkBuddy"
+    },
+    "minimaxCode": {
+      "title": "إعدادات MiniMax Code",
+      "appPath": "مسار MiniMax Code"
     },
     "zcode": {
       "title": "إعدادات ZCode",
@@ -7218,7 +7280,9 @@
       "fastChannelStatus": "قناة سريعة: {{status}}",
       "freeRemainingUnknown": "Free متبقي: --",
       "timesRemainingUnknown": "المتبقي: --",
-      "soloParallel": "حزمة: Solo ×{{count}}"
+      "soloParallel": "حزمة: Solo ×{{count}}",
+      "creditsMember": "رصيد العضوية",
+      "creditsBonus": "رصيد المكافآت"
     },
     "flowNotice": {
       "title": "دليل حساب Trae (انقر للتوسيع أو الطي)",
@@ -7234,6 +7298,18 @@
     "token": {
       "jsonOnlyDesc": "الصق JSON حساب Trae CN الكامل. الرمز الخام غير مدعوم.",
       "jsonOnlyPlaceholder": "JSON Trae CN كامل..."
+    },
+    "checkin": {
+      "modalTitle": "تسجيل يومي",
+      "durationMs": "{{ms}} مللي ثانية",
+      "durationSeconds": "{{seconds}} ثانية",
+      "durationTitle": "إجمالي وقت التسجيل",
+      "logSuccess": "نجاح ({{done}}/{{total}})",
+      "logPartial": "نجاح جزئي ({{done}}/{{total}})",
+      "logIncomplete": "غير مكتمل",
+      "detailSuccess": "تم التسجيل بنجاح",
+      "detailAlreadyClaimed": "تم الاستلام اليوم",
+      "detailError": "خطأ في التسجيل"
     }
   },
   "codebuddyCn": {
@@ -7263,6 +7339,35 @@
     "syncToWorkbuddy": "مزامنة مع WorkBuddy"
   },
   "workbuddy": {
+    "credits": {
+      "planBase": "رصيد الباقة الأساسي",
+      "planBonus": "رصيد الباقة الإضافي",
+      "benefit": "رصيد مكافآت المنصة",
+      "addon": "الرصيد المُشترى",
+      "total": "إجمالي الرصيد المتبقي",
+      "details": "تفاصيل الرصيد",
+      "usedOf": "المستخدم {{used}}/{{total}}",
+      "remainingPercent": "المتبقي {{percent}}%",
+      "nearestExpiry": "أقرب انتهاء {{time}}",
+      "nextRefresh": "التجديد التالي {{time}}",
+      "expiring": "رصيد ينتهي قريبًا",
+      "valid": "ساري",
+      "expired": "منتهي",
+      "expiresAt": "ينتهي {{time}}",
+      "expiryHours": "ينتهي خلال 24 ساعة",
+      "expiryDays": "ينتهي خلال 3 أيام",
+      "empty": "لا توجد تفاصيل",
+      "loadFailed": "تعذر التحميل ({{error}})",
+      "overview": "نظرة عامة",
+      "remaining": "المتبقي {{amount}}",
+      "loadMore": "عرض المزيد",
+      "usage": "تفاصيل الاستهلاك",
+      "requestAndTime": "الطلب والوقت",
+      "creditUsed": "الرصيد المستخدم",
+      "model": "النموذج",
+      "recentUsage": "أحدث 5 سجلات",
+      "viewMore": "عرض المزيد"
+    },
     "title": "إدارة حسابات WorkBuddy",
     "noAccounts": "لا توجد حسابات WorkBuddy",
     "addAccount": "إضافة حساب WorkBuddy",
@@ -7270,7 +7375,7 @@
       "title": "معلومات إدارة حسابات WorkBuddy (انقر للتوسيع/الطي)",
       "desc": "يكتب تبديل الحسابات ملف تسجيل الدخول المحلي وفق بنية أحدث عميل WorkBuddy الرسمي؛ ويقرأ الاستيراد المحلي الملف نفسه. تتم معالجة البيانات محليًا فقط.",
       "permission": "نطاق الأذونات: قراءة ملف تسجيل دخول WorkBuddy وكتابته (CodeBuddyExtension/Data/Public/auth/workbuddy-desktop.info) للاستيراد المحلي وتبديل الحسابات؛ لم يعد يتم قراءة state.vscdb القديم أو تعديله.",
-      "network": "نطاق الشبكة: يتطلب تسجيل دخول OAuth وتحديث الرمز طلبات شبكة إلى WorkBuddy؛ وتستدعي استعلامات الحصة واجهات فوترة API. لا يتم رفع ملفات تسجيل الدخول المحلية أو بيانات الاعتماد الخام."
+      "network": "يتصل تسجيل OAuth وتجديد الرمز بخدمة WorkBuddy. يستخدم استعلام الرصيد وتفاصيله رمز الحساب للوصول إلى خدمة الفوترة. تبقى ملفات تسجيل الدخول ومفاتيح النظام على الجهاز."
     },
     "nickname": "الاسم المستعار",
     "enterprise": "المؤسسة",
@@ -7287,8 +7392,8 @@
       "oauth": {
         "title": "تسجيل دخول IDE فقط",
         "item1": "أضف الحساب بعد إكمال OAuth في المتصفح، ثم استخدمه للتبديل داخل IDE.",
-        "item2": "لا يتم ربط معلمات استعلام الحصة تلقائيًا.",
-        "item3": "إذا احتجت عرض الحصة، شغّل \"استعلام الحصة\" يدويًا من بطاقة الحساب."
+        "item2": "يُستعلم عن الرصيد تلقائيًا بعد التفويض.",
+        "item3": "تعرض البطاقة ملخص الرصيد، وتعرض نافذة التفاصيل سجلاته وتواريخ انتهائه."
       }
     },
     "oauthWebviewTab": "OAuth عبر WebView",
@@ -7404,8 +7509,169 @@
       "startTime": "وقت البدء",
       "endTime": "وقت الانتهاء",
       "timeRangeHint": "يختار وقتًا عشوائيًا يوميًا ضمن هذا النطاق لإكمال تسجيل الوصول في الخلفية.",
+      "errors": "أخطاء",
+      "tabSettings": "إعدادات تسجيل الوصول التلقائي",
+      "tabHistory": "سجل تسجيل الوصول التلقائي",
+      "manualTest": "تشغيل تجريبي",
+      "clearLogs": "مسح",
+      "clearLogsFailed": "فشل مسح سجلات تسجيل الحضور: {{message}}",
+      "historyLoading": "جارٍ قراءة سجلات تسجيل الحضور التلقائي...",
+      "historyLoadFailed": "فشل قراءة سجلات تسجيل الحضور التلقائي: {{message}}",
+      "totalCredits": "{{credits}} نقطة",
+      "historyRangeHint": "يتم الاحتفاظ بسجلات تسجيل الوصول التلقائي لآخر 30 يومًا فقط (الإجمالي: {{count}})",
+      "noHistory": "لا توجد سجلات تسجيل الوصول التلقائي خلال آخر 30 يومًا",
+      "saveFailed": "فشل حفظ إعدادات تسجيل الوصول التلقائي: {{message}}",
+      "manualTestPartialFailure": "فشل تسجيل الوصول لبعض الحسابات. راجع السجلات؛ ستتم إعادة المحاولة في الخلفية لاحقًا.",
+      "manualTestAlreadyRunning": "مهمة تسجيل الوصول التلقائي قيد التشغيل بالفعل. يرجى مراجعة السجلات لاحقًا.",
+      "manualTestFailed": "فشل التشغيل التجريبي: {{message}}",
       "timeRangeError": "لا يمكن أن يكون وقت البدء متأخرًا عن وقت الانتهاء"
     }
+  },
+  "minimaxCode": {
+    "title": "إدارة حسابات MiniMax Code",
+    "noAccounts": "لا توجد حسابات MiniMax Code",
+    "addAccount": "إضافة حساب MiniMax Code",
+    "flowNotice": {
+      "title": "معلومات إدارة حسابات MiniMax Code (انقر للتوسيع/الطي)",
+      "desc": "يكتب تبديل الحسابات ملف تسجيل الدخول المحلي وفق بنية أحدث عميل MiniMax Code الرسمي؛ ويقرأ الاستيراد المحلي الملف نفسه. تتم معالجة البيانات محليًا فقط.",
+      "permission": "نطاق الأذونات: قراءة ملف تسجيل دخول MiniMax Code وكتابته (~/.minimax/auth/auth.json) للاستيراد المحلي وتبديل الحسابات؛ لم يعد يتم قراءة state.vscdb القديم أو تعديله.",
+      "network": "نطاق الشبكة: يتطلب تسجيل دخول OAuth وتحديث الرمز طلبات شبكة إلى MiniMax Code؛ وتستدعي استعلامات الحصة واجهات فوترة API. لا يتم رفع ملفات تسجيل الدخول المحلية أو بيانات الاعتماد الخام."
+    },
+    "nickname": "الاسم المستعار",
+    "enterprise": "المؤسسة",
+    "usage": "حالة الاستخدام",
+    "creditsBalance": "رصيد النقاط",
+    "usageNormal": "طبيعي",
+    "usageAbnormal": "غير طبيعي",
+    "usageViewDetail": "عرض التفاصيل",
+    "usageDetailTitle": "تفاصيل حالة الاستخدام",
+    "oauthWaiting": "بانتظار التفويض...",
+    "oauthDesc": "انقر الزر أدناه لفتح صفحة تفويض MiniMax Code في متصفحك.",
+    "oauthDescWebview": "انقر الزر أدناه لفتح صفحة تفويض MiniMax Code في WebView المدمج.",
+    "oauthFeature": {
+      "oauth": {
+        "title": "تسجيل دخول IDE فقط",
+        "item1": "أضف الحساب بعد إكمال OAuth في المتصفح، ثم استخدمه للتبديل داخل IDE.",
+        "item2": "لا يتم ربط معلمات استعلام الحصة تلقائيًا.",
+        "item3": "إذا احتجت عرض الحصة، شغّل \"استعلام الحصة\" يدويًا من بطاقة الحساب."
+      }
+    },
+    "oauthWebviewTab": "OAuth عبر WebView",
+    "oauthOpenWebview": "فتح في WebView",
+    "oauthOpenWebviewIncognito": "فتح في WebView المتخفي",
+    "oauthOpenWebviewFailed": "فشل فتح WebView: {{error}}",
+    "oauthOpenBrowserFallback": "فتح في المتصفح (بديل)",
+    "oauthOpenBrowserFailed": "فشل فتح المتصفح: {{error}}",
+    "oauthWebviewProgressHint": "يتم عرض شريط خطوات أفقي أعلى WebView لتحديد المرحلة المتوقفة.",
+    "oauthFlow": {
+      "prepare": "تحضير رابط OAuth",
+      "authorize": "فتح رابط التفويض وتأكيده",
+      "bind": "استطلاع نتيجة التفويض وربط الحساب",
+      "retryPrepare": "إعادة إنشاء رابط OAuth",
+      "retryAuthorize": "طلب رابط التفويض مرة أخرى",
+      "retryBind": "إعادة محاولة استطلاع التفويض",
+      "error": "خطأ في المسار: {{error}}"
+    },
+    "tokenDesc": "ألصق رمز الوصول الخاص بـ MiniMax Code:",
+    "jsonDesc": "اختر ملف JSON يحتوي على حسابات MiniMax Code:",
+    "import": {
+      "localDesc": "استيراد بيانات الحساب من عميل MiniMax Code المحلي أو من ملف JSON.",
+      "localClient": "استيراد من MiniMax Code المحلي"
+    },
+    "search": "ابحث في حسابات MiniMax Code...",
+    "quotaQuery": {
+      "failedRefreshCompact": "فشل تحديث الحصة",
+      "sectionTitle": "استعلام الحصة",
+      "empty": "لا توجد معلومات ربط لاستعلام الحصة بعد",
+      "packageUnknown": "باقة غير معروفة",
+      "quotaLabel": "الحصة المتبقية",
+      "updatedAt": "آخر استعلام: {{time}}",
+      "cycleRange": "الدورة: {{start}} - {{end}}",
+      "cycleUnknown": "معلومات الدورة غير متاحة",
+      "expireAt": "ينتهي في: {{time}}",
+      "expireUnknown": "وقت الانتهاء: غير متاح",
+      "packageTitle": {
+        "base": "حزمة التجربة الأساسية",
+        "activity": "حزمة هدية النشاط"
+      }
+    },
+    "extraCredit": {
+      "title": "باقة الرصيد"
+    },
+    "oauthUrlInputPlaceholder": "يمكنك إدخال رابط التفويض يدويًا",
+    "oauthInvalidUrl": "رابط تفويض غير صالح. يرجى إدخال رابط كامل.",
+    "oauthGotoWebview": "توجيه WebView المفتوح إلى الرابط المُدخل",
+    "oauthGotoWebviewSuccess": "تم طلب توجيه WebView إلى الرابط المُدخل.",
+    "oauthGotoWebviewFailed": "فشل توجيه WebView: {{error}}",
+    "oauthWebviewInlineUrlPlaceholder": "أدخل رابطًا للتنقل داخل WebView هذا",
+    "oauthWebviewInlineGo": "انتقال",
+    "oauthSuccessClosePrompt": "تمت إضافة الحساب بنجاح. هل تريد إغلاق WebView الآن؟\nاختر \"إغلاق WebView\" للإغلاق الآن، أو \"لاحقًا\" للإبقاء عليه مفتوحًا.",
+    "oauthSuccessCloseTitle": "تمت إضافة الحساب",
+    "oauthSuccessCloseNowLabel": "إغلاق WebView",
+    "oauthSuccessCloseLaterLabel": "لاحقًا",
+    "oauthSuccessCloseNowStatus": "✅ تمت إضافة الحساب. جارٍ إغلاق النافذة...",
+    "oauthSuccessCloseLaterStatus": "✅ تمت إضافة الحساب. سيبقى WebView مفتوحًا.",
+    "oauthWebviewOverlay": {
+      "steps": {
+        "prepare": "1 تحضير رابط OAuth",
+        "authorize": "2 فتح رابط التفويض وتأكيده",
+        "bind": "3 استطلاع نتيجة التفويض وربط الحساب",
+        "complete": "5 تم (إغلاق يدوي)"
+      },
+      "status": {
+        "loginConfirm": "يرجى إكمال تسجيل الدخول والتفويض في هذه الصفحة."
+      }
+    },
+    "instances": {
+      "unsupported": {
+        "descPlatform": "تعدد مثيلات MiniMax Code مدعوم فقط على macOS وWindows وLinux."
+      }
+    },
+    "quota": {
+      "usedOfTotal": "{{used}} / {{total}}​"
+    },
+    "checkin": {
+      "title": "التسجيل اليومي",
+      "modalTitle": "التسجيل اليومي",
+      "status": "حالة التسجيل",
+      "checkedIn": "تم التسجيل",
+      "notCheckedIn": "لم يتم التسجيل",
+      "button": "تسجيل الحضور",
+      "button.loading": "جاري التسجيل...",
+      "done": "تم",
+      "success": "تم التسجيل بنجاح! {{days}} يوم متتالي",
+      "failure": "فشل تسجيل الحضور: {{message}}",
+      "failure.network": "خطأ في الشبكة، يرجى المحاولة لاحقًا",
+      "lastCheckin": "آخر تسجيل: {{time}}",
+      "streak": "{{days}} يوم متتالي",
+      "reward": "المكافأة: {{reward}}",
+      "refreshStatus": "تحديث الحالة",
+      "checkAll": "تسجيل الكل",
+      "noAccounts": "لا توجد حسابات",
+      "querying": "جارٍ التحميل...",
+      "streakDays": "{{days}} يوم",
+      "streakRewardCountdown": "يتبقى {{days}} يومًا للحصول على المكافأة الإضافية",
+      "streakRewardToday": "المكافأة الإضافية متاحة اليوم!",
+      "recentDates": "الأيام الأخيرة: ",
+      "claimed": "تم الاستلام",
+      "queryFailed": "فشل الاستعلام",
+      "retry": "إعادة",
+      "inactive": "غير متاح",
+      "inactiveHint": "تسجيل الحضور غير مفعّل لهذا الحساب",
+      "autoCheckinSettings": "إعدادات تسجيل الوصول التلقائي",
+      "autoCheckinLabel": "تسجيل الوصول التلقائي",
+      "autoCheckinOff": "إيقاف تسجيل الوصول التلقائي",
+      "autoCheckinEnabledHint": "تم تمكين تسجيل الوصول التلقائي: تسجيل عشوائي بين {{start}} و {{end}}",
+      "autoCheckinDisabledHint": "تم تعطيل تسجيل الوصول التلقائي",
+      "enableAutoCheckin": "تمكين تسجيل الوصول التلقائي",
+      "enableAutoCheckinDesc": "تسجيل الوصول يوميًا بشكل عشوائي ضمن النطاق الزمني المحدد",
+      "randomTimeRange": "النطاق الزمني لتسجيل الوصول العشوائي",
+      "startTime": "وقت البدء",
+      "endTime": "وقت الانتهاء",
+      "timeRangeHint": "يختار وقتًا عشوائيًا يوميًا ضمن هذا النطاق لإكمال تسجيل الوصول في الخلفية.",
+      "timeRangeError": "لا يمكن أن يكون وقت البدء متأخرًا عن وقت الانتهاء"
+    },
+    "placeholder": "ستتوفر إدارة حسابات MiniMax Code قريبًا."
   },
   "zcode": {
     "search": "البحث في حسابات ZCode...",

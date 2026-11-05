@@ -2,6 +2,7 @@ import { CodexAppEnhancementSettings } from './codex/CodexAppEnhancementSettings
 import { resolveCodexAccountDisplayName } from "../utils/codexAccountDisplayName";
 import { CodexRefreshPlanScopeControl } from './CodexRefreshPlanScopeControl';
 import { CodexRequestPayloadSetting } from './codex/CodexRequestPayloadSetting';
+import { CodexOverloadRetrySetting } from './codex/CodexOverloadRetrySetting';
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
@@ -107,6 +108,7 @@ interface GeneralConfig {
   trae_cn_auto_refresh_minutes: number;
   trae_solo_cn_auto_refresh_minutes: number;
   workbuddy_auto_refresh_minutes: number;
+  minimax_code_auto_refresh_minutes: number;
   zed_auto_refresh_minutes: number;
   close_behavior: string;
   minimize_behavior?: 'dock_and_tray' | 'tray_only';
@@ -143,6 +145,7 @@ interface GeneralConfig {
   trae_solo_cn_app_scan_roots: string;
   workbuddy_app_path: string;
   workbuddy_share_sessions_on_switch: boolean;
+  minimax_code_app_path: string;
   zed_app_path: string;
   opencode_sync_on_switch: boolean;
   opencode_auth_overwrite_on_switch: boolean;
@@ -207,6 +210,8 @@ interface GeneralConfig {
   trae_solo_cn_quota_alert_threshold: number;
   workbuddy_quota_alert_enabled: boolean;
   workbuddy_quota_alert_threshold: number;
+  minimax_code_quota_alert_enabled: boolean;
+  minimax_code_quota_alert_threshold: number;
   zed_quota_alert_enabled: boolean;
   zed_quota_alert_threshold: number;
 }
@@ -229,6 +234,7 @@ export type QuickSettingsType =
   | 'trae_cn'
   | 'trae_solo_cn'
   | 'workbuddy'
+  | 'minimaxcode'
   | 'zed';
 
 type AppPathTarget =
@@ -250,6 +256,7 @@ type AppPathTarget =
   | 'trae_cn'
   | 'trae_solo_cn'
   | 'workbuddy'
+  | 'minimaxcode'
   | 'zed';
 
 type QuotaAlertEnabledKey =
@@ -269,6 +276,7 @@ type QuotaAlertEnabledKey =
   | 'trae_cn_quota_alert_enabled'
   | 'trae_solo_cn_quota_alert_enabled'
   | 'workbuddy_quota_alert_enabled'
+  | 'minimax_code_quota_alert_enabled'
   | 'zed_quota_alert_enabled';
 type QuotaAlertThresholdKey =
   | 'quota_alert_threshold'
@@ -287,6 +295,7 @@ type QuotaAlertThresholdKey =
   | 'trae_cn_quota_alert_threshold'
   | 'trae_solo_cn_quota_alert_threshold'
   | 'workbuddy_quota_alert_threshold'
+  | 'minimax_code_quota_alert_threshold'
   | 'zed_quota_alert_threshold';
 type CodexWindowThresholdKey =
   | 'codex_auto_switch_primary_threshold'
@@ -339,6 +348,8 @@ const getAppPathKeyForTarget = (target: AppPathTarget): keyof GeneralConfig => {
       return 'trae_solo_cn_app_path';
     case 'workbuddy':
       return 'workbuddy_app_path';
+    case 'minimaxcode':
+      return 'minimax_code_app_path';
     case 'zed':
       return 'zed_app_path';
   }
@@ -389,6 +400,8 @@ const getCurrentAccountRefreshPlatformForType = (
       return 'trae_solo_cn';
     case 'workbuddy':
       return 'workbuddy';
+    case 'minimaxcode':
+      return 'minimaxcode';
     case 'zed':
       return 'zed';
   }
@@ -818,6 +831,7 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
       case 'trae_cn': return 'trae_cn_auto_refresh_minutes';
       case 'trae_solo_cn': return 'trae_solo_cn_auto_refresh_minutes';
       case 'workbuddy': return 'workbuddy_auto_refresh_minutes';
+      case 'minimaxcode': return 'minimax_code_auto_refresh_minutes';
       case 'zed': return 'zed_auto_refresh_minutes';
       default: return 'auto_refresh_minutes';
     }
@@ -1049,6 +1063,8 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
           return 'TRAE SOLO CN';
         case 'workbuddy':
           return 'WorkBuddy';
+        case 'minimaxcode':
+          return 'MiniMax Code';
         case 'zed':
           return 'Zed';
       }
@@ -1124,6 +1140,8 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
         return 'trae_solo_cn_quota_alert_enabled';
       case 'workbuddy':
         return 'workbuddy_quota_alert_enabled';
+      case 'minimaxcode':
+        return 'minimax_code_quota_alert_enabled';
       case 'zed':
         return 'zed_quota_alert_enabled';
       default:
@@ -1163,6 +1181,8 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
         return 'trae_solo_cn_quota_alert_threshold';
       case 'workbuddy':
         return 'workbuddy_quota_alert_threshold';
+      case 'minimaxcode':
+        return 'minimax_code_quota_alert_threshold';
       case 'zed':
         return 'zed_quota_alert_threshold';
       default:
@@ -1202,6 +1222,8 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
       case 'trae_solo_cn':
         return t('quickSettings.refreshInterval', '配额自动刷新');
       case 'workbuddy':
+        return t('quickSettings.refreshInterval', '配额自动刷新');
+      case 'minimaxcode':
         return t('quickSettings.refreshInterval', '配额自动刷新');
       case 'zed':
         return t('quickSettings.refreshInterval', '配额自动刷新');
@@ -1248,6 +1270,8 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
         return config.trae_solo_cn_app_path;
       case 'workbuddy':
         return config.workbuddy_app_path;
+      case 'minimaxcode':
+        return config.minimax_code_app_path;
       case 'zed':
         return config.zed_app_path;
       default:
@@ -1291,6 +1315,8 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
         return t('quickSettings.traeSoloCn.appPath', 'TRAE SOLO CN 路径');
       case 'workbuddy':
         return t('quickSettings.workbuddy.appPath', 'WorkBuddy 路径');
+      case 'minimaxcode':
+        return t('quickSettings.minimaxCode.appPath', 'MiniMax Code 路径');
       case 'zed':
         return t('quickSettings.zed.appPath', 'Zed 路径');
     }
@@ -1332,6 +1358,8 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
         return 'trae_solo_cn';
       case 'workbuddy':
         return 'workbuddy';
+      case 'minimaxcode':
+        return 'minimaxcode';
       case 'zed':
         return 'zed';
     }
@@ -1974,6 +2002,7 @@ export function QuickSettingsPopover({ type }: QuickSettingsPopoverProps) {
                 <CodexRefreshPlanScopeControl value={config.codex_auto_refresh_plan_types}
                   onChange={(value) => void saveConfig({ codex_auto_refresh_plan_types: value })} />
                 <CodexRequestPayloadSetting />
+                <CodexOverloadRetrySetting />
                 <CodexAppEnhancementSettings variant="quick" onError={setError} />
               </div>
             )}

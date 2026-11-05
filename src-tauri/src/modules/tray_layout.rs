@@ -26,8 +26,9 @@ pub const PLATFORM_TRAE_SOLO: &str = "trae_solo";
 pub const PLATFORM_TRAE_CN: &str = "trae_cn";
 pub const PLATFORM_TRAE_SOLO_CN: &str = "trae_solo_cn";
 pub const PLATFORM_WORKBUDDY: &str = "workbuddy";
+pub const PLATFORM_MINIMAX_CODE: &str = "minimaxcode";
 
-pub const SUPPORTED_PLATFORM_IDS: [&str; 18] = [
+pub const SUPPORTED_PLATFORM_IDS: [&str; 19] = [
     PLATFORM_CLAUDE_MANAGER,
     PLATFORM_CODEX,
     PLATFORM_ANTIGRAVITY,
@@ -46,6 +47,7 @@ pub const SUPPORTED_PLATFORM_IDS: [&str; 18] = [
     PLATFORM_TRAE_CN,
     PLATFORM_TRAE_SOLO_CN,
     PLATFORM_WORKBUDDY,
+    PLATFORM_MINIMAX_CODE,
 ];
 
 pub const SORT_MODE_AUTO: &str = "auto";
@@ -74,6 +76,11 @@ pub struct TrayLayoutConfig {
     pub ordered_entry_ids: Vec<String>,
     #[serde(default = "default_platform_groups")]
     pub platform_groups: Vec<TrayLayoutGroup>,
+    #[serde(default)]
+    pub hidden_platform_ids: Vec<String>,
+    /// 被用户禁用的平台：隐藏只影响显示，禁用才停止后台自动活动。
+    #[serde(default)]
+    pub disabled_platform_ids: Vec<String>,
 }
 
 fn default_sort_mode() -> String {
@@ -107,6 +114,8 @@ impl Default for TrayLayoutConfig {
             tray_platform_ids: default_tray_platforms(),
             ordered_entry_ids: default_ordered_entries(),
             platform_groups: default_platform_groups(),
+            hidden_platform_ids: vec![],
+            disabled_platform_ids: vec![],
         }
     }
 }
@@ -135,6 +144,7 @@ fn normalize_platform_id(id: &str) -> Option<&'static str> {
         PLATFORM_TRAE_CN | "trae-cn" => Some(PLATFORM_TRAE_CN),
         PLATFORM_TRAE_SOLO_CN | "trae-solo-cn" => Some(PLATFORM_TRAE_SOLO_CN),
         PLATFORM_WORKBUDDY => Some(PLATFORM_WORKBUDDY),
+        PLATFORM_MINIMAX_CODE => Some(PLATFORM_MINIMAX_CODE),
         _ => None,
     }
 }
@@ -196,6 +206,7 @@ fn normalize_tray_platforms(
         PLATFORM_TRAE_CN,
         PLATFORM_TRAE_SOLO_CN,
         PLATFORM_WORKBUDDY,
+        PLATFORM_MINIMAX_CODE,
     ] {
         let already_present = contains_platform(&sanitized, new_platform);
         let was_in_raw_order = raw_order_has_new.contains(&new_platform);
@@ -405,6 +416,7 @@ fn normalize_config(
         PLATFORM_TRAE_CN,
         PLATFORM_TRAE_SOLO_CN,
         PLATFORM_WORKBUDDY,
+        PLATFORM_MINIMAX_CODE,
     ]
     .iter()
     .filter(|&&p| config.ordered_platform_ids.iter().any(|id| id.trim() == p))
@@ -428,7 +440,32 @@ fn normalize_config(
         ),
         ordered_entry_ids,
         platform_groups,
+        hidden_platform_ids: config.hidden_platform_ids.clone(),
+        disabled_platform_ids: config.disabled_platform_ids.clone(),
     }
+}
+
+/// 平台是否在「平台布局」中被用户禁用。
+///
+/// 后台自动活动（token 保活、账号扫描等）统一用这个入口判断是否跳过某平台。
+/// 注意「隐藏」只影响显示，这里判断的是「禁用」集合，两者正交。
+pub fn is_platform_enabled(platform_id: &str) -> bool {
+    let disabled = load_tray_layout().disabled_platform_ids;
+    if disabled.is_empty() {
+        return true;
+    }
+    let normalize = |id: &str| match id.trim() {
+        "antigravity_ide" => Some("antigravity_ide"),
+        "codex_api_service" => Some("codex_api_service"),
+        "claude" => Some(PLATFORM_CLAUDE_MANAGER),
+        "github_copilot" => Some(PLATFORM_GITHUB_COPILOT),
+        id => normalize_platform_id(id),
+    };
+    let Some(normalized) = normalize(platform_id) else {
+        // 未知平台 ID 不做禁用判断，避免误停后台任务
+        return true;
+    };
+    !disabled.iter().any(|id| normalize(id) == Some(normalized))
 }
 
 pub fn load_tray_layout() -> TrayLayoutConfig {
@@ -479,7 +516,22 @@ pub fn save_tray_layout(
     tray_platform_ids: Vec<String>,
     ordered_entry_ids: Option<Vec<String>>,
     platform_groups: Option<Vec<TrayLayoutGroup>>,
+    hidden_platform_ids: Option<Vec<String>>,
+    disabled_platform_ids: Option<Vec<String>>,
 ) -> Result<TrayLayoutConfig, String> {
+    // 旧版前端不传这些字段：保留已落盘的值，而不是清空它
+    let existing = if hidden_platform_ids.is_none() || disabled_platform_ids.is_none() {
+        Some(load_tray_layout())
+    } else {
+        None
+    };
+    let hidden_platform_ids = hidden_platform_ids
+        .or_else(|| existing.as_ref().map(|config| config.hidden_platform_ids.clone()))
+        .unwrap_or_default();
+    let disabled_platform_ids = disabled_platform_ids
+        .or_else(|| existing.as_ref().map(|config| config.disabled_platform_ids.clone()))
+        .unwrap_or_default();
+
     let normalized = normalize_config(
         TrayLayoutConfig {
             sort_mode,
@@ -487,6 +539,8 @@ pub fn save_tray_layout(
             tray_platform_ids,
             ordered_entry_ids: ordered_entry_ids.unwrap_or_default(),
             platform_groups: platform_groups.unwrap_or_else(default_platform_groups),
+            hidden_platform_ids,
+            disabled_platform_ids,
         },
         false,
     );
@@ -589,5 +643,33 @@ mod tests {
         assert_eq!(group.name, "My Trae");
         assert_eq!(group.platform_ids, [PLATFORM_TRAE, PLATFORM_TRAE_SOLO]);
         assert_eq!(group.default_platform_id, PLATFORM_TRAE_SOLO);
+    }
+
+    #[test]
+    fn minimax_code_platform_id_is_the_frontend_canonical_id() {
+        // The frontend syncs `orderedPlatformIds` verbatim, so the tray-layout id
+        // must match the canonical frontend platform id (`minimaxcode`).
+        assert_eq!(PLATFORM_MINIMAX_CODE, "minimaxcode");
+        assert_eq!(
+            normalize_platform_id("minimaxcode"),
+            Some(PLATFORM_MINIMAX_CODE)
+        );
+
+        let default = default_order();
+        assert!(default.contains(&PLATFORM_MINIMAX_CODE.to_string()));
+        assert!(!default.iter().any(|id| id == "minimax_code"));
+
+        let normalized = normalize_order(&default);
+        assert_eq!(normalized.len(), SUPPORTED_PLATFORM_IDS.len());
+        assert!(normalized.contains(&PLATFORM_MINIMAX_CODE.to_string()));
+        assert!(!normalized.iter().any(|id| id == "minimax_code"));
+
+        // Legacy persisted ids used the "minimax_code" spelling before the
+        // canonical frontend id ("minimaxcode") was adopted. It is intentionally
+        // not recognized as a distinct platform, but normalize_order re-adds the
+        // canonical id so an old persisted list does not drop the platform.
+        assert!(normalize_platform_id("minimax_code").is_none());
+        let legacy = normalize_order(&["minimax_code".to_string()]);
+        assert!(legacy.contains(&PLATFORM_MINIMAX_CODE.to_string()));
     }
 }

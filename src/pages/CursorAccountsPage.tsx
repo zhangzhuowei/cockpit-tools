@@ -29,6 +29,7 @@ import {
   History,
   SlidersHorizontal,
 } from 'lucide-react';
+import { AccountLastUsed } from '../components/AccountLastUsed';
 import { useCursorAccountStore } from '../stores/useCursorAccountStore';
 import * as cursorService from '../services/cursorService';
 import { TagEditModal } from '../components/TagEditModal';
@@ -949,7 +950,7 @@ export function CursorAccountsPage() {
           </div>
 
           <div className="card-footer">
-            <span className="card-date">{formatDate(account.created_at)}</span>
+            <AccountLastUsed accountId={account.id} lastSwitchedAt={account.last_switched_at} createdAt={account.created_at} formatDate={formatDate} />
             <div className="card-actions">
               {isWebToken && !isBanned ? (
                 <button className="card-action-btn success" onClick={() => void handleDesktopLoginViaWebview(account.id)} disabled={!!desktopLoginAccountId}

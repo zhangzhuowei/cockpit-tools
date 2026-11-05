@@ -177,6 +177,7 @@ function isAllowedEnglishReuse(key, value) {
     'Claude',
     'CodeBuddy',
     'WorkBuddy',
+    'MiniMax Code',
     'GitHub Copilot',
     'Kiro',
     'Alipay',
@@ -238,6 +239,12 @@ function isAllowedEnglishReuse(key, value) {
   ]);
 
   if (allowedExactValues.has(normalized)) {
+    return true;
+  }
+
+  // SI duration symbols are shared across languages.
+  if ((key === 'trae.checkin.durationMs' && normalized === '{{ms}} ms') ||
+      (key === 'trae.checkin.durationSeconds' && normalized === '{{seconds}} s')) {
     return true;
   }
 

@@ -382,6 +382,7 @@ pub async fn inject_windsurf_to_vscode(
         }
     };
 
+
     if let Some(err) = launch_warning {
         let _ = crate::modules::tray::update_tray_menu(&app);
         logger::log_warn(&format!(

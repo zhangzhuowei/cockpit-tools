@@ -5,9 +5,10 @@ import { codexDailyUsageMetrics } from "../components/codex/CodexDailyUsagePanel
 import { isCodexOfficialApiAccount } from "../types/codex";
 import { OpenAIOfficialUsagePanel } from '../components/codex/OpenAIOfficialUsagePanel';
 import { CodexRemoteServiceDetails } from '../components/codex/CodexRemoteServiceDetails';
-import { isOpenAIOfficialUsageAccount, resolveAccountUsageBaseUrl } from '../utils/openaiOfficialUsage';
+import { currentOpenAIUsageState, isOpenAIOfficialUsageAccount, resolveAccountUsageBaseUrl } from '../utils/openaiOfficialUsage';
 import { useEffect, type ReactElement } from "react";
 import { RefreshCw, Upload, Trash2, X, Power, Database, Copy, Check, Play, RotateCw, CircleAlert, Info, Calendar, Tag, Eye, EyeOff, FileText, ExternalLink, Pencil, FolderPlus, ChevronRight, Wrench, Terminal, Link2, Waypoints } from "lucide-react";
+import { AccountLastUsed } from '../components/AccountLastUsed';
 import { isCodexApiKeyAccount, isCodexAgentIdentityAccount, isCodexChatCompletionsApiKeyAccount, isCodexNewApiAccount } from "../types/codex";
 import { isVerboseCodexQuotaErrorMessage, summarizeCodexQuotaErrorMessage } from "../utils/codexQuotaError";
 import { CodexQuotaMiniRows } from "../components/codex/CodexQuotaMiniRows";
@@ -383,14 +384,17 @@ export function useCodexAccountsRenderers(context: Pick<ReturnType<typeof useCod
               <CodexDeviceRestrictionBadge accountId={account.id} />
             </div>
             <CodexAccountOfficialBadge account={account} grants={planOverview.accounts} memberIds={localAccessAccountIdSet} />
+            <AccountLastUsed accountId={account.id} lastSwitchedAt={account.last_switched_at} createdAt={account.created_at} formatDate={formatDate} />
             <div className="codex-compact-quotas">
               {isApiKeyAccount ? (
-                (!hideRelayQuota || shouldShowCodexApiKeyUsagePanel(account, hideRelayQuota)) && codexDailyUsageMetrics(resolveCodexAccountDailyUsage(account, apiKeyUsageMap[account.id]?.summary), t).map(item => (
+                (!hideRelayQuota || shouldShowCodexApiKeyUsagePanel(account, hideRelayQuota)) && (isOpenAIOfficialUsageAccount(account)
+                  ? renderApiKeyUsagePanel(account, resolveUsageProviderForApiKeyAccount(account), 'table')
+                  : codexDailyUsageMetrics(resolveCodexAccountDailyUsage(account, apiKeyUsageMap[account.id]?.summary), t).map(item => (
                   <span key={`${account.id}-${item.key}`} className="codex-compact-quota" title={`${item.label} ${item.value}`}>
                     <span className="codex-compact-dot" /><span>{item.label}</span>
                     <span className="codex-compact-quota-value high">{item.value}</span>
                   </span>
-                ))
+                )))
               ) : !isChatCompletionsApiKey && (
                 <>{account.plan_type !== 'self_serve_business_usage_based' && <CodexQuotaMiniRows items={compactOfficialQuotaItems} t={t} />}<CodexTeamQuotaHistory account={account} /></>
               )}
@@ -896,7 +900,7 @@ export function useCodexAccountsRenderers(context: Pick<ReturnType<typeof useCod
             )}
             <div className="codex-card-bottom">
               <CodexAccountProxyCard account={account} placement="detailed" />
-              <span className="card-date">{formatDate(account.created_at)}</span>
+              <AccountLastUsed accountId={account.id} lastSwitchedAt={account.last_switched_at} createdAt={account.created_at} formatDate={formatDate} />
               <CodexSpeedControl scope="account" account={account} disabled={!!switching}
                 onError={(text) => setMessage(text ? { text, tone: "error" } : null)} />
               <div className="card-footer">
@@ -2330,9 +2334,10 @@ export function useCodexAccountsRenderers(context: Pick<ReturnType<typeof useCod
     const renderApiKeyUsageDetailModal = () => {
       const account = apiKeyUsageDetailAccount;
       if (!account) return null;
-      const state = apiKeyUsageMap[account.id];
-      const summary = state?.summary;
       const provider = resolveUsageProviderForApiKeyAccount(account);
+      const state = isOpenAIOfficialUsageAccount(account, provider?.baseUrl)
+        ? currentOpenAIUsageState(provider, account.openai_api_key ?? '', apiKeyUsageMap[account.id]) : apiKeyUsageMap[account.id];
+      const summary = state?.summary;
       const usageMode =
         resolveApiKeyUsageMode(summary) ??
         (isOpenAIOfficialUsageAccount(account, provider?.baseUrl) ? "openai_official" : provider?.integrationType === "sub2api" ? "sub2api" : null);
@@ -2587,7 +2592,7 @@ export function useCodexAccountsRenderers(context: Pick<ReturnType<typeof useCod
               {summary?.cockpit ? (
                 <CodexRemoteServiceDetails key={account.id} state={state!} baseUrl={baseUrl} apiKey={account.openai_api_key || ""} t={t} />
               ) : usageMode === "openai_official" ? (
-                <OpenAIOfficialUsagePanel summary={summary} loading={state?.loading} error={state?.error} detailed t={t} />
+                <OpenAIOfficialUsagePanel provider={provider} apiKey={account.openai_api_key ?? ""} sourceBinding={state?.sourceBinding} onRefresh={() => void refreshApiKeyUsageByAccountId(account.id)} summary={summary} loading={state?.loading} error={state?.error} detailed t={t} />
               ) : <>
                 {state?.loading && <p className="codex-daily-usage-note" role="status">{t("common.loading")}</p>}
                 {state?.error && <p className="codex-daily-usage-note" role="status">{t("common.shared.quota.queryFailed")}</p>}

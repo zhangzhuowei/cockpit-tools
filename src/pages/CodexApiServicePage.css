@@ -1300,11 +1300,6 @@
   transform: rotate(180deg);
 }
 
-html[data-reduced-motion="true"] .codex-api-service-summary-card:hover,
-html[data-reduced-motion="true"] .codex-api-service-key-advanced-toggle[aria-expanded="true"] .codex-api-service-key-advanced-state svg {
-  transform: none;
-}
-
 .codex-api-service-key-policy {
   display: grid;
   gap: 9px;
@@ -2998,4 +2993,9 @@ html[data-reduced-motion="true"] .codex-api-service-key-advanced-toggle[aria-exp
   .codex-api-service-hero-actions, .codex-api-service-head-actions { justify-content: flex-start; }
   .codex-api-service-panel-head { flex-wrap: wrap; }
   .codex-api-service-panel-head h2 { flex-basis: 100%; }
+}
+
+.codex-overload-attempt code {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }

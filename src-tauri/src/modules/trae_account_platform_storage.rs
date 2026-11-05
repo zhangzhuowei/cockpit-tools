@@ -473,10 +473,18 @@ pub fn load_account(account_id: &str) -> Option<TraeAccount> {
 
 fn save_account_file(account: &TraeAccount) -> Result<(), String> {
     let path = resolve_account_file_path(account.id.as_str())?;
-    let content = crate::modules::secure_account_storage::serialize_account_file("trae", account)?;
     crate::modules::account_query_identity::invalidate_before_write(&get_accounts_index_path()?,&account.id,&query_identity(account))?;
-    crate::modules::atomic_write::write_string_atomic(&path, &content)
+    crate::modules::secure_account_storage::write_account_preserving_switch_time(&path, "trae", account)
         .map_err(|e| format!("保存 Trae 账号失败: {}", e))
+}
+
+// Record credential-switch success separately from refresh activity.
+pub fn touch_last_used(account_id: &str) -> Result<(), String> {
+    let mut account = load_account(account_id)
+        .ok_or_else(|| format!("Trae account not found: {}", account_id))?;
+    account.last_switched_at = Some(now_ts());
+    save_account_file(&account)?;
+    Ok(())
 }
 
 fn delete_account_file(account_id: &str) -> Result<(), String> {
@@ -1445,6 +1453,7 @@ pub fn upsert_account(payload: TraeImportPayload) -> Result<TraeAccount, String>
     let created_at = existing.as_ref().map(|item| item.created_at).unwrap_or(now);
 
     let mut account = existing.unwrap_or(TraeAccount {
+        last_switched_at: None,
         id: account_id.clone(),
         email: normalize_email_from_payload(&payload),
         user_id: normalized_user_id,

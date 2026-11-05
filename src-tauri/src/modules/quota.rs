@@ -1655,19 +1655,25 @@ pub async fn fetch_quota_for_token(
     token: &TokenData,
     email: &str,
     skip_cache: bool,
-) -> crate::error::AppResult<QuotaFetchResult> {
+) -> (
+    ProjectMetadataResult,
+    crate::error::AppResult<QuotaFetchResult>,
+) {
     let ctx = QuotaCloudCodeContext::from_token(token);
-    fetch_quota_with_context(&token.access_token, email, skip_cache, &ctx).await
+    fetch_quota_with_project_metadata(&token.access_token, email, skip_cache, &ctx).await
 }
 
-pub async fn fetch_quota_with_context(
+/// 同时返回 loadCodeAssist 元数据和额度结果：额度接口失败时，调用方仍能保存元数据里的 project 信息。
+/// 缓存未命中时，元数据、模型额度、额度汇总三个请求并发发出，缩短 GCP TOS 账号的刷新耗时。
+async fn fetch_quota_with_project_metadata(
     access_token: &str,
     email: &str,
     skip_cache: bool,
     ctx: &QuotaCloudCodeContext,
-) -> crate::error::AppResult<QuotaFetchResult> {
-    use crate::error::AppError;
-
+) -> (
+    ProjectMetadataResult,
+    crate::error::AppResult<QuotaFetchResult>,
+) {
     let client = create_client();
     let cloud_code_user_agent = build_cloud_code_user_agent();
     let payload = quota_request_payload(ctx);
@@ -1702,21 +1708,25 @@ pub async fn fetch_quota_with_context(
                     let quota_summary = record.payload.get("quota_summary").cloned();
                     let mut quota_data = build_quota_data_from_response(
                         quota_response,
-                        meta.subscription_tier,
-                        meta.credits,
+                        meta.subscription_tier.clone(),
+                        meta.credits.clone(),
                         quota_summary,
                         meta.is_gcp_tos,
-                        meta.project_id,
+                        valid_cloud_code_project_id(meta.project_id.as_deref())
+                            .map(ToOwned::to_owned),
                     );
                     // A cache hit is not a new successful query.
                     quota_data.last_updated = record.updated_at / 1000;
                     if quota_data.quota_summary_updated_at.is_some() {
                         quota_data.quota_summary_updated_at = Some(record.updated_at / 1000);
                     }
-                    return Ok(QuotaFetchResult {
-                        quota: quota_data,
-                        error: None,
-                    });
+                    return (
+                        meta,
+                        Ok(QuotaFetchResult {
+                            quota: quota_data,
+                            error: None,
+                        }),
+                    );
                 }
             } else {
                 crate::modules::logger::log_info(&format!(
@@ -1748,7 +1758,21 @@ pub async fn fetch_quota_with_context(
         ),
     );
 
-    let resolved_project_id = meta.project_id.clone();
+    let result = finish_quota_fetch(email, ctx, &meta, models_outcome, summary_fetch);
+    (meta, result)
+}
+
+fn finish_quota_fetch(
+    email: &str,
+    ctx: &QuotaCloudCodeContext,
+    meta: &ProjectMetadataResult,
+    models_outcome: ModelsFetchOutcome,
+    summary_fetch: QuotaSummaryFetch,
+) -> crate::error::AppResult<QuotaFetchResult> {
+    use crate::error::AppError;
+
+    let resolved_project_id =
+        valid_cloud_code_project_id(meta.project_id.as_deref()).map(ToOwned::to_owned);
     let effective_project_id = resolved_project_id
         .clone()
         .or_else(|| ctx.preferred_project_id.clone())
@@ -1763,7 +1787,7 @@ pub async fn fetch_quota_with_context(
             ));
             let mut q = QuotaData::new();
             q.is_forbidden = true;
-            q.subscription_tier = meta.subscription_tier;
+            q.subscription_tier = meta.subscription_tier.clone();
             q.is_gcp_tos = meta.is_gcp_tos;
             q.project_id = resolved_project_id;
             Ok(QuotaFetchResult {
@@ -1794,8 +1818,8 @@ pub async fn fetch_quota_with_context(
                 .map_err(|e| AppError::Unknown(format!("API 响应解析失败: {}", e)))?;
             let quota_data = build_quota_data_from_response(
                 quota_response,
-                meta.subscription_tier,
-                meta.credits,
+                meta.subscription_tier.clone(),
+                meta.credits.clone(),
                 summary_fetch.value,
                 meta.is_gcp_tos,
                 resolved_project_id,

@@ -146,10 +146,18 @@ async fn refresh_codex_api_key_usage_for_menu(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string);
+    let usage_api_key = provider.as_ref()
+        .and_then(|provider| provider.get("apiKeys"))
+        .and_then(Value::as_array)
+        .and_then(|keys| keys.iter().find(|key| key.get("apiKey").and_then(Value::as_str).map(str::trim) == Some(api_key)))
+        .and_then(|key| key.get("usageApiKey"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
     let summary = commands::codex::codex_query_model_provider_usage(
         base_url.clone(),
         api_key.to_string(),
         integration_type,
+        usage_api_key,
     )
     .await?;
     let summary_value = serde_json::to_value(&summary)
@@ -361,6 +369,14 @@ fn spawn_refresh(platform: PlatformId, account_id: Option<String>) {
             (PlatformId::Workbuddy, None) => {
                 commands::workbuddy::refresh_all_workbuddy_tokens(app.clone()).await
             }
+            (PlatformId::MinimaxCode, Some(account_id)) => {
+                commands::minimax_code::refresh_minimax_code_token(app.clone(), account_id)
+                    .await
+                    .map(|_| 0)
+            }
+            (PlatformId::MinimaxCode, None) => {
+                commands::minimax_code::refresh_all_minimax_code_tokens(app.clone()).await
+            }
             (PlatformId::Zed, Some(account_id)) => {
                 commands::zed::refresh_zed_token(app.clone(), account_id)
                     .await
@@ -456,6 +472,11 @@ fn spawn_switch_account(platform: PlatformId, account_id: String) {
             .map(|_| ()),
             PlatformId::Workbuddy => {
                 commands::workbuddy::inject_workbuddy_to_vscode(app, account_id)
+                    .await
+                    .map(|_| ())
+            }
+            PlatformId::MinimaxCode => {
+                commands::minimax_code::inject_minimax_code_to_client(app, account_id)
                     .await
                     .map(|_| ())
             }

@@ -80,15 +80,22 @@ pub fn load_account(account_id: &str) -> Option<WindsurfAccount> {
 
 fn save_account_file(account: &WindsurfAccount) -> Result<(), String> {
     let path = get_accounts_dir()?.join(format!("{}.json", account.id));
-    let content =
-        crate::modules::secure_account_storage::serialize_account_file("windsurf", account)?;
     crate::modules::account_query_identity::invalidate_before_write(
         &get_accounts_index_path()?,
         &account.id,
         &query_identity(account),
     )?;
-    crate::modules::atomic_write::write_string_atomic(&path, &content)
+    crate::modules::secure_account_storage::write_account_preserving_switch_time(&path, "windsurf", account)
         .map_err(|e| format!("保存账号失败: {}", e))
+}
+
+// Record credential-switch success separately from refresh activity.
+pub fn touch_last_used(account_id: &str) -> Result<(), String> {
+    let mut account = load_account(account_id)
+        .ok_or_else(|| format!("Windsurf account not found: {}", account_id))?;
+    account.last_switched_at = Some(now_ts());
+    save_account_file(&account)?;
+    Ok(())
 }
 
 fn delete_account_file(account_id: &str) -> Result<(), String> {
@@ -759,6 +766,7 @@ pub fn upsert_account(payload: WindsurfOAuthCompletePayload) -> Result<WindsurfA
     let created_at = existing.as_ref().map(|acc| acc.created_at).unwrap_or(now);
 
     let mut account = existing.unwrap_or(WindsurfAccount {
+        last_switched_at: None,
         id: account_id.clone(),
         github_login: normalized_login.clone(),
         github_id: payload.github_id,

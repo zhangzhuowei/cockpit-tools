@@ -53,6 +53,7 @@ import { useCodebuddyCnAccountStore } from './stores/useCodebuddyCnAccountStore'
 import { useQoderAccountStore } from './stores/useQoderAccountStore';
 import { useTraeAccountStore } from './stores/useTraeAccountStore';
 import { useWorkbuddyAccountStore } from './stores/useWorkbuddyAccountStore';
+import { useMinimaxCodeAccountStore } from './stores/useMinimaxCodeAccountStore';
 import { useZedAccountStore } from './stores/useZedAccountStore';
 import { useSideNavLayoutStore } from './stores/useSideNavLayoutStore';
 import { usePlatformLayoutStore } from './stores/usePlatformLayoutStore';
@@ -104,6 +105,7 @@ import {
 } from './services/workbuddyAutoCheckinService';
 import { prepareCodexLocalAccessForRestart } from './services/codexLocalAccessService';
 import { applyReducedMotion } from './utils/reducedMotion';
+import { initLocalTimeZone } from './utils/localTimeZone';
 import { isCodexInstanceAccountConflict } from './utils/codexInstanceLaunchConflict';
 import {
   applyWebviewUiScale,
@@ -170,9 +172,12 @@ const TraeAccountsPage = lazy(() =>
 const WorkbuddyAccountsPage = lazy(() =>
   import('./pages/WorkbuddyAccountsPage').then((module) => ({ default: module.WorkbuddyAccountsPage })),
 );
+const MinimaxCodeAccountsPage = lazy(() =>
+  import('./pages/MinimaxCodeAccountsPage').then((module) => ({ default: module.MinimaxCodeAccountsPage })),
+);
 const ZedAccountsPage = lazy(() =>
   import('./pages/ZedAccountsPage').then((module) => ({ default: module.ZedAccountsPage })),
-);;
+);
 const WakeupTasksPage = lazy(() =>
   import('./pages/WakeupTasksPage').then((module) => ({ default: module.WakeupTasksPage })),
 );
@@ -240,6 +245,7 @@ const RENDERABLE_PAGE_VALUES: readonly Page[] = [
   'trae-cn',
   'trae-solo-cn',
   'workbuddy',
+  'minimaxcode',
   'zed',
   'instances',
   'wakeup',
@@ -276,6 +282,7 @@ const TOP_PROMO_PAGE_PLATFORM_TARGETS: Partial<Record<Page, readonly string[]>> 
   'trae-cn': ['trae-cn', 'trae-suite'],
   'trae-solo-cn': ['trae-solo-cn', 'trae-suite'],
   workbuddy: ['workbuddy'],
+  minimaxcode: ['minimaxcode'],
 };
 
 function normalizePromoTarget(value: string): string {
@@ -401,6 +408,11 @@ interface GeneralConfig extends GeneralConfigTheme, GeneralConfigLanguage {
   trae_cn_app_scan_roots: string;
   trae_solo_cn_app_scan_roots: string;
   workbuddy_app_path: string;
+  minimax_code_app_path: string;
+  minimax_code_auto_refresh_minutes: number;
+  minimax_code_region: string;
+  minimax_code_quota_alert_enabled: boolean;
+  minimax_code_quota_alert_threshold: number;
   zed_app_path: string;
 }
 
@@ -517,6 +529,7 @@ type QuotaAlertPlatform =
   | 'qoder'
   | 'trae'
   | 'workbuddy'
+  | 'minimaxcode'
   | 'zed';
 function buildExternalImportDedupeKey(payload: {
   providerId: string;
@@ -596,6 +609,8 @@ function normalizeQuotaAlertPlatform(platform: string | undefined): QuotaAlertPl
     case 'trae-solo-cn':
     case 'trae_solo_cn':
       return 'trae';
+    case 'minimaxcode':
+      return 'minimaxcode';
     case 'zed':
       return 'zed';
     default:
@@ -630,6 +645,8 @@ function getQuotaAlertPlatformLabel(
       return t('nav.qoder', 'Qoder');
     case 'trae':
       return t('nav.trae', 'Trae');
+    case 'minimaxcode':
+      return t('nav.minimaxcode', 'MiniMax Code');
     case 'zed':
       return t('nav.zed', 'Zed');
     default:
@@ -663,6 +680,8 @@ function getQuotaAlertTargetPage(platform: QuotaAlertPlatform): Page {
       return 'trae';
     case 'workbuddy':
       return 'workbuddy';
+    case 'minimaxcode':
+      return 'minimaxcode';
     case 'zed':
       return 'zed';
     default:
@@ -696,6 +715,8 @@ function getQuotaAlertQuickSettingsType(platform: QuotaAlertPlatform): QuickSett
       return 'trae';
     case 'workbuddy':
       return 'workbuddy';
+    case 'minimaxcode':
+      return 'minimaxcode';
     case 'zed':
       return 'zed';
     default:
@@ -1051,6 +1072,7 @@ function MainApp() {
     };
 
     void syncLanguageFromConfig();
+    void initLocalTimeZone();
     window.addEventListener('config-updated', syncLanguageFromConfig);
     return () => {
       disposed = true;
@@ -2811,6 +2833,9 @@ function MainApp() {
                     } else if (platform === 'workbuddy') {
                       await useWorkbuddyAccountStore.getState().switchAccount(targetAccountId);
                       setPage('workbuddy');
+                    } else if (platform === 'minimaxcode') {
+                      await useMinimaxCodeAccountStore.getState().switchAccount(targetAccountId);
+                      setPage('minimaxcode');
                     } else if (platform === 'zed') {
                       await useZedAccountStore.getState().switchAccount(targetAccountId);
                       setPage('zed');
@@ -3969,6 +3994,9 @@ function MainApp() {
           </VisibleBootPage>
           <VisibleBootPage when={page === 'workbuddy'}>
             <WorkbuddyAccountsPage />
+          </VisibleBootPage>
+          <VisibleBootPage when={page === 'minimaxcode'}>
+            <MinimaxCodeAccountsPage />
           </VisibleBootPage>
           <VisibleBootPage when={page === 'zed'}>
             <ZedAccountsPage />

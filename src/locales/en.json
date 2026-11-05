@@ -290,6 +290,7 @@
     "failureTime": "Failure time",
     "clearRecord": "Clear record",
     "clearingRecord": "Clearing…",
+    "to": "to",
     "dragSortHint": "Drag the left handle to reorder. Changes save automatically on release.",
     "dragSortFilteredHint": "Clear the search to reorder.",
     "recycleBin": {
@@ -743,6 +744,8 @@
     "traeCn": "Trae CN",
     "traeSoloCn": "TRAE SOLO CN",
     "codebuddyCn": "CodeBuddy CN",
+    "minimaxcode": "MiniMax Code",
+    "minimaxcode": "MiniMax Code",
     "switchClassicLayoutEntry": "Switch to classic layout",
     "switchClassicLayoutTitle": "Switch to the classic sidebar layout",
     "switchClassicLayoutDesc": "The classic layout shows the full platform navigation and supports sidebar collapsing. You can switch back anytime in Settings > General > Sidebar Layout.",
@@ -961,6 +964,11 @@
     "groupBadge": "Group",
     "sidebarToggle": "Show in sidebar",
     "dashboardToggle": "Show in dashboard",
+    "enabledToggle": "Enabled",
+    "groupEnabledHint": "Enable/disable all platforms in this group at once",
+    "disabledHint": "When disabled, all automated activity for this platform stops and its section is hidden from App Settings (entry visibility is controlled separately by the Dashboard toggle)",
+    "enableAll": "Enable all",
+    "disableAll": "Disable all",
     "trayToggle": "Show in tray",
     "apiRelayTrayDisabled": "Relay cannot be shown in the tray yet",
     "groupDefault": "Default platform",
@@ -1354,6 +1362,8 @@
       "startupMinimizedDesc": "Automatically minimize the main window after the app finishes launching; restore it from the Dock, taskbar, or tray",
       "rememberMainWindowState": "Remember main window position and size",
       "rememberMainWindowStateDesc": "Restore the main window position and size after restart or tray reopen; off by default",
+      "timeDisplayMode": "Time display",
+      "timeDisplayModeDesc": "What to show in the time area of account cards/lists (default: switch time)",
       "minimizeBehavior": "Window minimize behavior (macOS only)",
       "minimizeBehaviorDesc": "Choose whether minimizing keeps the window in the Dock and menu bar, or only in the menu bar",
       "minimizeBehaviorDockAndTray": "Dock + Menu Bar (Recommended)",
@@ -1522,6 +1532,12 @@
       "workbuddyAppPathPlaceholder": "Default path",
       "workbuddyPathSelect": "Select",
       "workbuddyPathReset": "Reset to default",
+      "minimaxCodeAppPath": "MiniMax Code Launch Path",
+      "minimaxCodeAppPathDesc": "Leave empty for default path",
+      "minimaxCodeAppPathPlaceholder": "Default path",
+      "minimaxCodePathSelect": "Select",
+      "minimaxCodeAppPathPathSelect": "Select",
+      "minimaxCodePathReset": "Reset to default",
       "openclawAuthOverwrite": "Overwrite OpenClaw login when switching Codex",
       "openclawAuthOverwriteDesc": "When off, only Codex is switched and OpenClaw keeps its current login state",
       "ghcpOpencodeAuthOverwrite": "Overwrite OpenCode login when switching GitHub Copilot",
@@ -1554,6 +1570,8 @@
       "qoderPathSelect": "Select",
       "workbuddyAutoRefresh": "WorkBuddy Auto Refresh",
       "workbuddyAutoRefreshDesc": "Background auto-refresh frequency",
+      "minimaxCodeAutoRefresh": "MiniMax Code Auto Refresh",
+      "minimaxCodeAutoRefreshDesc": "Background auto-refresh frequency",
       "codexAppSpeed": "Codex Speed",
       "codexAppSpeedDesc": "Saves the official Codex launch speed; this app writes it before each Codex launch.",
       "codexAppSpeedStandard": "Standard",
@@ -1628,8 +1646,10 @@
       "codexEnhancements": {
         "quotaCompat": "Mixed-mode quota compatibility",
         "quotaCompatDesc": "With real OAuth sign-in and an external API route, prevent subscription quota from blocking local API messages. Actual usage and image quotas stay unchanged.",
-        "restartHint": "Enabled by default. Restart each target Codex instance after changing these settings. Keep Cockpit Tools running. Native dictation follows the client’s capabilities and settings; Cockpit does not take it over or force-enable it.",
-        "configFailed": "Could not load or save settings: {{error}}"
+        "restartHint": "Native predictions are off by default. Restart each target Codex instance after changing these settings. Keep Cockpit Tools running. Native dictation follows the client’s capabilities and settings; Cockpit does not take it over or force-enable it.",
+        "configFailed": "Could not load or save settings: {{error}}",
+        "nativePredictions": "Native next-step predictions (Tab)",
+        "nativePredictionsDesc": "Generate next-message suggestions with the current conversation’s API provider and model. Uses additional API credits; restart Codex after saving."
       }
     },
     "tabs": {
@@ -2014,6 +2034,12 @@
       "gcpTos": "GCP ToS",
       "gcpTosTitle": "GCP ToS account"
     },
+    "lastSwitchTime": "Switch time",
+    "neverSwitched": "Never switched",
+    "refreshTime": "Refresh time",
+    "refreshTimeFull": "Refresh time: {{time}}",
+    "lastSwitchTimeFull": "Switch time: {{time}}",
+    "toggleTimeMode": "Toggle switch / refresh time",
     "columns": {
       "email": "Email",
       "subscription": "Subscription",
@@ -2684,6 +2710,22 @@
     "other_group": "Other Models"
   },
   "codex": {
+    "overload": {
+      "setting": "Keep retrying at capacity",
+      "settingHint": "For the local Codex API service. Safely retryable requests wait for the model to recover. Applies to new requests.",
+      "retrying": "Model busy, retrying ({{count}})",
+      "count": "At capacity: {{count}}",
+      "countHint": "Counts upstream attempts, including automatic retries. History is kept for up to 7 days.",
+      "history": "Capacity history",
+      "empty": "No capacity errors in this range.",
+      "attempt": "Attempt {{number}}",
+      "sameAccount": "Same account recovered",
+      "otherAccount": "Recovered after switching",
+      "pending": "Result pending",
+      "cancelled": "Cancelled",
+      "failed": "Request failed",
+      "countUnavailable": "Capacity counts unavailable"
+    },
     "instance": {
       "errors": {
         "threadSyncWorkerFailed": "Session sync task failed: {{error}}",
@@ -3818,7 +3860,7 @@
         "apiKeyUrlInvalid": "Use an HTTP(S) management-page URL without embedded credentials; enter API keys in the key field."
       },
       "saveSuccess": "Model provider saved.",
-      "deleteBlocked": "This provider is linked to {{count}} account(s) and cannot be deleted.",
+      "confirmDeleteWithAccounts": "Delete provider “{{name}}” and its {{count}} linked accounts?",
       "confirmDelete": "Delete provider \"{{name}}\"?",
       "deleteFailed": "Failed to delete provider: {{error}}",
       "deleteApiKeyFailed": "Failed to delete API Key: {{error}}",
@@ -3948,7 +3990,7 @@
         "selectVisible": "Select visible",
         "resultSelectedCount": "{{count}} selected",
         "selectFailed": "Select failed",
-        "deleteConfirm": "Delete {{providerCount}} selected provider(s)? This will also delete {{accountCount}} precisely linked Codex API Key account(s).",
+        "deleteConfirm": "Delete {{providerCount}} selected providers and {{accountCount}} linked accounts?",
         "deleteSuccess": "Deleted {{providerCount}} provider(s) and {{accountCount}} linked account(s).",
         "deleteFailed": "Failed to delete selected items: {{error}}",
         "protocolSummary": "{{protocol}} · {{mode}} · {{model}}",
@@ -4171,7 +4213,7 @@
       "resetCreditDialogDesc": "Reset the rate limit so you can keep working without interruption. Available resets: {{count}}.",
       "resetCreditDialogAction": "Reset usage",
       "resetCreditNoCredits": "No reset credits available",
-      "resetCreditConsumed": "5-hour quota reset",
+      "resetCreditConsumed": "Quota reset",
       "resetCreditFailed": "Reset failed: {{error}}",
       "resetCreditRefreshAfterConsumeFailed": "Reset submitted, but quota refresh failed: {{error}}",
       "resetCreditsTitleWithExpiry": "Resets left for the 5-hour window: {{count}}. Next expires: {{time}}",
@@ -5372,7 +5414,7 @@
       "boundProxyUnavailable": "The bound account has no available proxy. Choose one again.",
       "sourceUnavailable": "The proxy source or node is unavailable. Choose it again.",
       "operationTimeout": "The proxy operation timed out. Please retry.",
-      "cardScopeHint": "This card’s proxy is used by the launched Codex desktop client. Model gateway upstreams keep their own routes.",
+      "cardScopeHint": "API Key account proxies apply to both desktop clients and API Service upstream requests. The API Service card proxy applies only to desktop clients. System proxy settings are unchanged.",
       "display": {
         "title": "Proxy display",
         "compact": "Compact",
@@ -5673,7 +5715,7 @@
       "modeDefaultHint": "This account uses no proxy and keeps its previous default exit.",
       "modeStaleHint": "The bound source or node is no longer available. Choose it again.",
       "management": "Proxy management",
-      "managementHint": "Set proxies for OAuth, API account and API service cards without changing the system proxy. API cards apply the proxy to the launched desktop client; model gateway upstreams keep their own routes.",
+      "managementHint": "API Key account proxies apply to both desktop clients and API Service upstream requests. The API Service card proxy applies only to desktop clients. System proxy settings are unchanged.",
       "emptyTitle": "A dedicated route for your account",
       "emptyDescription": "No eligible account cards are available. Add an OAuth or API account, or enable the API service card, then choose a proxy here.",
       "search": "Search accounts",
@@ -5981,7 +6023,7 @@
         "assign": "Assign proxy",
         "specific": "Selected accounts",
         "shared": "Shared proxy",
-        "sharedHint": "Eligible cards without an individual proxy follow this proxy, including newly added cards. Individual settings and No proxy take priority. API cards use it for the desktop client; model gateway upstreams keep their own routes.",
+        "sharedHint": "Accounts without an individual proxy inherit this proxy, including new accounts. Individual proxies and No proxy take priority. API Key accounts use it for desktop and API requests; the API Service card uses it only for desktop.",
         "apply": "Assign"
       },
       "managerResources": {
@@ -6108,7 +6150,7 @@
       "title": "Request details",
       "totalLatency": "Total time",
       "firstResponse": "First response",
-      "firstResponseHint": "Time from request start to the first upstream response fragment, not necessarily the first generated token.",
+      "firstResponseHint": "For new streaming Responses requests, timing starts after the gateway processes the request body and ends at the first upstream response event, skipping keepalives and rate-limit notices.",
       "unavailable": "No diagnostics yet. Try refreshing later. Older requests are not backfilled.",
       "attempts": "Attempts",
       "noAttempts": "No attempt trace was recorded.",
@@ -6288,10 +6330,27 @@
       "pending": "Waiting for OpenAI usage",
       "permissionRequired": "This key lacks organization usage access (api.usage.read).",
       "permissionGuide": "Use an admin key: Admin keys → Restricted → Usage API Scope → Read. This provides spend and usage, not remaining credit.",
-      "openAdminKeys": "Usage permissions",
-      "invalidKey": "The key is invalid or expired. Check the current API key.",
+      "openAdminKeys": "Create admin key",
+      "invalidKey": "The query key is invalid or expired. Check the admin API key.",
       "networkFailed": "Cannot connect to OpenAI usage. Refresh later.",
-      "queryFailed": "OpenAI usage query failed. Try again later."
+      "queryFailed": "OpenAI usage query failed. Try again later.",
+      "organization": "Organization usage",
+      "configure": "Set up usage",
+      "settings": "Usage settings",
+      "title": "Configure usage queries",
+      "optional": "Usage queries (optional)",
+      "queryKey": "Admin API Key",
+      "callKey": "Model API Key",
+      "notConfigured": "Add an admin key to view organization spend and usage.",
+      "purpose": "Use an admin key from the same organization as the model key. This key is used only for usage queries and does not replace the model key.",
+      "saveVerify": "Save and verify",
+      "remove": "Remove setup",
+      "keyRequired": "Enter an admin API key.",
+      "saveFailed": "Could not save usage settings. Please retry.",
+      "configChanged": "The account or query key changed. Reopen the settings and try again.",
+      "openFailed": "Could not open the key page. Please retry.",
+      "costUnavailable": "Not reported",
+      "costUnavailableHint": "The official Costs API returned no cost records for this period. Requests and tokens come from a separate usage API; missing cost records do not mean zero spend."
     },
     "officialApi": {
       "hint": "OpenAI API key account, identified by its actual endpoint."
@@ -6674,6 +6733,10 @@
     "workbuddy": {
       "title": "WorkBuddy Settings",
       "appPath": "WorkBuddy Path"
+    },
+    "minimaxCode": {
+      "title": "MiniMax Code Settings",
+      "appPath": "MiniMax Code Path"
     },
     "claudeRefreshInterval": "Quota auto refresh",
     "claude": {
@@ -7508,6 +7571,17 @@
       "resetUnknown": "Subscription reset: --",
       "statusUnknown": "Status: --",
       "statusNormal": "Status: Normal",
+      "statusSynced": "Status: Synced",
+      "statusSyncedPending": "Status: Synced, remaining pending",
+      "fastAvailable": "Fast left: {{times}}",
+      "fastTimes": "{{count}}",
+      "fastUnlimited": "Unlimited",
+      "fastPerMonth": "Fast/mo: {{count}}",
+      "fastChannelPerMonth": "Express: {{count}}/mo",
+      "fastChannelStatus": "Express: {{status}}",
+      "freeRemainingUnknown": "Free left: --",
+      "timesRemainingUnknown": "Left: --",
+      "soloParallel": "Pack: Solo x{{count}}",
       "statusExhaustedFree": "Status: Usage exhausted, upgrade recommended",
       "statusExhaustedPro": "Status: Usage exhausted, upgrade or enable on-demand usage",
       "bonusUsed": "Bonus: +{{amount}}",
@@ -7520,17 +7594,8 @@
       "payAsYouGoConsuming": "On-Demand Usage: Consuming",
       "payAsYouGoEnabled": "On-Demand Usage: Enabled",
       "payAsYouGoEmpty": "On-Demand Usage: --",
-      "statusSynced": "Status: Synced",
-      "statusSyncedPending": "Status: Synced, remaining pending",
-      "fastAvailable": "Fast left: {{times}}",
-      "fastTimes": "{{count}}",
-      "fastUnlimited": "Unlimited",
-      "fastPerMonth": "Fast/mo: {{count}}",
-      "fastChannelPerMonth": "Express: {{count}}/mo",
-      "fastChannelStatus": "Express: {{status}}",
-      "freeRemainingUnknown": "Free left: --",
-      "timesRemainingUnknown": "Left: --",
-      "soloParallel": "Pack: Solo x{{count}}"
+      "creditsMember": "Membership credits",
+      "creditsBonus": "Bonus credits"
     },
     "flowNotice": {
       "title": "Trae account guide (click to expand/collapse)",
@@ -7546,6 +7611,18 @@
     "token": {
       "jsonOnlyDesc": "Paste full Trae CN account JSON. Raw tokens are unsupported to avoid unstable identity or unusable local login state.",
       "jsonOnlyPlaceholder": "Paste full Trae CN JSON..."
+    },
+    "checkin": {
+      "modalTitle": "Daily Check-in",
+      "durationMs": "{{ms}} ms",
+      "durationSeconds": "{{seconds}} s",
+      "durationTitle": "Total check-in time",
+      "logSuccess": "Success ({{done}}/{{total}})",
+      "logPartial": "Partial ({{done}}/{{total}})",
+      "logIncomplete": "Incomplete",
+      "detailSuccess": "Checked in",
+      "detailAlreadyClaimed": "Claimed today",
+      "detailError": "Check-in error"
     }
   },
   "codebuddyCn": {
@@ -7575,6 +7652,35 @@
     "syncToWorkbuddy": "Sync to WorkBuddy"
   },
   "workbuddy": {
+    "credits": {
+      "planBase": "Plan Base Credits",
+      "planBonus": "Plan Bonus Credits",
+      "benefit": "Platform Reward Credits",
+      "addon": "Top-up Credits",
+      "total": "Total credits left",
+      "details": "Credit details",
+      "usedOf": "Used {{used}}/{{total}}",
+      "remainingPercent": "{{percent}}% left",
+      "nearestExpiry": "Earliest expiry {{time}}",
+      "nextRefresh": "Next refresh {{time}}",
+      "expiring": "Includes credits expiring soon",
+      "valid": "Valid",
+      "expired": "Expired",
+      "expiresAt": "Expires {{time}}",
+      "expiryHours": "Expires within 24 hours",
+      "expiryDays": "Expires within 3 days",
+      "empty": "No information yet",
+      "loadFailed": "Could not load credit details ({{error}})",
+      "overview": "Credit overview",
+      "remaining": "{{amount}} left",
+      "loadMore": "Load more",
+      "usage": "Usage details",
+      "requestAndTime": "Request and time",
+      "creditUsed": "Credits used",
+      "model": "Model",
+      "recentUsage": "Last 5 records",
+      "viewMore": "View more"
+    },
     "title": "WorkBuddy Account",
     "noAccounts": "No WorkBuddy accounts",
     "addAccount": "Add WorkBuddy Account",
@@ -7617,13 +7723,28 @@
       "startTime": "Start Time",
       "endTime": "End Time",
       "timeRangeHint": "While the app is running, it selects a random time within this range daily to complete background check-in.",
+      "errors": "Errors",
+      "tabSettings": "Auto Check-in Settings",
+      "tabHistory": "Auto Check-in History",
+      "manualTest": "Test Run",
+      "clearLogs": "Clear",
+      "clearLogsFailed": "Failed to clear check-in records: {{message}}",
+      "historyLoading": "Loading auto check-in records...",
+      "historyLoadFailed": "Failed to load auto check-in records: {{message}}",
+      "totalCredits": "{{credits}} credits",
+      "historyRangeHint": "Only the last 30 days of auto check-in records are kept ({{count}} total)",
+      "noHistory": "No auto check-in records in the last 30 days",
+      "saveFailed": "Failed to save auto check-in settings: {{message}}",
+      "manualTestPartialFailure": "Some accounts failed to check in. See the records; a background retry will run later.",
+      "manualTestAlreadyRunning": "An auto check-in task is already running. Please check the records later.",
+      "manualTestFailed": "Test run failed: {{message}}",
       "timeRangeError": "Start time cannot be later than end time"
     },
     "flowNotice": {
       "title": "WorkBuddy Account Info (click to expand/collapse)",
       "desc": "Account switching writes the local WorkBuddy sign-in file using the current official client layout; local import reads the same file. Data is processed locally only. If an opaque official encryption wrapper is detected, the original file is preserved and the overwrite is stopped.",
       "permission": "Permission scope: read and write the WorkBuddy sign-in file (CodeBuddyExtension/Data/Public/auth/workbuddy-desktop.info) for local import and account switching; the legacy state.vscdb is no longer read or modified. Files with an official encryption wrapper are not overwritten without its key.",
-      "network": "Network scope: OAuth login and token refresh require network requests to WorkBuddy; quota queries call billing APIs. Local sign-in files and raw credentials are not uploaded."
+      "network": "OAuth sign-in and token refresh contact WorkBuddy. Credit balances and details are fetched from its billing service using the account token. Local sign-in files and system keys stay on this device."
     },
     "nickname": "Nickname",
     "enterprise": "Enterprise",
@@ -7640,8 +7761,8 @@
       "oauth": {
         "title": "IDE sign-in only",
         "item1": "Add the account after completing OAuth in your browser, then use it for IDE switching.",
-        "item2": "Resource-package quota data will refresh automatically after authorization.",
-        "item3": "Account cards show quota amount, progress, and refresh/expiry time by resource package."
+        "item2": "Credit balances are queried automatically after authorization.",
+        "item3": "Account cards show a credit overview. Open Credit details for individual grants and expiry dates."
       }
     },
     "oauthWebviewTab": "WebView OAuth",
@@ -7718,6 +7839,152 @@
         "descPlatform": "WorkBuddy multi-instance is supported on macOS, Windows, and Linux only."
       }
     }
+  },
+    "minimaxCode": {
+    "title": "MiniMax Code Account",
+    "noAccounts": "No MiniMax Code accounts",
+    "addAccount": "Add MiniMax Code Account",
+    "checkin": {
+      "title": "Daily Check-in",
+      "modalTitle": "Daily Check-in",
+      "status": "Check-in Status",
+      "checkedIn": "Checked In",
+      "notCheckedIn": "Not Checked In",
+      "button": "Check In",
+      "button.loading": "Checking in...",
+      "done": "Done",
+      "claimed": "Claimed",
+      "success": "Check-in successful! {{days}} day streak",
+      "failure": "Check-in failed: {{message}}",
+      "failure.network": "Network error, please try again later",
+      "lastCheckin": "Last check-in: {{time}}",
+      "streak": "{{days}}-day streak",
+      "reward": "Reward: {{reward}}",
+      "refreshStatus": "Refresh",
+      "checkAll": "Check In All",
+      "noAccounts": "No accounts",
+      "querying": "Loading...",
+      "queryFailed": "Status check failed",
+      "retry": "Retry",
+      "inactive": "Unavailable",
+      "inactiveHint": "Check-in is not active for this account",
+      "streakDays": "{{days}} days",
+      "streakRewardCountdown": "{{days}} more days for bonus reward",
+      "streakRewardToday": "Bonus reward available today!",
+      "recentDates": "Recent: ",
+      "autoCheckinSettings": "Auto Check-in Settings",
+      "autoCheckinLabel": "Auto Check-in",
+      "autoCheckinOff": "Auto Check-in Off",
+      "autoCheckinEnabledHint": "Auto Check-in Enabled: Random check-in between {{start}} and {{end}}",
+      "autoCheckinDisabledHint": "Auto Check-in Disabled",
+      "enableAutoCheckin": "Enable Auto Check-in",
+      "enableAutoCheckinDesc": "Randomly check in daily within the specified time window",
+      "randomTimeRange": "Random Check-in Time Range",
+      "startTime": "Start Time",
+      "endTime": "End Time",
+      "timeRangeHint": "While the app is running, it selects a random time within this range daily to complete background check-in.",
+      "timeRangeError": "Start time cannot be later than end time"
+    },
+    "flowNotice": {
+      "title": "MiniMax Code Account Info (click to expand/collapse)",
+      "desc": "Account switching writes the local MiniMax Code sign-in file using the current official client layout; local import reads the same file. Data is processed locally only. If an opaque official encryption wrapper is detected, the original file is preserved and the overwrite is stopped.",
+      "permission": "Permission scope: read and write the MiniMax Code sign-in file (~/.minimax/auth/auth.json) for local import and account switching; the legacy state.vscdb is no longer read or modified. Files with an official encryption wrapper are not overwritten without its key.",
+      "network": "Network scope: OAuth login and token refresh require network requests to MiniMax Code; quota queries call billing APIs. Local sign-in files and raw credentials are not uploaded."
+    },
+    "nickname": "Nickname",
+    "enterprise": "Enterprise",
+    "usage": "Usage Status",
+    "creditsBalance": "Credits Balance",
+    "usageNormal": "Normal",
+    "usageAbnormal": "Abnormal",
+    "usageViewDetail": "View details",
+    "usageDetailTitle": "Usage Status Details",
+    "oauthWaiting": "Waiting for authorization...",
+    "oauthDesc": "Click the button below to open the MiniMax Code authorization page in your browser.",
+    "oauthDescWebview": "Click the button below to open the MiniMax Code authorization page in built-in WebView.",
+    "oauthFeature": {
+      "oauth": {
+        "title": "IDE sign-in only",
+        "item1": "Add the account after completing OAuth in your browser, then use it for IDE switching.",
+        "item2": "Resource-package quota data will refresh automatically after authorization.",
+        "item3": "Account cards show quota amount, progress, and refresh/expiry time by resource package."
+      }
+    },
+    "oauthWebviewTab": "WebView OAuth",
+    "oauthOpenWebview": "Open in WebView",
+    "oauthOpenWebviewIncognito": "Open in Incognito WebView",
+    "oauthOpenWebviewFailed": "Failed to open WebView: {{error}}",
+    "oauthOpenBrowserFallback": "Open in Browser (Fallback)",
+    "oauthOpenBrowserFailed": "Failed to open browser: {{error}}",
+    "oauthWebviewProgressHint": "A horizontal step bar is shown at the top of the WebView to locate stuck stages.",
+    "oauthFlow": {
+      "prepare": "Prepare OAuth link",
+      "authorize": "Open authorization link and confirm",
+      "bind": "Poll auth result and bind account",
+      "retryPrepare": "Regenerate OAuth link",
+      "retryAuthorize": "Request authorization link again",
+      "retryBind": "Retry auth polling",
+      "error": "Flow error: {{error}}"
+    },
+    "oauthWebviewOverlay": {
+      "steps": {
+        "prepare": "1 Prepare OAuth link",
+        "authorize": "2 Open authorization link and confirm",
+        "bind": "3 Poll auth result and bind account",
+        "complete": "5 Done (close manually)"
+      },
+      "status": {
+        "loginConfirm": "Please complete sign-in and authorization on this page."
+      }
+    },
+    "tokenDesc": "Paste your MiniMax Code access token:",
+    "jsonDesc": "Select a JSON file containing MiniMax Code accounts:",
+    "import": {
+      "localDesc": "Import account data from local MiniMax Code client or a JSON file.",
+      "localClient": "Import from local MiniMax Code"
+    },
+    "search": "Search MiniMax Code accounts...",
+    "quota": {
+      "usedOfTotal": "{{used}} / {{total}}"
+    },
+    "quotaQuery": {
+      "failedRefreshCompact": "Quota query failed",
+      "sectionTitle": "Quota Query",
+      "empty": "No quota data available",
+      "packageUnknown": "Unknown package",
+      "quotaLabel": "Remaining quota",
+      "updatedAt": "Next refresh time: {{time}}",
+      "cycleRange": "Cycle: {{start}} - {{end}}",
+      "cycleUnknown": "Cycle info unavailable",
+      "expireAt": "Expires at: {{time}}",
+      "expireUnknown": "Expires at: N/A",
+      "packageTitle": {
+        "base": "Base Experience Package",
+        "activity": "Activity Gift Package"
+      }
+    },
+    "extraCredit": {
+      "title": "Credit Package"
+    },
+    "oauthUrlInputPlaceholder": "You can enter an authorization URL manually",
+    "oauthInvalidUrl": "Invalid authorization URL. Please enter a full URL.",
+    "oauthGotoWebview": "Navigate opened WebView to input URL",
+    "oauthGotoWebviewSuccess": "Requested WebView to navigate to the input URL.",
+    "oauthGotoWebviewFailed": "Failed to navigate WebView: {{error}}",
+    "oauthWebviewInlineUrlPlaceholder": "Enter a URL to navigate within this WebView",
+    "oauthWebviewInlineGo": "Go",
+    "oauthSuccessClosePrompt": "Account added successfully. Close this WebView now?\nChoose \"Close WebView\" to close now, or \"Later\" to keep it open.",
+    "oauthSuccessCloseTitle": "Account Added",
+    "oauthSuccessCloseNowLabel": "Close WebView",
+    "oauthSuccessCloseLaterLabel": "Later",
+    "oauthSuccessCloseNowStatus": "✅ Account added. Closing window...",
+    "oauthSuccessCloseLaterStatus": "✅ Account added. This WebView stays open.",
+    "instances": {
+      "unsupported": {
+        "descPlatform": "MiniMax Code multi-instance is supported on macOS, Windows, and Linux only."
+      }
+    },
+    "placeholder": "MiniMax Code account management is coming soon."
   },
   "mfaVault": {
     "pageDesc": "Securely store and manage your MFA backup recovery codes, passcode sets, and other sensitive authentication data. MFA records are stored locally only. Deleting records, clearing cache, or replacing/losing a device may cause MFA loss. Keep backups and import from backup when needed.",

@@ -274,6 +274,7 @@ pub fn get_general_config(app: tauri::AppHandle) -> Result<GeneralConfig, String
         codex_sync_wsl: user_config.codex_sync_wsl,
         codex_app_ui_injection_enabled: user_config.codex_app_ui_injection_enabled,
         codex_app_api_quota_compat_enabled: user_config.codex_app_api_quota_compat_enabled,
+        codex_app_native_predictions_enabled: user_config.codex_app_native_predictions_enabled,
         codex_oauth_app_version: user_config.codex_oauth_app_version,
         codex_wsl_config_dir: user_config.codex_wsl_config_dir,
         zed_auto_refresh_minutes: user_config.zed_auto_refresh_minutes,
@@ -289,6 +290,7 @@ pub fn get_general_config(app: tauri::AppHandle) -> Result<GeneralConfig, String
         codebuddy_auto_refresh_minutes: user_config.codebuddy_auto_refresh_minutes,
         codebuddy_cn_auto_refresh_minutes: user_config.codebuddy_cn_auto_refresh_minutes,
         workbuddy_auto_refresh_minutes: user_config.workbuddy_auto_refresh_minutes,
+        minimax_code_auto_refresh_minutes: user_config.minimax_code_auto_refresh_minutes,
         qoder_auto_refresh_minutes: user_config.qoder_auto_refresh_minutes,
         zcode_auto_refresh_minutes: user_config.zcode_auto_refresh_minutes,
         trae_auto_refresh_minutes: user_config.trae_auto_refresh_minutes,
@@ -392,6 +394,10 @@ pub fn get_general_config(app: tauri::AppHandle) -> Result<GeneralConfig, String
         workbuddy_app_path: modules::process::normalize_windows_user_facing_path(
             &user_config.workbuddy_app_path,
         ),
+        minimax_code_app_path: modules::process::normalize_windows_user_facing_path(
+            &user_config.minimax_code_app_path,
+        ),
+        minimax_code_region: user_config.minimax_code_region,
         workbuddy_share_sessions_on_switch: user_config.workbuddy_share_sessions_on_switch,
         opencode_sync_on_switch: user_config.opencode_sync_on_switch,
         opencode_auth_overwrite_on_switch: user_config.opencode_auth_overwrite_on_switch,
@@ -462,10 +468,12 @@ pub fn get_general_config(app: tauri::AppHandle) -> Result<GeneralConfig, String
         trae_solo_cn_quota_alert_threshold: user_config.trae_solo_cn_quota_alert_threshold,
         workbuddy_quota_alert_enabled: user_config.workbuddy_quota_alert_enabled,
         workbuddy_quota_alert_threshold: user_config.workbuddy_quota_alert_threshold,
+        minimax_code_quota_alert_enabled: user_config.minimax_code_quota_alert_enabled,
+        minimax_code_quota_alert_threshold: user_config.minimax_code_quota_alert_threshold,
     };
 
     modules::logger::log_info(&format!(
-        "[StartupPerf][SystemCommand] get_general_config completed in {}ms: auto_refresh={}, codex={}, zed={}, ghcp={}, windsurf={}, kiro={}, cursor={}, codebuddy={}, codebuddy_cn={}, workbuddy={}, qoder={}, zcode={}, trae={}, auto_switch={}",
+        "[StartupPerf][SystemCommand] get_general_config completed in {}ms: auto_refresh={}, codex={}, zed={}, ghcp={}, windsurf={}, kiro={}, cursor={}, codebuddy={}, codebuddy_cn={}, workbuddy={}, minimax_code={}, qoder={}, zcode={}, trae={}, auto_switch={}",
         started.elapsed().as_millis(),
         result.auto_refresh_minutes,
         result.codex_auto_refresh_minutes,
@@ -477,6 +485,7 @@ pub fn get_general_config(app: tauri::AppHandle) -> Result<GeneralConfig, String
         result.codebuddy_auto_refresh_minutes,
         result.codebuddy_cn_auto_refresh_minutes,
         result.workbuddy_auto_refresh_minutes,
+        result.minimax_code_auto_refresh_minutes,
         result.qoder_auto_refresh_minutes,
         result.zcode_auto_refresh_minutes,
         result.trae_auto_refresh_minutes,

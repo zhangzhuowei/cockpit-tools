@@ -290,6 +290,7 @@
     "failureTime": "Время ошибки",
     "clearRecord": "Удалить запись",
     "clearingRecord": "Удаление…",
+    "to": "до",
     "dragSortHint": "Перетащите маркер слева, чтобы изменить порядок. Изменения сохраняются при отпускании.",
     "dragSortFilteredHint": "Очистите поиск, чтобы изменить порядок.",
     "recycleBin": {
@@ -689,6 +690,7 @@
     "traeCn": "Trae CN​",
     "traeSoloCn": "TRAE SOLO CN​",
     "codebuddyCn": "CodeBuddy CN​",
+    "minimaxcode": "MiniMax Code",
     "zed": "Платформа Zed",
     "expandSidebar": "Развернуть боковую панель",
     "collapseSidebar": "Свернуть боковую панель",
@@ -756,7 +758,12 @@
     "setAsDefaultInGroup": "Сделать платформой по умолчанию в этой группе",
     "removeFromGroup": "Удалить из группы",
     "sidebarSelectedUnlimited": "Выбрано ({count})",
-    "tipWithGroupsUnlimited": "Сортировать выбранные платформы и группы вручную"
+    "tipWithGroupsUnlimited": "Сортировать выбранные платформы и группы вручную",
+    "enabledToggle": "Включено",
+    "groupEnabledHint": "Включить или отключить все платформы группы",
+    "disabledHint": "Отключение останавливает автоматические задачи и скрывает настройки платформы. Видимость пункта настраивается отдельно",
+    "enableAll": "Включить все",
+    "disableAll": "Отключить все"
   },
   "privacy": {
     "hideSensitive": "Скрыть e-mail",
@@ -1243,6 +1250,12 @@
       "workbuddyAppPathPlaceholder": "Путь по умолчанию",
       "workbuddyPathSelect": "Выбрать",
       "workbuddyPathReset": "Сбросить по умолчанию",
+      "minimaxCodeAppPath": "Путь запуска MiniMax Code",
+      "minimaxCodeAppPathDesc": "Оставьте пустым, чтобы использовать путь по умолчанию",
+      "minimaxCodeAppPathPlaceholder": "Путь по умолчанию",
+      "minimaxCodePathSelect": "Выбрать",
+      "minimaxCodeAppPathPathSelect": "Выбрать",
+      "minimaxCodePathReset": "Сбросить по умолчанию",
       "openclawAuthOverwrite": "Перезаписать логин OpenClaw при переключении Кодекса",
       "openclawAuthOverwriteDesc": "Если выключено, переключается только Codex, а OpenClaw сохраняет текущее состояние входа в систему.",
       "ghcpOpencodeAuthOverwrite": "Перезаписать логин OpenCode при переключении GitHub Copilot",
@@ -1314,6 +1327,8 @@
       "qoderPathSelect": "Выбрать",
       "workbuddyAutoRefresh": "Автообновление квоты WorkBuddy",
       "workbuddyAutoRefreshDesc": "Частота автоматического обновления в фоне",
+      "minimaxCodeAutoRefresh": "Автообновление квоты MiniMax Code",
+      "minimaxCodeAutoRefreshDesc": "Частота автоматического обновления в фоне",
       "codexLocalAccessEntryVisible": "Показывать пункт API-сервиса",
       "codexLocalAccessEntryVisibleDesc": "Управляет только отображением пункта API-сервиса в обзоре Codex. Это не останавливает локальный API-сервис; его можно снова включить здесь или в быстрых настройках.",
       "codexLocalAccessEnabled": "Включить API-сервис",
@@ -1403,9 +1418,13 @@
       "codexEnhancements": {
         "quotaCompat": "Лимиты в смешанном режиме",
         "quotaCompatDesc": "При настоящем входе через OAuth и внешнем маршруте API лимит подписки не блокирует локальные API-сообщения. Реальный расход и лимиты изображений не меняются.",
-        "restartHint": "По умолчанию включено. После изменений перезапустите нужные экземпляры Codex и оставьте Cockpit Tools запущенным. Встроенная диктовка зависит от возможностей и настроек клиента; Cockpit не заменяет её обработку и не включает её принудительно.",
-        "configFailed": "Не удалось прочитать или сохранить настройки: {{error}}"
-      }
+        "restartHint": "Встроенные подсказки по умолчанию выключены. После изменений перезапустите нужные экземпляры Codex и оставьте Cockpit Tools запущенным. Встроенная диктовка зависит от возможностей и настроек клиента; Cockpit не заменяет её обработку и не включает её принудительно.",
+        "configFailed": "Не удалось прочитать или сохранить настройки: {{error}}",
+        "nativePredictions": "Встроенные подсказки следующего шага (Tab)",
+        "nativePredictionsDesc": "Предлагает следующее сообщение с помощью API-провайдера и модели текущего разговора. Расходует дополнительные API-кредиты; после сохранения перезапустите Codex."
+      },
+      "timeDisplayMode": "Показ времени",
+      "timeDisplayModeDesc": "Время в карточках и списках аккаунтов. По умолчанию — время переключения"
     },
     "network": {
       "apiTitle": "API антигравитационной кабины",
@@ -2089,7 +2108,13 @@
     "tagUpdated": "Тег обновлён",
     "plan": {
       "personal": "Личный"
-    }
+    },
+    "lastSwitchTime": "Переключение",
+    "neverSwitched": "Ещё не переключали",
+    "refreshTime": "Обновление",
+    "lastSwitchTimeFull": "Переключение: {{time}}",
+    "refreshTimeFull": "Обновление: {{time}}",
+    "toggleTimeMode": "Показать время переключения или обновления"
   },
   "overview": {
     "title": "Обзор аккаунтов",
@@ -2453,6 +2478,22 @@
     "other_group": "Другие модели"
   },
   "codex": {
+    "overload": {
+      "setting": "Повторять при перегрузке",
+      "settingHint": "Для новых запросов локального сервиса API Codex. Запросы, которые можно безопасно повторить, ждут доступности модели.",
+      "retrying": "Модель занята, повторяем ({{count}})",
+      "count": "Перегрузки: {{count}}",
+      "countHint": "Учитывает попытки у поставщика, включая автоматические повторы. История хранится до 7 дней.",
+      "history": "История перегрузок",
+      "empty": "За этот период ошибок перегрузки нет.",
+      "attempt": "Попытка {{number}}",
+      "sameAccount": "Восстановлено на том же аккаунте",
+      "otherAccount": "Восстановлено после смены аккаунта",
+      "pending": "Ожидается результат",
+      "cancelled": "Отменено",
+      "failed": "Запрос не выполнен",
+      "countUnavailable": "Статистика перегрузки недоступна"
+    },
     "instance": {
       "errors": {
         "threadSyncWorkerFailed": "Ошибка задачи синхронизации сессий: {{error}}",
@@ -3273,7 +3314,7 @@
       "resetCreditDialogDesc": "Сбросьте лимит скорости, чтобы продолжить работу без перерывов. Доступно сбросов: {{count}}.",
       "resetCreditDialogAction": "Сбросить использование",
       "resetCreditNoCredits": "Нет доступных сбросов",
-      "resetCreditConsumed": "5-часовая квота сброшена",
+      "resetCreditConsumed": "Квота сброшена",
       "resetCreditFailed": "Сбой сброса: {{error}}",
       "resetCreditRefreshAfterConsumeFailed": "Сброс отправлен, но обновление квоты не удалось: {{error}}",
       "resetCreditsTitleWithExpiry": "Осталось сбросов для 5-часового окна: {{count}}. Ближайшее истечение: {{time}}",
@@ -4144,7 +4185,7 @@
         "apiKeyUrlInvalid": "Укажите HTTP(S)-адрес страницы управления без встроенных учётных данных; ключ API вводится в поле ключа."
       },
       "saveSuccess": "Провайдер модели сохранён.",
-      "deleteBlocked": "Этот провайдер связан с {{count}} аккаунтами и не может быть удалён.",
+      "confirmDeleteWithAccounts": "Удалить провайдера «{{name}}» и связанные аккаунты ({{count}})?",
       "confirmDelete": "Удалить провайдера «{{name}}»?",
       "deleteFailed": "Не удалось удалить провайдера: {{error}}",
       "deleteApiKeyFailed": "Не удалось удалить ключ API: {{error}}",
@@ -4274,7 +4315,7 @@
         "selectVisible": "Выбрать видимые",
         "resultSelectedCount": "Выбрано {{count}}",
         "selectFailed": "Выбрать ошибки",
-        "deleteConfirm": "Удалить выбранных провайдеров: {{providerCount}}? Также будут удалены точно связанные аккаунты Codex API Key: {{accountCount}}.",
+        "deleteConfirm": "Удалить выбранных провайдеров ({{providerCount}}) и связанные аккаунты ({{accountCount}})?",
         "deleteSuccess": "Удалено провайдеров: {{providerCount}}, связанных аккаунтов: {{accountCount}}.",
         "deleteFailed": "Не удалось удалить выбранные элементы: {{error}}",
         "protocolSummary": "{{protocol}} · {{mode}} · {{model}}",
@@ -5141,7 +5182,7 @@
       "boundProxyUnavailable": "У привязанного аккаунта нет доступного прокси. Выберите его заново.",
       "sourceUnavailable": "Источник прокси или узел недоступен. Выберите его заново.",
       "operationTimeout": "Время ожидания операции прокси истекло. Повторите попытку.",
-      "cardScopeHint": "Прокси этой карточки используется запускаемым настольным клиентом Codex. Соединения шлюзов моделей с поставщиками сохраняют собственные маршруты.",
+      "cardScopeHint": "Прокси аккаунтов с ключом API применяется к настольным клиентам и исходящим запросам сервиса API. Прокси карточки сервиса API применяется только к настольным клиентам. Системный прокси не меняется.",
       "display": {
         "title": "Вид прокси",
         "compact": "Кратко",
@@ -5442,7 +5483,7 @@
       "modeDefaultHint": "Аккаунт не использует прокси и сохраняет прежний выход по умолчанию.",
       "modeStaleHint": "Привязанный источник или узел больше недоступен. Выберите его снова.",
       "management": "Управление прокси",
-      "managementHint": "Настройте прокси для карточек аккаунтов OAuth, API и сервиса API без изменения системного прокси. На карточках API он применяется к запускаемому настольному клиенту; шлюзы моделей сохраняют собственные маршруты.",
+      "managementHint": "Прокси аккаунтов с ключом API применяется к настольным клиентам и исходящим запросам сервиса API. Прокси карточки сервиса API применяется только к настольным клиентам. Системный прокси не меняется.",
       "emptyTitle": "Отдельное подключение для аккаунта",
       "emptyDescription": "Нет поддерживаемых карточек аккаунтов. Добавьте аккаунт OAuth или API либо включите карточку сервиса API, затем выберите здесь прокси.",
       "search": "Поиск учётных записей",
@@ -5750,7 +5791,7 @@
         "assign": "Назначить прокси",
         "specific": "Выбранные аккаунты",
         "shared": "Общий прокси",
-        "sharedHint": "Поддерживаемые карточки без отдельного прокси используют этот прокси, включая новые. Отдельные настройки и Без прокси имеют приоритет. Карточки API используют его для настольного клиента; шлюзы моделей сохраняют собственные маршруты.",
+        "sharedHint": "Аккаунты без отдельного прокси наследуют этот прокси, включая новые. Отдельные прокси и «Без прокси» имеют приоритет. Аккаунты с ключом API используют его для настольных клиентов и запросов API; карточка сервиса API — только для настольных клиентов.",
         "apply": "Назначить"
       },
       "managerResources": {
@@ -5877,7 +5918,7 @@
       "title": "Детали запроса",
       "totalLatency": "Общее время",
       "firstResponse": "Первый ответ",
-      "firstResponseHint": "Время от начала запроса до первого фрагмента ответа сервера, не обязательно до первого созданного токена.",
+      "firstResponseHint": "Для новых потоковых запросов Responses время отсчитывается с момента обработки тела запроса шлюзом до первого события ответа вышестоящего сервера. Сигналы поддержания соединения и уведомления об ограничении частоты пропускаются.",
       "unavailable": "Диагностики пока нет. Обновите позже. Старые запросы не дополняются.",
       "attempts": "Попытки",
       "noAttempts": "История попыток не записана.",
@@ -6057,10 +6098,27 @@
       "pending": "Ожидание данных OpenAI",
       "permissionRequired": "У ключа нет права читать использование организации (api.usage.read).",
       "permissionGuide": "Используйте ключ администратора: Admin keys → Restricted → Usage API Scope → Read. Доступны расходы и использование, но не остаток средств.",
-      "openAdminKeys": "Права на статистику",
-      "invalidKey": "Ключ недействителен или истёк. Проверьте текущий ключ API.",
+      "openAdminKeys": "Создать ключ админа",
+      "invalidKey": "Ключ запроса недействителен или истёк. Проверьте API-ключ администратора.",
       "networkFailed": "Нет соединения со статистикой OpenAI. Обновите позже.",
-      "queryFailed": "Не удалось получить статистику OpenAI. Повторите позже."
+      "queryFailed": "Не удалось получить статистику OpenAI. Повторите позже.",
+      "organization": "Расходы организации",
+      "configure": "Настроить запрос",
+      "settings": "Настройки запроса",
+      "title": "Настройка запроса расходов",
+      "optional": "Запрос расходов (необязательно)",
+      "queryKey": "API-ключ администратора",
+      "callKey": "API-ключ модели",
+      "notConfigured": "Добавьте ключ администратора для просмотра расходов и использования организации.",
+      "purpose": "Используйте ключ администратора той же организации, что и ключ модели. Он служит только для запроса статистики и не заменяет ключ модели.",
+      "saveVerify": "Сохранить и проверить",
+      "remove": "Удалить настройку",
+      "keyRequired": "Введите API-ключ администратора.",
+      "saveFailed": "Не удалось сохранить настройки. Повторите попытку.",
+      "configChanged": "Аккаунт или ключ запроса изменён. Откройте настройки заново.",
+      "openFailed": "Не удалось открыть страницу ключей. Повторите попытку.",
+      "costUnavailable": "Нет суммы",
+      "costUnavailableHint": "Официальный API расходов не вернул суммы за этот период. Запросы и токены получены из отдельного API использования; отсутствие сумм не означает нулевые расходы."
     },
     "officialApi": {
       "hint": "Аккаунт с официальным API-ключом OpenAI, определённый по фактическому адресу подключения."
@@ -6330,6 +6388,10 @@
     "workbuddy": {
       "title": "Настройки WorkBuddy",
       "appPath": "Путь WorkBuddy"
+    },
+    "minimaxCode": {
+      "title": "Настройки MiniMax Code",
+      "appPath": "Путь MiniMax Code"
     },
     "zcode": {
       "title": "Настройки ZCode",
@@ -7149,6 +7211,17 @@
       "resetUnknown": "Время сброса неизвестно",
       "statusUnknown": "Статус: неизвестно",
       "statusNormal": "Статус: нормально",
+      "statusSynced": "Статус: синхр.",
+      "statusSyncedPending": "Статус: синхр., остаток уточн.",
+      "fastAvailable": "Быстрые: {{times}}",
+      "fastTimes": "{{count}}",
+      "fastUnlimited": "Безлимит",
+      "fastPerMonth": "Быстрые/мес: {{count}}",
+      "fastChannelPerMonth": "Экспресс: {{count}}/мес",
+      "fastChannelStatus": "Экспресс: {{status}}",
+      "freeRemainingUnknown": "Free ост.: --",
+      "timesRemainingUnknown": "Ост.: --",
+      "soloParallel": "Пакет: Solo ×{{count}}",
       "statusExhaustedFree": "Статус: лимит использования исчерпан, рекомендуем повысить тариф",
       "statusExhaustedPro": "Статус: лимит использования исчерпан, повысьте тариф или включите оплату по факту",
       "bonusUsed": "Бонус: +{{amount}}",
@@ -7161,17 +7234,8 @@
       "payAsYouGoEnabled": "Оплата по факту: включена",
       "payAsYouGoEmpty": "Оплата по факту: --",
       "payAsYouGoLabel": "Использование по требованию",
-      "statusSynced": "Статус: синхр.",
-      "statusSyncedPending": "Статус: синхр., остаток уточн.",
-      "fastAvailable": "Быстрые: {{times}}",
-      "fastTimes": "{{count}}",
-      "fastUnlimited": "Безлимит",
-      "fastPerMonth": "Быстрые/мес: {{count}}",
-      "fastChannelPerMonth": "Экспресс: {{count}}/мес",
-      "fastChannelStatus": "Экспресс: {{status}}",
-      "freeRemainingUnknown": "Free ост.: --",
-      "timesRemainingUnknown": "Ост.: --",
-      "soloParallel": "Пакет: Solo ×{{count}}"
+      "creditsMember": "Кредиты подписки",
+      "creditsBonus": "Бонусные кредиты"
     },
     "flowNotice": {
       "title": "Руководство по аккаунту Trae (нажмите, чтобы развернуть или свернуть)",
@@ -7187,6 +7251,18 @@
     "token": {
       "jsonOnlyDesc": "Вставьте полный JSON аккаунта Trae CN. Сырой token не поддерживается.",
       "jsonOnlyPlaceholder": "Полный Trae CN JSON..."
+    },
+    "checkin": {
+      "modalTitle": "Ежедневный чек-ин",
+      "durationMs": "{{ms}} мс",
+      "durationSeconds": "{{seconds}} с",
+      "durationTitle": "Общее время check-in",
+      "logSuccess": "Успешно ({{done}}/{{total}})",
+      "logPartial": "Частично ({{done}}/{{total}})",
+      "logIncomplete": "Не завершено",
+      "detailSuccess": "Check-in выполнен",
+      "detailAlreadyClaimed": "Уже получено сегодня",
+      "detailError": "Ошибка check-in"
     }
   },
   "codebuddyCn": {
@@ -7216,6 +7292,35 @@
     "syncToWorkbuddy": "Синхронизировать с WorkBuddy"
   },
   "workbuddy": {
+    "credits": {
+      "planBase": "Базовые баллы тарифа",
+      "planBonus": "Бонусы тарифа",
+      "benefit": "Награды платформы",
+      "addon": "Купленные баллы",
+      "total": "Всего баллов осталось",
+      "details": "Сведения о баллах",
+      "usedOf": "Использовано {{used}}/{{total}}",
+      "remainingPercent": "Осталось {{percent}}%",
+      "nearestExpiry": "Ближайшее истечение {{time}}",
+      "nextRefresh": "Следующее обновление {{time}}",
+      "expiring": "Часть баллов скоро сгорит",
+      "valid": "Действуют",
+      "expired": "Истекли",
+      "expiresAt": "Действует до {{time}}",
+      "expiryHours": "Истекает в течение 24 ч",
+      "expiryDays": "Истекает в течение 3 дней",
+      "empty": "Нет записей",
+      "loadFailed": "Не удалось загрузить ({{error}})",
+      "overview": "Обзор",
+      "remaining": "Осталось {{amount}}",
+      "loadMore": "Загрузить ещё",
+      "usage": "История расхода",
+      "requestAndTime": "Запрос и время",
+      "creditUsed": "Потрачено баллов",
+      "model": "Модель",
+      "recentUsage": "Последние 5 записей",
+      "viewMore": "Смотреть ещё"
+    },
     "title": "Управление аккаунтами WorkBuddy",
     "noAccounts": "Нет аккаунтов WorkBuddy",
     "addAccount": "Добавить аккаунт WorkBuddy",
@@ -7223,7 +7328,7 @@
       "title": "Информация об управлении аккаунтами WorkBuddy (нажмите, чтобы развернуть/свернуть)",
       "desc": "Переключение аккаунта записывает локальный файл входа по актуальной структуре официального клиента WorkBuddy; локальный импорт читает тот же файл. Данные обрабатываются только локально.",
       "permission": "Область доступа: чтение и запись файла входа WorkBuddy (CodeBuddyExtension/Data/Public/auth/workbuddy-desktop.info) для локального импорта и переключения аккаунтов; устаревший state.vscdb больше не читается и не изменяется.",
-      "network": "Сетевой доступ: вход по OAuth и обновление токена требуют запросов к WorkBuddy; запросы квоты обращаются к billing API. Локальные файлы входа и исходные учетные данные не загружаются."
+      "network": "Вход через OAuth и обновление токена обращаются к WorkBuddy. Баланс и сведения о баллах запрашиваются у службы биллинга с токеном аккаунта. Файлы входа и системные ключи остаются на устройстве."
     },
     "nickname": "Псевдоним",
     "enterprise": "Корпоративный",
@@ -7240,8 +7345,8 @@
       "oauth": {
         "title": "Только вход в IDE",
         "item1": "Добавьте аккаунт после завершения OAuth в браузере, затем используйте его для переключения в IDE.",
-        "item2": "Параметры запроса квоты не привязываются автоматически.",
-        "item3": "Если нужен показ квоты, вручную запустите «Запросить квоту» на карточке аккаунта."
+        "item2": "После авторизации баланс баллов запрашивается автоматически.",
+        "item3": "На карточке аккаунта виден баланс. В деталях можно посмотреть начисления и сроки их действия."
       }
     },
     "oauthWebviewTab": "OAuth в WebView",
@@ -7357,8 +7462,169 @@
       "startTime": "Время начала",
       "endTime": "Время окончания",
       "timeRangeHint": "Ежедневно выбирает случайное время в этом интервале для выполнения фоновой отметки.",
+      "errors": "Ошибки",
+      "tabSettings": "Настройки авто-отметки",
+      "tabHistory": "Журнал авто-отметки",
+      "manualTest": "Тестовый запуск",
+      "clearLogs": "Очистить",
+      "clearLogsFailed": "Не удалось очистить записи о check-in: {{message}}",
+      "historyLoading": "Загрузка записей автоматического check-in...",
+      "historyLoadFailed": "Не удалось загрузить записи автоматического check-in: {{message}}",
+      "totalCredits": "{{credits}} кредитов",
+      "historyRangeHint": "Хранятся только записи авто-отметки за последние 30 дней (всего: {{count}})",
+      "noHistory": "Нет записей авто-отметки за последние 30 дней",
+      "saveFailed": "Не удалось сохранить настройки авто-отметки: {{message}}",
+      "manualTestPartialFailure": "Отметка для некоторых аккаунтов не выполнена. Смотрите журнал; повторная попытка произойдёт позже в фоне.",
+      "manualTestAlreadyRunning": "Задача авто-отметки уже выполняется. Проверьте журнал позже.",
+      "manualTestFailed": "Ошибка тестового запуска: {{message}}",
       "timeRangeError": "Время начала не может быть позже времени окончания"
     }
+  },
+  "minimaxCode": {
+    "title": "Управление аккаунтами MiniMax Code",
+    "noAccounts": "Нет аккаунтов MiniMax Code",
+    "addAccount": "Добавить аккаунт MiniMax Code",
+    "flowNotice": {
+      "title": "Информация об управлении аккаунтами MiniMax Code (нажмите, чтобы развернуть/свернуть)",
+      "desc": "Переключение аккаунта записывает локальный файл входа по актуальной структуре официального клиента MiniMax Code; локальный импорт читает тот же файл. Данные обрабатываются только локально.",
+      "permission": "Область доступа: чтение и запись файла входа MiniMax Code (~/.minimax/auth/auth.json) для локального импорта и переключения аккаунтов; устаревший state.vscdb больше не читается и не изменяется.",
+      "network": "Сетевой доступ: вход по OAuth и обновление токена требуют запросов к MiniMax Code; запросы квоты обращаются к billing API. Локальные файлы входа и исходные учетные данные не загружаются."
+    },
+    "nickname": "Псевдоним",
+    "enterprise": "Корпоративный",
+    "usage": "Статус использования",
+    "creditsBalance": "Баланс кредитов",
+    "usageNormal": "В норме",
+    "usageAbnormal": "Аномально",
+    "usageViewDetail": "Подробнее",
+    "usageDetailTitle": "Подробности статуса использования",
+    "oauthWaiting": "Ожидание авторизации...",
+    "oauthDesc": "Нажмите кнопку ниже, чтобы открыть страницу авторизации MiniMax Code в браузере.",
+    "oauthDescWebview": "Нажмите кнопку ниже, чтобы открыть страницу авторизации MiniMax Code во встроенном WebView.",
+    "oauthFeature": {
+      "oauth": {
+        "title": "Только вход в IDE",
+        "item1": "Добавьте аккаунт после завершения OAuth в браузере, затем используйте его для переключения в IDE.",
+        "item2": "Параметры запроса квоты не привязываются автоматически.",
+        "item3": "Если нужен показ квоты, вручную запустите «Запросить квоту» на карточке аккаунта."
+      }
+    },
+    "oauthWebviewTab": "OAuth в WebView",
+    "oauthOpenWebview": "Открыть в WebView",
+    "oauthOpenWebviewIncognito": "Открыть в WebView инкогнито",
+    "oauthOpenWebviewFailed": "Не удалось открыть WebView: {{error}}",
+    "oauthOpenBrowserFallback": "Открыть в браузере (резервный вариант)",
+    "oauthOpenBrowserFailed": "Не удалось открыть браузер: {{error}}",
+    "oauthWebviewProgressHint": "В верхней части WebView отображается горизонтальная шкала шагов, чтобы легче было найти зависший этап.",
+    "oauthFlow": {
+      "prepare": "Подготовить ссылку OAuth",
+      "authorize": "Открыть ссылку авторизации и подтвердить",
+      "bind": "Опросить результат авторизации и привязать аккаунт",
+      "retryPrepare": "Сгенерировать ссылку OAuth заново",
+      "retryAuthorize": "Повторно запросить ссылку авторизации",
+      "retryBind": "Повторить опрос авторизации",
+      "error": "Ошибка потока: {{error}}"
+    },
+    "tokenDesc": "Вставьте токен доступа MiniMax Code:",
+    "jsonDesc": "Выберите JSON-файл с аккаунтами MiniMax Code:",
+    "import": {
+      "localDesc": "Импортируйте данные аккаунта из локального клиента MiniMax Code или из JSON-файла.",
+      "localClient": "Импорт из локального MiniMax Code"
+    },
+    "search": "Поиск аккаунтов MiniMax Code...",
+    "quotaQuery": {
+      "failedRefreshCompact": "Не удалось обновить квоту",
+      "sectionTitle": "Запрос квоты",
+      "empty": "Привязанной информации о запросе квоты пока нет",
+      "packageUnknown": "Неизвестный пакет",
+      "quotaLabel": "Оставшаяся квота",
+      "updatedAt": "Последний запрос: {{time}}",
+      "cycleRange": "Цикл: {{start}} - {{end}}",
+      "cycleUnknown": "Информация о цикле недоступна",
+      "expireAt": "Истекает: {{time}}",
+      "expireUnknown": "Срок действия: Н/Д",
+      "packageTitle": {
+        "base": "Базовый пакет опыта",
+        "activity": "Подарочный пакет активности"
+      }
+    },
+    "extraCredit": {
+      "title": "Пакет кредитов"
+    },
+    "oauthUrlInputPlaceholder": "Вы можете вручную ввести URL авторизации",
+    "oauthInvalidUrl": "Недопустимый URL авторизации. Введите полный URL.",
+    "oauthGotoWebview": "Перейти в открытом WebView по введенному URL",
+    "oauthGotoWebviewSuccess": "В WebView отправлен запрос на переход по введенному URL.",
+    "oauthGotoWebviewFailed": "Не удалось выполнить переход в WebView: {{error}}",
+    "oauthWebviewInlineUrlPlaceholder": "Введите URL для перехода в этом WebView",
+    "oauthWebviewInlineGo": "Перейти",
+    "oauthSuccessClosePrompt": "Аккаунт успешно добавлен. Закрыть этот WebView сейчас?\nВыберите \"Закрыть WebView\", чтобы закрыть сейчас, или \"Позже\", чтобы оставить его открытым.",
+    "oauthSuccessCloseTitle": "Аккаунт добавлен",
+    "oauthSuccessCloseNowLabel": "Закрыть WebView",
+    "oauthSuccessCloseLaterLabel": "Позже",
+    "oauthSuccessCloseNowStatus": "✅ Аккаунт добавлен. Закрываем окно...",
+    "oauthSuccessCloseLaterStatus": "✅ Аккаунт добавлен. Этот WebView останется открытым.",
+    "oauthWebviewOverlay": {
+      "steps": {
+        "prepare": "1 Подготовить ссылку OAuth",
+        "authorize": "2 Открыть ссылку авторизации и подтвердить",
+        "bind": "3 Опросить результат авторизации и привязать аккаунт",
+        "complete": "5 Готово (закройте вручную)"
+      },
+      "status": {
+        "loginConfirm": "Пожалуйста, завершите вход и авторизацию на этой странице."
+      }
+    },
+    "instances": {
+      "unsupported": {
+        "descPlatform": "Мультиэкземпляр MiniMax Code поддерживается только в macOS, Windows и Linux."
+      }
+    },
+    "quota": {
+      "usedOfTotal": "{{used}} / {{total}}​"
+    },
+    "checkin": {
+      "title": "Ежедневный check-in",
+      "modalTitle": "Ежедневный check-in",
+      "status": "Статус check-in",
+      "checkedIn": "Отмечено",
+      "notCheckedIn": "Не отмечено",
+      "button": "Отметиться",
+      "button.loading": "Выполняется check-in...",
+      "done": "Готово",
+      "success": "Check-in выполнен! Серия {{days}} дней",
+      "failure": "Не удалось отметиться: {{message}}",
+      "failure.network": "Ошибка сети, попробуйте позже",
+      "lastCheckin": "Последний check-in: {{time}}",
+      "streak": "Серия {{days}} дней",
+      "reward": "Награда: {{reward}}",
+      "refreshStatus": "Обновить",
+      "checkAll": "Отметить все",
+      "noAccounts": "Нет аккаунтов",
+      "querying": "Загрузка...",
+      "streakDays": "{{days}} дней",
+      "streakRewardCountdown": "До бонусной награды осталось {{days}} дней",
+      "streakRewardToday": "Бонусная награда доступна сегодня!",
+      "recentDates": "Недавние: ",
+      "claimed": "Получено",
+      "queryFailed": "Сбой запроса",
+      "retry": "Повтор",
+      "inactive": "Недоступно",
+      "inactiveHint": "Чек-ин недоступен для этого аккаунта",
+      "autoCheckinSettings": "Настройки автоматической отметки",
+      "autoCheckinLabel": "Авто-отметка",
+      "autoCheckinOff": "Авто-отметка выключена",
+      "autoCheckinEnabledHint": "Авто-отметка включена: случайная отметка между {{start}} и {{end}}",
+      "autoCheckinDisabledHint": "Авто-отметка отключена",
+      "enableAutoCheckin": "Включить авто-отметку",
+      "enableAutoCheckinDesc": "Ежедневно выполняет случайную отметку в указанном временном интервале",
+      "randomTimeRange": "Случайный интервал времени отметки",
+      "startTime": "Время начала",
+      "endTime": "Время окончания",
+      "timeRangeHint": "Ежедневно выбирает случайное время в этом интервале для выполнения фоновой отметки.",
+      "timeRangeError": "Время начала не может быть позже времени окончания"
+    },
+    "placeholder": "Управление аккаунтами MiniMax Code скоро появится."
   },
   "zcode": {
     "search": "Поиск аккаунтов ZCode...",

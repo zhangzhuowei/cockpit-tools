@@ -290,6 +290,7 @@
     "failureTime": "失败时间",
     "clearRecord": "清除记录",
     "clearingRecord": "清除中…",
+    "to": "至",
     "dragSortHint": "拖动左侧手柄调整顺序，松开后自动保存。",
     "dragSortFilteredHint": "清除搜索后可调整顺序。",
     "recycleBin": {
@@ -743,6 +744,8 @@
     "traeCn": "Trae CN",
     "traeSoloCn": "TRAE SOLO CN",
     "codebuddyCn": "CodeBuddy CN",
+    "minimaxcode": "MiniMax Code",
+    "minimaxcode": "MiniMax Code",
     "switchClassicLayoutEntry": "切换到经典布局",
     "switchClassicLayoutTitle": "切换至经典侧边栏布局",
     "switchClassicLayoutDesc": "经典布局将展示完整平台导航，并支持可折叠侧边栏。你可在“设置 > 通用 > 侧边栏布局”中随时切换回原始布局。",
@@ -961,6 +964,11 @@
     "groupBadge": "分组",
     "sidebarToggle": "侧边栏显示",
     "dashboardToggle": "仪表盘显示",
+    "enabledToggle": "启用",
+    "groupEnabledHint": "批量启用/禁用该分组内的所有平台",
+    "disabledHint": "禁用后该平台的所有自动活动停止，且其在应用设置中的配置项一并隐藏（入口是否显示由「仪表盘」开关单独控制）",
+    "enableAll": "全部启用",
+    "disableAll": "全部禁用",
     "trayToggle": "菜单栏显示",
     "apiRelayTrayDisabled": "中转站暂不支持菜单栏显示",
     "groupDefault": "默认平台",
@@ -1354,6 +1362,8 @@
       "startupMinimizedDesc": "应用启动完成后自动最小化主窗口，可从 Dock、任务栏或托盘恢复",
       "rememberMainWindowState": "记住主窗口位置和大小",
       "rememberMainWindowStateDesc": "重启或从托盘重新打开时恢复主窗口位置和大小；默认关闭",
+      "timeDisplayMode": "时间显示",
+      "timeDisplayModeDesc": "账号卡片与列表中的时间区域显示内容（默认切换时间）",
       "minimizeBehavior": "窗口最小化行为（仅 macOS）",
       "minimizeBehaviorDesc": "选择最小化窗口时保留在程序坞和菜单栏，或仅保留在菜单栏",
       "minimizeBehaviorDockAndTray": "程序坞 + 菜单栏（推荐默认）",
@@ -1522,6 +1532,12 @@
       "workbuddyAppPathPlaceholder": "默认路径",
       "workbuddyPathSelect": "选择",
       "workbuddyPathReset": "重置默认",
+      "minimaxCodeAppPath": "MiniMax Code 启动路径",
+      "minimaxCodeAppPathDesc": "留空则使用默认路径",
+      "minimaxCodeAppPathPlaceholder": "默认路径",
+      "minimaxCodePathSelect": "选择",
+      "minimaxCodeAppPathPathSelect": "选择",
+      "minimaxCodePathReset": "重置默认",
       "openclawAuthOverwrite": "切换 Codex 时覆盖 OpenClaw 登录信息",
       "openclawAuthOverwriteDesc": "关闭后仅切换 Codex，不会改写 OpenClaw 当前登录态",
       "ghcpOpencodeAuthOverwrite": "切换 GitHub Copilot 时覆盖 OpenCode 登录信息",
@@ -1554,6 +1570,8 @@
       "qoderPathSelect": "选择",
       "workbuddyAutoRefresh": "WorkBuddy 自动刷新配额",
       "workbuddyAutoRefreshDesc": "后台自动更新频率",
+      "minimaxCodeAutoRefresh": "MiniMax Code 自动刷新配额",
+      "minimaxCodeAutoRefreshDesc": "后台自动更新频率",
       "codexAppSpeed": "Codex 速度",
       "codexAppSpeedDesc": "保存为官方 Codex 启动速度；每次从本应用启动 Codex 前都会写入。",
       "codexAppSpeedStandard": "标准",
@@ -1628,8 +1646,10 @@
       "codexEnhancements": {
         "quotaCompat": "混合模式额度兼容",
         "quotaCompatDesc": "仅真实 OAuth 登录且走外部 API 路由时，避免订阅额度拦截本地 API 消息；不改变真实用量和图像额度。",
-        "restartHint": "默认开启。修改后需重启各目标 Codex 实例，并保持 Cockpit Tools 运行。原生听写由客户端能力与设置决定，Cockpit 不接管或强制启用。",
-        "configFailed": "设置读取或保存失败：{{error}}"
+        "restartHint": "原生下一步预测默认关闭。修改后需重启各目标 Codex 实例，并保持 Cockpit Tools 运行。原生听写由客户端能力与设置决定，Cockpit 不接管或强制启用。",
+        "configFailed": "设置读取或保存失败：{{error}}",
+        "nativePredictions": "原生下一步预测（Tab）",
+        "nativePredictionsDesc": "使用当前对话的 API 供应商和模型生成下一条消息建议，会额外消耗 API 额度；保存后重启 Codex 生效。"
       }
     },
     "tabs": {
@@ -2014,6 +2034,12 @@
       "gcpTos": "GCP ToS 账号",
       "gcpTosTitle": "GCP ToS 账号"
     },
+    "lastSwitchTime": "切换时间",
+    "neverSwitched": "从未切换",
+    "refreshTime": "刷新时间",
+    "refreshTimeFull": "刷新时间：{{time}}",
+    "lastSwitchTimeFull": "切换时间：{{time}}",
+    "toggleTimeMode": "切换显示切换时间 / 刷新时间",
     "columns": {
       "email": "邮箱",
       "subscription": "订阅类型",
@@ -2684,6 +2710,22 @@
     "other_group": "其他模型"
   },
   "codex": {
+    "overload": {
+      "setting": "满载时持续重试",
+      "settingHint": "仅用于本地 Codex API 服务。开启后，可安全重试的请求会持续等待模型恢复。设置对新请求生效。",
+      "retrying": "模型繁忙，正在重试（{{count}}）",
+      "count": "上游满载 {{count}} 次",
+      "countHint": "按上游尝试计数，含自动重试。记录最多保留 7 天。",
+      "history": "满载明细",
+      "empty": "此时间范围内没有满载记录。",
+      "attempt": "第 {{number}} 次尝试",
+      "sameAccount": "同号恢复",
+      "otherAccount": "换号恢复",
+      "pending": "结果待定",
+      "cancelled": "已取消",
+      "failed": "请求失败",
+      "countUnavailable": "暂时无法读取满载统计"
+    },
     "instance": {
       "errors": {
         "threadSyncWorkerFailed": "会话同步任务失败：{{error}}",
@@ -3818,7 +3860,7 @@
         "apiKeyUrlInvalid": "请填写不含内嵌凭据的 HTTP(S) 管理页面网址；API Key 请填入密钥栏。"
       },
       "saveSuccess": "模型供应商已保存",
-      "deleteBlocked": "该供应商已被 {{count}} 个账号引用，禁止删除。",
+      "confirmDeleteWithAccounts": "确认删除供应商「{{name}}」及其关联的 {{count}} 个账号吗？",
       "confirmDelete": "确认删除供应商「{{name}}」吗？",
       "deleteFailed": "删除供应商失败：{{error}}",
       "deleteApiKeyFailed": "删除 API Key 失败：{{error}}",
@@ -3948,7 +3990,7 @@
         "selectVisible": "选择当前结果",
         "resultSelectedCount": "已选 {{count}} 个",
         "selectFailed": "选择失败",
-        "deleteConfirm": "确认删除选中的 {{providerCount}} 个供应商吗？会同时删除 {{accountCount}} 个精确关联的 Codex API Key 账号。",
+        "deleteConfirm": "确认删除选中的 {{providerCount}} 个供应商及其关联的 {{accountCount}} 个账号吗？",
         "deleteSuccess": "已删除 {{providerCount}} 个供应商和 {{accountCount}} 个关联账号。",
         "deleteFailed": "删除选中项失败：{{error}}",
         "protocolSummary": "{{protocol}} · {{mode}} · {{model}}",
@@ -4171,7 +4213,7 @@
       "resetCreditDialogDesc": "重置速率限制后，可以继续不间断地工作。你还有 {{count}} 次重置可用。",
       "resetCreditDialogAction": "重置使用次数",
       "resetCreditNoCredits": "没有可用的主动重置次数",
-      "resetCreditConsumed": "已重置 5 小时额度",
+      "resetCreditConsumed": "已重置额度",
       "resetCreditFailed": "重置失败：{{error}}",
       "resetCreditRefreshAfterConsumeFailed": "已提交重置，但刷新配额失败：{{error}}",
       "resetCreditsTitleWithExpiry": "可用于重置当前 5 小时窗口的剩余次数：{{count}}，最近到期：{{time}}",
@@ -5372,7 +5414,7 @@
       "boundProxyUnavailable": "绑定账号没有可用代理，请重新选择。",
       "sourceUnavailable": "代理来源或节点已失效，请重新选择。",
       "operationTimeout": "代理操作超时，请重试。",
-      "cardScopeHint": "此卡片代理用于启动的 Codex 桌面客户端；模型网关上游仍使用各自出口。",
+      "cardScopeHint": "API Key 账号代理同时用于桌面客户端和 API 服务上游请求；API 服务卡片代理仍仅用于桌面客户端。不修改系统代理。",
       "display": {
         "title": "代理展示",
         "compact": "简略",
@@ -5673,7 +5715,7 @@
       "modeDefaultHint": "该账号未使用代理，按原有默认出口连接。",
       "modeStaleHint": "绑定的来源或节点已失效，请重新选择。",
       "management": "代理管理",
-      "managementHint": "为 OAuth、API 账号与 API 服务卡片配置代理，不修改系统代理。API 卡片仅用于启动的桌面客户端，模型网关上游仍使用各自出口。",
+      "managementHint": "API Key 账号代理同时用于桌面客户端和 API 服务上游请求；API 服务卡片代理仍仅用于桌面客户端。不修改系统代理。",
       "emptyTitle": "为账号准备独立出口",
       "emptyDescription": "暂无适用账号卡片。添加 OAuth 或 API 账号，或开启 API 服务卡片后，即可在这里选择代理。",
       "search": "搜索账号",
@@ -5981,7 +6023,7 @@
         "assign": "分配代理",
         "specific": "指定账号",
         "shared": "设为统一代理",
-        "sharedHint": "未单独配置的适用卡片使用此代理，新增卡片也会跟随。独立代理和“不使用代理”优先。API 卡片用于桌面客户端，模型网关上游仍使用各自出口。",
+        "sharedHint": "未单独配置的账号继承此代理，新增账号也会跟随。独立代理和“不使用代理”优先。API Key 账号的客户端与 API 请求均生效；API 服务卡片仅影响客户端。",
         "apply": "确认分配"
       },
       "managerResources": {
@@ -6108,7 +6150,7 @@
       "title": "请求详情",
       "totalLatency": "总耗时",
       "firstResponse": "首响",
-      "firstResponseHint": "首响为请求开始到首个上游响应片段的耗时，不等同于首个生成 Token。",
+      "firstResponseHint": "新的 Responses 流式请求在网关处理完请求体后开始计首响，直至首个有效上游事件，跳过保活和限额通知。",
       "unavailable": "此请求暂无诊断详情，可稍后刷新。旧请求不会补录。",
       "attempts": "尝试轨迹",
       "noAttempts": "未记录尝试轨迹。",
@@ -6288,10 +6330,27 @@
       "pending": "等待查询官方用量",
       "permissionRequired": "当前 Key 缺少组织用量读取权限（api.usage.read）。",
       "permissionGuide": "使用管理员 Key：Admin keys → Restricted → Usage API Scope → Read。可查询消费和用量，不提供剩余余额。",
-      "openAdminKeys": "配置查询权限",
-      "invalidKey": "密钥无效或已失效，请检查当前 API Key。",
+      "openAdminKeys": "前往创建",
+      "invalidKey": "查询 Key 无效或已过期，请检查管理员 API Key。",
       "networkFailed": "无法连接官方用量服务，请稍后刷新。",
-      "queryFailed": "官方用量查询失败，请稍后重试。"
+      "queryFailed": "官方用量查询失败，请稍后重试。",
+      "organization": "组织用量",
+      "configure": "配置查询",
+      "settings": "查询设置",
+      "title": "配置用量查询",
+      "optional": "用量查询（可选）",
+      "queryKey": "管理员 API Key",
+      "callKey": "调用 API Key",
+      "notConfigured": "配置管理员 Key 可查看组织消费与用量。",
+      "purpose": "请使用与调用 Key 属于同一组织的管理员 Key。此 Key 仅用于用量查询，不替换调用 Key。",
+      "saveVerify": "保存并验证",
+      "remove": "移除配置",
+      "keyRequired": "请输入管理员 API Key。",
+      "saveFailed": "保存查询配置失败，请重试。",
+      "configChanged": "账号或查询 Key 已变更，请重新打开设置后再试。",
+      "openFailed": "打开密钥页面失败，请重试。",
+      "costUnavailable": "暂无记录",
+      "costUnavailableHint": "官方成本接口未返回对应时段的金额记录。请求数和 Token 来自独立的用量接口，无金额记录不代表消费为零。"
     },
     "officialApi": {
       "hint": "OpenAI 官方 API Key 接入，按实际地址识别。"
@@ -6674,6 +6733,10 @@
     "workbuddy": {
       "title": "WorkBuddy 设置",
       "appPath": "WorkBuddy 路径"
+    },
+    "minimaxCode": {
+      "title": "MiniMax Code 设置",
+      "appPath": "MiniMax Code 路径"
     },
     "claudeRefreshInterval": "配额自动刷新",
     "claude": {
@@ -7530,7 +7593,9 @@
       "fastChannelStatus": "快通道: {{status}}",
       "freeRemainingUnknown": "免费剩余：--",
       "timesRemainingUnknown": "剩余次数：--",
-      "soloParallel": "权益包: Solo 并发 {{count}}"
+      "soloParallel": "权益包: Solo 并发 {{count}}",
+      "creditsMember": "会员积分",
+      "creditsBonus": "奖励积分"
     },
     "token": {
       "jsonOnlyDesc": "粘贴完整 Trae CN 账号 JSON。暂不支持裸 Token，避免导入后无法稳定识别账号或写入不可用登录态。",
@@ -7546,6 +7611,18 @@
       "permissionWithPlatform": "权限范围：读取并写入本机 {{platform}} 配置目录中的 storage.json 登录相关字段，用于账号导入、切号注入与套餐信息展示；所有数据仅在本机处理。",
       "networkGlobal": "网络范围：{{platform}} OAuth 登录、令牌刷新和套餐查询会请求 trae.ai / traeapi.us 官方接口；不会向第三方服务上传本地账号文件或原始存储内容。",
       "networkCn": "网络范围：{{platform}} OAuth 登录、令牌刷新和套餐查询会请求 trae.cn / trae.com.cn 官方接口；不会向第三方服务上传本地账号文件或原始存储内容。"
+    },
+    "checkin": {
+      "modalTitle": "每日签到",
+      "durationMs": "{{ms}} 毫秒",
+      "durationSeconds": "{{seconds}} 秒",
+      "durationTitle": "累计签到耗时",
+      "logSuccess": "成功 ({{done}}/{{total}})",
+      "logPartial": "部分成功 ({{done}}/{{total}})",
+      "logIncomplete": "未完成",
+      "detailSuccess": "签到成功",
+      "detailAlreadyClaimed": "今日已领",
+      "detailError": "签到异常"
     }
   },
   "codebuddyCn": {
@@ -7575,6 +7652,35 @@
     "syncToWorkbuddy": "同步到 WorkBuddy"
   },
   "workbuddy": {
+    "credits": {
+      "planBase": "套餐基础积分",
+      "planBonus": "套餐赠送积分",
+      "benefit": "平台奖励积分",
+      "addon": "购买积分",
+      "total": "总剩余积分",
+      "details": "积分明细",
+      "usedOf": "已使用 {{used}}/{{total}}",
+      "remainingPercent": "剩余{{percent}}%",
+      "nearestExpiry": "最近到期时间 {{time}}",
+      "nextRefresh": "下次刷新时间 {{time}}",
+      "expiring": "包含即将到期的积分",
+      "valid": "有效期内",
+      "expired": "已过期",
+      "expiresAt": "到期时间 {{time}}",
+      "expiryHours": "24小时内到期",
+      "expiryDays": "3天内到期",
+      "empty": "暂无明细",
+      "loadFailed": "积分明细加载失败（{{error}}）",
+      "overview": "积分概览",
+      "remaining": "剩余 {{amount}}",
+      "loadMore": "加载更多",
+      "usage": "消耗明细",
+      "requestAndTime": "请求与时间",
+      "creditUsed": "积分消耗",
+      "model": "模型",
+      "recentUsage": "仅展示最近的 5 条数据",
+      "viewMore": "查看更多"
+    },
     "title": "WorkBuddy 账号管理",
     "noAccounts": "暂无 WorkBuddy 账号",
     "addAccount": "添加 WorkBuddy 账号",
@@ -7617,13 +7723,28 @@
       "startTime": "开始时间",
       "endTime": "结束时间",
       "timeRangeHint": "应用保持运行时，会在这个时间段内随机选取一个时间点完成后台自动签到。",
+      "errors": "异常",
+      "tabSettings": "自动签到设置",
+      "tabHistory": "自动签到记录",
+      "manualTest": "测试执行",
+      "clearLogs": "清空",
+      "clearLogsFailed": "清空签到记录失败：{{message}}",
+      "historyLoading": "正在读取自动签到记录...",
+      "historyLoadFailed": "读取自动签到记录失败：{{message}}",
+      "totalCredits": "{{credits}} 积分",
+      "historyRangeHint": "仅保留近 30 天的自动签到记录（共 {{count}} 条）",
+      "noHistory": "暂无近 30 天的自动签到记录",
+      "saveFailed": "自动签到设置保存失败：{{message}}",
+      "manualTestPartialFailure": "部分账号签到失败，请查看记录；后台稍后会自动重试。",
+      "manualTestAlreadyRunning": "自动签到任务正在执行，请稍后查看记录。",
+      "manualTestFailed": "测试执行失败：{{message}}",
       "timeRangeError": "开始时间不能晚于结束时间"
     },
     "flowNotice": {
       "title": "WorkBuddy 账号管理说明（点击展开/收起）",
       "desc": "切换账号会按当前 WorkBuddy 官方客户端登录文件布局写入本机；本机导入读取同一登录文件，数据仅在本地处理。若检测到无法解密的官方封装，会保留原文件并停止覆盖。",
       "permission": "权限范围：读取并写入 WorkBuddy 登录文件（CodeBuddyExtension/Data/Public/auth/workbuddy-desktop.info），用于本机导入与账号切换；不再读取或修改旧版 state.vscdb。遇到官方加密封装且未取得密钥时不会覆盖原文件。",
-      "network": "网络范围：OAuth 授权登录与 Token 刷新需联网请求 WorkBuddy；配额查询需调用计费 API。不上传本地登录文件或凭证原文。"
+      "network": "OAuth 登录和 Token 刷新会请求 WorkBuddy 服务。积分余额与明细查询使用账号 Token 请求 WorkBuddy 计费服务。本地登录文件和系统密钥保留在本机。"
     },
     "nickname": "昵称",
     "enterprise": "企业",
@@ -7640,8 +7761,8 @@
       "oauth": {
         "title": "仅授权 IDE 登录信息",
         "item1": "在浏览器完成 OAuth 后即可添加账号并用于 IDE 切换。",
-        "item2": "授权完成后会自动刷新资源包配额数据。",
-        "item3": "账号卡片将按资源包展示额度、进度和刷新/到期时间。"
+        "item2": "授权完成后会自动查询积分余额。",
+        "item3": "账号卡片展示积分概览，可打开「积分明细」查看积分记录和到期时间。"
       }
     },
     "oauthWebviewTab": "WebView 授权",
@@ -7718,6 +7839,152 @@
         "descPlatform": "WorkBuddy 应用多开仅支持 macOS、Windows 和 Linux。"
       }
     }
+  },
+    "minimaxCode": {
+    "title": "MiniMax Code 账号管理",
+    "noAccounts": "暂无 MiniMax Code 账号",
+    "addAccount": "添加 MiniMax Code 账号",
+    "checkin": {
+      "title": "每日签到",
+      "modalTitle": "每日签到",
+      "status": "签到状态",
+      "checkedIn": "已签到",
+      "notCheckedIn": "未签到",
+      "button": "签到",
+      "button.loading": "签到中...",
+      "done": "已完成",
+      "claimed": "已领取",
+      "success": "签到成功！连续签到 {{days}} 天",
+      "failure": "签到失败：{{message}}",
+      "failure.network": "网络异常，请稍后重试",
+      "lastCheckin": "最后签到：{{time}}",
+      "streak": "连续签到 {{days}} 天",
+      "reward": "奖励：{{reward}}",
+      "refreshStatus": "刷新状态",
+      "checkAll": "一键签到",
+      "noAccounts": "暂无账号",
+      "querying": "查询中...",
+      "queryFailed": "状态查询失败",
+      "retry": "重试",
+      "inactive": "不可用",
+      "inactiveHint": "签到活动未开启或不适用当前账号",
+      "streakDays": "{{days}} 天",
+      "streakRewardCountdown": "再签 {{days}} 天获大礼包",
+      "streakRewardToday": "今日可获得大礼包!",
+      "recentDates": "近期签到：",
+      "autoCheckinSettings": "自动签到设置",
+      "autoCheckinLabel": "自动签到",
+      "autoCheckinOff": "自动签到未开启",
+      "autoCheckinEnabledHint": "自动签到已开启：将在 {{start}} 至 {{end}} 随机签到",
+      "autoCheckinDisabledHint": "自动签到未开启",
+      "enableAutoCheckin": "开启自动签到",
+      "enableAutoCheckinDesc": "每天在指定时间段内随机选取一个时间完成自动签到",
+      "randomTimeRange": "随机签到时间段",
+      "startTime": "开始时间",
+      "endTime": "结束时间",
+      "timeRangeHint": "应用保持运行时，会在这个时间段内随机选取一个时间点完成后台自动签到。",
+      "timeRangeError": "开始时间不能晚于结束时间"
+    },
+    "flowNotice": {
+      "title": "MiniMax Code 账号管理说明（点击展开/收起）",
+      "desc": "切换账号会按当前 MiniMax Code 官方客户端登录文件布局写入本机；本机导入读取同一登录文件，数据仅在本地处理。若检测到无法解密的官方封装，会保留原文件并停止覆盖。",
+      "permission": "权限范围：读取并写入 MiniMax Code 登录文件（~/.minimax/auth/auth.json），用于本机导入与账号切换；不再读取或修改旧版 state.vscdb。遇到官方加密封装且未取得密钥时不会覆盖原文件。",
+      "network": "网络范围：OAuth 授权登录与 Token 刷新需联网请求 MiniMax Code；配额查询需调用计费 API。不上传本地登录文件或凭证原文。"
+    },
+    "nickname": "昵称",
+    "enterprise": "企业",
+    "usage": "用量状态",
+    "creditsBalance": "积分余额",
+    "usageNormal": "正常",
+    "usageAbnormal": "异常",
+    "usageViewDetail": "查看详情",
+    "usageDetailTitle": "用量状态详情",
+    "oauthWaiting": "等待授权完成...",
+    "oauthDesc": "点击下方按钮将在浏览器中打开 MiniMax Code 授权页面。",
+    "oauthDescWebview": "点击下方按钮将在内置 WebView 中打开 MiniMax Code 授权页面。",
+    "oauthFeature": {
+      "oauth": {
+        "title": "仅授权 IDE 登录信息",
+        "item1": "在浏览器完成 OAuth 后即可添加账号并用于 IDE 切换。",
+        "item2": "授权完成后会自动刷新资源包配额数据。",
+        "item3": "账号卡片将按资源包展示额度、进度和刷新/到期时间。"
+      }
+    },
+    "oauthWebviewTab": "WebView 授权",
+    "oauthOpenWebview": "在 WebView 中打开",
+    "oauthOpenWebviewIncognito": "在无痕 WebView 中打开",
+    "oauthOpenWebviewFailed": "打开 WebView 失败：{{error}}",
+    "oauthOpenBrowserFallback": "在浏览器中打开（备用）",
+    "oauthOpenBrowserFailed": "打开浏览器失败：{{error}}",
+    "oauthWebviewProgressHint": "WebView 顶部显示横向步骤条，便于定位卡住步骤。",
+    "oauthFlow": {
+      "prepare": "准备授权链接",
+      "authorize": "访问授权链接并确认授权",
+      "bind": "轮询授权结果并绑定账号",
+      "retryPrepare": "重新生成授权链接",
+      "retryAuthorize": "重新请求授权链接",
+      "retryBind": "重新轮询授权结果",
+      "error": "流程异常：{{error}}"
+    },
+    "oauthWebviewOverlay": {
+      "steps": {
+        "prepare": "1 准备授权链接",
+        "authorize": "2 访问授权链接并确认授权",
+        "bind": "3 轮询授权结果并绑定账号",
+        "complete": "5 已完成（请手动关闭）"
+      },
+      "status": {
+        "loginConfirm": "请在页面中完成登录并确认授权。"
+      }
+    },
+    "tokenDesc": "粘贴 MiniMax Code 的 access token：",
+    "jsonDesc": "选择包含 MiniMax Code 账号的 JSON 文件：",
+    "import": {
+      "localDesc": "支持从本机 MiniMax Code 客户端或 JSON 文件导入账号数据。",
+      "localClient": "从本机 MiniMax Code 导入"
+    },
+    "search": "搜索 MiniMax Code 账号...",
+    "quota": {
+      "usedOfTotal": "{{used}} / {{total}}"
+    },
+    "quotaQuery": {
+      "failedRefreshCompact": "配额查询失败",
+      "sectionTitle": "配额查询",
+      "empty": "暂无可用配额数据",
+      "packageUnknown": "套餐信息未知",
+      "quotaLabel": "剩余配额",
+      "updatedAt": "下次刷新时间：{{time}}",
+      "cycleRange": "周期：{{start}} - {{end}}",
+      "cycleUnknown": "周期信息暂无",
+      "expireAt": "到期时间：{{time}}",
+      "expireUnknown": "到期时间：暂无",
+      "packageTitle": {
+        "base": "基础体验包",
+        "activity": "活动赠送包"
+      }
+    },
+    "extraCredit": {
+      "title": "加量包"
+    },
+    "oauthUrlInputPlaceholder": "可手动输入授权地址",
+    "oauthInvalidUrl": "授权链接格式不正确，请输入完整 URL。",
+    "oauthGotoWebview": "让已打开 WebView 跳转到输入地址",
+    "oauthGotoWebviewSuccess": "已请求 WebView 跳转到输入地址。",
+    "oauthGotoWebviewFailed": "WebView 跳转失败：{{error}}",
+    "oauthWebviewInlineUrlPlaceholder": "在此输入网址并在当前 WebView 跳转",
+    "oauthWebviewInlineGo": "跳转",
+    "oauthSuccessClosePrompt": "账号添加完成，是否关闭 WebView？\n点击“关闭 WebView”将立即关闭；点击“稍后再说”保持当前页面不关闭。",
+    "oauthSuccessCloseTitle": "账号添加完成",
+    "oauthSuccessCloseNowLabel": "关闭 WebView",
+    "oauthSuccessCloseLaterLabel": "稍后再说",
+    "oauthSuccessCloseNowStatus": "✅ 账号添加完成，窗口即将关闭…",
+    "oauthSuccessCloseLaterStatus": "✅ 账号添加完成，已保持当前页面打开。",
+    "instances": {
+      "unsupported": {
+        "descPlatform": "MiniMax Code 应用多开仅支持 macOS、Windows 和 Linux。"
+      }
+    },
+    "placeholder": "MiniMax Code 账号管理即将推出。"
   },
   "mfaVault": {
     "pageDesc": "安全地保存并管理您的 MFA 备用恢复码、安全密码集及其他敏感认证信息。以下MFA账号均在本地存储，误删、清缓存、换/丢设备均会导致MFA丢失，建议备份MFA。您也可以从备份中导入MFA。",
