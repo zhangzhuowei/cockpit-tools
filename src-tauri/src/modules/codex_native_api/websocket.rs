@@ -6,7 +6,7 @@ use axum::{
         ws::Message,
         State,
     },
-    http::HeaderMap,
+    http::{HeaderMap, HeaderValue},
     response::Response,
 };
 use futures_util::{FutureExt, SinkExt, StreamExt};
@@ -34,13 +34,24 @@ mod transport_bridge;
 mod continuation;
 #[path = "websocket_steering.rs"]
 mod steering;
+#[path = "websocket_context_seed.rs"]
+mod context_seed;
+
+struct ConnectionIdentity {
+    diagnostic: super::diagnostics::HeaderIdentity,
+    codex_routing_hint: Option<HeaderValue>,
+}
 
 pub(super) async fn upgrade(
     State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
+    peer: Option<axum::Extension<axum::extract::ConnectInfo<std::net::SocketAddr>>>,
+    mut headers: HeaderMap,
     ws: yawc::IncomingUpgrade,
 ) -> Result<Response, ServiceError> {
-    let mut tracker = state.begin()?;
+    headers.remove("x-cockpit-compat-source");
+    headers.remove(super::compat_http::CLAUDE_CACHE_SCOPE);
+    clear_routing_header_markers(&mut headers);
+    let mut tracker = state.begin_with_peer(peer.map(|axum::Extension(info)| info.0))?;
     let capture = tokio::time::timeout(
         state.options.request_timeout,
         state.host.payload_logging_enabled(),
@@ -89,7 +100,7 @@ pub(super) async fn upgrade(
     // otherwise a heterogeneous pool can become pinned to an incompatible account.
     tracker.idle();
     let max = state.options.max_body_bytes;
-    let (response, upgrade) = ws.upgrade(super::websocket_io::options(max))
+    let (response, upgrade) = ws.upgrade(super::websocket_io::options(max, policy.websocket_fragment_timeout))
         .map_err(|error| ServiceError::new(400, "invalid_websocket_handshake", error.to_string()))?;
     tokio::spawn(async move {
         match upgrade.await {
@@ -166,25 +177,29 @@ async fn run(
     tracker.prepared_metadata(&prepared);
     // Generic WS clients may omit all Codex metadata. Their connection still
     // represents one logical thread, including retries and shorthand creates.
-    for (name, value) in [
-        ("session-id", prepared.request.session_id.as_deref()),
-        ("thread-id", prepared.request.thread_id.as_deref()),
-    ] {
+    for ((name, marker), value) in ROUTING_HEADERS.into_iter().zip([
+        prepared.request.session_id.as_deref(),
+        prepared.request.thread_id.as_deref(),
+    ]) {
         if !headers.contains_key(name) {
             if let Some(value) =
                 value.and_then(|value| value.parse::<axum::http::HeaderValue>().ok())
             {
                 headers.insert(name, value.clone());
                 prepared.source_headers.insert(name, value);
+                headers.insert(marker, axum::http::HeaderValue::from_static("1"));
+                prepared.source_headers.insert(marker, axum::http::HeaderValue::from_static("1"));
             }
         }
     }
     let mut turn_deadline = execution.total_deadline;
     let mut pending_messages = VecDeque::<String>::new();
+    let mut heartbeat = ClientHeartbeat::new(policy.websocket_heartbeat);
     let opened = match while_connected(
         &state,
         &mut socket,
         &mut pending_messages,
+        &mut heartbeat,
         turn_deadline,
         transport_bridge::open(
             &state,
@@ -209,6 +224,7 @@ async fn run(
     let (mut client_sink, mut client_stream) = socket.split();
     let mut upstream_sink = opened.sink;
     let mut upstream_stream = opened.stream;
+    let mut upstream_events = VecDeque::new();
     let mut upstream_http = opened.http;
     let mut upstream_local = opened.local;
     let mut connection_identity = opened.identity;
@@ -218,6 +234,7 @@ async fn run(
     let mut upstream_lost = false;
     let mut wire = super::response_wire::ResponseWire::default();
     let mut response_id: Option<String> = None;
+    let mut full_replay_parent: Option<String> = None;
     let mut completed_ids: VecDeque<String> = VecDeque::new();
     let mut last_completed_id: Option<String> = None;
     let mut last_local_checkpoint_id: Option<String> = None;
@@ -234,7 +251,6 @@ async fn run(
     let mut reused_hold_deadline = tokio::time::Instant::now();
     let mut client_deadline = tokio::time::Instant::now() + policy.websocket_idle_timeout;
     let mut upstream_deadline = client_deadline;
-    let mut heartbeat_deadline = tokio::time::Instant::now() + policy.websocket_heartbeat;
     let result: Result<(), ServiceError> = Box::pin(async {
         loop {
             let mut stop = state.stop.clone();
@@ -271,11 +287,10 @@ async fn run(
                         timed_client_until(&state, turn_deadline.instant(), client_sink.send(Message::Text(text.into()))).await?;
                     }
                 },
-                _ = deadline::sleep_until(heartbeat_deadline), if !policy.websocket_heartbeat.is_zero() => {
-                    heartbeat_deadline = tokio::time::Instant::now() + policy.websocket_heartbeat;
+                _ = heartbeat.tick() => {
                     if let Some(sink) = &mut upstream_sink {
                         let result = timed_until(&state, active.then_some(turn_deadline).and_then(Deadline::instant), sink.send(UpstreamMessage::Ping(Vec::new().into()))).await;
-                        retain_after_write_loss(result, &mut upstream_stream)?;
+                        retain_after_write_loss(result, &mut upstream_stream, &mut upstream_events)?;
                     }
                     timed_client_until(&state, active.then_some(turn_deadline).and_then(Deadline::instant), client_sink.send(Message::Ping(Vec::new().into()))).await?;
                 },
@@ -291,7 +306,7 @@ async fn run(
                         }
                     }
                     client_stream.next().await
-                } => {
+                }, if upstream_events.is_empty() => {
                     client_deadline = tokio::time::Instant::now() + policy.websocket_idle_timeout;
                     match next {
                         None | Some(Ok(Message::Close(_))) | Some(Err(_)) => {
@@ -398,12 +413,21 @@ async fn run(
                                     }
                                     let previous_multi_agent_context = prepared.multi_agent_context.clone();
                                     let route_changed = websocket_route_changed(&prepared, &next);
+                                    if route_changed {
+                                        tracing::info!(target: "codex_api", request_id=tracker.diagnostic_request_id(),
+                                            account_changed=prepared.route.account_id != next.route.account_id,
+                                            owner_changed=prepared.route.owner_id != next.route.owner_id,
+                                            transport_identity_changed=prepared.route.transport_identity != next.route.transport_identity,
+                                            host_headers_changed=prepared.route.headers != next.route.headers,
+                                            connection_headers=?websocket_connection_header_changes(&prepared.headers, &next.headers),
+                                            "[NativeAPI][websocket] reconnect_identity");
+                                    }
                                     let may_move_idle_turn = steering.waiting().is_none()
                                         && interrupted_owner.is_none()
                                         && preferred.is_none();
                                     let mut reconnect = upstream_lost || upstream_http || route_changed || !transport_bridge::passthrough(&state, &caller, &next).await?;
                                     let mut reconnect_reason = if upstream_lost { "upstream_lost" } else if upstream_http { "http_bridge" } else if route_changed { "route_or_connection_headers_changed" } else { "transport_policy_changed" };
-                                    prepared = next;
+                                    let previous = std::mem::replace(&mut prepared, next);
                                     tracker.routed(&caller, &prepared.route, &requested_model);
                                     tracker.routing_identity(&prepared.request);
                                     tracker.track_rebuild(prepared.binding.rebuild_abort_handle());
@@ -412,21 +436,65 @@ async fn run(
                                     // A local rejection can only move a portable or validated
                                     // rebuilt turn, via a newly opened socket.
                                     let mut reused_wire = None;
+                                    let mut reused_seed = None;
+                                    full_replay_parent = None;
                                     if !reconnect {
                                         let mut wire_headers = prepared.headers.clone();
-                                        let mut wire_body = prepare_ws_body(&mut prepared, &mut wire_headers)?;
+                                        let mut wire_body = prepare_ws_body(&state, &mut prepared, &mut wire_headers).await?;
                                         tracker.field_compat.apply(&prepared.route, &mut wire_body);
+                                        if super::multi_agent_compat::is_codex_client(
+                                            client_headers.get("user-agent").and_then(|v| v.to_str().ok()).unwrap_or("")
+                                        ) && previous.route.model == prepared.route.model
+                                            && previous.request.model == prepared.request.model
+                                            && previous.multi_agent_policy.options.optimize == prepared.multi_agent_policy.options.optimize
+                                            && previous.multi_agent_policy.options.is_compat == prepared.multi_agent_policy.options.is_compat
+                                            && previous.multi_agent_policy.options.orphan_delegation == prepared.multi_agent_policy.options.orphan_delegation
+                                            && previous.multi_agent_policy.options.tools_prepared == prepared.multi_agent_policy.options.tools_prepared {
+                                            if let Some(reduced) = history.reduce_full_replay(
+                                                &prepared, last_completed_id.as_deref(), &mut wire_body,
+                                            ) {
+                                                let digest = format!("{:x}", <sha2::Sha256 as sha2::Digest>::digest(reduced.previous_id.as_bytes()));
+                                                tracing::info!(target: "codex_api", "[NativeAPI][websocket] request_id={} continuation=restored_full_prefix prefix_items={} delta_items={} previous_digest={}",
+                                                    tracker.diagnostic_request_id(), reduced.prefix_items, reduced.delta_items, &digest[..16]);
+                                                full_replay_parent = Some(reduced.previous_id);
+                                            }
+                                        }
+                                        let parent = previous.reasoning_ceiling_proof.filter(|_| {
+                                            previous.route.model == prepared.route.model
+                                                && last_completed_id.as_deref().is_some_and(|id|
+                                                    prepared.source_body["previous_response_id"].as_str() == Some(id)
+                                                        || full_replay_parent.as_deref() == Some(id))
+                                        });
+                                        let proof = super::reasoning_policy::check_dispatch_with_parent(
+                                            &state, &caller, &prepared.route, &prepared.source_body, &wire_body,
+                                            super::contract::WireApi::Responses, parent,
+                                        ).await;
+                                        prepared.reasoning_ceiling_proof = match proof {
+                                            Ok(proof) => proof,
+                                            Err(error) => {
+                                                tracker.fail(&error).await;
+                                                prepared = previous;
+                                                timed_client_until(&state, None, client_sink.send(Message::Text(error_event(&error).to_string().into()))).await?;
+                                                continue;
+                                            }
+                                        };
                                         if !super::multi_agent_compat::has_namespace_conflict(&prepared.body) {
                                             prepared.multi_agent_context.optimized_namespace |= previous_multi_agent_context.optimized_namespace;
                                         }
                                         if wire_body.get("previous_response_id").and_then(Value::as_str).is_some_and(|id| !id.trim().is_empty()) {
                                             prepared.multi_agent_context.inherit_plaintext(&previous_multi_agent_context);
                                         }
-                                        let wire_text = wire_body.to_string();
-                                        if let Err(error) = tracker.check_quota_before_send() {
+                                        apply_websocket_endpoint_headers(&mut wire_headers, &prepared.route);
+                                        let routing_hint_changed = connection_identity.as_ref().is_some_and(|identity| {
+                                            identity.codex_routing_hint.as_ref() != codex_routing_hint(&wire_headers, &prepared.route)
+                                        });
+                                        if let Err(error) = while_split_connected(
+                                            &state, &mut client_sink, &mut client_stream, &mut pending_messages, &mut heartbeat,
+                                            turn_deadline, None, context_seed::check_quota(&state, &tracker, turn_deadline),
+                                        ).await {
                                             let switched = if may_move_idle_turn {
                                                 while_split_connected(
-                                                    &state, &mut client_sink, &mut client_stream, &mut pending_messages,
+                                                    &state, &mut client_sink, &mut client_stream, &mut pending_messages, &mut heartbeat,
                                                     turn_deadline, None,
                                                     retry_local_quota_opening(&state, &mut prepared, &mut tracker, turn_deadline, &error),
                                                 ).await?
@@ -434,10 +502,58 @@ async fn run(
                                             if !switched { return Err(error); }
                                             reconnect = true;
                                             reconnect_reason = "local_quota_reselect";
+                                        } else if routing_hint_changed {
+                                            reconnect = true;
+                                            reconnect_reason = "codex_routing_hint_changed";
                                         } else {
-                                            reused_wire = Some((wire_headers, wire_text));
+                                            let wire_text = wire_body.to_string();
+                                            if wire_text.len() > context_seed::MESSAGE_BYTES
+                                                && context_seed::eligible(&prepared, &wire_body) {
+                                                // Codex commonly opens with generate:false and no
+                                                // input, then sends a full side-chat history. It
+                                                // needs the same bounded bootstrap as a cold open.
+                                                reconnect = true;
+                                                reconnect_reason = "oversized_full_history";
+                                            } else if wire_text.len() > context_seed::MESSAGE_BYTES
+                                                && context_seed::supports(&prepared)
+                                                && previous.route.model == prepared.route.model
+                                                && history.can_seed_append(&prepared, last_completed_id.as_deref(), &wire_body) {
+                                                drop(wire_text);
+                                                let (body, plan) = super::blocking::run(
+                                                    state.stop.clone(), state.options.request_timeout,
+                                                    move || {
+                                                        let plan = context_seed::Plan::build(&wire_body, context_seed::MESSAGE_BYTES);
+                                                        Ok((wire_body, plan))
+                                                    },
+                                                ).await?;
+                                                match plan {
+                                                    Ok(Some(plan)) => {
+                                                        reused_seed = Some((body, Ok(plan)));
+                                                        reused_wire = Some((wire_headers, String::new()));
+                                                    }
+                                                    Ok(None) => reused_wire = Some((wire_headers, body.to_string())),
+                                                    Err(error) => {
+                                                        // An indivisible tool group or image may
+                                                        // exceed the budget; use full HTTP replay.
+                                                        reused_seed = Some((body, Err(error)));
+                                                        reused_wire = Some((wire_headers, String::new()));
+                                                    }
+                                                }
+                                            } else {
+                                                reused_wire = Some((wire_headers, wire_text));
+                                            }
                                         }
+                                    } else if let Err(error) = super::reasoning_policy::check_dispatch_with_parent(
+                                        &state, &caller, &prepared.route, &prepared.source_body, &prepared.body,
+                                        super::contract::WireApi::Responses,
+                                        state.reasoning_proofs.parent(&prepared, &prepared.body),
+                                    ).await {
+                                        tracker.fail(&error).await;
+                                        prepared = previous;
+                                        timed_client_until(&state, None, client_sink.send(Message::Text(error_event(&error).to_string().into()))).await?;
+                                        continue;
                                     }
+                                    drop(previous);
                                     wire = super::response_wire::ResponseWire::default();
                                     active = true; response_id = None; interrupt_pending = None; observation = ResponseObservation::default(); last_local_checkpoint_id = None;
                                     output_items = super::output_items::OutputCollector::new();
@@ -449,11 +565,12 @@ async fn run(
                                     reused_hold_deadline = tokio::time::Instant::now() + super::bootstrap::MAX_HOLD;
                                     upstream_deadline = tokio::time::Instant::now() + policy.websocket_initial_timeout;
                                     if reconnect {
+                                        full_replay_parent = None;
                                         tracing::info!(target: "codex_api", "[NativeAPI][websocket] request_id={} reconnect=true reason={}",
                                             tracker.diagnostic_request_id(), reconnect_reason);
                                         if let Some(sink) = &mut upstream_sink { let _ = tokio::time::timeout(std::time::Duration::from_secs(1), sink.close()).await; }
                                         let opened = while_split_connected(
-                                            &state, &mut client_sink, &mut client_stream, &mut pending_messages,
+                                            &state, &mut client_sink, &mut client_stream, &mut pending_messages, &mut heartbeat,
                                             turn_deadline, None,
                                             transport_bridge::open(&state, &caller, &mut prepared, &mut tracker, &policy, turn_deadline, &mut history),
                                         ).await;
@@ -464,7 +581,7 @@ async fn run(
                                         };
                                         upstream_lost = false;
                                         upstream_sink = opened.sink;
-                                        upstream_stream = opened.stream;
+                                        upstream_events.clear();                                        upstream_stream = opened.stream;
                                         upstream_http = opened.http;
                                         upstream_local = opened.local;
                                         connection_identity = opened.identity;
@@ -472,20 +589,94 @@ async fn run(
                                         probe_reused = pre_business_enabled(&prepared, upstream_local);
                                         reused_hold_deadline = tokio::time::Instant::now();
                                     } else {
-                                        let (wire_headers, wire_text) = reused_wire.ok_or_else(|| ServiceError::new(500, "websocket_transport_unavailable", "WebSocket frame is unavailable"))?;
+                                        let (wire_headers, mut wire_text) = reused_wire.ok_or_else(|| ServiceError::new(500, "websocket_transport_unavailable", "WebSocket frame is unavailable"))?;
                                         let sink = upstream_sink.as_mut().ok_or_else(|| ServiceError::new(500, "websocket_transport_unavailable", "Upstream transport is unavailable"))?;
                                         history.begin(&prepared);
-                                        let sent = timed_until(&state, turn_deadline.instant(), async {
-                                            if tokio::time::Instant::now() >= turn_deadline { return Err(tokio_tungstenite::tungstenite::Error::Io(std::io::Error::new(std::io::ErrorKind::TimedOut, "WebSocket write timed out"))); }
+                                        let mut seeded_bytes = 0;
+                                        if let Some((body, plan)) = reused_seed {
                                             tracker.quota_request_started();
                                             tracker.begin_attempt("websocket");
                                             tracker.capability_fallback(prepared.capability_fallback.clone());
-                                            if let Some(identity) = &connection_identity { tracker.upstream_identity(identity.clone()); }
-                                            tracker.upstream_request_bytes(wire_text.len());
+                                            if let Some(identity) = &connection_identity { tracker.upstream_identity(identity.diagnostic.clone()); }
+                                            let seed = match &plan {
+                                                Ok(plan) => while_split_connected(
+                                                    &state, &mut client_sink, &mut client_stream, &mut pending_messages, &mut heartbeat,
+                                                    turn_deadline, None,
+                                                    context_seed::prime_parts(&state, sink, &mut upstream_stream, &body, plan, &mut tracker, &policy, turn_deadline),
+                                                ).await,
+                                                Err(error) => Err(error.clone()),
+                                            };
+                                            match seed {
+                                                Ok(seed) => {
+                                                    let plan = plan.expect("successful seed has a valid plan");
+                                                    tracing::info!(target: "codex_api", request_id=tracker.diagnostic_request_id(),
+                                                        chunks=plan.ranges.len(), seeded_bytes=seed.bytes, largest_message_bytes=seed.largest_message,
+                                                        preload_input_tokens=seed.input_tokens, preload_cached_tokens=seed.cached_tokens,
+                                                        "[NativeAPI][websocket] bootstrap=segmented_append");
+                                                    wire_text = plan.final_body(&body, &seed.previous_id).to_string();
+                                                    seeded_bytes = seed.bytes;
+                                                }
+                                                Err(error) if error.code == "websocket_context_seed_unavailable" => {
+                                                    tracker.attempt_error(&error);
+                                                    let _ = tokio::time::timeout(std::time::Duration::from_secs(1), sink.close()).await;
+                                                    let opened = while_split_connected(
+                                                        &state, &mut client_sink, &mut client_stream, &mut pending_messages, &mut heartbeat,
+                                                        turn_deadline, None,
+                                                        transport_bridge::open_http(&state, &caller, &mut prepared, &mut tracker, &policy, turn_deadline, &mut history),
+                                                    ).await?;
+                                                    upstream_sink = opened.sink;
+                                                    upstream_events.clear();                                                    upstream_stream = opened.stream;
+                                                    upstream_http = opened.http;
+                                                    upstream_local = opened.local;
+                                                    connection_identity = opened.identity;
+                                                    opening_retries = opened.opening_retries;
+                                                    probe_reused = pre_business_enabled(&prepared, upstream_local);
+                                                    reused_hold_deadline = tokio::time::Instant::now();
+                                                    upstream_deadline = tokio::time::Instant::now() + policy.websocket_initial_timeout;
+                                                    continue;
+                                                }
+                                                Err(error) if error.code == "quota_reserved" && error.upstream_not_sent => {
+                                                    // All hidden preloads completed with empty
+                                                    // output. No model/tool generation was sent.
+                                                    tracker.attempt_error(&error);
+                                                    let _ = tokio::time::timeout(std::time::Duration::from_secs(1), sink.close()).await;
+                                                    let switched = while_split_connected(
+                                                        &state, &mut client_sink, &mut client_stream, &mut pending_messages, &mut heartbeat,
+                                                        turn_deadline, None,
+                                                        retry_local_quota_opening(&state, &mut prepared, &mut tracker, turn_deadline, &error),
+                                                    ).await?;
+                                                    if !switched { return Err(error); }
+                                                    let opened = while_split_connected(
+                                                        &state, &mut client_sink, &mut client_stream, &mut pending_messages, &mut heartbeat,
+                                                        turn_deadline, None,
+                                                        transport_bridge::open(&state, &caller, &mut prepared, &mut tracker, &policy, turn_deadline, &mut history),
+                                                    ).await?;
+                                                    upstream_sink = opened.sink; upstream_events.clear(); upstream_stream = opened.stream;
+                                                    upstream_http = opened.http; upstream_local = opened.local;
+                                                    connection_identity = opened.identity; opening_retries = opened.opening_retries;
+                                                    probe_reused = pre_business_enabled(&prepared, upstream_local);
+                                                    reused_hold_deadline = tokio::time::Instant::now();
+                                                    upstream_deadline = tokio::time::Instant::now() + policy.websocket_initial_timeout;
+                                                    continue;
+                                                }
+                                                Err(error) => return Err(error),
+                                            }
+                                        }
+                                        upstream_deadline = tokio::time::Instant::now() + policy.websocket_initial_timeout;
+                                        let sent = timed_until(&state, turn_deadline.instant(), async {
+                                            if tokio::time::Instant::now() >= turn_deadline { return Err(tokio_tungstenite::tungstenite::Error::Io(std::io::Error::new(std::io::ErrorKind::TimedOut, "WebSocket write timed out"))); }
+                                            tracker.quota_request_started();
+                                            if seeded_bytes == 0 { tracker.begin_attempt("websocket"); }
+                                            tracker.capability_fallback(prepared.capability_fallback.clone());
+                                            if let Some(identity) = &connection_identity { tracker.upstream_identity(identity.diagnostic.clone()); }
+                                            tracker.upstream_request_bytes(seeded_bytes.saturating_add(wire_text.len()));
                                             tracker.payload("upstream_request", "websocket", &wire_headers, &wire_text);
                                             sink.send(UpstreamMessage::Text(wire_text.into())).await
                                         }).await;
-                                        if let Err(error) = sent { upstream_stream = futures_util::stream::once(async { Err(error) }).boxed(); }
+                                        if let Err(error) = sent {
+                                            upstream_events.clear();
+                                            upstream_stream = futures_util::stream::once(async { Err(error) }).boxed();
+                                        }
                                     }
                                 }
                                 Some("response.steer") => {
@@ -508,7 +699,7 @@ async fn run(
                                         let wire_text = control.body.to_string();
                                         tracker.payload("upstream_request", "websocket", &control.headers, &wire_text);
                                         // No create defaults, synthesized ack, HTTP emulation or replay.
-                                        steering.submitted(&body, control.route.permit.clone());
+                                        steering.submitted(&body, control.route.permit.clone(), control.reasoning_ceiling_proof);
                                         probe_reused = false;
                                         prepared.binding.abort_rebuild();
                                         history.invalidate_rebuild_proof();
@@ -516,7 +707,7 @@ async fn run(
                                             state.host.quota_request_started(&control.route.account_id);
                                             upstream_sink.as_mut().unwrap().send(UpstreamMessage::Text(wire_text.into())).await
                                         }).await;
-                                        retain_after_write_loss(result, &mut upstream_stream)
+                                        retain_after_write_loss(result, &mut upstream_stream, &mut upstream_events)
                                     }.await;
                                     if let Err(error) = outcome {
                                         let mut event = error_event(&error);
@@ -544,6 +735,7 @@ async fn run(
                                         let incomplete = history.interrupted(&prepared, &id)?;
                                         // Dropping the boxed HTTP body cancels this turn only. Never
                                         // promote a local interruption to a durable completed response.
+                                        upstream_events.clear();
                                         upstream_stream = futures_util::stream::empty().boxed();
                                         last_completed_id = None;
                                         last_local_checkpoint_id = Some(id.clone());
@@ -552,7 +744,7 @@ async fn run(
                                         active = false;
                                         interrupt_pending = None;
                                         response_id = None;
-                                        tracker.payload("upstream_response", "websocket", &HeaderMap::new(), &incomplete.to_string());
+                                        tracker.payload_with("upstream_response", "websocket", &HeaderMap::new(), || incomplete.to_string());
                                         tracker.complete(499, false, observation.usage.take(), Some("client_interrupted".into())).await;
                                         prepared.route.permit = None;
                                         client_deadline = tokio::time::Instant::now() + policy.websocket_idle_timeout;
@@ -564,7 +756,7 @@ async fn run(
                                         probe_reused = false;
                                         if let Some(sink) = &mut upstream_sink {
                                             let result = timed_until(&state, turn_deadline.instant(), sink.send(UpstreamMessage::Text(text.to_string().into()))).await;
-                                            retain_after_write_loss(result, &mut upstream_stream)?;
+                                            retain_after_write_loss(result, &mut upstream_stream, &mut upstream_events)?;
                                         }
                                         interrupt_pending = Some((steering.next_control_order(), body.get("event_id").cloned()));
                                     }
@@ -577,7 +769,7 @@ async fn run(
                         }
                     }
                 }
-                next = upstream_stream.next(), if active || (!upstream_http && !upstream_lost) => {
+                next = next_upstream_event(&mut upstream_stream, &mut upstream_events, upstream_http), if active || (!upstream_http && !upstream_lost) => {
                     upstream_deadline = tokio::time::Instant::now() + policy.websocket_idle_timeout;
                     let loss = match &next {
                         None | Some(Ok(UpstreamMessage::Close(None))) => true,
@@ -640,6 +832,7 @@ async fn run(
                             timed_client_until(&state, None, client_sink.send(Message::Text(event.to_string().into()))).await?;
                         }
                         upstream_sink = None;
+                        upstream_events.clear();
                         upstream_stream = futures_util::stream::empty().boxed();
                         upstream_lost = true;
                         active = false;
@@ -661,7 +854,7 @@ async fn run(
                         Some(Err(error)) => return Err(error),
                         Some(Ok(UpstreamMessage::Ping(value))) => { if let Some(sink) = &mut upstream_sink {
                             let result = timed_until(&state, turn_deadline.instant(), sink.send(UpstreamMessage::Pong(value))).await;
-                            retain_after_write_loss(result, &mut upstream_stream)?;
+                            retain_after_write_loss(result, &mut upstream_stream, &mut upstream_events)?;
                         } }
                         Some(Ok(UpstreamMessage::Pong(_))) | Some(Ok(UpstreamMessage::Frame(_))) => {}
                         Some(Ok(UpstreamMessage::Binary(_))) => return Err(ServiceError::new(502, "invalid_upstream_event", "Upstream Responses WebSocket returned a binary message")),
@@ -670,6 +863,7 @@ async fn run(
                             if super::grok_errors::applies(&prepared.route) {
                                 super::grok_errors::normalize_event(&mut event);
                             }
+                            super::upstream_errors::normalize_response_error(&mut event);
                             if steering.interrupt_rejected(&event, interrupt_pending.as_ref()) {
                                 if let Some((_, Some(id))) = interrupt_pending.take() {
                                     if event.get("event_id").is_none() { event["event_id"] = id; }
@@ -733,15 +927,15 @@ async fn run(
                             if probe_reused {
                                 if !upstream_http && first_event_rejection(&UpstreamMessage::Text(text.clone()), false).is_some_and(|(error, _)| error.status == 400) {
                                     let mut wire_headers = prepared.headers.clone();
-                                    let mut body = prepare_ws_body(&mut prepared, &mut wire_headers)?;
+                                    let mut body = prepare_ws_body(&state, &mut prepared, &mut wire_headers).await?;
                                     tracker.field_compat.apply(&prepared.route, &mut body);
                                     if tracker.field_compat.rejected_for(&prepared, &body, 400, &event) {
                                         tracker.field_compat.commit_reasoning(&mut prepared);
                                         tracker.attempt_result(400, false, Some(tracker.field_compat.reason()));
                                         if let Some(sink) = &mut upstream_sink { let _ = tokio::time::timeout(std::time::Duration::from_secs(1), sink.close()).await; }
-                                        let opened = while_split_connected(&state, &mut client_sink, &mut client_stream, &mut pending_messages, turn_deadline, None,
+                                        let opened = while_split_connected(&state, &mut client_sink, &mut client_stream, &mut pending_messages, &mut heartbeat, turn_deadline, None,
                                             transport_bridge::open_with_retries(&state, &caller, &mut prepared, &mut tracker, &policy, turn_deadline, &mut history, std::mem::take(&mut opening_retries))).await?;
-                                        upstream_sink = opened.sink; upstream_stream = opened.stream;
+                                        upstream_sink = opened.sink; upstream_events.clear(); upstream_stream = opened.stream;
                                         upstream_http = opened.http; upstream_local = opened.local; connection_identity = opened.identity;
                                         opening_retries = opened.opening_retries;
                                         response_id = None; wire = Default::default();
@@ -756,9 +950,9 @@ async fn run(
                                         tracker.routed(&caller, &prepared.route, &requested_model);
                                         tracker.track_rebuild(prepared.binding.rebuild_abort_handle());
                                         if let Some(sink) = &mut upstream_sink { let _ = tokio::time::timeout(std::time::Duration::from_secs(1), sink.close()).await; }
-                                        let opened = while_split_connected(&state, &mut client_sink, &mut client_stream, &mut pending_messages, turn_deadline, None,
+                                        let opened = while_split_connected(&state, &mut client_sink, &mut client_stream, &mut pending_messages, &mut heartbeat, turn_deadline, None,
                                             transport_bridge::open(&state, &caller, &mut prepared, &mut tracker, &policy, turn_deadline, &mut history)).await?;
-                                        upstream_sink = opened.sink; upstream_stream = opened.stream;
+                                        upstream_sink = opened.sink; upstream_events.clear(); upstream_stream = opened.stream;
                                         upstream_http = opened.http; upstream_local = opened.local; connection_identity = opened.identity;
                                         opening_retries = opened.opening_retries;
                                         response_id = None;
@@ -777,8 +971,8 @@ async fn run(
                                     // account budget as well, rather than restart socket counters.
                                     let retry = if !upstream_http && continuation::rejection(&event) {
                                         if !active || interrupt_pending.is_some() { false } else {
-                                            while_split_connected(&state, &mut client_sink, &mut client_stream, &mut pending_messages, turn_deadline, None,
-                                                continuation::recover(&state, &mut prepared, &mut tracker, &event, turn_deadline, "reused_socket")).await?
+                                            while_split_connected(&state, &mut client_sink, &mut client_stream, &mut pending_messages, &mut heartbeat, turn_deadline, None,
+                                                continuation::recover(&state, &mut prepared, &mut tracker, &event, turn_deadline, "reused_socket", full_replay_parent.as_deref())).await?
                                         }
                                     } else {
                                         let recovery = Box::pin(async {
@@ -790,7 +984,7 @@ async fn run(
                                             }
                                         });
                                         if policy.continuous_overload_retry && super::overload::event(&event) {
-                                            while_split_connected(&state, &mut client_sink, &mut client_stream, &mut pending_messages,
+                                            while_split_connected(&state, &mut client_sink, &mut client_stream, &mut pending_messages, &mut heartbeat,
                                                 turn_deadline, response_id.as_deref(), recovery).await?
                                         } else {
                                             recovery.await?
@@ -803,7 +997,7 @@ async fn run(
                                         } else { policy.clone() };
                                         let attempts = tracker.upstream_attempt_count();
                                         let reopened = while_split_connected(&state, &mut client_sink, &mut client_stream,
-                                            &mut pending_messages, turn_deadline,
+                                            &mut pending_messages, &mut heartbeat, turn_deadline,
                                             if policy.continuous_overload_retry && super::overload::event(&event) { response_id.as_deref() } else { None },
                                             transport_bridge::open_with_retries(&state, &caller, &mut prepared, &mut tracker, &recovery_policy, turn_deadline, &mut history, std::mem::take(&mut opening_retries))).await;
                                         let opened = match reopened {
@@ -811,7 +1005,7 @@ async fn run(
                                             value => value?,
                                         };
                                         upstream_sink = opened.sink;
-                                        upstream_stream = opened.stream;
+                                        upstream_events.clear();                                        upstream_stream = opened.stream;
                                         upstream_http = opened.http;
                                         upstream_local = opened.local;
                                         connection_identity = opened.identity;
@@ -821,6 +1015,7 @@ async fn run(
                                         reused_handshake.clear();
                                         reused_events = 0; reused_bytes = 0;
                                         reused_hold_deadline = tokio::time::Instant::now();
+                                        upstream_deadline = tokio::time::Instant::now() + policy.websocket_idle_timeout;
                                         continue;
                                     }
                                 }
@@ -832,6 +1027,9 @@ async fn run(
                             }
                             tracker.first_response_event(&event);
                             tracker.payload("upstream_response", "websocket", &HeaderMap::new(), text.as_str());
+                            if active && !upstream_local && !observation.terminal {
+                                tracker.record_response_model(&prepared.route, &event);
+                            }
                             let mut events = Vec::new();
                             for (mut event, _text) in std::mem::take(&mut reused_handshake).into_iter().chain(std::iter::once((event, text.to_string()))) {
                                 if !upstream_http { prepared.multi_agent_context.restore(&mut event); }
@@ -875,7 +1073,7 @@ async fn run(
                                 tracker.capture_transient_rate_limit(observation.transient_rate_limit);
                                 tracker.response_tier(observation.service_tier.as_deref());
                                 tracker.capture_usage(&observation.usage);
-                                let wire_changed = wire.stamp_event(&mut event);
+                                let wire_changed = super::replay_wire::instructions(&prepared.source_body, &mut event) | wire.stamp_event(&mut event);
                                 if wire_changed { text = event.to_string(); }
                                 if active && observation.terminal {
                                     steering.completed(event.pointer("/response/id").and_then(Value::as_str).or(response_id.as_deref()));
@@ -934,10 +1132,30 @@ async fn run(
     let _ = tokio::time::timeout(std::time::Duration::from_secs(1), client_sink.close()).await;
 }
 
+struct ClientHeartbeat {
+    interval: std::time::Duration,
+    next: tokio::time::Instant,
+}
+
+impl ClientHeartbeat {
+    fn new(interval: std::time::Duration) -> Self {
+        Self { interval, next: tokio::time::Instant::now() + interval }
+    }
+
+    async fn tick(&mut self) {
+        if self.interval.is_zero() {
+            std::future::pending::<()>().await;
+        }
+        tokio::time::sleep_until(self.next).await;
+        self.next = tokio::time::Instant::now() + self.interval;
+    }
+}
+
 fn while_connected<'a, T: Send + 'a>(
     state: &'a AppState,
     socket: &'a mut WebSocket,
     pending: &'a mut VecDeque<String>,
+    heartbeat: &'a mut ClientHeartbeat,
     deadline: Deadline,
     future: impl std::future::Future<Output = Result<T, ServiceError>> + Send + 'a,
 ) -> futures_util::future::BoxFuture<'a, Result<T, ServiceError>> {
@@ -946,6 +1164,7 @@ fn while_connected<'a, T: Send + 'a>(
     loop {
         tokio::select! {
             result = &mut future => return result,
+            _ = heartbeat.tick() => timed_client_until(state, deadline.instant(), socket.send(Message::Ping(Vec::new().into()))).await?,
             next = socket.recv() => match next {
                 Some(Ok(Message::Ping(value))) => timed_until(state, deadline.instant(), socket.send(Message::Pong(value))).await?,
                 Some(Ok(Message::Pong(_))) => {},
@@ -972,8 +1191,28 @@ fn pre_business_enabled(prepared: &Prepared, local: bool) -> bool {
 }
 
 fn websocket_route_changed(previous: &Prepared, next: &Prepared) -> bool {
+    let base_url = next.route.websocket_endpoint.as_ref().map_or(
+        next.route.base_url.as_str(), |endpoint| endpoint.base_url.as_str(),
+    );
     websocket_transport_changed(&previous.route, &next.route)
         || websocket_connection_headers_changed(&previous.headers, &next.headers)
+        || (super::opencode_go::is_opencode_go_base_url(base_url)
+            && (previous.headers.get(super::opencode_go::SESSION_HEADER)
+                != next.headers.get(super::opencode_go::SESSION_HEADER)
+                || previous.binding.session_id() != next.binding.session_id()))
+}
+
+// Connection-local routing hints are retained across turns and retries. They
+// are never forwarded as client-supplied headers on a passthrough route.
+pub(super) const ROUTING_HEADERS: [(&str, &str); 2] = [
+    ("session-id", "x-cockpit-internal-routing-session"),
+    ("thread-id", "x-cockpit-internal-routing-thread"),
+];
+
+pub(super) fn clear_routing_header_markers(headers: &mut HeaderMap) {
+    for (_, marker) in ROUTING_HEADERS {
+        headers.remove(marker);
+    }
 }
 
 pub(super) fn websocket_transport_changed(
@@ -1040,9 +1279,16 @@ fn websocket_host_headers_changed(
 }
 
 fn websocket_connection_headers_changed(previous: &HeaderMap, next: &HeaderMap) -> bool {
+    !websocket_connection_header_changes(previous, next).is_empty()
+}
+
+fn websocket_connection_header_changes(previous: &HeaderMap, next: &HeaderMap) -> Vec<&'static str> {
     [
         "session-id",
+        "session_id",
         "thread-id",
+        "thread_id",
+        "x-grok-conv-id",
         "x-codex-installation-id",
         "installation-id",
         "user-agent",
@@ -1054,13 +1300,15 @@ fn websocket_connection_headers_changed(previous: &HeaderMap, next: &HeaderMap) 
         "x-openai-fedramp",
     ]
     .into_iter()
-    .any(|name| previous.get_all(name).iter().ne(next.get_all(name).iter()))
+    .filter(|name| previous.get_all(*name).iter().ne(next.get_all(*name).iter()))
+    .collect()
 }
 fn while_split_connected<'a, T: Send + 'a>(
     state: &'a AppState,
     sink: &'a mut futures_util::stream::SplitSink<WebSocket, Message>,
     stream: &'a mut futures_util::stream::SplitStream<WebSocket>,
     pending: &'a mut VecDeque<String>,
+    heartbeat: &'a mut ClientHeartbeat,
     deadline: Deadline,
     interrupt_target: Option<&'a str>,
     future: impl std::future::Future<Output = Result<T, ServiceError>> + Send + 'a,
@@ -1070,6 +1318,7 @@ fn while_split_connected<'a, T: Send + 'a>(
     loop {
         tokio::select! {
             result = &mut future => return result,
+            _ = heartbeat.tick() => timed_client_until(state, deadline.instant(), sink.send(Message::Ping(Vec::new().into()))).await?,
             next = stream.next() => match next {
                 Some(Ok(Message::Ping(value))) => timed_until(state, deadline.instant(), sink.send(Message::Pong(value))).await?,
                 Some(Ok(Message::Pong(_))) => {},
@@ -1101,7 +1350,7 @@ async fn open_response(
     (
         super::websocket_io::UpstreamSocket,
         Vec<UpstreamMessage>,
-        super::diagnostics::HeaderIdentity,
+        ConnectionIdentity,
         OpeningRetries,
     ),
     ServiceError,
@@ -1134,24 +1383,41 @@ async fn open_response(
             ));
         }
         let mut headers = prepared.headers.clone();
-        let mut wire_body = prepare_ws_body(prepared, &mut headers)?;
+        let mut wire_body = prepare_ws_body(state, prepared, &mut headers).await?;
         tracker.field_compat.apply(&prepared.route, &mut wire_body);
+        let parent = state.reasoning_proofs.parent(prepared, &wire_body);
+        prepared.reasoning_ceiling_proof = super::reasoning_policy::check_dispatch_with_parent(
+            state, &prepared.caller, &prepared.route, &prepared.source_body, &wire_body,
+            super::contract::WireApi::Responses, parent,
+        ).await?;
+        // A new side chat can inherit hundreds of MB of images. Prime the
+        // same authenticated socket in bounded, non-generating messages;
+        // retain the complete source for recovery and history validation.
+        let seed_plan = if context_seed::eligible(prepared, &wire_body) {
+            let (body, plan) = super::blocking::run(
+                state.stop.clone(), state.options.request_timeout,
+                move || {
+                    let plan = context_seed::Plan::build(&wire_body, context_seed::MESSAGE_BYTES);
+                    Ok((wire_body, plan))
+                },
+            ).await?;
+            wire_body = body;
+            plan?
+        } else { None };
         let endpoint = prepared.route.websocket_endpoint.as_ref();
         let base_url = endpoint.map_or(prepared.route.base_url.as_str(), |endpoint| {
             endpoint.base_url.as_str()
         });
         let deadline = tracker.overload.deadline(deadline);
         let url = format!("{}/responses", base_url.trim_end_matches('/'));
-        if let Some(endpoint) = endpoint {
-            for name in prepared.route.headers.keys() {
-                headers.remove(name);
-            }
-            headers.extend(endpoint.headers.clone());
-        }
+        apply_websocket_endpoint_headers(&mut headers, &prepared.route);
+        super::opencode_go::apply_session_header(
+            base_url, &prepared.caller.id, &prepared.binding, &mut tracker.opencode_go_session, &mut headers,
+        );
         let headers = websocket_headers(&headers, prepared.route.chatgpt);
         let wire_headers = headers.clone();
         let upstream_identity = super::diagnostics::capture_header_identity(&headers);
-        if let Err(error) = tracker.check_quota_before_send() {
+        if let Err(error) = context_seed::check_quota(state, tracker, deadline).await {
             if retry_local_quota_opening(state, prepared, tracker, deadline, &error).await? {
                 // Preserve the original opening deadline across local skips.
                 previous_open_deadline = None;
@@ -1164,6 +1430,7 @@ async fn open_response(
             &url,
             headers,
             state.options.max_event_bytes,
+            policy.websocket_fragment_timeout,
             policy.websocket_connect_timeout.min(
                 deadline.cap(prepared.execution.prepare_deadline())
                     .saturating_duration_since(tokio::time::Instant::now()),
@@ -1217,10 +1484,7 @@ async fn open_response(
         tracker.quota_headers(&response_headers);
         tracker.upstream_response_headers(&response_headers);
         mapping::observe_headers(state, prepared, &response_headers).await?;
-        let wire_text = wire_body.to_string();
-        tracker.upstream_request_bytes(wire_text.len());
-        tracker.payload("upstream_request", "websocket", &wire_headers, &wire_text);
-        if let Err(error) = tracker.check_quota_before_send() {
+        if let Err(error) = context_seed::check_quota(state, tracker, deadline).await {
             // The upgrade reached upstream; no response.create has been sent.
             // Roll back inference accounting while retaining that distinction
             // in transport tracing, then close before changing credentials.
@@ -1237,6 +1501,32 @@ async fn open_response(
             }
             return Err(retries.last_upstream_failure.clone().unwrap_or(error));
         }
+        let seeded_bytes = if let Some(plan) = seed_plan {
+            tracker.quota_request_started();
+            match context_seed::prime(state, &mut upstream, &wire_body, &plan, tracker, policy, deadline).await {
+                Ok(seed) => {
+                    tracing::info!(target: "codex_api", request_id=tracker.diagnostic_request_id(),
+                        chunks=plan.ranges.len(), seeded_bytes=seed.bytes, largest_message_bytes=seed.largest_message,
+                        preload_input_tokens=seed.input_tokens, preload_cached_tokens=seed.cached_tokens,
+                        "[NativeAPI][websocket] bootstrap=segmented_context");
+                    wire_body = plan.final_body(&wire_body, &seed.previous_id);
+                    seed.bytes
+                }
+                Err(error) => {
+                    tracker.attempt_error(&error);
+                    let _ = tokio::time::timeout(std::time::Duration::from_secs(1), upstream.close()).await;
+                    if error.code == "quota_reserved" && error.upstream_not_sent
+                        && retry_local_quota_opening(state, prepared, tracker, deadline, &error).await? {
+                        previous_open_deadline = None;
+                        continue;
+                    }
+                    return Err(error);
+                }
+            }
+        } else { 0 };
+        let wire_text = wire_body.to_string();
+        tracker.upstream_request_bytes(seeded_bytes.saturating_add(wire_text.len()));
+        tracker.payload("upstream_request", "websocket", &wire_headers, &wire_text);
         let initial = async {
             timed_until(state, deadline.instant(), async {
                 tracker.quota_request_started();
@@ -1331,7 +1621,8 @@ async fn open_response(
                     || match last {
                         UpstreamMessage::Text(text) => serde_json::from_str::<Value>(text.as_str())
                             .ok()
-                            .is_some_and(|event| {
+                            .is_some_and(|mut event| {
+                                super::upstream_errors::normalize_response_error(&mut event);
                                 super::bootstrap::rejection(&event).is_some()
                                     || (super::grok_errors::applies(&prepared.route)
                                         && super::grok_errors::rejection(&event).is_some())
@@ -1342,7 +1633,7 @@ async fn open_response(
                 // if every preceding frame is a proven pre-execution handshake.
                 let continuation_event = within_fence.then(|| continuation::initial_rejection(&initial)).flatten();
                 if let Some(event) = continuation_event {
-                    if continuation::recover(state, prepared, tracker, &event, deadline, "new_socket").await? {
+                    if continuation::recover(state, prepared, tracker, &event, deadline, "new_socket", None).await? {
                         let _ = tokio::time::timeout(std::time::Duration::from_secs(1), upstream.close()).await;
                         continue;
                     }
@@ -1379,7 +1670,11 @@ async fn open_response(
                         continue;
                     }
                 }
-                return Ok((upstream, initial, upstream_identity, retries));
+                let identity = ConnectionIdentity {
+                    diagnostic: upstream_identity,
+                    codex_routing_hint: codex_routing_hint(&wire_headers, &prepared.route).cloned(),
+                };
+                return Ok((upstream, initial, identity, retries));
             }
             Err(error) => {
                 tracker.attempt_error(&error);
@@ -1428,16 +1723,26 @@ async fn retry_local_quota_opening(
     deadline: Deadline,
     error: &ServiceError,
 ) -> Result<bool, ServiceError> {
-    let safe_replay = mapping::local_quota_prepared_replay_is_safe(prepared);
     if error.code != "quota_reserved"
         || !error.upstream_not_sent
-        || prepared.continuation_recovered
         || prepared.transport_pinned
         || prepared.request.target_account_id.is_some()
-        || !safe_replay
     {
         return Ok(false);
     }
+    if !mapping::local_quota_prepared_replay_is_safe(prepared)
+        && prepared.execution.policy.account_switch_rebuild
+        && prepared.replay_body().get("previous_response_id").is_some_and(Value::is_string) {
+        // The next turn has not generated output. Expand only a durable,
+        // complete caller/owner-checked parent before considering another owner.
+        match deadline::timeout_at(deadline, mapping::recover_previous(state, prepared)).await {
+            Ok(Ok(())) => {},
+            Ok(Err(error)) if state.stop.stopped() => return Err(error),
+            Ok(Err(_)) => return Ok(false),
+            Err(_) => return Err(super::retry::total_timeout()),
+        }
+    }
+    if !mapping::local_quota_prepared_replay_is_safe(prepared) { return Ok(false); }
     tracker.release_route();
     let mut stop = state.stop.clone();
     let replacement = tokio::select! {
@@ -1593,7 +1898,7 @@ async fn retry_opening_failure(
     };
     if let Some((delay, maximum)) = backoff {
         super::retry::delay(state, delay, maximum, deadline).await?;
-        super::retry::renew_transport_after_tls(state, prepared, tracker, error).await?;
+        super::retry::renew_transport_after_failure(state, prepared, tracker, error).await?;
         return Ok(true);
     }
     if exhausted.is_none() && !overload && matches!(kind, OpeningFailure::Status)
@@ -1611,6 +1916,7 @@ async fn retry_opening_failure(
                 else { state.host.route_failed_attempt(&prepared.route, &prepared.route.model, if model_unavailable { 404 } else { error.status }, wait, error.credential_scope, Some(&error.message)).await; }
             }) => result.map_err(|_| super::retry::total_timeout())?,
         }
+        tracker.mark_failure_cooldown_recorded(&prepared.route.account_id);
     }
     // Authentication failures and throttling must never spend network retries.
     // A self-contained opening can move to another route; opaque continuation
@@ -1632,7 +1938,7 @@ async fn retry_opening_failure(
         match replacement {
             Ok(()) => {
                 if let Some(route) = &failed_route {
-                    super::retry::note_failed_route(state,route,503,wait,error.credential_scope,Some(&error.message),deadline).await?;
+                    super::retry::note_failed_route(state,tracker,route,503,wait,error.credential_scope,Some(&error.message),deadline).await?;
                 }
                 if !error.upstream_not_sent { retries.credentials += 1; }
                 retries.send = 0;
@@ -1654,11 +1960,19 @@ async fn retry_opening_failure(
         }
     }
     if let Some(route) = &failed_route {
-        if super::overload::retry_same(state,prepared,tracker,wait.max(error.retry_after),deadline,policy).await? {
-            if policy.continuous_overload_retry { retries.credentials = 0; }
+        if let Some(recovery) = super::overload::retry(state,prepared,tracker,wait.max(error.retry_after),deadline,policy).await? {
+            if policy.continuous_overload_retry {
+                retries.credentials = usize::from(recovery == super::overload::RetryRoute::Alternate);
+            }
+            if recovery == super::overload::RetryRoute::Alternate {
+                retries.send = 0;
+                retries.status = 0;
+                retries.bootstrap = 0;
+                retries.refreshed = false;
+            }
             return Ok(true);
         }
-        super::retry::note_failed_route(state,route,503,wait,error.credential_scope,Some(&error.message),deadline).await?;
+        super::retry::note_failed_route(state,tracker,route,503,wait,error.credential_scope,Some(&error.message),deadline).await?;
         return Ok(false);
     }
     if exhausted.is_none() && matches!(kind, OpeningFailure::Status) && !retries.cooldown_round {
@@ -1677,12 +1991,33 @@ async fn retry_opening_failure(
     Ok(false)
 }
 
+// Keep raw frame boundaries available to preloading. Ordinary response
+// handling still receives each JSON event individually.
+async fn next_upstream_event(
+    source: &mut futures_util::stream::BoxStream<'static, Result<UpstreamMessage, ServiceError>>,
+    pending: &mut VecDeque<UpstreamMessage>,
+    http: bool,
+) -> Option<Result<UpstreamMessage, ServiceError>> {
+    if let Some(event) = pending.pop_front() {
+        return Some(Ok(event));
+    }
+    match source.next().await? {
+        Ok(frame) if !http => {
+            pending.extend(super::event_documents::websocket(frame));
+            pending.pop_front().map(Ok)
+        }
+        other => Some(other),
+    }
+}
+
 fn retain_after_write_loss(
     result: Result<(), ServiceError>,
     source: &mut futures_util::stream::BoxStream<'static, Result<UpstreamMessage, ServiceError>>,
+    pending: &mut VecDeque<UpstreamMessage>,
 ) -> Result<(), ServiceError> {
     match result {
         Err(error) if upstream_connection_lost(&error) => {
+            pending.clear();
             *source = futures_util::stream::once(async { Err(error) }).boxed();
             Ok(())
         }
@@ -1730,6 +2065,7 @@ fn first_event_rejection(
     if grok {
         super::grok_errors::normalize_event(&mut event);
     }
+    super::upstream_errors::normalize_response_error(&mut event);
     if !matches!(
         super::events::response_terminal_kind(&event),
         Some("error" | "response.failed" | "response.incomplete" | "response.cancelled")
@@ -1777,7 +2113,8 @@ fn first_event_rejection(
     })
 }
 
-fn prepare_ws_body(
+async fn prepare_ws_body(
+    state: &AppState,
     prepared: &mut Prepared,
     headers: &mut HeaderMap,
 ) -> Result<Value, ServiceError> {
@@ -1788,7 +2125,7 @@ fn prepare_ws_body(
             "ChatGPT plan accounts support HTTP Responses inference only",
         ));
     }
-    let mut body = prepared.body.clone();
+    let mut body = super::anthropic_compact::expand_wire(state,prepared.body.clone()).await?;
     if prepared.route.chatgpt {
         body["store"] = Value::Bool(false);
         body["stream"] = Value::Bool(true);
@@ -1819,6 +2156,26 @@ fn prepare_ws_body(
     prepared.multi_agent_context.capture_final(&body);
     prepared.binding.retain_transmitted_input_blobs(&body);
     Ok(body)
+}
+
+fn apply_websocket_endpoint_headers(headers: &mut HeaderMap, route: &super::contract::Route) {
+    if let Some(endpoint) = &route.websocket_endpoint {
+        for name in route.headers.keys() {
+            headers.remove(name);
+        }
+        headers.extend(endpoint.headers.clone());
+    }
+}
+
+fn codex_routing_hint<'a>(
+    headers: &'a HeaderMap,
+    route: &super::contract::Route,
+) -> Option<&'a HeaderValue> {
+    if route.chatgpt && !super::grok_errors::applies(route) {
+        headers.get(super::codex_wire::ROUTING_HINT)
+    } else {
+        None
+    }
 }
 
 fn websocket_headers(headers: &HeaderMap, chatgpt: bool) -> HeaderMap {
@@ -2216,7 +2573,7 @@ async fn prepare_next_turn(
                 && preferred.is_none()
                 && matches!(
                     error.code,
-                    "account_binding_unavailable" | "account_cooling" | "no_available_account"
+                    "account_binding_unavailable" | "account_cooling" | "no_available_account" | "quota_reserved"
                 ) =>
         {
             let Some(full) = history.completed_replay(previous, &original)? else {

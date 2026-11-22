@@ -1,3 +1,4 @@
+import { LOCAL_HISTORY_TIMEOUT } from '../hooks/useLocalHistory';
 import { createPortal } from 'react-dom';
 import { Plus, RefreshCw, Upload, Trash2, Rocket, X, Globe, KeyRound, Database, Plug, Copy, Check, LayoutGrid, List, Search, CircleAlert, Info, RotateCw, History, ArrowDownWideNarrow, ArrowUp, ArrowDown, Wrench, Rows3, GripVertical, Eye, EyeOff, BookOpen, FileUp, ExternalLink, FolderOpen, FolderPlus, FileText, ChevronDown } from 'lucide-react';
 import * as accountService from '../services/accountService';
@@ -11,15 +12,20 @@ import { ModalErrorMessage } from '../components/ModalErrorMessage';
 import { MfaQuickCodeSelect } from '../components/MfaQuickCodeSelect';
 import { ANTIGRAVITY_RESET_SORT_PREFIX } from '../utils/antigravityAccountSort';
 import { OverviewTabsHeader } from '../components/OverviewTabsHeader';
+import { AntigravityTokenUsageSummary } from '../components/antigravity/AntigravityTokenUsageSummary';
 import { FileCorruptedModal } from '../components/FileCorruptedModal';
 import { AccountSelectionToolbar } from '../components/AccountSelectionToolbar';
 import { QuickSettingsPopover } from '../components/QuickSettingsPopover';
+import { PlatformQuotaHistoryButton } from '../components/PlatformQuotaHistoryButton';
 import { MultiSelectFilterDropdown } from '../components/MultiSelectFilterDropdown';
 import { AccountTagFilterDropdown } from '../components/AccountTagFilterDropdown';
-import { getMfaOtpToken, loadSavedMfaRecords } from '../utils/mfaVault';
+import { getMfaOtpToken } from '../utils/mfaVault';
+import { loadSavedMfaRecords } from '../services/mfaRecoveryService';
+import { ANTIGRAVITY_CLIENT_LABELS, ANTIGRAVITY_DESKTOP_CLIENTS } from '../utils/antigravityRuntimeTarget';
 import type { AccountsFilterType, useAccountsPageController } from "./AccountsPage";
 
-export type AccountsOverviewViewProps = ReturnType<typeof useAccountsPageController>;
+export type AccountsOverviewViewProps = Omit<ReturnType<typeof useAccountsPageController>,
+  'launchAccount' | 'closeLaunchDialog' | 'confirmLaunchSwitch'>;
 
 /** 渲染 AccountsPage 的界面；业务状态与动作统一由 Controller 提供。 */
 export function AccountsOverviewView(props: AccountsOverviewViewProps) {
@@ -28,6 +34,7 @@ export function AccountsOverviewView(props: AccountsOverviewViewProps) {
     accountNoteCopiedKey,
     accountNoteError,
     accountNoteErrorScrollKey,
+    accountNoteReadStatus,
     accountNoteFieldError,
     accountNoteMailPreview,
     accountNoteMailPreviewError,
@@ -37,6 +44,7 @@ export function AccountsOverviewView(props: AccountsOverviewViewProps) {
     accountNotePasswordVisible,
     accountNoteSecretVisible,
     accounts,
+    antigravityRuntimeTarget,
     activeAccountNoteEmail,
     activeAccountNoteForm,
     addMessage,
@@ -68,7 +76,8 @@ export function AccountsOverviewView(props: AccountsOverviewViewProps) {
     deletingTag,
     displayGroups,
     draggedCustomSortAccountId,
-    editingAccountNoteAccount,
+    editingAccountNoteId,
+    retryAccountNoteRead,
     exportAccountIdsRef,
     exporting,
     exportModal,
@@ -197,6 +206,9 @@ export function AccountsOverviewView(props: AccountsOverviewViewProps) {
     switchHistoryClearConfirmOpen,
     switchHistoryClearing,
     switchHistoryLoading,
+    switchHistoryError,
+    switchHistoryMigrating,
+    refreshSwitchHistory,
     t,
     tagDeleteConfirm,
     tagDeleteConfirmError,
@@ -224,6 +236,10 @@ export function AccountsOverviewView(props: AccountsOverviewViewProps) {
           onNavigate={onNavigate}
           onOpenManual={() => onNavigate?.('manual')}
           subtitle={t('overview.subtitle')}
+        />
+
+        <AntigravityTokenUsageSummary
+          onOpenDetail={() => onNavigate?.('antigravity-usage')}
         />
 
         {/* 工具栏 */}
@@ -296,6 +312,10 @@ export function AccountsOverviewView(props: AccountsOverviewViewProps) {
                   value: 'created_at',
                   label: t('accounts.sort.createdAt', '按创建时间'),
                 },
+                {
+                  value: 'last_switched_at',
+                  label: t('accounts.lastSwitchTime'),
+                },
                 ...displayGroups.map((group) => ({
                   value: group.id,
                   label: t('accounts.sort.byGroup', {
@@ -312,7 +332,7 @@ export function AccountsOverviewView(props: AccountsOverviewViewProps) {
                 })),
                 {
                   value: 'custom',
-                  label: t('accounts.sort.custom', '自定义顺序'),
+                  label: t('common.shared.sort.custom'),
                 },
               ]}
               ariaLabel={t('accounts.sortLabel', '排序')}
@@ -334,14 +354,14 @@ export function AccountsOverviewView(props: AccountsOverviewViewProps) {
                 }
                 aria-label={t('accounts.sort.toggleDirection', '切换排序方向')}
               >
-                {sortDirection === 'desc' ? '⬇' : '⬆'}
+                {sortDirection === 'desc' ? <ArrowDown size={15} /> : <ArrowUp size={15} />}
               </button>
             ) : (
               <button
                 className="sort-direction-btn"
                 onClick={() => setShowCustomSortModal(true)}
-                title={t('accounts.sort.customSettingsTooltip', '配置自定义顺序')}
-                aria-label={t('accounts.sort.customSettingsTooltip', '配置自定义顺序')}
+                title={t('common.shared.sort.customSettingsTooltip')}
+                aria-label={t('common.shared.sort.customSettingsTooltip')}
               >
                 <Wrench size={14} />
               </button>
@@ -422,7 +442,14 @@ export function AccountsOverviewView(props: AccountsOverviewViewProps) {
                 <FolderOpen size={14} />
               </button>
             )}
-            <QuickSettingsPopover type="antigravity" />
+            <PlatformQuotaHistoryButton platform="antigravity" accounts={accounts.map((account) => ({
+              value: account.id, label: maskAccountText(account.email), createdAt: account.created_at,
+            }))} />
+            <QuickSettingsPopover
+              key={antigravityRuntimeTarget}
+              type="antigravity"
+              antigravityRuntimeTarget={antigravityRuntimeTarget}
+            />
           </div>
         </div>
 
@@ -480,7 +507,7 @@ export function AccountsOverviewView(props: AccountsOverviewViewProps) {
         )}
 
         {/* 内容区域 */}
-        {loading ? (
+        {loading && accounts.length === 0 ? (
           <div className="empty-state">
             <div
               className="loading-spinner"
@@ -549,7 +576,7 @@ export function AccountsOverviewView(props: AccountsOverviewViewProps) {
           >
             <div className="modal-header">
               <h2>{t('modals.addAccount.title')}</h2>
-              <button className="close-btn" onClick={closeAddModal}>
+              <button className="modal-close" onClick={closeAddModal} aria-label={t('common.close', '关闭')}>
                 <X size={20} />
               </button>
             </div>
@@ -559,7 +586,7 @@ export function AccountsOverviewView(props: AccountsOverviewViewProps) {
                 <div className="accounts-add-target-group-hint">
                   <FolderPlus size={14} />
                   <span>
-                    {t('accounts.addModal.targetGroup', {
+                    {t('common.shared.addAccountTargetGroup', {
                       defaultValue: '将添加到分组：{{group}}',
                       group: addTargetGroup.name,
                     })}
@@ -770,23 +797,28 @@ export function AccountsOverviewView(props: AccountsOverviewViewProps) {
                       </div>
                     </button>
 
-                    <button
-                      className="import-option"
-                      onClick={handleImportFromLocal}
-                      disabled={importing || addStatus === 'loading'}
-                    >
-                      <div className="import-option-icon">
-                        <Database size={20} />
-                      </div>
-                      <div className="import-option-content">
-                        <div className="import-option-title">
-                          {t('modals.import.fromLocalDB')}
+                    {ANTIGRAVITY_DESKTOP_CLIENTS.map((target) => (
+                      <button
+                        key={target}
+                        className="import-option"
+                        onClick={() => void handleImportFromLocal(target)}
+                        disabled={importing || addStatus === 'loading'}
+                      >
+                        <div className="import-option-icon">
+                          <Database size={20} />
                         </div>
-                        <div className="import-option-desc">
-                          {t('modals.import.localDBDesc')}
+                        <div className="import-option-content">
+                          <div className="import-option-title">
+                            {t('modals.import.fromLocalApp')}
+                          </div>
+                          <div className="import-option-desc">
+                            {t('modals.import.localAppDesc', {
+                              appName: ANTIGRAVITY_CLIENT_LABELS[target],
+                            })}
+                          </div>
                         </div>
-                      </div>
-                    </button>
+                      </button>
+                    ))}
 
                     <button
                       className="import-option"
@@ -908,13 +940,10 @@ export function AccountsOverviewView(props: AccountsOverviewViewProps) {
             <div className="modal-header">
               <div>
                 <h2>
-                  {t('accounts.sort.customModalTitle', '自定义账号排序')}
+                  {t('common.shared.sort.customModalTitle')}
                 </h2>
                 <p className="codex-custom-sort-modal-desc">
-                  {t(
-                    'accounts.sort.customModalDesc',
-                    '拖动账号或使用上下按钮调整展示顺序。'
-                  )}
+                  {t('common.shared.sort.customModalDesc')}
                 </p>
               </div>
               <button
@@ -971,11 +1000,11 @@ export function AccountsOverviewView(props: AccountsOverviewViewProps) {
                             handleCustomSortDragStart(event, account.id)
                           }
                           title={t(
-                            'accounts.sort.customDragHandle',
+                            'common.shared.sort.dragToReorder',
                             '拖拽排序'
                           )}
                           aria-label={t(
-                            'accounts.sort.customDragHandle',
+                            'common.shared.sort.dragToReorder',
                             '拖拽排序'
                           )}
                         >
@@ -1032,8 +1061,8 @@ export function AccountsOverviewView(props: AccountsOverviewViewProps) {
                             moveCustomSortAccount(account.id, 'up')
                           }
                           disabled={index === 0}
-                          title={t('accounts.sort.customMoveUp', '上移')}
-                          aria-label={t('accounts.sort.customMoveUp', '上移')}
+                          title={t('common.shared.sort.moveUp', '上移')}
+                          aria-label={t('common.shared.sort.moveUp', '上移')}
                         >
                           <ArrowUp size={14} />
                         </button>
@@ -1044,9 +1073,9 @@ export function AccountsOverviewView(props: AccountsOverviewViewProps) {
                             moveCustomSortAccount(account.id, 'down')
                           }
                           disabled={index === customSortAccounts.length - 1}
-                          title={t('accounts.sort.customMoveDown', '下移')}
+                          title={t('common.shared.sort.moveDown', '下移')}
                           aria-label={t(
-                            'accounts.sort.customMoveDown',
+                            'common.shared.sort.moveDown',
                             '下移'
                           )}
                         >
@@ -1064,7 +1093,7 @@ export function AccountsOverviewView(props: AccountsOverviewViewProps) {
                 onClick={resetCustomSortOrder}
               >
                 <RotateCw size={14} />
-                {t('accounts.sort.customReset', '重置自定义顺序')}
+                {t('common.shared.sort.customReset')}
               </button>
               <button
                 className="btn btn-primary"
@@ -1097,14 +1126,27 @@ export function AccountsOverviewView(props: AccountsOverviewViewProps) {
               </button>
             </div>
             <div className="modal-body">
-              {switchHistoryLoading ? (
+              {switchHistoryMigrating && <p role="status">{t('common.historyRestoring')}</p>}
+              {switchHistoryError && (
+                <div role="alert">
+                  <p>{t('accounts.switchHistory.loadFailed', {
+                    error: switchHistoryError === LOCAL_HISTORY_TIMEOUT ? t('common.dataQueryBusy') : switchHistoryError,
+                  })}</p>
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => refreshSwitchHistory(true)}>
+                    {t('common.retry')}
+                  </button>
+                </div>
+              )}
+              {switchHistoryLoading && switchHistory.length === 0 ? (
                 <div className="empty-state">
                   <div className="loading-spinner" style={{ width: 28, height: 28 }} />
                 </div>
               ) : switchHistory.length === 0 ? (
-                <div className="empty-state" style={{ minHeight: 180 }}>
-                  <p>{t('accounts.switchHistory.empty', '暂无切换记录')}</p>
-                </div>
+                !switchHistoryMigrating && !switchHistoryError && (
+                  <div className="empty-state" style={{ minHeight: 180 }}>
+                    <p>{t('accounts.switchHistory.empty', '暂无切换记录')}</p>
+                  </div>
+                )
               ) : (
                 <div style={{ maxHeight: 420, overflowY: 'auto', display: 'grid', gap: 10 }}>
                   {switchHistory.map((item) => (
@@ -1359,7 +1401,7 @@ export function AccountsOverviewView(props: AccountsOverviewViewProps) {
                 onClick={confirmDeleteTag}
                 disabled={deletingTag}
               >
-                {deletingTag ? '处理中...' : t('common.confirm')}
+                {deletingTag ? t('common.processing', '处理中...') : t('common.confirm')}
               </button>
             </div>
           </div>
@@ -1391,8 +1433,9 @@ export function AccountsOverviewView(props: AccountsOverviewViewProps) {
                     <span className={`pill ${tierClass}`}>{tierBadge.label}</span>
                   </div>
                   <button
-                    className="close-btn"
+                    className="modal-close"
                     onClick={() => setShowQuotaModal(null)}
+                    aria-label={t('common.close')}
                   >
                     <X size={20} />
                   </button>
@@ -1440,27 +1483,27 @@ export function AccountsOverviewView(props: AccountsOverviewViewProps) {
                     )
                   })()}
 
-                  <div className="modal-actions" style={{ marginTop: 20 }}>
-                    <button
-                      className="btn btn-secondary"
-                      onClick={() => setShowQuotaModal(null)}
-                    >
-                      {t('common.close')}
-                    </button>
-                    <button
-                      className="btn btn-primary"
-                      onClick={() => {
-                        handleRefresh(account.id)
-                      }}
-                    >
-                      {refreshing.has(account.id) ? (
-                        <div className="loading-spinner small" />
-                      ) : (
-                        <RefreshCw size={16} />
-                      )}
-                      {t('common.refresh')}
-                    </button>
-                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => setShowQuotaModal(null)}
+                  >
+                    {t('common.close')}
+                  </button>
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => {
+                      handleRefresh(account.id)
+                    }}
+                  >
+                    {refreshing.has(account.id) ? (
+                      <div className="loading-spinner small" />
+                    ) : (
+                      <RefreshCw size={16} />
+                    )}
+                    {t('common.refresh')}
+                  </button>
                 </div>
               </div>
             </div>
@@ -1485,8 +1528,9 @@ export function AccountsOverviewView(props: AccountsOverviewViewProps) {
                 <div className="modal-header">
                   <h2>{t('modals.errors.title')}</h2>
                   <button
-                    className="close-btn"
+                    className="modal-close"
                     onClick={() => setShowErrorModal(null)}
+                    aria-label={t('common.close')}
                   >
                     <X size={20} />
                   </button>
@@ -1520,14 +1564,14 @@ export function AccountsOverviewView(props: AccountsOverviewViewProps) {
                     </div>
                   )}
 
-                  <div className="modal-actions" style={{ marginTop: 20 }}>
-                    <button
-                      className="btn btn-secondary"
-                      onClick={() => setShowErrorModal(null)}
-                    >
-                      {t('common.close')}
-                    </button>
-                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => setShowErrorModal(null)}
+                  >
+                    {t('common.close')}
+                  </button>
                 </div>
               </div>
             </div>
@@ -1569,8 +1613,9 @@ export function AccountsOverviewView(props: AccountsOverviewViewProps) {
                 <div className="modal-header">
                   <h2>{title}</h2>
                   <button
-                    className="close-btn"
+                    className="modal-close"
                     onClick={() => setShowVerificationErrorModal(null)}
+                    aria-label={t('common.close')}
                   >
                     <X size={20} />
                   </button>
@@ -1596,54 +1641,54 @@ export function AccountsOverviewView(props: AccountsOverviewViewProps) {
                   )}
 
                   {/* Action buttons based on error type */}
-                  <div className="modal-actions" style={{ marginTop: 20, gap: 8, flexWrap: 'wrap' }}>
-                    {!isTos && validationUrl && (
-                      <>
-                        <button
-                          className="btn btn-warning"
-                          onClick={() => openLink(validationUrl)}
-                        >
-                          <ExternalLink size={14} />
-                          {t('wakeup.errorUi.completeVerification', '立即验证')}
-                        </button>
-                        <button
-                          className="btn btn-secondary"
-                          onClick={() => handleCopyValidationUrl(account.id, validationUrl)}
-                        >
-                          {copiedValidationUrlAccountId === account.id ? <Check size={14} /> : <Copy size={14} />}
-                          {copiedValidationUrlAccountId === account.id
-                            ? t('common.copied', '已复制')
-                            : t('wakeup.errorUi.copyValidationUrl', '复制验证地址')}
-                        </button>
-                      </>
-                    )}
-                    {isTos && vDetail?.appealUrl && (
-                      <>
-                        <button
-                          className="btn btn-primary"
-                          onClick={() => openLink(vDetail.appealUrl!)}
-                        >
-                          <ExternalLink size={14} />
-                          {t('wakeup.errorUi.submitAppeal', '立即提交保证书')}
-                        </button>
-                        <button
-                          className="btn btn-secondary"
-                          onClick={() => handleCopyValidationUrl(account.id, vDetail.appealUrl!)}
-                        >
-                          {copiedValidationUrlAccountId === account.id ? <Check size={14} /> : <Copy size={14} />}
-                          {copiedValidationUrlAccountId === account.id
-                            ? t('common.copied', '已复制')
-                            : t('wakeup.errorUi.copyAppealUrl', '复制链接')}
-                        </button>
-                      </>
-                    )}
-                    <button
-                      className="btn btn-secondary"
-                      onClick={() => setShowVerificationErrorModal(null)}
-                    >
-                      {t('common.close')}
-                    </button>
-                  </div>
+                </div>
+                <div className="modal-footer" style={{ gap: 8, flexWrap: 'wrap' }}>
+                  {!isTos && validationUrl && (
+                    <>
+                      <button
+                        className="btn btn-warning"
+                        onClick={() => openLink(validationUrl)}
+                      >
+                        <ExternalLink size={14} />
+                        {t('wakeup.errorUi.completeVerification', '立即验证')}
+                      </button>
+                      <button
+                        className="btn btn-secondary"
+                        onClick={() => handleCopyValidationUrl(account.id, validationUrl)}
+                      >
+                        {copiedValidationUrlAccountId === account.id ? <Check size={14} /> : <Copy size={14} />}
+                        {copiedValidationUrlAccountId === account.id
+                          ? t('common.copied', '已复制')
+                          : t('wakeup.errorUi.copyValidationUrl', '复制验证地址')}
+                      </button>
+                    </>
+                  )}
+                  {isTos && vDetail?.appealUrl && (
+                    <>
+                      <button
+                        className="btn btn-primary"
+                        onClick={() => openLink(vDetail.appealUrl!)}
+                      >
+                        <ExternalLink size={14} />
+                        {t('wakeup.errorUi.submitAppeal', '立即提交保证书')}
+                      </button>
+                      <button
+                        className="btn btn-secondary"
+                        onClick={() => handleCopyValidationUrl(account.id, vDetail.appealUrl!)}
+                      >
+                        {copiedValidationUrlAccountId === account.id ? <Check size={14} /> : <Copy size={14} />}
+                        {copiedValidationUrlAccountId === account.id
+                          ? t('common.copied', '已复制')
+                          : t('wakeup.errorUi.copyAppealUrl', '复制链接')}
+                      </button>
+                    </>
+                  )}
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => setShowVerificationErrorModal(null)}
+                  >
+                    {t('common.close')}
+                  </button>
                 </div>
               </div>
             </div>
@@ -1660,7 +1705,7 @@ export function AccountsOverviewView(props: AccountsOverviewViewProps) {
         onSave={handleSaveTags}
       />
 
-      {(editingAccountNoteAccount || oauthAccountNoteMode) && createPortal(
+      {(editingAccountNoteId || oauthAccountNoteMode) && createPortal(
         <div className="modal-overlay">
           <div
             className="modal antigravity-account-note-modal"
@@ -1688,6 +1733,8 @@ export function AccountsOverviewView(props: AccountsOverviewViewProps) {
                 message={accountNoteError}
                 scrollKey={accountNoteErrorScrollKey}
               />
+              {accountNoteReadStatus === 'loading' && <p role="status">{t('common.loading')}</p>}
+              {accountNoteReadStatus === 'ready' && <>
               <p className="antigravity-account-note-desc">
                 {t('accounts.accountNote.desc', {
                   account: maskAccountText(activeAccountNoteEmail),
@@ -1930,12 +1977,12 @@ export function AccountsOverviewView(props: AccountsOverviewViewProps) {
                   maxLength={ANTIGRAVITY_ACCOUNT_NOTE_MAX_LENGTH}
                   rows={4}
                   disabled={savingAccountNote}
-                  autoFocus
                 />
                 <span className="antigravity-account-note-count">
                   {activeAccountNoteForm.note.length}/{ANTIGRAVITY_ACCOUNT_NOTE_MAX_LENGTH}
                 </span>
               </label>
+              </>}
             </div>
             <div className="modal-footer">
               <button
@@ -1949,12 +1996,12 @@ export function AccountsOverviewView(props: AccountsOverviewViewProps) {
               <button
                 type="button"
                 className="btn btn-primary"
-                onClick={() => void handleSaveAccountNote()}
-                disabled={savingAccountNote}
+                onClick={accountNoteReadStatus === 'failed' ? retryAccountNoteRead : () => void handleSaveAccountNote()}
+                disabled={savingAccountNote || accountNoteReadStatus === 'loading'}
               >
                 {savingAccountNote
                   ? t('common.saving', '保存中...')
-                  : t('common.save', '保存')}
+                  : accountNoteReadStatus === 'failed' ? t('common.retry') : t('common.save', '保存')}
               </button>
             </div>
           </div>

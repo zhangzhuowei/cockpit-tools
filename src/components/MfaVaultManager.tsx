@@ -1,34 +1,64 @@
-import { type ChangeEvent, type ClipboardEvent, useEffect, useRef, useState } from 'react';
+import { type ChangeEvent, type ClipboardEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ArrowDown, ArrowUp, Check, Copy, Download, History, Key, Pencil, Trash2, Upload, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, Check, Copy, Download, History, Info, Key, Pencil, QrCode, Save, ScanLine, Search, Trash2, Upload, X } from 'lucide-react';
+import { isTauri } from '@tauri-apps/api/core';
 import { save, open, confirm } from '@tauri-apps/plugin-dialog';
 import { writeTextFile, readTextFile } from '@tauri-apps/plugin-fs';
 import jsQR from 'jsqr';
 import {
-  MFA_STORAGE_KEY_HISTORY,
-  MFA_STORAGE_KEY_SAVED,
-  createMfaRecordId,
-  dedupeMfaRecordsBySecret,
-  getMfaOtpToken,
-  getMfaTimeRemaining,
+  clearMfaHistoryRecords,
   loadMfaHistoryRecords,
   loadSavedMfaRecords,
+  rememberMfaQuery,
+  restoreMfaRecoveryCheckpoint,
+  startMfaRecovery,
+  subscribeMfaRecovery,
+  subscribeMfaVault,
+  updateMfaHistoryRecords,
+  updateSavedMfaRecords,
+  type MfaRecoveryStatus,
+} from '../services/mfaRecoveryService';
+import { buildMfaMigrationQrPages, type MfaMigrationQrPage } from '../utils/mfaMigrationQr';
+import {
+  createMfaRecordId,
+  dedupeMfaRecordsBySecret,
+  filterMfaRecords,
+  getMfaOtpToken,
+  getMfaTimeRemaining,
   normalizeMfaRecord,
   parseGoogleAuthenticatorMigrationBatch,
   parseMfaCredentialInput,
   parseMfaCredentialInputs,
-  rememberMfaQuery,
+  sortMfaRecords,
+  splitMfaAccountName,
   toMfaSecretIdentity,
   type GoogleAuthenticatorMigrationBatch,
   type MfaRecord,
+  type MfaSortField,
+  type MfaSortState,
   type ParsedMfaCredential,
 } from '../utils/mfaVault';
 
-type SortDirection = 'asc' | 'desc';
 type ListTab = 'saved' | 'history';
 type MigrationBatchState = GoogleAuthenticatorMigrationBatch & {
   credentialsByIndex: Record<number, ParsedMfaCredential[]>;
 };
+
+async function saveExportFile(content: string, filename: string, extension: string, mime: string) {
+  if (isTauri()) {
+    const path = await save({ filters: [{ name: extension.toUpperCase(), extensions: [extension] }], defaultPath: filename });
+    if (path) await writeTextFile(path, content);
+    return;
+  }
+  const url = URL.createObjectURL(new Blob([content], { type: mime }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 async function decodeQrTextFromImage(file: Blob): Promise<string | null> {
   const imageUrl = URL.createObjectURL(file);
@@ -78,9 +108,37 @@ export function MfaVaultManager() {
 
   const [activeQuery, setActiveQuery] = useState<ParsedMfaCredential | null>(null);
   const [activeListTab, setActiveListTab] = useState<ListTab>('saved');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [exportError, setExportError] = useState('');
+  const [storageError, setStorageError] = useState('');
+  const [recoveryStatus, setRecoveryStatus] = useState<MfaRecoveryStatus>('idle');
+  const [qrPages, setQrPages] = useState<MfaMigrationQrPage[]>([]);
+  const [qrPageIndex, setQrPageIndex] = useState(0);
+  const [qrExportScope, setQrExportScope] = useState<'selected' | 'all'>('all');
+  const [savingQr, setSavingQr] = useState(false);
+  const qrDialogRef = useRef<HTMLDialogElement | null>(null);
 
-  const [savedTimeSort, setSavedTimeSort] = useState<SortDirection>('asc');
-  const [historyTimeSort, setHistoryTimeSort] = useState<SortDirection>('asc');
+  const [savedSort, setSavedSort] = useState<MfaSortState>({ field: 'time', direction: 'asc' });
+  const [historySort, setHistorySort] = useState<MfaSortState>({ field: 'time', direction: 'asc' });
+  const activeSort = activeListTab === 'saved' ? savedSort : historySort;
+  const visibleRecords = useMemo(() => (
+    activeListTab === 'saved'
+      ? sortMfaRecords(filterMfaRecords(records, searchQuery), savedSort)
+      : sortMfaRecords(filterMfaRecords(historyRecords, searchQuery), historySort)
+  ), [activeListTab, records, historyRecords, savedSort, historySort, searchQuery]);
+
+  const [selectedSavedIds, setSelectedSavedIds] = useState<Set<string>>(() => new Set());
+  const selectedSavedRecords = useMemo(
+    () => filterMfaRecords(records, searchQuery).filter(record => selectedSavedIds.has(record.id)),
+    [records, selectedSavedIds, searchQuery],
+  );
+  const visibleSelectedCount = activeListTab === 'saved'
+    ? visibleRecords.filter(record => selectedSavedIds.has(record.id)).length : 0;
+  const allSavedSelected = visibleRecords.length > 0 && visibleSelectedCount === visibleRecords.length;
+  const hasPartialSelection = visibleSelectedCount > 0 && !allSavedSelected;
+  const selectAllCheckboxRef = useRef<HTMLInputElement | null>(null);
+  const [batchDeleting, setBatchDeleting] = useState(false);
+  const batchDeletePendingRef = useRef(false);
 
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [editingAccountName, setEditingAccountName] = useState('');
@@ -100,12 +158,23 @@ export function MfaVaultManager() {
     && activeMigrationPartCount >= activeMigrationBatch.batchSize;
 
   useEffect(() => {
-    localStorage.setItem(MFA_STORAGE_KEY_SAVED, JSON.stringify(records));
-  }, [records]);
+    const dialog = qrDialogRef.current;
+    if (!dialog) return;
+    if (qrPages.length > 0 && !dialog.open) dialog.showModal();
+    if (qrPages.length === 0 && dialog.open) dialog.close();
+  }, [qrPages]);
+
+  useEffect(() => subscribeMfaRecovery(setRecoveryStatus), []);
+  useEffect(() => subscribeMfaVault(() => {
+    setRecords(loadSavedMfaRecords());
+    setHistoryRecords(loadMfaHistoryRecords());
+  }), []);
 
   useEffect(() => {
-    localStorage.setItem(MFA_STORAGE_KEY_HISTORY, JSON.stringify(historyRecords));
-  }, [historyRecords]);
+    if (selectAllCheckboxRef.current) {
+      selectAllCheckboxRef.current.indeterminate = hasPartialSelection;
+    }
+  }, [activeListTab, hasPartialSelection]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -114,9 +183,77 @@ export function MfaVaultManager() {
     return () => window.clearInterval(timer);
   }, []);
 
-  const toggleSortDirection = (value: SortDirection): SortDirection => (
-    value === 'asc' ? 'desc' : 'asc'
-  );
+  const changeSaved = async (update: (latest: MfaRecord[]) => MfaRecord[]) => {
+    setStorageError('');
+    try {
+      await updateSavedMfaRecords(update);
+      if (recoveryStatus === 'failed') void startMfaRecovery();
+      return true;
+    } catch {
+      setStorageError(t('mfaVault.storageWriteFailed'));
+      return false;
+    }
+  };
+
+  const changeHistory = async (update?: (latest: MfaRecord[]) => MfaRecord[]) => {
+    setStorageError('');
+    try {
+      if (update) await updateMfaHistoryRecords(update);
+      else await clearMfaHistoryRecords();
+    } catch {
+      setStorageError(t('mfaVault.storageWriteFailed'));
+    }
+  };
+
+  const handleRestoreCheckpoint = async () => {
+    setStorageError('');
+    try {
+      await restoreMfaRecoveryCheckpoint();
+      setSelectedSavedIds(new Set());
+      setEditingAccountId(null);
+    } catch (error) {
+      const reason = String(error);
+      const key = reason.includes('mfa_recovery_live_vault_exists')
+        ? 'mfaVault.checkpointLiveVaultExists'
+        : reason.includes('mfa_recovery_live_vault_sidecar_exists')
+          ? 'mfaVault.checkpointSidecarExists'
+          : 'mfaVault.checkpointRestoreFailed';
+      setStorageError(t(key));
+    }
+  };
+
+  const handleSort = (field: MfaSortField) => {
+    const setSort = activeListTab === 'saved' ? setSavedSort : setHistorySort;
+    setSort(previous => ({
+      field,
+      direction: previous.field === field && previous.direction === 'asc' ? 'desc' : 'asc',
+    }));
+  };
+
+  const toggleSavedSelection = (id: string) => {
+    if (batchDeletePendingRef.current) return;
+    setSelectedSavedIds(previous => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllSaved = () => {
+    if (batchDeletePendingRef.current) return;
+    setSelectedSavedIds(allSavedSelected ? new Set() : new Set(visibleRecords.map(record => record.id)));
+  };
+
+  const handleSearchChange = (value: string) => {
+    if (batchDeletePendingRef.current) return;
+    setSearchQuery(value);
+    setSelectedSavedIds(new Set());
+  };
+
+  const clearSavedSelection = () => {
+    if (!batchDeletePendingRef.current) setSelectedSavedIds(new Set());
+  };
 
   const handleCopy = async (id: string, text: string) => {
     try {
@@ -129,7 +266,7 @@ export function MfaVaultManager() {
   const applyQueryResult = (parsed: ParsedMfaCredential) => {
     setActiveQuery(parsed);
     setInputError('');
-    setHistoryRecords(rememberMfaQuery(parsed));
+    void rememberMfaQuery(parsed).catch(() => setStorageError(t('mfaVault.storageWriteFailed')));
   };
 
   const collectMigrationBatch = (batch: GoogleAuthenticatorMigrationBatch) => {
@@ -182,7 +319,7 @@ export function MfaVaultManager() {
     parseAndQuery(inputValue);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const migrationBatch = parseGoogleAuthenticatorMigrationBatch(inputValue);
     const collectedMigrationBatch = migrationBatch
       ? migrationBatches[String(migrationBatch.batchId)]
@@ -196,7 +333,7 @@ export function MfaVaultManager() {
       return;
     }
 
-    setRecords(prev => {
+    const saved = await changeSaved(prev => {
       let nextRecords = [...prev];
       for (const parsed of parsedCredentials) {
         const finalAccountName = parsed.accountName || activeQuery?.accountName || '';
@@ -220,6 +357,7 @@ export function MfaVaultManager() {
       return dedupeMfaRecordsBySecret(nextRecords);
     });
 
+    if (!saved) return;
     setInputError('');
 
     if (migrationBatch && collectedMigrationBatch
@@ -252,46 +390,75 @@ export function MfaVaultManager() {
     setEditingAccountName('');
   };
 
-  const saveEditAccountName = () => {
-    if (!editingAccountId) return;
-    setRecords(prev => prev.map(record => (
-      record.id === editingAccountId
+  const saveEditAccountName = async () => {
+    const editing = records.find(record => record.id === editingAccountId);
+    if (!editing) return;
+    const identity = toMfaSecretIdentity(editing.secret);
+    if (await changeSaved(prev => prev.map(record => (
+      toMfaSecretIdentity(record.secret) === identity
         ? { ...record, accountName: editingAccountName.trim() }
         : record
-    )));
-    cancelEditAccountName();
+    )))) cancelEditAccountName();
   };
 
   const confirmDeleteSaved = async (id: string, secret: string) => {
+    let confirmed: boolean;
     try {
-      const yes = await confirm(
+      confirmed = await confirm(
         t('twoFactorAuth.confirmDeleteSavedMsg', '确定要永久删除 \n{{secret}}\n 这条认证记录吗？').replace('{{secret}}', secret),
         { title: t('twoFactorAuth.confirmDeleteSavedTitle', '删除确认'), kind: 'warning' }
       );
-      if (yes) {
-        setRecords(prev => prev.filter(item => item.id !== id));
-        if (editingAccountId === id) cancelEditAccountName();
-      }
     } catch {
-      if (window.confirm(t('twoFactorAuth.confirmDeleteSavedFallback', '确定要永久删除这条认证记录吗？'))) {
-        setRecords(prev => prev.filter(item => item.id !== id));
-        if (editingAccountId === id) cancelEditAccountName();
+      confirmed = window.confirm(t('twoFactorAuth.confirmDeleteSavedFallback', '确定要永久删除这条认证记录吗？'));
+    }
+    if (!confirmed) return;
+    const identity = toMfaSecretIdentity(secret);
+    const saved = await changeSaved(prev => prev.filter(item => toMfaSecretIdentity(item.secret) !== identity));
+    if (saved && editingAccountId === id) cancelEditAccountName();
+  };
+
+  const confirmDeleteSelectedSaved = async () => {
+    if (batchDeletePendingRef.current || selectedSavedRecords.length === 0) return;
+    const idsToDelete = new Set(selectedSavedRecords.map(record => record.id));
+    const identitiesToDelete = new Set(selectedSavedRecords.map(record => toMfaSecretIdentity(record.secret)));
+    const message = t('messages.batchDeleteConfirm', { count: idsToDelete.size });
+    batchDeletePendingRef.current = true;
+    setBatchDeleting(true);
+
+    try {
+      let confirmed: boolean;
+      try {
+        confirmed = await confirm(message, {
+          title: t('twoFactorAuth.confirmDeleteSavedTitle', '删除确认'),
+          kind: 'warning',
+        });
+      } catch {
+        confirmed = window.confirm(message);
       }
+      if (!confirmed) return;
+
+      if (!await changeSaved(previous => previous.filter(record => !identitiesToDelete.has(toMfaSecretIdentity(record.secret))))) return;
+      setSelectedSavedIds(previous => new Set([...previous].filter(id => !idsToDelete.has(id))));
+      setEditingAccountId(current => current && idsToDelete.has(current) ? null : current);
+    } finally {
+      batchDeletePendingRef.current = false;
+      setBatchDeleting(false);
     }
   };
 
-  const confirmDeleteHistory = async (id: string, secret: string) => {
+  const confirmDeleteHistory = async (secret: string) => {
+    const identity = toMfaSecretIdentity(secret);
     try {
       const yes = await confirm(
         t('twoFactorAuth.confirmDeleteHistoryMsg', '确定要删除 \n{{secret}}\n 的查询历史吗？').replace('{{secret}}', secret),
         { title: t('twoFactorAuth.confirmDeleteHistoryTitle', '删除历史'), kind: 'info' }
       );
       if (yes) {
-        setHistoryRecords(prev => prev.filter(item => item.id !== id));
+        await changeHistory(prev => prev.filter(item => toMfaSecretIdentity(item.secret) !== identity));
       }
     } catch {
       if (window.confirm(t('twoFactorAuth.confirmDeleteHistoryFallback', '确定要删除这条查询历史吗？'))) {
-        setHistoryRecords(prev => prev.filter(item => item.id !== id));
+        await changeHistory(prev => prev.filter(item => toMfaSecretIdentity(item.secret) !== identity));
       }
     }
   };
@@ -302,53 +469,63 @@ export function MfaVaultManager() {
         title: t('twoFactorAuth.confirmClearAllTitle', '清空确认'),
         kind: 'warning'
       });
-      if (yes) setHistoryRecords([]);
+      if (yes) await changeHistory();
     } catch {
       if (window.confirm(t('twoFactorAuth.confirmClearAllMsg', '确定要清空全部近期查询历史吗？'))) {
-        setHistoryRecords([]);
+        await changeHistory();
       }
     }
   };
 
   const handleExport = async () => {
     if (records.length === 0) return;
+    setExportError('');
     try {
       const exportList = records.map(record => ({
         accountName: record.accountName,
         secret: record.secret,
+        remark: record.remark || '',
         time: record.time,
       }));
 
       const dataStr = JSON.stringify(exportList, null, 2);
       const defaultFilename = `twofa_saved_export_${new Date().toISOString().split('T')[0]}.json`;
 
-      try {
-        const filePath = await save({
-          filters: [{ name: 'JSON', extensions: ['json'] }],
-          defaultPath: defaultFilename,
-        });
+      await saveExportFile(dataStr, defaultFilename, 'json', 'application/json');
+    } catch { setExportError(t('mfaVault.exportFailed')); }
+  };
 
-        if (filePath) {
-          await writeTextFile(filePath, dataStr);
-        }
-        return;
-      } catch (e) {
-        console.warn('Tauri save failed, falling back to web download', e);
-      }
+  const handleExportMigration = () => {
+    setExportError('');
+    const selected = selectedSavedRecords.length > 0;
+    const source = selected ? selectedSavedRecords : records;
+    if (!source.length) return;
+    try {
+      const pages = buildMfaMigrationQrPages(source);
+      setQrExportScope(selected ? 'selected' : 'all');
+      setQrPageIndex(0);
+      setQrPages(pages);
+    } catch (error) {
+      const key = error instanceof Error ? error.message : '';
+      const supportedKeys = ['mfaVault.migrationInvalidRecord', 'mfaVault.migrationRecordTooLarge',
+        'mfaVault.migrationUnsupportedParameters', 'mfaVault.migrationQrFailed'];
+      setExportError(t(supportedKeys.includes(key) ? key : 'mfaVault.migrationQrFailed'));
+    }
+  };
 
-      const blob = new Blob([dataStr], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = defaultFilename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch {}
+  const handleSaveMigrationImage = async () => {
+    const page = qrPages[qrPageIndex];
+    if (!page || savingQr) return;
+    setSavingQr(true);
+    setExportError('');
+    try {
+      await saveExportFile(page.svg, `twofa_migration_${qrPageIndex + 1}_of_${qrPages.length}.svg`, 'svg', 'image/svg+xml');
+    } catch { setExportError(t('mfaVault.exportFailed')); }
+    finally { setSavingQr(false); }
   };
 
   const handleImport = async () => {
+    setExportError('');
     try {
       let dataStr = '';
       try {
@@ -391,15 +568,13 @@ export function MfaVaultManager() {
       const parsed = JSON.parse(dataStr);
       if (!Array.isArray(parsed)) throw new Error('Invalid format');
 
-      setRecords(prev => {
-        const incoming = parsed
-          .map(normalizeMfaRecord)
-          .filter((item): item is MfaRecord => !!item);
-        return dedupeMfaRecordsBySecret([...incoming, ...prev]);
-      });
+      const incoming = parsed.map(normalizeMfaRecord).filter((item): item is MfaRecord => !!item);
+      if (incoming.length > 0) {
+        await changeSaved(prev => dedupeMfaRecordsBySecret([...incoming, ...prev]));
+      }
     } catch (err) {
       console.error('Import error:', err);
-      alert(t('mfaVault.importErrorMsg', '导入失败，请检查文件内容格式。'));
+      setExportError(t('mfaVault.importErrorMsg', '导入失败，请检查文件内容格式。'));
     }
   };
 
@@ -450,7 +625,7 @@ export function MfaVaultManager() {
 
   const formatTime = (ms: number) => {
     const d = new Date(ms);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
   };
 
   const currentToken = activeQuery ? getMfaOtpToken(activeQuery.secret) : '';
@@ -458,198 +633,222 @@ export function MfaVaultManager() {
 
   const renderRows = (source: MfaRecord[], isHistory: boolean) => {
     if (source.length === 0) {
+      if (recoveryStatus === 'checkpoint-required' || recoveryStatus === 'restoring') return null;
       return (
         <tr>
-          <td colSpan={5}>
+          <td colSpan={isHistory ? 5 : 6}>
             <div className="tfa-empty-state">
-              {isHistory ? t('twoFactorAuth.emptyHistory', '暂无查询历史') : t('mfaVault.noData', '暂无保存的凭证数据')}
+              {searchQuery.trim() ? t('mfaVault.noSearchResults') : isHistory
+                ? t('twoFactorAuth.emptyHistory', '暂无查询历史') : t('mfaVault.noData', '暂无保存的凭证数据')}
             </div>
           </td>
         </tr>
       );
     }
 
-    const sortDirection = isHistory ? historyTimeSort : savedTimeSort;
+    return source.map(record => {
+      const token = getMfaOtpToken(record.secret);
+      const displayAccount = record.accountName || '--';
+      const accountParts = splitMfaAccountName(record.accountName);
 
-    return [...source]
-      .sort((a, b) => (
-        sortDirection === 'asc'
-          ? a.time - b.time
-          : b.time - a.time
-      ))
-      .map(record => {
-        const token = getMfaOtpToken(record.secret);
-        const displayAccount = record.accountName || '--';
-
-        return (
-          <tr key={record.id}>
-            <td title={displayAccount} style={{ fontWeight: 500 }}>
-              {!isHistory && editingAccountId === record.id ? (
-                <div className="mfa-vault-account-edit-wrap">
-                  <div className="mfa-vault-account-edit-row">
-                    <input
-                      type="text"
-                      value={editingAccountName}
-                      onChange={e => setEditingAccountName(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          saveEditAccountName();
-                        } else if (e.key === 'Escape') {
-                          e.preventDefault();
-                          cancelEditAccountName();
-                        }
-                      }}
-                      autoFocus
-                    />
-                    <button
-                      type="button"
-                      className="action-btn"
-                      title={t('mfaVault.saveAccountName')}
-                      onClick={saveEditAccountName}
-                    >
-                      <Check size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      className="action-btn"
-                      title={t('mfaVault.cancelEditAccountName')}
-                      onClick={cancelEditAccountName}
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="mfa-vault-account-cell">
-                  <span className="mfa-vault-account-text">{displayAccount}</span>
-                  {!isHistory ? (
-                    <button
-                      type="button"
-                      className="action-btn"
-                      title={t('mfaVault.editAccountName')}
-                      onClick={() => startEditAccountName(record)}
-                    >
-                      <Pencil size={14} />
-                    </button>
-                  ) : null}
-                </div>
-              )}
+      return (
+        <tr key={record.id} className={!isHistory && selectedSavedIds.has(record.id) ? 'tfa-selected' : undefined}>
+          {!isHistory && (
+            <td className="tfa-select-column">
+              <label className="tfa-select-control">
+                <input
+                  type="checkbox"
+                  className="tfa-select-checkbox"
+                  aria-label={displayAccount}
+                  checked={selectedSavedIds.has(record.id)}
+                  disabled={batchDeleting}
+                  onChange={() => toggleSavedSelection(record.id)}
+                />
+              </label>
             </td>
-            <td className="tfa-secret-cell" title={record.secret}>
-              <div className="tfa-secret-wrap">
-                <span className="tfa-secret-value">{record.secret}</span>
-                <button
-                  type="button"
-                  className="action-btn"
-                  title={t('mfaVault.copySecret', '复制秘钥')}
-                  onClick={() => handleCopy(`${record.id}-secret`, record.secret)}
-                >
-                  {copiedId === `${record.id}-secret` ? <Check size={14} className="is-success" /> : <Copy size={14} />}
-                </button>
-              </div>
-            </td>
-            <td>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                {token ? (
-                  <>
-                    <span className="tfa-code-cell">{token}</span>
-                    <span className={`tfa-time-badge ${isWarning ? 'warning' : ''}`}>{timeRemaining}s</span>
-                  </>
-                ) : (
-                  <span style={{ color: 'var(--text-tertiary)' }}>
-                    {t('mfaVault.invalidSecretVal', '无效秘钥')}
-                  </span>
-                )}
-                <button
-                  type="button"
-                  className="action-btn"
-                  title={t('mfaVault.copyCode', '复制验证码')}
-                  disabled={!token}
-                  onClick={() => handleCopy(`${record.id}-code`, token)}
-                >
-                  {copiedId === `${record.id}-code` ? <Check size={14} className="is-success" /> : <Copy size={14} />}
-                </button>
-              </div>
-            </td>
-            <td style={{ color: 'var(--text-tertiary)', fontSize: '12px' }}>
-              {formatTime(record.time)}
-            </td>
-            <td>
-              <div className="tfa-actions">
-                {isHistory ? (
+          )}
+          <td title={displayAccount} style={{ fontWeight: 500 }}>
+            {!isHistory && editingAccountId === record.id ? (
+              <div className="mfa-vault-account-edit-wrap">
+                <div className="mfa-vault-account-edit-row">
+                  <input
+                    type="text"
+                    title={t('mfaVault.editAccountHint')}
+                    value={editingAccountName}
+                    onChange={e => setEditingAccountName(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        saveEditAccountName();
+                      } else if (e.key === 'Escape') {
+                        e.preventDefault();
+                        cancelEditAccountName();
+                      }
+                    }}
+                    autoFocus
+                  />
                   <button
                     type="button"
                     className="action-btn"
-                    title={t('twoFactorAuth.actionReload', '重新加载到查询器')}
-                    onClick={() => handleLoadFromHistory(record)}
+                    title={t('mfaVault.saveAccountName')}
+                    onClick={saveEditAccountName}
                   >
-                    <History size={14} />
+                    <Check size={14} />
                   </button>
-                ) : null}
+                  <button
+                    type="button"
+                    className="action-btn"
+                    title={t('mfaVault.cancelEditAccountName')}
+                    onClick={cancelEditAccountName}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="mfa-vault-account-cell">
+                <span className="mfa-account-avatar" aria-hidden="true"><Key size={20} /></span>
+                <div className="mfa-account-details">
+                  <div className="mfa-account-name-row">
+                    <span className="mfa-vault-account-text">{accountParts.issuer || accountParts.account || '--'}</span>
+                    {!isHistory ? (
+                      <button
+                        type="button"
+                        className="action-btn"
+                        title={t('mfaVault.editAccountName')}
+                        onClick={() => startEditAccountName(record)}
+                      >
+                        <Pencil size={14} />
+                      </button>
+                    ) : null}
+                  </div>
+                  {accountParts.issuer && <span className="mfa-account-secondary">{accountParts.account}</span>}
+                </div>
+              </div>
+            )}
+          </td>
+          <td className="tfa-secret-cell" title={record.secret}>
+            <div className="tfa-secret-wrap">
+              <span className="tfa-secret-value">{record.secret}</span>
+              <button
+                type="button"
+                className="action-btn"
+                title={t('mfaVault.copySecret', '复制秘钥')}
+                onClick={() => handleCopy(`${record.id}-secret`, record.secret)}
+              >
+                {copiedId === `${record.id}-secret` ? <Check size={14} className="is-success" /> : <Copy size={14} />}
+              </button>
+            </div>
+          </td>
+          <td>
+            <div className="tfa-code-wrap">
+              {token ? (
+                <span className="tfa-code-cell">{token}</span>
+              ) : (
+                <span style={{ color: 'var(--text-tertiary)' }}>
+                  {t('mfaVault.invalidSecretVal', '无效秘钥')}
+                </span>
+              )}
+              <button
+                type="button"
+                className="action-btn"
+                title={t('mfaVault.copyCode', '复制验证码')}
+                disabled={!token}
+                onClick={() => handleCopy(`${record.id}-code`, token)}
+              >
+                {copiedId === `${record.id}-code` ? <Check size={14} className="is-success" /> : <Copy size={14} />}
+              </button>
+            </div>
+          </td>
+          <td className="tfa-time-cell">{formatTime(record.time)}</td>
+          <td>
+            <div className="tfa-actions">
+              {isHistory ? (
                 <button
                   type="button"
-                  className="action-btn is-danger"
-                  title={t('mfaVault.delete', '删除')}
-                  onClick={() => (isHistory ? confirmDeleteHistory(record.id, record.secret) : confirmDeleteSaved(record.id, record.secret))}
+                  className="action-btn"
+                  title={t('twoFactorAuth.actionReload', '重新加载到查询器')}
+                  onClick={() => handleLoadFromHistory(record)}
                 >
-                  <Trash2 size={14} />
+                  <History size={14} />
                 </button>
-              </div>
-            </td>
-          </tr>
-        );
-      });
+              ) : null}
+              <button
+                type="button"
+                className="action-btn is-danger"
+                title={t('mfaVault.delete', '删除')}
+                onClick={() => (isHistory ? confirmDeleteHistory(record.secret) : confirmDeleteSaved(record.id, record.secret))}
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          </td>
+        </tr>
+      );
+    });
   };
 
   return (
-    <>
-      <div className="query-section">
-        <h3 style={{ margin: 0, fontSize: '15px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <Key size={16} /> {t('twoFactorAuth.panelQuery', '功能区 (查询面板)')}
-        </h3>
-
-        <div className="query-main" style={{ alignItems: 'stretch' }}>
+    <div className="mfa-vault-workspace">
+      <section className="query-section" aria-label={t('twoFactorAuth.panelQuery', '功能区 (查询面板)')}>
+        <div className="mfa-query-header">
+          <span className="mfa-query-icon"><Key size={20} aria-hidden="true" /></span>
+          <h1>{t('twoFactorAuth.pageTitle')}</h1>
+          <button type="button" className="mfa-storage-info" aria-label={t('twoFactorAuth.pageDescNew')}>
+            <Info size={16} aria-hidden="true" />
+          </button>
+          <span className="mfa-storage-tooltip" role="tooltip">{t('twoFactorAuth.pageDescNew')}</span>
+        </div>
+        <div className="query-main">
           <div className="query-inputs">
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <input
-                type="text"
-                placeholder={t('mfaVault.inputOtpAuthPlaceholder')}
-                value={inputValue}
-                onChange={e => {
-                  setInputValue(e.target.value);
-                  if (inputError) setInputError('');
-                }}
-                onPaste={handlePasteImage}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') handleQuery();
-                }}
-                style={{ fontFamily: 'var(--font-mono)' }}
-              />
+            <div className="query-input-header">
+              <label htmlFor="mfa-credential-input">{t('twoFactorAuth.tableSecret', '秘钥')}</label>
+              <div className="query-actions-row">
+                <button
+                  className="btn btn-secondary"
+                  onClick={openUploadDialog}
+                  disabled={recognizingImage}
+                  title={t('mfaVault.uploadQrImageTitle')}
+                >
+                  <Upload size={14} aria-hidden="true" />
+                  {recognizingImage ? t('mfaVault.recognizing') : t('mfaVault.uploadQrImage')}
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  onClick={handleSave}
+                  disabled={!inputValue.trim() || recognizingImage}
+                >
+                  <Save size={14} aria-hidden="true" /> {t('twoFactorAuth.btnSaveToFavorites')}
+                </button>
+              </div>
             </div>
+            <div className="query-toolbar">
+              <div className="form-group">
+                <input
+                  id="mfa-credential-input"
+                  type="text"
+                  aria-label={t('mfaVault.inputOtpAuthPlaceholder')}
+                  placeholder={t('mfaVault.inputOtpAuthPlaceholder')}
+                  title={`${t('mfaVault.otpauthInputHint')} ${t('mfaVault.pasteQrImageHint')}`}
+                  value={inputValue}
+                  onChange={e => {
+                    setInputValue(e.target.value);
+                    if (inputError) setInputError('');
+                  }}
+                  onPaste={handlePasteImage}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') handleQuery();
+                  }}
+                  style={{ fontFamily: 'var(--font-mono)' }}
+                />
+              </div>
 
-            <div className="query-actions-row">
               <button
                 className="btn btn-primary"
                 onClick={handleQuery}
                 disabled={!inputValue.trim() || recognizingImage}
               >
-                {t('twoFactorAuth.btnQuery', '查 询')}
-              </button>
-              <button
-                className="btn btn-secondary"
-                onClick={handleSave}
-                disabled={!inputValue.trim() || recognizingImage}
-              >
-                {t('twoFactorAuth.btnSaveToFavorites', '保存到列表')}
-              </button>
-              <button
-                className="btn btn-secondary"
-                onClick={openUploadDialog}
-                disabled={recognizingImage}
-                title={t('mfaVault.uploadQrImageTitle')}
-              >
-                <Upload size={14} /> {recognizingImage ? t('mfaVault.recognizing') : t('mfaVault.uploadQrImage')}
+                <Search size={18} aria-hidden="true" /> {t('twoFactorAuth.btnQuery', '查 询')}
               </button>
             </div>
 
@@ -661,19 +860,16 @@ export function MfaVaultManager() {
               style={{ display: 'none' }}
             />
 
-            <div className="mfa-vault-manual-hint">
-              {t('mfaVault.otpauthInputHint')}
-              {' '}
-              {t('mfaVault.pasteQrImageHint')}
-            </div>
             {activeMigrationBatch && (
-              <div className="mfa-vault-manual-hint">
-                {t('mfaVault.migrationBatchProgress', 'Google Authenticator 迁移批次：已识别 {{scanned}}/{{total}} 张二维码。')
-                  .replace('{{scanned}}', activeMigrationPartCount.toString())
-                  .replace('{{total}}', activeMigrationBatch.batchSize.toString())}
-                {!activeMigrationIsComplete && (
-                  <> {t('mfaVault.migrationBatchIncomplete', '批次未完成，仍可保存已扫描账号。')}</>
-                )}
+              <div className="mfa-vault-migration-row">
+                <span className="mfa-vault-manual-hint">
+                  {t('mfaVault.migrationBatchProgress', 'Google Authenticator 迁移批次：已识别 {{scanned}}/{{total}} 张二维码。')
+                    .replace('{{scanned}}', activeMigrationPartCount.toString())
+                    .replace('{{total}}', activeMigrationBatch.batchSize.toString())}
+                  {!activeMigrationIsComplete && (
+                    <> {t('mfaVault.migrationBatchIncomplete', '批次未完成，仍可保存已扫描账号。')}</>
+                  )}
+                </span>
                 <div className="query-actions-row">
                   <button className="btn btn-secondary btn-sm" onClick={openUploadDialog} disabled={recognizingImage}>
                     <Upload size={14} /> {t('mfaVault.continueMigrationScan', '继续扫描')}
@@ -693,6 +889,8 @@ export function MfaVaultManager() {
           </div>
 
           <div className="query-result-box">
+            {!currentToken && <ScanLine className="query-result-icon" size={26} aria-hidden="true" />}
+            <span className="query-result-label">{t('mfaVault.dynamicCode', '动态码')}</span>
             {timeRemaining > 0 && currentToken && (
               <span
                 className={`query-result-countdown ${timeRemaining <= 5 ? 'error-text' : ''}`}
@@ -702,10 +900,11 @@ export function MfaVaultManager() {
               </span>
             )}
             {currentToken ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div className="query-result-value">
                 <span className="query-result-code">{currentToken}</span>
                 <button
                   className="action-btn"
+                  title={t('mfaVault.copyCode', '复制验证码')}
                   onClick={() => handleCopy('query-code', currentToken)}
                 >
                   {copiedId === 'query-code' ? <Check size={18} /> : <Copy size={18} />}
@@ -718,7 +917,7 @@ export function MfaVaultManager() {
             )}
           </div>
         </div>
-      </div>
+      </section>
 
       <div className="lists-section">
         <div className="list-panel">
@@ -726,29 +925,62 @@ export function MfaVaultManager() {
             <div className="list-tabs">
               <button
                 className={`list-tab ${activeListTab === 'saved' ? 'active' : ''}`}
+                aria-pressed={activeListTab === 'saved'}
                 onClick={() => setActiveListTab('saved')}
               >
                 {t('twoFactorAuth.tabSaved', '★ 已保存')}
+                <span className="list-tab-count">{records.length}</span>
               </button>
               <button
                 className={`list-tab ${activeListTab === 'history' ? 'active' : ''}`}
+                aria-pressed={activeListTab === 'history'}
                 onClick={() => setActiveListTab('history')}
               >
                 <History size={16} /> {t('twoFactorAuth.tabHistory', '近期查询')}
+                <span className="list-tab-count">{historyRecords.length}</span>
               </button>
             </div>
 
+          </div>
+          <div className="mfa-list-toolbar">
+            <label className="mfa-list-search">
+              <Search size={18} aria-hidden="true" />
+              <input type="search" value={searchQuery} disabled={batchDeleting}
+                aria-label={t('mfaVault.searchPlaceholder')} placeholder={t('mfaVault.searchPlaceholder')}
+                onChange={event => handleSearchChange(event.target.value)} />
+            </label>
             <div className="list-actions">
               {activeListTab === 'saved' ? (
                 <>
-                  <button className="btn btn-secondary btn-sm" onClick={handleImport}>
-                    <Upload size={14} /> {t('mfaVault.import', '导入')}
+                  <button className="btn btn-secondary btn-sm" onClick={handleExportMigration} disabled={!records.length || batchDeleting}>
+                    <QrCode size={16} aria-hidden="true" /> {t('mfaVault.exportMigrationQr')}
                   </button>
-                  {records.length > 0 ? (
-                    <button className="btn btn-secondary btn-sm" onClick={handleExport}>
-                      <Download size={14} /> {t('mfaVault.export', '导出')}
-                    </button>
-                  ) : null}
+                  <button className="btn btn-secondary btn-sm" onClick={handleExport} disabled={!records.length}
+                    title={t('mfaVault.exportBackupHint')}>
+                    <Download size={14} aria-hidden="true" /> {t('mfaVault.exportBackup')}
+                  </button>
+                  <button className="btn btn-secondary btn-sm" onClick={handleImport}>
+                    <Upload size={14} aria-hidden="true" /> {t('mfaVault.importBackup')}
+                  </button>
+                  {selectedSavedRecords.length > 0 && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={clearSavedSelection}
+                        disabled={batchDeleting}
+                      >
+                        {t('messages.clearSelection', '取消选择')}
+                      </button>
+                  )}
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={confirmDeleteSelectedSaved}
+                    disabled={batchDeleting || selectedSavedRecords.length === 0}
+                  >
+                    <Trash2 size={14} aria-hidden="true" />
+                    {t('mfaVault.batchDelete')}{selectedSavedRecords.length > 0 ? ` (${selectedSavedRecords.length})` : ''}
+                  </button>
                 </>
               ) : (
                 historyRecords.length > 0 ? (
@@ -759,64 +991,126 @@ export function MfaVaultManager() {
               )}
             </div>
           </div>
+          {recoveryStatus === 'running' && <p role="status">{t('common.loading')}</p>}
+          {recoveryStatus === 'restoring' && <p role="status">{t('mfaVault.checkpointRestoring')}</p>}
+          {recoveryStatus === 'checkpoint-required' && (
+            <div className="mfa-export-error" role="alert">
+              {t('mfaVault.checkpointAvailable')}{' '}
+              <button type="button" className="btn btn-secondary btn-sm" onClick={handleRestoreCheckpoint}>
+                {t('mfaVault.restoreCheckpoint')}
+              </button>
+            </div>
+          )}
+          {recoveryStatus === 'failed' && (
+            <div className="mfa-export-error" role="alert">
+              {t('mfaVault.recoveryFailed')}{' '}
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => {
+                setStorageError('');
+                void startMfaRecovery();
+              }}>
+                {t('common.retry')}
+              </button>
+            </div>
+          )}
+          {storageError && <p className="mfa-export-error" role="alert">{storageError}</p>}
+          {exportError && qrPages.length === 0 && <p className="mfa-export-error" role="alert">{exportError}</p>}
 
           <div className="list-content">
-            {activeListTab === 'saved' ? (
-              <table className="tfa-table">
-                <thead>
-                  <tr>
-                    <th style={{ width: '24%' }}>{t('mfaVault.accountName', '账号名')}</th>
-                    <th>{t('twoFactorAuth.tableSecret', '秘钥')}</th>
-                    <th>{t('mfaVault.dynamicCode', '动态码')}</th>
-                    <th style={{ width: '15%' }}>
-                      <span className="tfa-sort-header">
-                        {t('mfaVault.time', '时间')}
-                        <button
-                          type="button"
-                          className="tfa-sort-toggle"
-                          title={t('instances.sort.toggleDirection', '切换排序方向')}
-                          aria-label={t('instances.sort.toggleDirection', '切换排序方向')}
-                          onClick={() => setSavedTimeSort(prev => toggleSortDirection(prev))}
-                        >
-                          {savedTimeSort === 'asc' ? <ArrowUp size={13} /> : <ArrowDown size={13} />}
-                        </button>
-                      </span>
+            <table className="tfa-table">
+              <thead>
+                <tr>
+                  {activeListTab === 'saved' && (
+                    <th className="tfa-select-column" scope="col">
+                      <label className="tfa-select-control" title={t('common.selectAll', '全选')}>
+                        <input
+                          ref={selectAllCheckboxRef}
+                          type="checkbox"
+                          className="tfa-select-checkbox"
+                          aria-label={t('common.selectAll', '全选')}
+                          checked={allSavedSelected}
+                          disabled={batchDeleting || visibleRecords.length === 0}
+                          onChange={toggleSelectAllSaved}
+                        />
+                      </label>
                     </th>
-                    <th style={{ width: '100px' }}>{t('mfaVault.actions', '操作')}</th>
-                  </tr>
-                </thead>
-                <tbody>{renderRows(records, false)}</tbody>
-              </table>
-            ) : (
-              <table className="tfa-table">
-                <thead>
-                  <tr>
-                    <th style={{ width: '24%' }}>{t('mfaVault.accountName', '账号名')}</th>
-                    <th>{t('twoFactorAuth.tableSecret', '秘钥')}</th>
-                    <th>{t('mfaVault.dynamicCode', '动态码')}</th>
-                    <th style={{ width: '15%' }}>
-                      <span className="tfa-sort-header">
-                        {t('mfaVault.time', '时间')}
-                        <button
-                          type="button"
-                          className="tfa-sort-toggle"
-                          title={t('instances.sort.toggleDirection', '切换排序方向')}
-                          aria-label={t('instances.sort.toggleDirection', '切换排序方向')}
-                          onClick={() => setHistoryTimeSort(prev => toggleSortDirection(prev))}
-                        >
-                          {historyTimeSort === 'asc' ? <ArrowUp size={13} /> : <ArrowDown size={13} />}
-                        </button>
-                      </span>
-                    </th>
-                    <th style={{ width: '120px' }}>{t('mfaVault.actions', '操作')}</th>
-                  </tr>
-                </thead>
-                <tbody>{renderRows(historyRecords, true)}</tbody>
-              </table>
-            )}
+                  )}
+                  <th
+                    className="tfa-account-column"
+                    scope="col"
+                    aria-sort={activeSort.field === 'accountName' ? (activeSort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+                  >
+                    <button
+                      type="button"
+                      className={`tfa-sort-toggle ${activeSort.field === 'accountName' ? 'active' : ''}`}
+                      title={t('instances.sort.toggleDirection', '切换排序方向')}
+                      onClick={() => handleSort('accountName')}
+                    >
+                      {t('mfaVault.accountName', '账号名')}
+                      {activeSort.field !== 'accountName' ? (
+                        <ArrowUpDown size={14} aria-hidden="true" />
+                      ) : activeSort.direction === 'asc' ? (
+                        <ArrowUp size={14} aria-hidden="true" />
+                      ) : (
+                        <ArrowDown size={14} aria-hidden="true" />
+                      )}
+                    </button>
+                  </th>
+                  <th scope="col">{t('twoFactorAuth.tableSecret', '秘钥')}</th>
+                  <th className="tfa-code-column" scope="col">
+                    <div className="tfa-code-heading">
+                      {t('mfaVault.dynamicCode', '动态码')}
+                      <span className={`tfa-time-badge ${isWarning ? 'warning' : ''}`}>{timeRemaining}s</span>
+                    </div>
+                  </th>
+                  <th className="tfa-time-column" scope="col"
+                    aria-sort={activeSort.field === 'time' ? (activeSort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                    <button type="button" className={`tfa-sort-toggle ${activeSort.field === 'time' ? 'active' : ''}`}
+                      title={t('instances.sort.toggleDirection', '切换排序方向')} onClick={() => handleSort('time')}>
+                      {t('mfaVault.time', '时间')}
+                      {activeSort.field !== 'time' ? <ArrowUpDown size={14} aria-hidden="true" />
+                        : activeSort.direction === 'asc' ? <ArrowUp size={14} aria-hidden="true" />
+                          : <ArrowDown size={14} aria-hidden="true" />}
+                    </button>
+                  </th>
+                  <th className="tfa-actions-column" scope="col">{t('mfaVault.actions', '操作')}</th>
+                </tr>
+              </thead>
+              <tbody>{renderRows(visibleRecords, activeListTab === 'history')}</tbody>
+            </table>
           </div>
         </div>
       </div>
-    </>
+      <dialog className="mfa-migration-dialog" ref={qrDialogRef} aria-labelledby="mfa-migration-title"
+        onCancel={() => setQrPages([])} onClose={() => setQrPages([])}>
+        {qrPages[qrPageIndex] && <>
+          <div className="mfa-migration-header">
+            <h2 id="mfa-migration-title">{t('mfaVault.migrationTitle')}</h2>
+            <button type="button" className="action-btn" onClick={() => setQrPages([])} aria-label={t('common.close')} autoFocus>
+              <X size={20} aria-hidden="true" />
+            </button>
+          </div>
+          <p className="mfa-migration-summary">{t(qrExportScope === 'selected'
+            ? 'mfaVault.migrationSelectedSummary' : 'mfaVault.migrationAllSummary', {
+            count: qrPages.reduce((sum, page) => sum + page.count, 0),
+          })}</p>
+          <p className="mfa-migration-warning">{t('mfaVault.migrationWarning')}</p>
+          <img className="mfa-migration-image" src={qrPages[qrPageIndex].dataUrl}
+            alt={t('mfaVault.migrationImageAlt', { current: qrPageIndex + 1, total: qrPages.length })} />
+          <p className="mfa-migration-page">{t('mfaVault.migrationPage', {
+            current: qrPageIndex + 1, total: qrPages.length, count: qrPages[qrPageIndex].count,
+          })}</p>
+          <div className="mfa-migration-actions">
+            <button className="btn btn-secondary" disabled={qrPageIndex === 0 || savingQr}
+              onClick={() => setQrPageIndex(index => index - 1)}>{t('mfaVault.migrationPrevious')}</button>
+            <button className="btn btn-secondary" disabled={qrPageIndex === qrPages.length - 1 || savingQr}
+              onClick={() => setQrPageIndex(index => index + 1)}>{t('mfaVault.migrationNext')}</button>
+            <button className="btn btn-primary" disabled={savingQr} onClick={handleSaveMigrationImage}>
+              <Download size={16} aria-hidden="true" /> {t('mfaVault.migrationSaveImage')}
+            </button>
+          </div>
+          {exportError && <p className="mfa-export-error" role="alert">{exportError}</p>}
+        </>}
+      </dialog>
+    </div>
   );
 }

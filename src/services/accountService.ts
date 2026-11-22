@@ -1,3 +1,4 @@
+import type { LocalHistoryRead } from '../hooks/useLocalHistory';
 import { invoke } from '@tauri-apps/api/core';
 import { Account, AccountNoteUpdate, RefreshStats } from '../types/account';
 import { AntigravityRuntimeTarget, getAntigravityRuntimeTarget } from '../utils/antigravityRuntimeTarget';
@@ -84,9 +85,30 @@ export async function openDataFolder(): Promise<void> {
 export async function switchAccount(
     accountId: string,
     runtimeTarget?: AntigravityRuntimeTarget,
+    launch?: boolean,
+    inlinePathRecovery?: boolean,
 ): Promise<Account> {
-    return await invoke('switch_account', { accountId, runtimeTarget });
+    return await invoke('switch_account', { accountId, runtimeTarget, launch, inlinePathRecovery });
 }
+
+export interface AntigravityCliLaunchOptions {
+    workingDir?: string;
+    terminal?: string;
+    customCommand?: string;
+}
+
+export function switchAntigravityCli(accountId: string, launch: boolean, options?: AntigravityCliLaunchOptions): Promise<Account> {
+    return invoke('switch_antigravity_cli', { accountId, launch, ...options });
+}
+
+export function launchAntigravityCli(options: AntigravityCliLaunchOptions): Promise<void> {
+    return invoke('launch_antigravity_cli', { ...options });
+}
+
+export function getAntigravityCliLaunchCommand(options: AntigravityCliLaunchOptions): Promise<string> {
+    return invoke('antigravity_cli_launch_command', { ...options });
+}
+
 
 export interface AntigravitySwitchHistoryItem {
     id: string;
@@ -133,8 +155,8 @@ export interface AntigravityAutoSwitchReason {
   selectedPolicy: string;
 }
 
-export async function loadAntigravitySwitchHistory(): Promise<AntigravitySwitchHistoryItem[]> {
-    return await invoke('load_antigravity_switch_history');
+export function loadAntigravitySwitchHistory(retry = false): Promise<LocalHistoryRead<AntigravitySwitchHistoryItem>> {
+    return invoke('load_antigravity_switch_history', { retry });
 }
 
 export async function clearAntigravitySwitchHistory(): Promise<void> {
@@ -165,8 +187,8 @@ export async function importFromOldTools(): Promise<Account[]> {
 }
 
 
-export async function importFromLocal(): Promise<Account> {
-    return await invoke('import_from_local');
+export async function importFromLocal(runtimeTarget: AntigravityRuntimeTarget): Promise<Account> {
+    return await invoke('import_from_local', { runtimeTarget });
 }
 
 export async function importFromJson(jsonContent: string): Promise<Account[]> {

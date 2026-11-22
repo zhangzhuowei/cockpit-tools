@@ -1,18 +1,20 @@
 # Cockpit Tools
 
-[English](README.en.md) · [Portuguese (BR)](README.pt-br.md) · 简体中文
+[English](README.en.md) · [Portuguese (BR)](README.pt-br.md) · [한국어](README.ko.md) · 简体中文
 
 [![GitHub stars](https://img.shields.io/github/stars/jlcodes99/cockpit-tools?style=flat&color=gold)](https://github.com/jlcodes99/cockpit-tools)
 [![GitHub downloads](https://img.shields.io/github/downloads/jlcodes99/cockpit-tools/total?style=flat&color=blue)](https://github.com/jlcodes99/cockpit-tools/releases)
 [![GitHub release](https://img.shields.io/github/v/release/jlcodes99/cockpit-tools?style=flat)](https://github.com/jlcodes99/cockpit-tools/releases)
 [![GitHub issues](https://img.shields.io/github/issues/jlcodes99/cockpit-tools)](https://github.com/jlcodes99/cockpit-tools/issues)
 
-一款**通用的 AI IDE 账号管理工具**，目前支持 **Antigravity IDE**、**Codex**、**GitHub Copilot**、**Windsurf**、**Kiro**、**Cursor**、**Grok CLI**、**CodeBuddy**、**CodeBuddy CN**、**Qoder**、**Trae**、**TRAE SOLO**、**Trae CN**、**TRAE SOLO CN**、**Zed** 和 **ZCode**，并支持多账号多实例并行运行。
+一款**通用的 AI IDE 账号管理工具**，目前支持 **Antigravity IDE**、**Codex**、**GitHub Copilot**、**Windsurf**、**Kiro**、**Cursor**、**Grok CLI**、**CodeBuddy**、**CodeBuddy CN**、**Qoder**、**Trae**、**TraeWork**、**Trae CN**、**TraeWork CN**、**Zed**、**ZCode** 和 **WorkBuddy AI**，并支持多账号多实例并行运行。
 
 
 > 本工具旨在帮助用户高效管理多个 AI IDE 账号，支持一键切换、配额监控、自动唤醒与应用多开并行运行，助您充分利用不同账号的资源。
 
 **功能**：一键切号 · 多账号管理 · 应用多开 · 配额监控 · 唤醒任务 · 插件联动 · GitHub Copilot 管理 · Windsurf 管理 · Kiro 管理 · Cursor 管理 · Grok CLI 管理 · CodeBuddy 管理 · CodeBuddy CN 管理 · Qoder 管理 · Trae 套件管理 · Zed 管理 · ZCode 管理
+
+**WorkBuddy AI 国际版**（macOS、Windows）：支持浏览器授权、本机或 JSON 导入、积分余额和桌面客户端切号。
 
 **语言**：支持 18 种语言
 
@@ -55,7 +57,7 @@
 
 全新的可视化仪表盘，为您提供一站式的状态概览：
 
-- **十六平台支持**：同时展示 Antigravity IDE、Codex、GitHub Copilot、Windsurf、Kiro、Cursor、Grok CLI、CodeBuddy、CodeBuddy CN、Qoder、Trae、TRAE SOLO、Trae CN、TRAE SOLO CN、Zed 与 ZCode 的账号状态
+- **十六平台支持**：同时展示 Antigravity IDE、Codex、GitHub Copilot、Windsurf、Kiro、Cursor、Grok CLI、CodeBuddy、CodeBuddy CN、Qoder、Trae、TraeWork、Trae CN、TraeWork CN、Zed 与 ZCode 的账号状态
 - **配额监控**：实时查看各模型剩余配额、重置时间
 - **快捷操作**：一键刷新、一键唤醒
 - **可视化进度**：直观的进度条展示配额消耗情况
@@ -64,9 +66,10 @@
 
 > 界面截图更新于 2026-11-02，使用 Cockpit Tools v1.3.78 实机拍摄；账号信息已隐藏。
 
-### 2. Antigravity IDE 账号管理
+### 2. Antigravity 账号管理
 
-- **一键切号**：IDE 2.6 起，默认 IDE、桌面 App 和已初始化的 `agy` 共用登录凭据。启用切号启动时会重新打开正在运行的另一端客户端。旧版 IDE 使用独立的本地登录状态。
+- **统一账号入口**：从账号页打开启动弹框，选择 Antigravity、Antigravity IDE 或官方 CLI（`agy`）。可以仅切号，也可以切号后启动。CLI 支持指定工作目录。
+- **共享登录**：IDE 2.6 起，默认 IDE、采用系统凭据的 App 和使用 Google 登录的 `agy` 可以共用登录凭据。旧版 IDE 使用独立的本地登录状态。
 - **多种导入**：支持 OAuth 授权、Refresh Token、插件同步
 - **唤醒任务**：定时唤醒 AI 模型，提前触发配额重置周期
 
@@ -75,7 +78,9 @@
 > *(唤醒任务)*
 > ![Wakeup Tasks](docs/images/wakeup_detail.png)
 
-#### 2.1 Antigravity IDE 应用多开
+#### 2.1 Antigravity 应用多开
+
+在同一个多开页面内可以分别管理 App 和 IDE 实例。点击实例的启动按钮，可选择对应客户端的桌面实例，也可在终端中启动 CLI。
 
 使用独立 SQLite 登录状态的旧版 IDE 支持多账号多实例并行运行。IDE 2.6 起采用共享登录，独立实例目录仅隔离项目和本地设置。
 
@@ -175,6 +180,7 @@ Codex 同样支持多账号多实例并行运行。比如同时打开两个 Code
 ### 8. Grok CLI 账号管理
 
 - **OAuth 授权**：支持 xAI 官方 OIDC device flow，在浏览器完成验证后自动保存账号
+- **接入 Codex API 服务**：在 **Grok CLI** 页面完成 OAuth 授权，再打开 **Codex → API 服务 → 添加账号**，按 **Grok** 筛选、勾选账号并保存。Cockpit 会创建与该 Grok 账号绑定的供应商条目，并为服务准备 xAI 凭据。
 - **API Key 与第三方接口**：支持官方 xAI API Key，也支持配置 OpenAI 兼容的第三方 `Base URL` 与模型 ID；配置写入账号专属 `config.toml`，密钥只在启动对应 CLI 进程时通过环境变量注入
 - **导入与脱敏导出**：可从默认 `~/.grok/auth.json` 或指定 JSON 导入官方凭据；账号页导出及通用账号备份均不含 access token/refresh token，不能用于恢复登录，迁移时需单独导入官方 `auth.json`
 - **真实切号**：将选中账号按 Grok CLI 官方 registry 格式写回默认 `~/.grok/auth.json`，并保留文件中其他 registry scope
@@ -211,6 +217,7 @@ Grok CLI 默认实例通常直接沿用官方 `~/.grok` 目录，启动时不设
 - **配额视图**：展示套餐与用量状态，并支持跳转官方网页查看配额详情
 - **批量管理**：支持标签与批量操作
 - **切号注入**：支持切号后按客户端本地认证存储规则注入并启动 CodeBuddy CN
+- **桌面版和 CLI 启动**：在账号总览点击「启动」后选择桌面版或 CLI。CLI 按账号记住工作目录，未检测到时可查看安装指引。
 
 #### 9.1 CodeBuddy CN 应用多开
 
@@ -219,6 +226,11 @@ Grok CLI 默认实例通常直接沿用官方 `~/.grok` 目录，启动时不设
 - **独立配置**：每个实例拥有独立的用户目录
 - **快速启停**：一键启动/停止/强制关闭实例
 - **窗口管理**：支持打开实例窗口与批量关闭
+
+#### CLI
+
+- 在 CodeBuddy 或 CodeBuddy CN 的账号总览选择账号，即可启动官方 `codebuddy` CLI。需预先安装 [CodeBuddy Code CLI](https://www.codebuddy.cn/docs/cli/installation)。
+- 在对应版本的「应用多开」切换到 CLI，可管理绑定该版本账号的命名实例。每个实例拥有自己的工作目录和 CLI 配置。
 
 ### 11. Qoder 账号管理
 
@@ -240,7 +252,7 @@ Grok CLI 默认实例通常直接沿用官方 `~/.grok` 目录，启动时不设
 - **账号导入**：支持本机导入与 JSON 导入
 - **配额视图**：展示套餐原始值、美元消耗/总额度与重置时间
 - **批量管理**：支持标签、筛选、导出与批量删除/刷新
-- **Trae 套件**：支持 Trae、TRAE SOLO、Trae CN、TRAE SOLO CN 默认客户端的本机导入与切号注入，默认独立展示，可在顶部布局中手动分组
+- **Trae 套件**：支持 Trae、TraeWork、Trae CN、TraeWork CN 默认客户端的本机导入与切号注入，默认独立展示，可在顶部布局中手动分组
 - **切号注入**：支持切号后按各客户端真实落盘规则写回并启动目标客户端
 
 #### 11.1 Trae 应用多开
@@ -295,6 +307,7 @@ Grok CLI 默认实例通常直接沿用官方 `~/.grok` 目录，启动时不设
   - `~/.codex`：Codex 官方当前登录 `auth.json`
   - `~/.grok`：Grok CLI 官方默认实例与当前登录 `auth.json`
   - `~/.zcode/v2`：ZCode 官方当前登录加密凭据与配额缓存
+  - 已保存的 2FA 及查询历史在应用数据目录的 `mfa_vault.sqlite` 中加密保存，APIKEY.FUN 保存的密钥写入加密文件 `apikey_fun_vault.json`。加密材料保存在应用数据目录中的私有密钥文件，旧 WebView 数据在迁移期间保留。
   - 系统应用数据目录下 `com.jlcodes.cockpit-tools`：宿主应用的 WebView 状态等；历史 `com.antigravity.cockpit-tools` 目录仅用于旧数据兼容导入
 - **Grok CLI 凭据不加密**：access token/refresh token 以明文 JSON 保存在本机，主要依赖操作系统账号隔离与本地文件权限保护；Unix 系统上凭据目录设为 `0700`、凭据文件设为 `0600`。脱敏导出不包含 token，不能作为登录备份
 - **WebSocket 默认仅本机访问**：监听 `127.0.0.1`，默认端口 `19528`，可在设置中关闭或改端口。
@@ -374,10 +387,13 @@ Grok CLI 默认实例通常直接沿用官方 `~/.grok` 目录，启动时不设
 前往 [GitHub Releases](https://github.com/jlcodes99/cockpit-tools/releases) 下载对应系统的安装包：
 
 *   **macOS**: `.dmg` (Apple Silicon & Intel)
-*   **Windows**: `.msi`（推荐）、`.exe`，或 `x64-portable.zip`（解压即用，无需安装）
+*   **Windows x64**：`_x64_en-US.msi`（推荐）、`_x64-setup.exe`，或 `x64-portable.zip`（解压即用）
+*   **Windows ARM64**：`_arm64-setup.exe`
 
 Windows 便携包解压后直接运行其中的 `Cockpit Tools.exe`（或同名主程序）。系统需要 Windows 10/11 的 Microsoft Edge WebView2 Runtime；账号和配置仍按当前 Windows 用户目录保存，不会随 ZIP 文件夹自动迁移。
-*   **Linux**: `.deb` (Debian/Ubuntu)、`.rpm` 或 `.AppImage` (通用)
+*   **Linux**: `.deb` (Debian/Ubuntu)、`.rpm` 或 `.AppImage`
+
+Ubuntu 20.04 无法安装当前 `.deb`，其软件源缺少 `libwebkit2gtk-4.1-0`。当前 x64 AppImage 的主程序需要 glibc 2.34，Ubuntu 20.04 提供 glibc 2.31。可使用 Ubuntu 24.04 LTS，源码构建见 [Ubuntu 24.04 编译指南](docs/build-wsl2-ubuntu24.md)。
 
 ### 选项 B: Homebrew 安装 (macOS)
 
@@ -442,6 +458,18 @@ npm run tauri dev
 
 ```bash
 npm run tauri build
+```
+
+### 命令行
+
+从带有 CLI 附件的 [GitHub Release](https://github.com/jlcodes99/cockpit-tools/releases) 下载 `cockpit-cli_<版本>_linux_<架构>.tar.gz`。按机器选择 `x86_64` 或 `aarch64`，解压后运行 `./cockpit-cli list codex --json`。发布构建使用 Ubuntu 22.04（x86_64）和 Ubuntu 24.04（aarch64），运行需要系统提供 OpenSSL 3 运行库，无需桌面环境。
+
+也可以从源码运行。脚本可用 `--json` 读取标准输出，失败时检查非零退出码和标准错误。
+
+```bash
+cargo run --locked --package cockpit-cli -- list codex --json
+cargo run --locked --package cockpit-cli -- switch codex "你的账号ID" --json
+cargo run --locked --package cockpit-cli -- switch cursor "你的账号ID" --json
 ```
 
 ---

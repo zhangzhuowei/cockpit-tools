@@ -1,9 +1,12 @@
+import { hydrateDurableUiSettings, previewDurableUiSetting, readDurableUiSetting, saveDurableUiSetting } from "./durableUiSettings";
 import { getCodexAccountQuotaError } from "./codexProxyRuntimeError";
 import type { TFunction } from "i18next";
 import type { CodexAccount } from "../types/codex";
 import {
+  getCodexMonthlyCreditUsage,
   getCodexPlanFilterKey,
   getCodexQuotaWindows,
+  getCodexSubscriptionExpiryBucket,
   isCodexApiKeyAccount,
   isCodexChatgptPlanAccount,
   isCodexNewApiAccount,
@@ -16,10 +19,15 @@ import {
   isCodexApiUsableReauthNotice,
   isCodexRefreshTokenReusedAccount,
 } from "./codexSwitchAuthFailure";
-import { normalizeAccountsOverviewScope } from "./accountsOverviewFilterPersistence";
+import {
+  normalizeAccountsOverviewScope,
+  readAccountsOverviewFilterField,
+  saveAccountsOverviewFilterField,
+} from "./accountsOverviewFilterPersistence";
 import {
   persistUserMemoryList,
   readUserMemoryList,
+  restoreUserMemoryList,
   USER_MEMORY_LISTS,
 } from "./userMemory";
 
@@ -56,8 +64,9 @@ export const CODEX_OVERVIEW_FILTER_FIELDS = {
   sortDirection: "sort_direction",
 } as const;
 
-const CODEX_CUSTOM_SORT_ACTIVE_KEY =
+export const CODEX_CUSTOM_SORT_ACTIVE_KEY =
   "agtools.codex.accounts.custom_sort_active.v1";
+export const CODEX_CUSTOM_SORT_RESTORED_EVENT = "codex:custom-sort-restored";
 
 export type CodexOverviewSortDirection = "asc" | "desc";
 
@@ -136,11 +145,7 @@ export function isCodexOverviewAccountSubscriptionExpired(
     return false;
   }
   if (isCodexApiKeyAccount(account)) return false;
-  const until = account.subscription_active_until?.trim();
-  if (!until) return false;
-  const parsed = Date.parse(until);
-  if (Number.isNaN(parsed)) return false;
-  return parsed <= Date.now();
+  return getCodexSubscriptionExpiryBucket(account.subscription_active_until) === "expired";
 }
 
 export function incrementCodexPlanFilterCount(
@@ -254,6 +259,10 @@ export function buildCodexOverviewSortOptions(
       label: t("codex.sort.hourly", "按5小时配额"),
     },
     {
+      value: "credits",
+      label: t("common.shared.sort.credits", "按剩余 Credits"),
+    },
+    {
       value: "weekly_reset",
       label: t("codex.sort.weeklyReset", "按周配额重置时间"),
     },
@@ -267,7 +276,7 @@ export function buildCodexOverviewSortOptions(
     },
     {
       value: "custom",
-      label: t("codex.sort.custom", "自定义顺序"),
+      label: t("common.shared.sort.custom"),
     },
   ];
 }
@@ -369,6 +378,12 @@ function getQuotaSortWindow(account: CodexAccount, weekly: boolean) {
   });
 }
 
+function getCreditSortValue(account: CodexAccount): number | undefined {
+  if (isCodexApiKeyAccount(account)) return undefined;
+  const credits = getCodexMonthlyCreditUsage(account.quota);
+  return credits?.unlimited ? Number.POSITIVE_INFINITY : credits?.remaining;
+}
+
 export function createCodexOverviewAccountComparator({
   sortBy,
   sortDirection,
@@ -394,6 +409,17 @@ export function createCodexOverviewAccountComparator({
         return leftIndex - rightIndex;
       }
       return right.created_at - left.created_at;
+    }
+
+    if (sortBy === "credits") {
+      const leftCredits = getCreditSortValue(left);
+      const rightCredits = getCreditSortValue(right);
+      if (leftCredits === rightCredits) return 0;
+      if (leftCredits == null) return 1;
+      if (rightCredits == null) return -1;
+      return sortDirection === "desc"
+        ? rightCredits - leftCredits
+        : leftCredits - rightCredits;
     }
 
     const cockpitApiPriority =
@@ -564,17 +590,25 @@ export function writeCodexCustomSortOrder(accountIds: string[]): void {
 }
 
 export function readCodexCustomSortActive(): boolean {
-  try {
-    return localStorage.getItem(CODEX_CUSTOM_SORT_ACTIVE_KEY) === "1";
-  } catch {
-    return false;
-  }
+  return readDurableUiSetting(CODEX_CUSTOM_SORT_ACTIVE_KEY) === "1";
 }
 
 export function writeCodexCustomSortActive(active: boolean): void {
-  try {
-    localStorage.setItem(CODEX_CUSTOM_SORT_ACTIVE_KEY, active ? "1" : "0");
-  } catch {
-    // ignore persistence failures
+  const value = active ? "1" : "0";
+  if (readDurableUiSetting(CODEX_CUSTOM_SORT_ACTIVE_KEY) !== value) {
+    previewDurableUiSetting(CODEX_CUSTOM_SORT_ACTIVE_KEY, value);
   }
+}
+
+export async function restoreCodexCustomSortOrder(accountIds: string[], active: boolean): Promise<void> {
+  await hydrateDurableUiSettings();
+  await restoreUserMemoryList(USER_MEMORY_LISTS.codexCustomSort, accountIds);
+  const savedSort = readAccountsOverviewFilterField<string>(
+    CODEX_OVERVIEW_FILTER_SCOPE, CODEX_OVERVIEW_FILTER_FIELDS.sortBy, "created_at",
+  );
+  const sortBy = active ? "custom" : savedSort === "custom" ? "created_at" : savedSort;
+  await saveAccountsOverviewFilterField(CODEX_OVERVIEW_FILTER_SCOPE, CODEX_OVERVIEW_FILTER_FIELDS.sortBy, sortBy);
+  // Imports must surface failures instead of reporting that the mode was restored.
+  await saveDurableUiSetting(CODEX_CUSTOM_SORT_ACTIVE_KEY, active ? "1" : "0", true);
+  window.dispatchEvent(new Event(CODEX_CUSTOM_SORT_RESTORED_EVENT));
 }

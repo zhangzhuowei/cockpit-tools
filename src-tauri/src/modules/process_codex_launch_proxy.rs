@@ -3,7 +3,7 @@
 pub enum CodexLaunchProxy {
     Inherit,
     Direct,
-    Proxy(String),
+    Managed(u16),
 }
 
 impl CodexLaunchProxy {
@@ -14,16 +14,37 @@ impl CodexLaunchProxy {
                 clear_electron_proxy_args(args);
                 args.push("--no-proxy-server".into());
             }
-            Self::Proxy(url) => append_electron_proxy_args(args, url),
+            Self::Managed(port) => append_electron_proxy_args_with_direct_hosts(
+                args,
+                &format!("socks5://127.0.0.1:{port}"),
+                &config::get_codex_proxy_direct_hosts(),
+            ),
         }
     }
 
     // Explicit empty overrides also work across LaunchServices and the Windows
     // package helper, whose child can inherit an environment different from ours.
-    fn env_overrides(&self) -> Vec<(&'static str, String)> {
+    pub(crate) fn env_overrides(&self) -> Vec<(&'static str, String)> {
         match self {
-            Self::Inherit => Vec::new(),
-            Self::Proxy(url) => account_proxy_env_pairs(url),
+            Self::Inherit => {
+                let direct_hosts = config::get_codex_proxy_direct_hosts();
+                if direct_hosts.is_empty() {
+                    return Vec::new();
+                }
+                proxy_env_with_direct_hosts(managed_proxy_env_pairs_for_launch(true), &direct_hosts)
+            }
+            Self::Managed(port) => {
+                let mut pairs = account_proxy_env_pairs(&format!("socks5h://127.0.0.1:{port}"));
+                // HTTPS uses CONNECT in the custom-CA client. Plain HTTP
+                // keeps SOCKS because this listener is not a forward HTTP proxy.
+                let connect_url = format!("http://127.0.0.1:{port}");
+                for (key, value) in &mut pairs {
+                    if key.eq_ignore_ascii_case("https_proxy") {
+                        value.clone_from(&connect_url);
+                    }
+                }
+                proxy_env_with_direct_hosts(pairs, &config::get_codex_proxy_direct_hosts())
+            }
             Self::Direct => [
                 ("http_proxy", ""),
                 ("https_proxy", ""),
@@ -41,9 +62,46 @@ impl CodexLaunchProxy {
     }
 }
 
+fn proxy_env_with_direct_hosts(
+    mut pairs: Vec<(&'static str, String)>,
+    direct_hosts: &[String],
+) -> Vec<(&'static str, String)> {
+    if direct_hosts.is_empty() {
+        return pairs;
+    }
+    let existing = pairs
+        .iter()
+        .find_map(|(key, value)| (*key == "no_proxy").then_some(value.as_str()))
+        .unwrap_or("");
+    let merged = crate::modules::codex_protocol::merge_local_no_proxy(&format!(
+        "{existing},{}",
+        direct_hosts.join(",")
+    ));
+    pairs.retain(|(key, _)| !key.eq_ignore_ascii_case("no_proxy"));
+    pairs.extend([("no_proxy", merged.clone()), ("NO_PROXY", merged)]);
+    pairs
+}
+
 #[cfg(test)]
 mod codex_direct_launch_tests {
     use super::*;
+
+    #[test]
+    fn pasted_typographic_quotes_wrap_the_full_extra_argument() {
+        let rules = "localhost;127.0.0.1;[::1];10.0.0.0/8;172.16.0.0/12;192.168.0.0/16";
+        let args = parse_extra_args(&format!(
+            "--proxy-bypass-list=”{rules}” --title=“Two words” --note=keep“verbatim” --dangling=“unfinished"
+        ));
+        assert_eq!(args, [
+            format!("--proxy-bypass-list={rules}"),
+            "--title=Two words".to_owned(),
+            "--note=keep“verbatim”".to_owned(),
+            "--dangling=“unfinished".to_owned(),
+        ]);
+        assert_eq!(parse_extra_args(r#"--ascii="a b" --literal='a “b”'"#), [
+            "--ascii=a b", "--literal=a “b”",
+        ]);
+    }
 
     fn assert_direct_env(command: &Command) {
         for name in [
@@ -117,6 +175,40 @@ mod codex_direct_launch_tests {
             .get_envs()
             .any(|(key, value)| key == "CODEX_HOME"
                 && value == Some(std::ffi::OsStr::new("profile"))));
+    }
+
+    #[test]
+    fn explicit_desktop_proxy_uses_the_same_direct_hosts_for_child_http_and_chromium() {
+        let rules = super::super::codex_proxy_direct_hosts::parse("mcp.lan;10.20.0.0/16").unwrap();
+        let proxy = "socks5h://127.0.0.1:48825";
+        let pairs = proxy_env_with_direct_hosts(account_proxy_env_pairs(proxy), &rules);
+        for key in ["NO_PROXY", "no_proxy"] {
+            let exclusions = &pairs.iter().find(|(name, _)| *name == key).unwrap().1;
+            for rule in ["localhost", "mcp.lan", "10.20.0.0/16"] {
+                assert!(exclusions.split(',').any(|value| value == rule));
+            }
+        }
+        assert_eq!(
+            pairs
+                .iter()
+                .find(|(key, _)| *key == "HTTPS_PROXY")
+                .unwrap()
+                .1,
+            proxy
+        );
+        let mut args = vec!["--proxy-bypass-list=*".to_owned()];
+        append_electron_proxy_args_with_direct_hosts(&mut args, proxy, &rules);
+        assert_eq!(
+            args,
+            [
+                "--proxy-server=socks5://127.0.0.1:48825",
+                "--proxy-bypass-list=localhost;127.0.0.1;[::1];mcp.lan;*.mcp.lan;10.20.0.0/16"
+            ]
+        );
+        let mut command = Command::new("never-launched-client");
+        command.args(&args).arg("NO_PROXY=mcp.lan");
+        let log = format_command_preview(&command);
+        assert!(!log.contains("mcp.lan"));
     }
 
     #[cfg(target_os = "macos")]

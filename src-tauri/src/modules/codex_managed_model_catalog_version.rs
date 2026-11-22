@@ -21,7 +21,14 @@ use std::path::{Path, PathBuf};
 /// 9：GPT-6.1 Terra 补齐 Ultra 推理档位。
 /// 10：第三方 DeepSeek 模型使用三档推理能力。
 /// 11：自动识别 DeepSeek 新模型的推理档位。
-pub(crate) const MANAGED_MODEL_CATALOG_GENERATOR_VERSION: u32 = 11;
+/// 12：受管目录保留当前网关路由的图片输入能力。
+/// 13：默认清单与能力目录补齐 GPT-6.1 Terra。
+/// 14：Responses Lite 按实际供应商路由生成。
+/// 15：第三方路由的 GPT 壳位使用标准客户端工具。
+/// 16：刷新 GPT-6.1 Sol 的旧默认上下文和压缩阈值。
+/// 17：在自动默认目录中加入 GPT-6.2 Sol 与 Astra。
+/// 18：按官方 Codex 选择器顺序排列默认 GPT 模型。
+pub(crate) const MANAGED_MODEL_CATALOG_GENERATOR_VERSION: u32 = 18;
 
 const META_FILE_NAME: &str = "cockpit-model-catalog.meta.json";
 

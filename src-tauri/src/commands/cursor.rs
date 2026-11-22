@@ -1,4 +1,6 @@
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{LazyLock, Mutex};
 use std::time::Instant;
 use tauri::{AppHandle, Emitter};
 
@@ -6,8 +8,10 @@ use crate::models::cursor::CursorAccount;
 use crate::modules::{cursor_account, cursor_oauth, cursor_switch_history, grok_bot_account, logger};
 
 #[tauri::command]
-pub fn list_cursor_accounts() -> Result<Vec<CursorAccount>, String> {
-    cursor_account::list_accounts_checked()
+pub async fn list_cursor_accounts() -> Result<Vec<CursorAccount>, String> {
+    tauri::async_runtime::spawn_blocking(cursor_account::list_accounts_checked)
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -83,18 +87,79 @@ pub async fn refresh_all_cursor_tokens(app: AppHandle) -> Result<i32, String> {
 
     let results = cursor_account::refresh_all_tokens().await?;
     let success_count = results.iter().filter(|(_, r)| r.is_ok()).count();
+    finish_cursor_batch_refresh(&app, success_count, started_at).await;
+    Ok(success_count as i32)
+}
 
+#[tauri::command]
+pub async fn retry_cursor_failed_quotas(app: AppHandle, account_ids: Vec<String>) -> Vec<String> {
+    let started_at = Instant::now();
+    let mut seen = HashSet::new();
+    let ids = account_ids
+        .into_iter()
+        .filter(|id| seen.insert(id.clone()))
+        .collect();
+    let results = cursor_account::refresh_tokens_for_ids(ids).await;
+    let total = results.len();
+    let failed_ids = failed_cursor_quota_refresh_ids(results);
+    finish_cursor_batch_refresh(&app, total - failed_ids.len(), started_at).await;
+    failed_ids
+}
+
+fn failed_cursor_quota_refresh_ids(
+    results: Vec<(String, Result<CursorAccount, String>)>,
+) -> Vec<String> {
+    results
+        .into_iter()
+        .filter_map(|(id, result)| match result {
+            Ok(account) if account.quota_query_last_error.is_none() => None,
+            _ => Some(id),
+        })
+        .collect()
+}
+
+async fn finish_cursor_batch_refresh(app: &AppHandle, success_count: usize, started_at: Instant) {
     if success_count > 0 {
-        run_cursor_post_refresh_checks(&app).await;
+        run_cursor_post_refresh_checks(app).await;
     }
 
-    let _ = crate::modules::tray::update_tray_menu(&app);
+    let _ = crate::modules::tray::update_tray_menu(app);
     logger::log_info(&format!(
         "[Cursor Command] 批量刷新完成: success={}, elapsed={}ms",
         success_count,
         started_at.elapsed().as_millis()
     ));
-    Ok(success_count as i32)
+}
+
+#[cfg(test)]
+mod quota_retry_tests {
+    use super::*;
+
+    #[test]
+    fn only_unresolved_cursor_accounts_remain_after_retry() {
+        let recovered: CursorAccount = serde_json::from_value(serde_json::json!({
+            "id": "recovered",
+            "email": "user@example.test",
+            "access_token": "fixture",
+            "created_at": 0,
+            "last_used": 0
+        }))
+        .unwrap();
+        let still_failed = CursorAccount {
+            id: "still-failed".into(),
+            quota_query_last_error: Some("HTTP 503".into()),
+            ..recovered.clone()
+        };
+
+        assert_eq!(
+            failed_cursor_quota_refresh_ids(vec![
+                ("recovered".into(), Ok(recovered)),
+                ("still-failed".into(), Ok(still_failed)),
+                ("unreadable".into(), Err("account unreadable".into())),
+            ]),
+            ["still-failed", "unreadable"]
+        );
+    }
 }
 
 #[tauri::command]
@@ -102,6 +167,7 @@ pub fn add_cursor_account_with_token(
     app: AppHandle,
     access_token: String,
 ) -> Result<CursorAccount, String> {
+    let access_token = cursor_account::normalize_pasted_access_token(&access_token)?;
     let access_token = cursor_account::normalize_import_access_token(&access_token);
     if access_token.is_empty() {
         return Err("access_token 不能为空".to_string());
@@ -157,21 +223,40 @@ pub async fn cursor_oauth_login_complete(
         login_id
     ));
     let payload = cursor_oauth::complete_login(&login_id).await?;
-    let mut account = cursor_account::upsert_account(payload)?;
-
-    match cursor_account::refresh_account_async(&account.id).await {
-        Ok(refreshed) => account = refreshed,
-        Err(e) => {
-            logger::log_warn(&format!("[Cursor OAuth] 登录后自动刷新配额失败: {}", e));
-        }
-    }
+    let account = cursor_account::upsert_account(payload)?;
 
     let _ = crate::modules::tray::update_tray_menu(&app);
+    schedule_cursor_oauth_refresh(app, account.id.clone());
     logger::log_info(&format!(
         "[Cursor Command] OAuth 登录完成: account_id={}, email={}",
         account.id, account.email
     ));
     Ok(account)
+}
+
+fn schedule_cursor_oauth_refresh(app: AppHandle, account_id: String) {
+    static ACTIVE: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
+    let started = ACTIVE
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .insert(account_id.clone());
+    if !started {
+        return;
+    }
+    tauri::async_runtime::spawn(async move {
+        if let Err(error) = cursor_account::refresh_account_async(&account_id).await {
+            logger::log_warn(&format!("[Cursor OAuth] 登录后自动刷新配额失败: {error}"));
+        }
+        ACTIVE
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(&account_id);
+        let _ = crate::modules::tray::update_tray_menu(&app);
+        let _ = app.emit(
+            "accounts:changed",
+            serde_json::json!({"platformId":"cursor", "accountId":account_id, "reason":"oauth-refresh"}),
+        );
+    });
 }
 
 #[tauri::command]
@@ -334,7 +419,7 @@ async fn switch_cursor_account_inner(
                     {
                         let _ = app.emit(
                             "app:path_missing",
-                            serde_json::json!({ "app": "cursor", "retry": { "kind": "default" } }),
+                            serde_json::json!({ "app": "cursor", "retry": { "kind": "launchOnly" } }),
                         );
                     }
                     Some(err)

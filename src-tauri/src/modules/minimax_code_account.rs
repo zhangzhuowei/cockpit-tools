@@ -9,7 +9,7 @@ use tauri::Emitter;
 use crate::models::minimax_code::{
     MinimaxCodeAccount, MinimaxCodeAccountIndex, MinimaxCodeOAuthCompletePayload,
 };
-use crate::modules::{account, logger, minimax_code_oauth};
+use crate::modules::{account, logger, minimax_code_instance, minimax_code_oauth, process};
 
 const ACCOUNTS_INDEX_FILE: &str = "minimax_code_accounts.json";
 const ACCOUNTS_DIR: &str = "minimax_code_accounts";
@@ -42,7 +42,8 @@ fn get_accounts_index_path() -> Result<PathBuf, String> {
 }
 
 pub fn accounts_index_path_string() -> Result<String, String> {
-    Ok(get_accounts_index_path()?.to_string_lossy().to_string())
+    Ok(crate::modules::provider_account_index::storage_path::<MinimaxCodeAccountIndex>(&get_accounts_index_path()?)?
+        .to_string_lossy().into_owned())
 }
 
 fn normalize_account_id(account_id: &str) -> Result<String, String> {
@@ -106,6 +107,14 @@ pub fn touch_last_used(account_id: &str) -> Result<(), String> {
     save_account_file(&account)
 }
 
+pub fn record_client_switch(account_id: &str, auth_file: &Path) -> Result<(), String> {
+    let _guard = MINIMAX_CODE_ACCOUNT_INDEX_LOCK.lock().map_err(|error| error.to_string())?;
+    let mut account = load_account(account_id).ok_or_else(|| format!("账号不存在: {account_id}"))?;
+    account.last_switched_at = Some(now_ts());
+    account.auth_file = Some(auth_file.to_string_lossy().into_owned());
+    save_account_file(&account)
+}
+
 fn save_account_file(account: &MinimaxCodeAccount) -> Result<(), String> {
     let path = resolve_account_file_path(account.id.as_str())?;
     crate::modules::secure_account_storage::write_account_preserving_switch_time(&path, "minimaxcode", account)
@@ -122,99 +131,26 @@ fn delete_account_file(account_id: &str) -> Result<(), String> {
 }
 
 fn load_account_index() -> MinimaxCodeAccountIndex {
-    let path = match get_accounts_index_path() {
-        Ok(p) => p,
-        Err(_) => return MinimaxCodeAccountIndex::new(),
-    };
-    if !path.exists() {
-        return repair_account_index_from_details("索引文件不存在")
-            .unwrap_or_else(MinimaxCodeAccountIndex::new);
-    }
-    match fs::read_to_string(&path) {
-        Ok(content) if content.trim().is_empty() => {
-            repair_account_index_from_details("索引文件为空")
-                .unwrap_or_else(MinimaxCodeAccountIndex::new)
-        }
-        Ok(content) => match crate::modules::atomic_write::parse_json_with_auto_restore::<
-            MinimaxCodeAccountIndex,
-        >(&path, &content)
-        {
-            Ok(index) if !index.accounts.is_empty() => index,
-            Ok(_) => repair_account_index_from_details("索引账号列表为空")
-                .unwrap_or_else(MinimaxCodeAccountIndex::new),
-            Err(err) => {
-                logger::log_warn(&format!(
-                    "[MiniMax Code Account] 账号索引解析失败，尝试按详情文件自动修复: path={}, error={}",
-                    path.display(),
-                    err
-                ));
-                repair_account_index_from_details("索引文件损坏")
-                    .unwrap_or_else(MinimaxCodeAccountIndex::new)
-            }
-        },
-        Err(_) => MinimaxCodeAccountIndex::new(),
-    }
+    load_account_index_checked().unwrap_or_else(|error| {
+        logger::log_warn(&format!("[MinimaxCode Account] {error}"));
+        MinimaxCodeAccountIndex::new()
+    })
 }
 
 fn load_account_index_checked() -> Result<MinimaxCodeAccountIndex, String> {
-    let path = get_accounts_index_path()?;
-    if !path.exists() {
-        if let Some(index) = repair_account_index_from_details("索引文件不存在") {
-            return Ok(index);
-        }
-        return Ok(MinimaxCodeAccountIndex::new());
-    }
-
-    let content = match fs::read_to_string(&path) {
-        Ok(content) => content,
-        Err(err) => {
-            if let Some(index) = repair_account_index_from_details("索引文件读取失败") {
-                return Ok(index);
-            }
-            return Err(format!("读取账号索引失败: {}", err));
-        }
-    };
-
-    if content.trim().is_empty() {
-        if let Some(index) = repair_account_index_from_details("索引文件为空") {
-            return Ok(index);
-        }
-        return Ok(MinimaxCodeAccountIndex::new());
-    }
-
-    match crate::modules::atomic_write::parse_json_with_auto_restore::<MinimaxCodeAccountIndex>(
-        &path, &content,
-    ) {
-        Ok(index) if !index.accounts.is_empty() => Ok(index),
-        Ok(index) => {
-            if let Some(repaired) = repair_account_index_from_details("索引账号列表为空") {
-                return Ok(repaired);
-            }
-            Ok(index)
-        }
-        Err(err) => {
-            if let Some(index) = repair_account_index_from_details("索引文件损坏") {
-                return Ok(index);
-            }
-            Err(crate::error::file_corrupted_error(
-                ACCOUNTS_INDEX_FILE,
-                &path.to_string_lossy(),
-                &err.to_string(),
-            ))
-        }
-    }
+    crate::modules::provider_account_index::checked(
+        &get_accounts_index_path()?,
+        crate::modules::provider_index_maintenance::schedule,
+        repair_account_index_from_details,
+        |index| index.accounts.is_empty(),
+    )
 }
 
 fn save_account_index(index: &MinimaxCodeAccountIndex) -> Result<(), String> {
-    let path = get_accounts_index_path()?;
-    let content =
-        serde_json::to_string_pretty(index).map_err(|e| format!("序列化账号索引失败:{}", e))?;
-    crate::modules::atomic_write::write_string_atomic(&path, &content)
-        .map_err(|e| format!("写入账号索引失败:{}", e))
+    crate::modules::provider_account_index::save(&get_accounts_index_path()?, index)
 }
 
 fn repair_account_index_from_details(reason: &str) -> Option<MinimaxCodeAccountIndex> {
-    let index_path = get_accounts_index_path().ok()?;
     let accounts_dir = get_accounts_dir().ok()?;
     let mut accounts = crate::modules::account_index_repair::load_accounts_from_details(
         &accounts_dir,
@@ -236,35 +172,14 @@ fn repair_account_index_from_details(reason: &str) -> Option<MinimaxCodeAccountI
     let mut index = MinimaxCodeAccountIndex::new();
     index.accounts = accounts.iter().map(|account| account.summary()).collect();
 
-    let backup_path = crate::modules::account_index_repair::backup_existing_index(&index_path)
-        .unwrap_or_else(|err| {
-            logger::log_warn(&format!(
-                "[MiniMax Code Account] 自动修复前备份索引失败，继续尝试重建: path={}, error={}",
-                index_path.display(),
-                err
-            ));
-            None
-        });
-
-    if let Err(err) = save_account_index(&index) {
-        logger::log_warn(&format!(
-            "[MiniMax Code Account] 自动修复索引保存失败，将以内存结果继续运行: reason={}, recovered_accounts={}, error={}",
-            reason,
-            index.accounts.len(),
-            err
-        ));
+    if let Err(error) = save_account_index(&index) {
+        logger::log_warn(&format!("[MinimaxCode Account] 保存恢复索引失败: reason={reason}, error={error}"));
+        return None;
     }
-
-    logger::log_warn(&format!(
-        "[MiniMax Code Account] 检测到账号索引异常，已根据详情文件自动重建: reason={}, recovered_accounts={}, backup_path={}",
-        reason,
-        index.accounts.len(),
-        backup_path
-            .as_ref()
-            .map(|path| path.display().to_string())
-            .unwrap_or_else(|| "-".to_string())
+    logger::log_info(&format!(
+        "[MinimaxCode Account] 已恢复账号索引: reason={reason}, accounts={}",
+        index.accounts.len()
     ));
-
     Some(index)
 }
 
@@ -280,6 +195,10 @@ fn upsert_account_record(account: MinimaxCodeAccount) -> Result<MinimaxCodeAccou
     let _lock = MINIMAX_CODE_ACCOUNT_INDEX_LOCK
         .lock()
         .map_err(|_| "获取 MiniMax Code 账号锁失败".to_string())?;
+    save_account_and_summary(account)
+}
+
+fn save_account_and_summary(account: MinimaxCodeAccount) -> Result<MinimaxCodeAccount, String> {
     let mut index = load_account_index();
     save_account_file(&account)?;
     refresh_summary(&mut index, &account);
@@ -606,8 +525,19 @@ fn apply_payload(account: &mut MinimaxCodeAccount, payload: MinimaxCodeOAuthComp
     if payload.auth_file.is_some() {
         account.auth_file = payload.auth_file;
     }
-    if payload.quota_raw.is_some() {
-        account.quota_raw = payload.quota_raw;
+    if let Some(quota) = payload.quota_raw {
+        account.plan_type = quota.get("membership").and_then(|value| value.get("plan_name"))
+            .and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty()).map(str::to_owned);
+        account.quota_raw = Some(quota);
+        if payload.status.as_deref() != Some("quota_error") {
+            account.usage_updated_at = Some(now_ts());
+            account.quota_query_last_error = None;
+            account.quota_query_last_error_at = None;
+        }
+    }
+    if payload.status.as_deref() == Some("quota_error") {
+        account.quota_query_last_error = payload.status_reason.clone();
+        account.quota_query_last_error_at = Some(chrono::Utc::now().timestamp_millis());
     }
     account.auth_raw = payload.auth_raw;
     if payload.profile_raw.is_some() {
@@ -714,119 +644,460 @@ pub fn upsert_account(payload: MinimaxCodeOAuthCompletePayload) -> Result<Minima
 /// account "loses validity after one refresh".
 fn file_credentials_are_fresh(file_expires_at: Option<i64>, account_expires_at: Option<i64>) -> bool {
     match (file_expires_at, account_expires_at) {
-        (Some(file), Some(current)) => file >= current,
-        // No basis for comparison: the file is the only signal we have.
-        _ => true,
+        (Some(file), Some(current)) => file > current,
+        (Some(file), None) => file > 0,
+        (None, _) => false,
     }
 }
 
-async fn refresh_account_token_once(account_id: &str) -> Result<MinimaxCodeAccount, String> {
+fn client_auth_files(account: &MinimaxCodeAccount, inspect_all: bool) -> (Vec<PathBuf>, bool) {
+    let mut paths = account
+        .auth_file
+        .iter()
+        .map(PathBuf::from)
+        .collect::<Vec<_>>();
+    let mut complete = true;
+    let mut roots = Vec::new();
+    let mut include_default = inspect_all;
+    match minimax_code_instance::load_instance_store() {
+        Ok(store) => {
+            include_default |=
+                store.default_settings.bind_account_id.as_deref() == Some(account.id.as_str());
+            roots.extend(
+                store
+                    .instances
+                    .into_iter()
+                    .filter(|instance| {
+                        inspect_all
+                            || instance.bind_account_id.as_deref() == Some(account.id.as_str())
+                    })
+                    .map(|instance| PathBuf::from(instance.user_data_dir)),
+            );
+        }
+        Err(error) => {
+            complete = false;
+            logger::log_warn(&format!("[MiniMax Code Refresh] 无法读取实例绑定: {error}"));
+        }
+    }
+    if include_default {
+        match minimax_code_instance::get_default_minimax_code_data_dir() {
+            Ok(root) => roots.push(root),
+            Err(_) => complete = false,
+        }
+    }
+    if inspect_all && minimax_code_instance::explicit_minimax_code_data_dir().is_some() {
+        if let Some(home) = dirs::home_dir() {
+            roots.push(home.join(".minimax"));
+        }
+    }
+    for root in roots {
+        let scope = minimax_code_instance::resolve_minimax_code_auth_scope(
+            &root,
+            account.region.as_deref(),
+        );
+        let path =
+            minimax_code_instance::minimax_code_namespace_home(&root, &scope).join("auth.json");
+        if !paths.contains(&path) {
+            paths.push(path);
+        }
+    }
+    (paths, complete)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ClientCredentialOwner {
+    Same,
+    Other,
+    Unknown,
+}
+
+impl ClientCredentialOwner {
+    fn can_rotate(self, client_confirmed_stopped: impl FnOnce() -> bool) -> bool {
+        match self {
+            Self::Same => false,
+            Self::Other => true,
+            Self::Unknown => client_confirmed_stopped(),
+        }
+    }
+}
+
+fn client_tokens_overlap(account: &MinimaxCodeAccount, record: &Value) -> bool {
+    let access = record.get("accessToken").and_then(Value::as_str);
+    let refresh = record.get("refreshToken").and_then(Value::as_str);
+    access.is_some_and(|value| !value.is_empty() && value == account.access_token)
+        || refresh.is_some_and(|value| {
+            !value.is_empty() && Some(value) == account.refresh_token.as_deref()
+        })
+}
+
+fn client_identity_owner(
+    account: &MinimaxCodeAccount,
+    uid: Option<&str>,
+    email: &str,
+) -> ClientCredentialOwner {
+    let ids = normalize_identity(account.uid.as_deref()).zip(normalize_identity(uid));
+    let emails =
+        normalize_email_identity(Some(&account.email)).zip(normalize_email_identity(Some(email)));
+    match ids.or(emails) {
+        Some((stored, incoming)) if stored == incoming => ClientCredentialOwner::Same,
+        Some(_) => ClientCredentialOwner::Other,
+        None => ClientCredentialOwner::Unknown,
+    }
+}
+
+fn adopt_client_credentials(account: &mut MinimaxCodeAccount, record: &Value, auth_file: String) {
+    let expires_at = record.get("expiresAtMs").and_then(Value::as_i64);
+    if !file_credentials_are_fresh(expires_at, account.expires_at) {
+        return;
+    }
+    let access = normalize_non_empty(record.get("accessToken").and_then(Value::as_str));
+    let refresh = normalize_non_empty(record.get("refreshToken").and_then(Value::as_str));
+    if let Some((access, refresh)) = access.zip(refresh) {
+        account.access_token = access;
+        account.refresh_token = Some(refresh);
+        account.expires_at = expires_at;
+        account.auth_file = Some(auth_file);
+        if let Some(token_type) =
+            normalize_non_empty(record.get("tokenType").and_then(Value::as_str))
+        {
+            account.token_type = Some(token_type);
+        }
+    }
+}
+
+fn read_client_auth_record_for_refresh(path: &Path) -> Option<(String, Value)> {
+    let raw = fs::read_to_string(path).ok()?;
+    let parsed: Value = serde_json::from_str(&raw).ok()?;
+    let records = parsed.get("records")?.as_object()?;
+    let namespace = path.parent()?;
+    let active = scope_from_namespace_home(namespace)
+        .zip(namespace.ancestors().nth(3))
+        .and_then(|(scope, auth_home)| {
+            let key = minimax_code_record_key_for_auth_home(
+                &auth_home.to_string_lossy(),
+                &scope.service_prefix(),
+            );
+            records.get_key_value(&key)
+        });
+    // A legacy file with one record is unambiguous. If several records exist,
+    // use the client's active key or leave ownership unknown.
+    let (key, record) = active.or_else(|| {
+        if records.len() == 1 {
+            records.iter().next()
+        } else {
+            None
+        }
+    })?;
+    let service = key.split_once('\0')?.0;
+    let region = service.rsplit_once('.')?.1;
+    if !minimax_code_instance::MinimaxCodeAuthScope::is_valid_region(region) {
+        return None;
+    }
+    Some((region.to_string(), record.clone()))
+}
+
+async fn sync_client_credentials(
+    account: &mut MinimaxCodeAccount,
+    region: &str,
+    inspect_all: bool,
+    mut read_record: impl FnMut(&Path) -> Option<(String, Value)>,
+) -> ClientCredentialOwner {
+    let (paths, complete) = client_auth_files(account, inspect_all);
+    let client = minimax_code_oauth::build_client().ok();
+    let mut has_shared_credentials = false;
+    let mut has_other_account = false;
+    let mut has_unknown_account = !complete;
+
+    for path in paths {
+        let Some((file_region, record)) = read_record(&path) else {
+            has_unknown_account |= !matches!(path.try_exists(), Ok(false));
+            continue;
+        };
+        let file_is_fresh = file_credentials_are_fresh(
+            record.get("expiresAtMs").and_then(Value::as_i64),
+            account.expires_at,
+        );
+        let owner = if client_tokens_overlap(account, &record) {
+            ClientCredentialOwner::Same
+        } else if file_region != region {
+            ClientCredentialOwner::Other
+        } else if inspect_all || file_is_fresh {
+            let access = record
+                .get("accessToken")
+                .and_then(Value::as_str)
+                .filter(|token| !token.is_empty());
+            if let Some((client, access)) = client.as_ref().zip(access) {
+                match minimax_code_oauth::fetch_user_info(client, access, region).await {
+                    Ok((uid, _, email)) => client_identity_owner(account, uid.as_deref(), &email),
+                    Err(_) => ClientCredentialOwner::Unknown,
+                }
+            } else {
+                ClientCredentialOwner::Unknown
+            }
+        } else {
+            ClientCredentialOwner::Unknown
+        };
+
+        match owner {
+            ClientCredentialOwner::Same => {
+                has_shared_credentials = true;
+                if file_region == region {
+                    adopt_client_credentials(account, &record, path.to_string_lossy().into_owned());
+                }
+            }
+            ClientCredentialOwner::Other => has_other_account = true,
+            ClientCredentialOwner::Unknown => has_unknown_account = true,
+        }
+    }
+
+    if has_shared_credentials {
+        ClientCredentialOwner::Same
+    } else if has_other_account && !has_unknown_account {
+        ClientCredentialOwner::Other
+    } else {
+        ClientCredentialOwner::Unknown
+    }
+}
+
+fn update_account_after_refresh(
+    expected: &MinimaxCodeAccount,
+    update: impl FnOnce(&mut MinimaxCodeAccount),
+) -> Result<MinimaxCodeAccount, String> {
+    let _lock = MINIMAX_CODE_ACCOUNT_INDEX_LOCK
+        .lock()
+        .map_err(|error| error.to_string())?;
+    let mut current = load_account(&expected.id).ok_or_else(|| "账号不存在".to_string())?;
+    if current.access_token != expected.access_token
+        || current.refresh_token != expected.refresh_token
+    {
+        return Err(credential_refresh_message("minimaxCode.credentialRefresh.credentialsChanged"));
+    }
+    update(&mut current);
+    save_account_and_summary(current)
+}
+
+fn persist_changed_credentials(
+    stored: MinimaxCodeAccount,
+    account: &MinimaxCodeAccount,
+) -> Result<MinimaxCodeAccount, String> {
+    if account.access_token == stored.access_token
+        && account.refresh_token == stored.refresh_token
+        && account.expires_at == stored.expires_at
+    {
+        return Ok(stored);
+    }
+    update_account_after_refresh(&stored, |current| {
+        current.access_token = account.access_token.clone();
+        current.refresh_token = account.refresh_token.clone();
+        current.token_type = account.token_type.clone();
+        current.expires_at = account.expires_at;
+        current.auth_file = account.auth_file.clone();
+    })
+}
+
+pub(crate) struct PreparedClientSwitch {
+    pub(crate) account: MinimaxCodeAccount,
+    checked_records: HashMap<PathBuf, (String, Value)>,
+    _credential_guard: tokio::sync::OwnedMutexGuard<()>,
+}
+
+fn changed_client_auth_record(
+    path: &Path,
+    checked_records: &HashMap<PathBuf, (String, Value)>,
+) -> Option<(String, Value)> {
+    let record = read_client_auth_record_for_refresh(path)?;
+    (checked_records.get(path) != Some(&record)).then_some(record)
+}
+
+/// Wait for any background exchange and validate credentials while the client is open.
+pub(crate) async fn prepare_client_switch(
+    account_id: &str,
+) -> Result<PreparedClientSwitch, String> {
+    let credential_guard = lock_account_credentials(account_id).await?;
+    let stored = load_account(account_id).ok_or_else(|| format!("绑定账号不存在: {account_id}"))?;
+    let mut account = stored.clone();
+    let region = account.region.clone().unwrap_or_else(|| "cn".to_string());
+    let mut checked_records = HashMap::new();
+    sync_client_credentials(&mut account, &region, false, |path| {
+        let record = read_client_auth_record_for_refresh(path)?;
+        checked_records.insert(path.to_path_buf(), record.clone());
+        Some(record)
+    })
+    .await;
+    Ok(PreparedClientSwitch {
+        account: persist_changed_credentials(stored, &account)?,
+        checked_records,
+        _credential_guard: credential_guard,
+    })
+}
+
+/// Check the last on-disk snapshot after exit. The client may have rotated its
+/// token while shutting down. Only a changed record can need network validation.
+pub(crate) async fn recheck_client_switch(
+    prepared: &mut PreparedClientSwitch,
+) -> Result<(), String> {
+    let stored = load_account(&prepared.account.id).ok_or_else(|| "账号不存在".to_string())?;
+    let mut account = stored.clone();
+    let region = account.region.clone().unwrap_or_else(|| "cn".to_string());
+    tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        sync_client_credentials(&mut account, &region, false, |path| {
+            changed_client_auth_record(path, &prepared.checked_records)
+        }),
+    )
+    .await
+    .map_err(|_| credential_refresh_message("minimaxCode.credentialRefresh.credentialsChanged"))?;
+    prepared.account = persist_changed_credentials(stored, &account)?;
+    Ok(())
+}
+
+fn credential_refresh_message(key: &str) -> String {
+    super::i18n::translate(&super::config::get_user_config().language, key, &[])
+}
+
+async fn refresh_account_token_once(
+    account_id: &str,
+    rejected_access: Option<&str>,
+    exchange_attempted: &mut bool,
+) -> Result<MinimaxCodeAccount, String> {
     let started_at = Instant::now();
-    let mut account = load_account(account_id).ok_or_else(|| "账号不存在".to_string())?;
+    let stored = load_account(account_id).ok_or_else(|| "账号不存在".to_string())?;
+    let mut account = stored.clone();
     logger::log_info(&format!(
         "[MiniMax Code Refresh] 开始刷新账号:id={}, email={}",
         account.id, account.email
     ));
 
-    let region = account
-        .region
-        .clone()
-        .unwrap_or_else(|| "cn".to_string());
+    let region = account.region.clone().unwrap_or_else(|| "cn".to_string());
 
-    // (a) MiniMax access tokens are short-lived (~1h) and the official client
-    // renews them in the local auth.json. Re-read that file first so we always
-    // use the freshest access token before attempting a refresh.
-    //
-    // Only adopt the file's credentials when they are at least as fresh as ours.
-    // MiniMax rotates refresh tokens on every use, so copying the file back
-    // unconditionally resurrects a refresh token we already spent — the next
-    // refresh then fails with `invalid_grant` and we are left holding the stale
-    // access token the file had, which the server has since invalidated (401 on
-    // every quota query, i.e. the account "loses validity after one refresh").
-    if let Some(auth_file) = account.auth_file.clone() {
-        if let Some((_id, _region, rec, _path)) = read_minimax_code_auth_file(Path::new(&auth_file)) {
-            let file_expires_at = rec.get("expiresAtMs").and_then(|v| v.as_i64());
-            let file_is_fresh = file_credentials_are_fresh(file_expires_at, account.expires_at);
-            if file_is_fresh {
-                if let Some(access) = rec
-                    .get("accessToken")
-                    .and_then(|v| v.as_str())
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                {
-                    account.access_token = access.to_string();
+    let refresh_before = chrono::Utc::now().timestamp_millis() + 60_000;
+    let needs_exchange = |account: &MinimaxCodeAccount| {
+        rejected_access.map_or_else(
+            || {
+                account
+                    .expires_at
+                    .is_none_or(|expires| expires <= refresh_before)
+            },
+            |rejected| rejected == account.access_token,
+        )
+    };
+    let inspect_all = !*exchange_attempted
+        && (rejected_access.is_some()
+            || (needs_exchange(&account) && account.refresh_token.is_some()));
+    let owner = sync_client_credentials(
+        &mut account,
+        &region,
+        inspect_all,
+        read_client_auth_record_for_refresh,
+    )
+    .await;
+    if owner == ClientCredentialOwner::Same
+        && rejected_access.is_some_and(|rejected| rejected == account.access_token)
+        && !process::minimax_code_client_confirmed_stopped()
+    {
+        // The official client can be between rejecting the old token and writing
+        // its replacement. Wait once, then only retry with a changed access token.
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        sync_client_credentials(
+            &mut account,
+            &region,
+            true,
+            read_client_auth_record_for_refresh,
+        )
+        .await;
+    }
+    let mut blocked_reason = None;
+
+    // Both a pre-expiry refresh and a 401 retry can consume the client's refresh
+    // token. Give the client ownership of any login it shares with Cockpit.
+    if let Some(refresh_token) = account
+        .refresh_token
+        .as_deref()
+        .filter(|token| !token.is_empty() && inspect_all && needs_exchange(&account))
+    {
+        if owner.can_rotate(process::minimax_code_client_confirmed_stopped) {
+            *exchange_attempted = true;
+            match minimax_code_oauth::refresh_token(refresh_token, &region).await {
+                Ok(token_data) => {
+                    let access =
+                        normalize_non_empty(token_data.get("access_token").and_then(Value::as_str));
+                    if let Some(access) = access {
+                        account.access_token = access;
+                        if let Some(refresh) = normalize_non_empty(
+                            token_data.get("refresh_token").and_then(Value::as_str),
+                        ) {
+                            account.refresh_token = Some(refresh);
+                        }
+                        if let Some(token_type) = normalize_non_empty(
+                            token_data.get("token_type").and_then(Value::as_str),
+                        ) {
+                            account.token_type = Some(token_type);
+                        }
+                        account.expires_at = token_data
+                            .get("expires_in")
+                            .and_then(Value::as_i64)
+                            .map(minimax_code_oauth::expires_at_from_expires_in);
+                    } else {
+                        blocked_reason = Some(credential_refresh_message("minimaxCode.credentialRefresh.missingAccessToken"));
+                    }
                 }
-                if let Some(refresh) = rec
-                    .get("refreshToken")
-                    .and_then(|v| v.as_str())
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                {
-                    account.refresh_token = Some(refresh.to_string());
-                }
-                if let Some(token_type) = rec
-                    .get("tokenType")
-                    .and_then(|v| v.as_str())
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                {
-                    account.token_type = Some(token_type.to_string());
-                }
-                if let Some(expires_at) = file_expires_at {
-                    account.expires_at = Some(expires_at);
+                Err(err) => {
+                    blocked_reason = Some(if err.contains("invalid_grant") {
+                        credential_refresh_message("minimaxCode.credentialRefresh.authorizeAgain")
+                    } else {
+                        err
+                    });
                 }
             }
+        } else {
+            blocked_reason = Some(credential_refresh_message(
+                "minimaxCode.credentialRefresh.signInClient",
+            ));
         }
     }
 
-    // (b) Refresh the access token when a refresh token is available.
-    if let Some(refresh_token) = account.refresh_token.as_deref() {
-        match minimax_code_oauth::refresh_token(refresh_token, &region).await {
-            Ok(token_data) => {
-                if let Some(access) = token_data
-                    .get("access_token")
-                    .and_then(|v| v.as_str())
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                {
-                    account.access_token = access.to_string();
-                }
-                if let Some(refresh) = token_data
-                    .get("refresh_token")
-                    .and_then(|v| v.as_str())
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                {
-                    account.refresh_token = Some(refresh.to_string());
-                }
-                if let Some(token_type) = token_data
-                    .get("token_type")
-                    .and_then(|v| v.as_str())
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                {
-                    account.token_type = Some(token_type.to_string());
-                }
-                if let Some(expires_in) = token_data.get("expires_in").and_then(|v| v.as_i64()) {
-                    // Keep the model in epoch milliseconds, matching `expiresAtMs`.
-                    account.expires_at =
-                        Some(minimax_code_oauth::expires_at_from_expires_in(expires_in));
-                }
-            }
-            Err(err) => {
-                logger::log_warn(&format!(
-                    "[MiniMax Code Refresh] Token 刷新失败，将使用现有 token 查询配额:{}",
-                    err
-                ));
-            }
+    // A successful exchange invalidates the previous refresh token immediately.
+    // Persist the pair before fetching profile and usage, which can fail independently.
+    let stored = persist_changed_credentials(stored, &account)?;
+    if rejected_access.is_some_and(|rejected| rejected == account.access_token) {
+        if let Some(reason) = blocked_reason.as_ref() {
+            update_account_after_refresh(&stored, |current| {
+                current.quota_query_last_error = Some(reason.clone());
+                current.quota_query_last_error_at = Some(chrono::Utc::now().timestamp_millis());
+                current.status = Some("quota_error".into());
+                current.status_reason = Some(reason.clone());
+            })?;
+            return Err(reason.clone());
         }
+        return Ok(stored);
     }
 
     // (c) Refresh quota and store the raw body on the account.
     let client = minimax_code_oauth::build_client()?;
     let mut quota_refresh_error: Option<String> = None;
+    match minimax_code_oauth::fetch_user_info(&client, &account.access_token, &region).await {
+        Ok((uid, nickname, email)) => {
+            if account
+                .uid
+                .as_deref()
+                .zip(uid.as_deref())
+                .is_some_and(|(stored, incoming)| stored != incoming)
+            {
+                return Err("MiniMax 返回的账号身份与当前账号不一致，未覆盖账号数据".into());
+            }
+            account.email = minimax_code_oauth::resolve_display_name(
+                &email,
+                nickname.as_deref(),
+                uid.as_deref(),
+            );
+            account.uid = uid.or(account.uid);
+            account.nickname = nickname;
+        }
+        Err(error) => quota_refresh_error = Some(error),
+    }
     let quota_raw =
-        match minimax_code_oauth::fetch_credit_details(&client, &account.access_token, &region).await
+        match minimax_code_oauth::fetch_usage_snapshot(&client, &account.access_token, &region)
+            .await
         {
             Ok(body) => Some(body),
             Err(err) => {
@@ -834,13 +1105,19 @@ async fn refresh_account_token_once(account_id: &str) -> Result<MinimaxCodeAccou
                     "[MiniMax Code Refresh] 刷新 credit/details 失败:{}",
                     err
                 ));
-                quota_refresh_error = Some(err);
+                if is_unauthorized(&err)
+                    || !quota_refresh_error.as_deref().is_some_and(is_unauthorized)
+                {
+                    quota_refresh_error = Some(err);
+                }
                 None
             }
         };
 
-    let tags = account.tags.clone();
-    let created_at = account.created_at;
+    let unauthorized = quota_refresh_error.as_deref().is_some_and(is_unauthorized);
+    if unauthorized && *exchange_attempted && blocked_reason.is_some() {
+        quota_refresh_error = blocked_reason;
+    }
     let payload = MinimaxCodeOAuthCompletePayload {
         email: account.email.clone(),
         id: Some(account.id.clone()),
@@ -855,28 +1132,19 @@ async fn refresh_account_token_once(account_id: &str) -> Result<MinimaxCodeAccou
         quota_raw,
         auth_raw: account.auth_raw.clone(),
         profile_raw: account.profile_raw.clone(),
-        status: account.status.clone().or_else(|| Some("normal".to_string())),
-        status_reason: account.status_reason.clone(),
+        status: Some(
+            if quota_refresh_error.is_some() {
+                "quota_error"
+            } else {
+                "normal"
+            }
+            .into(),
+        ),
+        status_reason: quota_refresh_error,
     };
-    let usage_refreshed = quota_refresh_error.is_none();
-    apply_payload(&mut account, payload);
-    if let Some(err) = quota_refresh_error {
-        account.quota_query_last_error = Some(err);
-        account.quota_query_last_error_at = Some(chrono::Utc::now().timestamp_millis());
-    } else {
-        account.quota_query_last_error = None;
-        account.quota_query_last_error_at = None;
-    }
-    account.tags = tags;
-    account.created_at = created_at;
-    let refreshed_at = now_ts();
-    if usage_refreshed {
-        account.usage_updated_at = Some(refreshed_at);
-    }
-    account.last_used = refreshed_at;
-
-    let updated = account.clone();
-    upsert_account_record(account)?;
+    let updated = update_account_after_refresh(&stored, |current| {
+        apply_payload(current, payload);
+    })?;
     logger::log_info(&format!(
         "[MiniMax Code Refresh] 刷新完成:id={}, email={}, elapsed={}ms",
         updated.id,
@@ -886,8 +1154,46 @@ async fn refresh_account_token_once(account_id: &str) -> Result<MinimaxCodeAccou
     Ok(updated)
 }
 
+fn is_unauthorized(error: &str) -> bool {
+    error.contains("HTTP 401") || error.contains("invalid access token")
+}
+
+async fn lock_account_credentials(
+    account_id: &str,
+) -> Result<tokio::sync::OwnedMutexGuard<()>, String> {
+    static LOCKS: std::sync::LazyLock<
+        Mutex<HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>>,
+    > = std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+    let account_id = normalize_account_id(account_id)?;
+    let lock = LOCKS
+        .lock()
+        .map_err(|error| error.to_string())?
+        .entry(account_id)
+        .or_insert_with(|| std::sync::Arc::new(tokio::sync::Mutex::new(())))
+        .clone();
+    Ok(lock.lock_owned().await)
+}
+
 pub async fn refresh_account_token(account_id: &str) -> Result<MinimaxCodeAccount, String> {
-    refresh_account_token_once(account_id).await
+    let _guard = lock_account_credentials(account_id).await?;
+    let mut exchange_attempted = false;
+    let account = refresh_account_token_once(account_id, None, &mut exchange_attempted).await?;
+    // A token may be rejected before expiry. Re-read the client's credentials
+    // before allowing a single recovery exchange for an independent account.
+    if !exchange_attempted
+        && account
+            .quota_query_last_error
+            .as_deref()
+            .is_some_and(is_unauthorized)
+    {
+        return refresh_account_token_once(
+            account_id,
+            Some(&account.access_token),
+            &mut exchange_attempted,
+        )
+        .await;
+    }
+    Ok(account)
 }
 
 pub async fn refresh_all_tokens() -> Result<Vec<(String, Result<MinimaxCodeAccount, String>)>, String>
@@ -947,12 +1253,11 @@ pub fn update_account_tags(
     account_id: &str,
     tags: Vec<String>,
 ) -> Result<MinimaxCodeAccount, String> {
+    let _lock = MINIMAX_CODE_ACCOUNT_INDEX_LOCK.lock().map_err(|error| error.to_string())?;
     let mut account = load_account(account_id).ok_or_else(|| "账号不存在".to_string())?;
     account.tags = Some(tags);
     account.last_used = now_ts();
-    let updated = account.clone();
-    upsert_account_record(account)?;
-    Ok(updated)
+    save_account_and_summary(account)
 }
 
 pub fn import_from_json(json_content: &str) -> Result<Vec<MinimaxCodeAccount>, String> {
@@ -1269,6 +1574,7 @@ pub fn update_checkin_info(
     streak: i32,
     rewards: Option<serde_json::Value>,
 ) -> Result<MinimaxCodeAccount, String> {
+    let _lock = MINIMAX_CODE_ACCOUNT_INDEX_LOCK.lock().map_err(|error| error.to_string())?;
     let mut account = load_account(account_id).ok_or_else(|| "账号不存在".to_string())?;
 
     if let Some(time) = last_checkin_time {
@@ -1385,6 +1691,11 @@ fn resolve_minimax_code_launch_path_from(
     let trimmed = configured.trim();
     if !trimmed.is_empty() {
         let path = PathBuf::from(trimmed);
+        #[cfg(target_os = "macos")]
+        if path.is_dir() && path.extension().is_some_and(|ext| ext == "app") {
+            let executable = path.join("Contents/MacOS/MiniMax Code");
+            if executable.is_file() { return Ok(executable); }
+        }
         if path.is_file() {
             return Ok(path);
         }
@@ -1394,7 +1705,7 @@ fn resolve_minimax_code_launch_path_from(
             return Ok(candidate.clone());
         }
     }
-    Err("未找到 MiniMax Code 客户端可执行文件".to_string())
+    Err("APP_PATH_NOT_FOUND:minimaxcode".to_string())
 }
 
 /// The MiniMax client's credential record key is
@@ -1448,7 +1759,8 @@ const MINIMAX_CODE_UNKNOWN_EXPIRES_AT_MS: i64 = 0;
 /// The pre-switch login state is preserved at `<file>.json.cockpit.bak` (only the first
 /// backup is kept, never overwritten). Returns the auth file path.
 pub fn switch_minimax_code_account(account: &MinimaxCodeAccount) -> Result<PathBuf, String> {
-    switch_minimax_code_account_impl(account, None)
+    let root = crate::modules::minimax_code_instance::get_default_minimax_code_data_dir()?;
+    switch_minimax_code_account_impl(account, Some(&root))
 }
 
 /// Switch a **managed instance** to `account` by rewriting the `auth.json` inside
@@ -1495,8 +1807,11 @@ fn switch_minimax_code_account_impl(
                 .as_ref()
                 .map(PathBuf::from)
                 .filter(|p| p.is_file())
-                .or_else(|| find_minimax_code_auth_files().into_iter().next())
-                .ok_or_else(|| "未找到 MiniMax Code 登录态文件".to_string())?;
+                .or_else(|| find_minimax_code_auth_files().into_iter().next());
+            let Some(auth_file) = auth_file else {
+                let root = instance::get_default_minimax_code_data_dir()?;
+                return switch_minimax_code_account_impl(account, Some(&root));
+            };
             // 全局实例：沿用现有命名空间。data root 从
             // `<data root>/auth/<buildEnv>/<region>/<clientId>/auth.json` 反推。
             let namespace_home = auth_file
@@ -1687,14 +2002,8 @@ fn scope_from_namespace_home(
 
 /// Ask every running MiniMax Code client (matched by exact exe path) to exit.
 ///
-/// **Multi-instance limitation.** The MiniMax client does not expose its
-/// `MINIMAX_DATA_DIR` on the process command line (the Electron main process runs as
-/// `"…\MiniMax Code.exe"` with no data-dir argument), so a running process cannot be
-/// attributed to a specific managed instance data root. PID matching is therefore
-/// exe-path based, and closing before a switch closes *all* MiniMax Code windows.
-/// Each instance still owns an isolated `auth.json` under its own data root, so account
-/// bindings are never mixed — but only one MiniMax Code instance can be logged in /
-/// in the foreground at a time.
+/// This helper is only for an explicit application-wide close. Targeted
+/// instance operations use process::close_minimax_code_instances instead.
 pub fn close_minimax_code_instances(timeout_secs: u64) -> Result<(), String> {
     let exe = resolve_minimax_code_launch_path()?;
     close_running_minimax_code_client(&exe, timeout_secs)
@@ -1716,29 +2025,27 @@ fn close_running_minimax_code_client(exe: &Path, timeout_secs: u64) -> Result<()
 }
 
 /// Switch + launch the client. Returns the launched exe path.
-pub fn switch_and_launch(account: &MinimaxCodeAccount) -> Result<PathBuf, String> {
-    // A running client keeps the previous login in memory and rewrites auth.json on
-    // exit, which would silently revert the injection. So: resolve the exe, close
-    // any running instance, inject, and only then relaunch.
-    let exe = resolve_minimax_code_launch_path()?;
-    close_running_minimax_code_client(&exe, 10)?;
-    switch_minimax_code_account(account)?;
-    std::process::Command::new(&exe)
-        .spawn()
-        .map_err(|e| format!("启动 MiniMax Code 失败: {e}"))?;
-    Ok(exe)
-}
 
 #[cfg(test)]
 mod minimax_code_refresh_freshness_tests {
-    use super::file_credentials_are_fresh;
+    use super::*;
+    use serde_json::json;
+
+    fn account() -> MinimaxCodeAccount {
+        serde_json::from_value(json!({
+            "id": "test-account", "email": "test@example.com", "uid": "uid-1",
+            "access_token": "stored-access", "refresh_token": "stored-refresh",
+            "expires_at": 1_000, "created_at": 1, "last_used": 1,
+        }))
+        .unwrap()
+    }
 
     #[test]
     fn adopts_client_credentials_only_when_they_are_fresher() {
         // The client renewed and wrote a later expiry -> adopt.
         assert!(file_credentials_are_fresh(Some(2_000), Some(1_000)));
-        // Same expiry -> adopt (a renewal on the client overwrote the file).
-        assert!(file_credentials_are_fresh(Some(1_000), Some(1_000)));
+        // An equal expiry cannot establish that a different token pair is newer.
+        assert!(!file_credentials_are_fresh(Some(1_000), Some(1_000)));
         // Ours are newer: we already refreshed past what the file holds, so the
         // file's refresh token is spent and its access token is stale.
         // Regression: adopting here caused a 401 after one refresh.
@@ -1746,10 +2053,108 @@ mod minimax_code_refresh_freshness_tests {
     }
 
     #[test]
-    fn adopts_when_either_side_has_no_expiry() {
+    fn does_not_replace_credentials_with_an_unknown_expiry() {
         assert!(file_credentials_are_fresh(Some(2_000), None));
-        assert!(file_credentials_are_fresh(None, Some(2_000)));
-        assert!(file_credentials_are_fresh(None, None));
+        assert!(!file_credentials_are_fresh(Some(0), None));
+        assert!(!file_credentials_are_fresh(None, Some(2_000)));
+        assert!(!file_credentials_are_fresh(None, None));
+    }
+
+    #[test]
+    fn shared_refresh_token_is_protected_even_when_the_access_token_differs() {
+        let record = json!({"accessToken": "client-access", "refreshToken": "stored-refresh"});
+        assert!(client_tokens_overlap(&account(), &record));
+        assert!(!ClientCredentialOwner::Same.can_rotate(|| true));
+        assert!(!ClientCredentialOwner::Same.can_rotate(|| false));
+    }
+
+    #[test]
+    fn only_a_verified_other_account_or_confirmed_exit_allows_rotation() {
+        let account = account();
+        let other = client_identity_owner(&account, Some("uid-2"), "test@example.com");
+        let unknown = client_identity_owner(&account, None, "");
+        assert!(other.can_rotate(|| false));
+        assert!(!unknown.can_rotate(|| false));
+        assert!(unknown.can_rotate(|| true));
+        assert!(!client_identity_owner(&account, Some("uid-1"), "").can_rotate(|| true));
+    }
+
+    #[test]
+    fn adopts_the_new_client_pair_together_and_ignores_partial_records() {
+        let mut account = account();
+        adopt_client_credentials(
+            &mut account,
+            &json!({
+                "accessToken": "partial-access", "expiresAtMs": 3_000,
+            }),
+            "auth.json".into(),
+        );
+        assert_eq!(account.access_token, "stored-access");
+        assert_eq!(account.expires_at, Some(1_000));
+
+        adopt_client_credentials(
+            &mut account,
+            &json!({
+                "accessToken": "client-access", "refreshToken": "client-refresh", "expiresAtMs": 2_000,
+            }),
+            "auth.json".into(),
+        );
+        assert_eq!(account.access_token, "client-access");
+        assert_eq!(account.refresh_token.as_deref(), Some("client-refresh"));
+        assert_eq!(account.expires_at, Some(2_000));
+    }
+
+    #[test]
+    fn refresh_selects_the_clients_active_record_in_a_multi_record_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let auth_home = tmp.path().join("auth");
+        let namespace = auth_home.join("prod").join("cn").join("mcode-public");
+        fs::create_dir_all(&namespace).unwrap();
+        let path = namespace.join("auth.json");
+        let key = minimax_code_record_key_for_auth_home(
+            &auth_home.to_string_lossy(),
+            "com.minimax.mcode.oauth.prod.cn",
+        );
+        fs::write(
+            &path,
+            json!({"records": {
+                "com.minimax.mcode.oauth.prod.cn\u{0}inactive": {"accessToken": "inactive-access"},
+                key: {"accessToken": "active-access"},
+            }})
+            .to_string(),
+        )
+        .unwrap();
+
+        let (region, record) = read_client_auth_record_for_refresh(&path).unwrap();
+        assert_eq!(region, "cn");
+        assert_eq!(record["accessToken"], "active-access");
+    }
+
+    #[test]
+    fn switch_rechecks_credentials_only_if_the_client_file_changed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("auth.json");
+        let key = "com.minimax.mcode.oauth.prod.cn\0test";
+        let write_record = |access: &str, refresh: &str| {
+            fs::write(
+                &path,
+                json!({"records": {key: {
+                    "accessToken": access, "refreshToken": refresh,
+                }}})
+                .to_string(),
+            )
+            .unwrap();
+        };
+        write_record("before-access", "before-refresh");
+        let checked = HashMap::from([(
+            path.clone(),
+            read_client_auth_record_for_refresh(&path).unwrap(),
+        )]);
+        assert!(changed_client_auth_record(&path, &checked).is_none());
+
+        write_record("after-access", "after-refresh");
+        let (_, record) = changed_client_auth_record(&path, &checked).unwrap();
+        assert_eq!(record["refreshToken"], "after-refresh");
     }
 }
 
@@ -2074,7 +2479,7 @@ mod minimax_code_switch_tests {
             Some(1792767948636_i64),
             &auth_file,
         );
-        let returned = switch_minimax_code_account(&account_b).expect("switch should succeed");
+        let returned = switch_minimax_code_account_impl(&account_b, None).expect("switch should succeed");
         assert_eq!(returned, auth_file);
 
         let records = read_records(&auth_file);
@@ -2126,7 +2531,7 @@ mod minimax_code_switch_tests {
             None,
             &auth_file,
         );
-        switch_minimax_code_account(&account_a).expect("second switch should succeed");
+        switch_minimax_code_account_impl(&account_a, None).expect("second switch should succeed");
 
         let records = read_records(&auth_file);
         assert_eq!(records.len(), 1);
@@ -2175,7 +2580,7 @@ mod minimax_code_switch_tests {
             None,
             &auth_file,
         );
-        let err = switch_minimax_code_account(&account).expect_err("array JSON must be rejected");
+        let err = switch_minimax_code_account_impl(&account, None).expect_err("array JSON must be rejected");
         assert_eq!(err, "MiniMax Code 登录态文件格式非法");
     }
 
@@ -2186,7 +2591,7 @@ mod minimax_code_switch_tests {
         let auth_file = tmp.0.join("auth.json");
         fs::write(&auth_file, "{\"schemaVersion\":1,\"records\":{}}").unwrap();
         let account = fake_account("account_b", "mmoat_target", None, None, &auth_file);
-        let err = switch_minimax_code_account(&account)
+        let err = switch_minimax_code_account_impl(&account, None)
             .expect_err("missing refreshToken must be rejected");
         assert_eq!(err, "该账号缺少 refreshToken，无法切换");
     }
@@ -2217,7 +2622,7 @@ mod minimax_code_switch_tests {
 
         let account =
             fake_account("account_missing", "mmoat_new", Some("mmort_new"), None, &auth_file);
-        switch_minimax_code_account(&account).expect("switch should succeed");
+        switch_minimax_code_account_impl(&account, None).expect("switch should succeed");
 
         let records = read_records(&auth_file);
         let (key, record) = records.iter().next().unwrap();
@@ -2255,7 +2660,7 @@ mod minimax_code_switch_tests {
         let tmp = TempDir::new();
         let auth_file = write_two_record_auth_file(&tmp.0);
         let account = fake_account("account_b", "mmoat_new_access", None, None, &auth_file);
-        let err = switch_minimax_code_account(&account)
+        let err = switch_minimax_code_account_impl(&account, None)
             .expect_err("missing refreshToken must be rejected");
         assert_eq!(err, "该账号缺少 refreshToken，无法切换");
     }
@@ -2274,7 +2679,7 @@ mod minimax_code_switch_tests {
     fn resolve_launch_path_errors_when_nothing_found() {
         let err = resolve_minimax_code_launch_path_from("", &[])
             .expect_err("no configured path and no candidates must error");
-        assert_eq!(err, "未找到 MiniMax Code 客户端可执行文件");
+        assert_eq!(err, "APP_PATH_NOT_FOUND:minimaxcode");
     }
 
     #[test]

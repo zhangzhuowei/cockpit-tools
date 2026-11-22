@@ -2,6 +2,7 @@
 
 fn native_cooldown_report(status: u16, error: &str) -> native_contract::RequestReport {
     native_contract::RequestReport {
+        peer_ip: None,
         transient_rate_limit: false,
         official_access_fingerprint: None,
         official_authorization_revision: None,
@@ -19,6 +20,7 @@ fn native_cooldown_report(status: u16, error: &str) -> native_contract::RequestR
         success: false,
         elapsed: Duration::ZERO,
         usage: None,
+        input_text_characters: None,
         error: Some(error.into()),
         error_message: None,
         credential_scope: false,
@@ -70,6 +72,8 @@ fn native_connection_failures_do_not_cool_accounts_or_shorten_existing_cooldown(
     host.cooldowns.lock().unwrap().insert(
         native_cooldown_key("pool-a", "fixture-model", false),
         NativeCooldown {
+            non_quota_failures: 0,
+            recorded_at: Instant::now(),
             until,
             quota: true,
             backoff_level: 1,
@@ -279,6 +283,8 @@ async fn native_cooldown_wait_is_scoped_and_initial_selection_waits_only_within_
         host.cooldowns.lock().unwrap().insert(
             native_cooldown_key(account, "gpt-fixture", false),
             NativeCooldown {
+                non_quota_failures: 0,
+                recorded_at: Instant::now(),
                 until,
                 quota: false,
                 backoff_level: 0,
@@ -312,6 +318,8 @@ async fn native_cooldown_wait_can_be_cancelled_without_holding_selection_or_stat
     host.cooldowns.lock().unwrap().insert(
         native_cooldown_key("pool-a", "gpt-fixture", false),
         NativeCooldown {
+            non_quota_failures: 0,
+            recorded_at: Instant::now(),
             until: Instant::now() + Duration::from_millis(500),
             quota: false,
             backoff_level: 0,
@@ -357,6 +365,31 @@ fn disabling_cooling_clears_errors_without_clearing_account_quota_data() {
 }
 
 #[test]
+fn a_generic_404_does_not_cool_the_only_model_route() {
+    let host = NativeHostBridge::default();
+    let mut report = native_cooldown_report(404, "upstream_http_404");
+    report.error_message = Some("Not Found".into());
+    host.record_failure_cooldown(&report);
+    assert!(native_cooldown_wait(
+        &host.cooldowns.lock().unwrap(),
+        "pool-a",
+        "fixture-model",
+        false,
+        Instant::now(),
+    )
+    .is_none());
+
+    report.error = Some("model_not_found".into());
+    host.record_failure_cooldown(&report);
+    let states = host.cooldowns.lock().unwrap();
+    assert_eq!(
+        states[&native_cooldown_key("pool-a", "fixture-model", false)].reason,
+        "model_not_available"
+    );
+    assert!(native_cooldown_wait(&states, "pool-a", "another-model", false, Instant::now()).is_none());
+}
+
+#[test]
 fn model_errors_cool_only_the_model_and_parameters_do_not_cool() {
     let host = NativeHostBridge::default();
     let mut report = native_cooldown_report(400, "upstream_model_unavailable");
@@ -393,7 +426,7 @@ fn transient_admission_cools_only_the_model_without_quota_or_backoff() {
     native_upsert_transient_rate_limit(&mut states,"a","m",None,now);
     assert_eq!(states[&native_cooldown_key("a","m",false)].until,now+Duration::from_secs(1));
     let quota_until=now+Duration::from_secs(3600);
-    states.insert(native_cooldown_key("a","m",false),NativeCooldown{until:quota_until,quota:true,backoff_level:3,reason:"quota"});
+    states.insert(native_cooldown_key("a","m",false),NativeCooldown{non_quota_failures:0,recorded_at:now,until:quota_until,quota:true,backoff_level:3,reason:"quota"});
     native_upsert_transient_rate_limit(&mut states,"a","m",Some(Duration::from_secs(2)),now);
     assert_eq!(states[&native_cooldown_key("a","m",false)].until,quota_until);
     assert!(states[&native_cooldown_key("a","m",false)].quota);
@@ -401,4 +434,511 @@ fn transient_admission_cools_only_the_model_without_quota_or_backoff() {
     report.transient_rate_limit=true; report.retry_after=Some(Duration::from_millis(200));
     host.record_failure_cooldown(&report);
     assert!(!host.cooldowns.lock().unwrap()[&native_cooldown_key("pool-a","fixture-model",false)].quota);
+}
+
+async fn native_test_wait_for_account_queue<F: std::future::Future + Unpin>(
+    host: &NativeHostBridge,
+    queued: &mut F,
+) {
+    tokio::select! {
+        _ = queued => panic!("route completed before entering the concurrency queue"),
+        result = tokio::time::timeout(Duration::from_secs(2), async {
+            while host.account_waiters.load(Ordering::Acquire) == 0 {
+                tokio::task::yield_now().await;
+            }
+        }) => result.expect("route did not enter the concurrency queue"),
+    }
+}
+
+#[tokio::test]
+async fn native_queued_affinity_rechecks_cooling_without_blocking_legal_routes() {
+    let _env = crate::modules::test_support::env_lock()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    for (case, model, disabled, confirmed_quota, expired, expected) in [
+        (
+            "model cooling",
+            "gpt-fixture",
+            false,
+            false,
+            false,
+            "pool-b",
+        ),
+        (
+            "quota with cooling disabled",
+            "",
+            true,
+            true,
+            false,
+            "pool-b",
+        ),
+        (
+            "other model",
+            "different-model",
+            false,
+            false,
+            false,
+            "pool-a",
+        ),
+        ("expired", "gpt-fixture", false, false, true, "pool-a"),
+        (
+            "cooling disabled",
+            "gpt-fixture",
+            true,
+            false,
+            false,
+            "pool-a",
+        ),
+    ] {
+        let mut host = native_test_routing_host();
+        let collection = host.collection_override.as_mut().unwrap();
+        collection.account_concurrency_wait_ms = 1_000;
+        collection.max_retry_interval_ms = 0;
+        collection.disable_cooling = disabled;
+        // Admission must check the mapped upstream model, not the public alias.
+        collection.model_aliases = vec![serde_json::from_value(json!({
+            "alias": "public-model", "sourceModel": "gpt-fixture"
+        }))
+        .unwrap()];
+        native_contract::Host::set_cooling_disabled(&host, disabled);
+        let caller = native_test_caller(NATIVE_PRIMARY_CALLER);
+        let mut request = native_test_route_request("queued-affinity");
+        request.model = "public-model".into();
+        let busy = native_select_route(&host, &caller, request.clone())
+            .await
+            .unwrap();
+        assert_eq!(busy.account_id, "pool-a", "{case}");
+        let mut queued = Box::pin(native_select_route(&host, &caller, request));
+        native_test_wait_for_account_queue(&host, &mut queued).await;
+        assert_eq!(host.account_waiters.load(Ordering::Acquire), 1, "{case}");
+        {
+            let now = Instant::now();
+            let mut states = host.cooldowns.lock().unwrap();
+            if confirmed_quota {
+                native_mark_quota_exhausted(
+                    &mut states,
+                    "pool-a",
+                    Some(Duration::from_secs(60)),
+                    now,
+                );
+            } else {
+                native_upsert_cooldown(&mut states, "pool-a", model, 503, None, false, now);
+                if expired {
+                    states
+                        .get_mut(&native_cooldown_key("pool-a", model, false))
+                        .unwrap()
+                        .until = now;
+                }
+            }
+        }
+        drop(busy);
+        let selected = tokio::time::timeout(Duration::from_millis(500), queued)
+            .await
+            .expect(case)
+            .expect(case);
+        assert_eq!(selected.account_id, expected, "{case}");
+        assert_eq!(host.account_waiters.load(Ordering::Acquire), 0, "{case}");
+        drop(selected);
+        assert!(
+            host.gates
+                .lock()
+                .unwrap()
+                .values()
+                .all(|gate| gate.available_permits() == 1),
+            "{case}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn native_queued_pool_skips_newly_cooled_candidate_and_waits_for_backup() {
+    let _env = crate::modules::test_support::env_lock()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let mut host = native_test_routing_host();
+    let collection = host.collection_override.as_mut().unwrap();
+    collection.session_affinity = false;
+    collection.account_concurrency_wait_ms = 1_000;
+    collection.max_retry_interval_ms = 0;
+    let collection = host.collection().await.unwrap();
+    let accounts: Vec<_> = ["pool-a", "pool-b"]
+        .iter()
+        .map(|id| host.account_overrides[*id].clone())
+        .collect();
+    let (_, busy_a) = native_acquire_account_permit(&host, &collection, &accounts[..1], true)
+        .await
+        .unwrap();
+    let (_, busy_b) = native_acquire_account_permit(&host, &collection, &accounts[1..], true)
+        .await
+        .unwrap();
+    let caller = native_test_caller(NATIVE_PRIMARY_CALLER);
+    let mut queued = Box::pin(native_select_route(
+        &host,
+        &caller,
+        native_test_route_request("queued-pool"),
+    ));
+    native_test_wait_for_account_queue(&host, &mut queued).await;
+    native_upsert_cooldown(
+        &mut host.cooldowns.lock().unwrap(),
+        "pool-a",
+        "gpt-fixture",
+        503,
+        None,
+        false,
+        Instant::now(),
+    );
+    drop(busy_a);
+    // Only A has a free slot, but it has become ineligible while queued.
+    tokio::select! {
+        _ = &mut queued => panic!("newly cooled A must not be selected"),
+        result = tokio::time::timeout(Duration::from_secs(2), async {
+            while host.gates.lock().unwrap().get("pool-a:1")
+                .is_some_and(|gate| gate.available_permits() != 1)
+                || host.account_waiters.load(Ordering::Acquire) != 1
+            {
+                tokio::task::yield_now().await;
+            }
+        }) => result.expect("cooled slot was not released before waiting for B"),
+    }
+    drop(busy_b);
+    let selected = tokio::time::timeout(Duration::from_millis(500), queued)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(selected.account_id, "pool-b");
+    drop(selected);
+    assert_eq!(host.account_waiters.load(Ordering::Acquire), 0);
+    assert!(host
+        .gates
+        .lock()
+        .unwrap()
+        .values()
+        .all(|gate| gate.available_permits() == 1));
+}
+
+#[tokio::test]
+async fn native_queued_cooling_without_backup_returns_error_and_releases_permit() {
+    let _env = crate::modules::test_support::env_lock()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    for (pinned, rebuild_available, all_cooling) in [
+        (false, false, false),
+        (false, false, true),
+        (true, false, false),
+        (true, true, false),
+    ] {
+        let mut host = native_test_routing_host();
+        let collection = host.collection_override.as_mut().unwrap();
+        collection.account_concurrency_wait_ms = 1_000;
+        collection.max_retry_interval_ms = if rebuild_available { 120_000 } else { 0 };
+        if !pinned && !all_cooling {
+            collection.account_ids = vec!["pool-a".into()];
+        }
+        let caller = native_test_caller(NATIVE_PRIMARY_CALLER);
+        let mut request = native_test_route_request("queued-owner");
+        if pinned {
+            request.preferred_account_id = Some("pool-a".into());
+        }
+        let busy = native_select_route(&host, &caller, request.clone())
+            .await
+            .unwrap();
+        let mut queued = Box::pin(native_select_route_with_owner_wait(
+            &host,
+            &caller,
+            request,
+            rebuild_available,
+        ));
+        native_test_wait_for_account_queue(&host, &mut queued).await;
+        if rebuild_available {
+            native_mark_quota_exhausted(
+                &mut host.cooldowns.lock().unwrap(),
+                "pool-a",
+                Some(Duration::from_secs(60)),
+                Instant::now(),
+            );
+        } else {
+            native_upsert_cooldown(
+                &mut host.cooldowns.lock().unwrap(),
+                "pool-a",
+                "gpt-fixture",
+                503,
+                None,
+                false,
+                Instant::now(),
+            );
+        }
+        if all_cooling {
+            native_upsert_cooldown(
+                &mut host.cooldowns.lock().unwrap(),
+                "pool-b",
+                "gpt-fixture",
+                503,
+                None,
+                false,
+                Instant::now(),
+            );
+        }
+        drop(busy);
+        let error = tokio::time::timeout(Duration::from_millis(500), queued)
+            .await
+            .unwrap()
+            .err()
+            .expect("cooled account must not be selected");
+        assert_eq!(error.status, 503);
+        assert_eq!(
+            error.code,
+            if pinned {
+                "account_cooling"
+            } else {
+                "no_available_account"
+            }
+        );
+        if rebuild_available {
+            assert!(
+                error.retry_after.is_none(),
+                "verified rebuild must not wait for the exhausted owner"
+            );
+        } else {
+            assert!(error.retry_after.unwrap() > Duration::from_secs(50));
+        }
+        assert_eq!(host.account_waiters.load(Ordering::Acquire), 0);
+        assert!(host
+            .gates
+            .lock()
+            .unwrap()
+            .values()
+            .all(|gate| gate.available_permits() == 1));
+    }
+}
+
+#[tokio::test]
+async fn native_queued_cooling_keeps_the_remaining_concurrency_wait_budget() {
+    let _env = crate::modules::test_support::env_lock()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let mut host = native_test_routing_host();
+    let collection = host.collection_override.as_mut().unwrap();
+    collection.account_concurrency_wait_ms = 1_000;
+    collection.max_retry_interval_ms = 0;
+    let caller = native_test_caller(NATIVE_PRIMARY_CALLER);
+    let request = native_test_route_request("queued-budget");
+    let busy_a = native_select_route(&host, &caller, request.clone())
+        .await
+        .unwrap();
+    let collection = host.collection().await.unwrap();
+    let backup = host.account_overrides["pool-b"].clone();
+    let (_, busy_b) = native_acquire_account_permit(&host, &collection, &[backup], true)
+        .await
+        .unwrap();
+    let mut queued = Box::pin(native_select_route(&host, &caller, request));
+    native_test_wait_for_account_queue(&host, &mut queued).await;
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    native_upsert_cooldown(
+        &mut host.cooldowns.lock().unwrap(),
+        "pool-a",
+        "gpt-fixture",
+        503,
+        None,
+        false,
+        Instant::now(),
+    );
+    drop(busy_a);
+    // B stays busy. Reusing a fresh one-second wait would exceed this bound.
+    let error = tokio::time::timeout(Duration::from_millis(600), queued)
+        .await
+        .expect("switching candidates restarted the wait budget")
+        .err()
+        .expect("busy backup must not be selected");
+    assert_eq!(error.code, "account_busy");
+    assert_eq!(host.account_waiters.load(Ordering::Acquire), 0);
+    assert!(host
+        .gates
+        .lock()
+        .unwrap()
+        .get("pool-a:1")
+        .is_none_or(|gate| gate.available_permits() == 1));
+    drop(busy_b);
+    assert!(host
+        .gates
+        .lock()
+        .unwrap()
+        .values()
+        .all(|gate| gate.available_permits() == 1));
+}
+
+#[test]
+fn native_quota_refresh_clears_only_earlier_quota_cooldowns_for_this_account() {
+    let old = Instant::now();
+    let query = old + Duration::from_secs(1);
+    let newer = query + Duration::from_secs(1);
+    let mut states = HashMap::new();
+    native_mark_quota_exhausted(&mut states, "a", Some(Duration::from_secs(7200)), old);
+    native_upsert_cooldown(&mut states, "a", "old-quota", 429, None, false, old);
+    native_upsert_cooldown(&mut states, "a", "overload", 503, None, false, old);
+    native_upsert_cooldown(&mut states, "a", "new-quota", 429, None, false, newer);
+    native_mark_quota_exhausted(&mut states, "b", Some(Duration::from_secs(7200)), old);
+    assert!(native_clear_quota_cooldowns(&mut states, "a", query, true, false));
+    assert!(!states.contains_key(&native_cooldown_key("a", "", true)));
+    assert!(!states.contains_key(&native_cooldown_key("a", "old-quota", false)));
+    assert!(states.contains_key(&native_cooldown_key("a", "new-quota", false)));
+    assert!(states.contains_key(&native_cooldown_key("a", "overload", false)));
+    assert!(states.contains_key(&native_cooldown_key("b", "", true)));
+    // An account-wide rejection received during the GET also wins.
+    native_mark_quota_exhausted(&mut states, "b", None, newer);
+    assert!(!native_clear_quota_cooldowns(&mut states, "b", query, true, false));
+}
+
+#[test]
+fn native_reserve_refresh_and_credential_errors_keep_their_own_scopes() {
+    let now = Instant::now();
+    let query_started = now + Duration::from_secs(1);
+    let reserve = native_oauth_quota_key("a", "gpt-reserve");
+    let included = native_oauth_quota_key("a", "gpt-5.6-luna");
+    let mut states = HashMap::new();
+    native_mark_quota_exhausted_at_key(&mut states, reserve.clone(), Some(Duration::from_secs(90)), now);
+    native_mark_quota_exhausted_at_key(&mut states, included.clone(), Some(Duration::from_secs(300)), now);
+    assert!(native_clear_quota_cooldowns(&mut states, "a", query_started, false, true));
+    assert!(!states.contains_key(&reserve));
+    assert!(states.contains_key(&included));
+    native_mark_quota_exhausted_at_key(&mut states, reserve.clone(), Some(Duration::from_secs(90)), query_started);
+    assert!(native_clear_quota_cooldowns(&mut states, "a", query_started, true, false));
+    assert!(states.contains_key(&reserve));
+    assert!(!native_clear_quota_cooldowns(&mut states, "a", query_started, false, true));
+    assert!(!states.contains_key(&included));
+
+    native_upsert_cooldown(&mut states, "a", "gpt-5.6-luna", 401, None, true, query_started);
+    assert_eq!(native_cooldown_wait(&states, "a", "gpt-reserve", false, query_started), Some(Duration::from_secs(1800)));
+    assert_eq!(native_cooldown_wait(&states, "a", "gpt-5.6-luna", false, query_started), Some(Duration::from_secs(1800)));
+}
+
+#[test]
+fn native_reserve_confirmed_quota_report_does_not_add_a_credential_cooldown() {
+    let host = NativeHostBridge::default();
+    let now = Instant::now();
+    native_mark_quota_exhausted_at_key(&mut host.cooldowns.lock().unwrap(),
+        native_oauth_quota_key("pool-a", "gpt-reserve"), Some(Duration::from_secs(60)), now);
+    let mut report = native_cooldown_report(429, "usage_limit_reached");
+    report.upstream_model = "gpt-reserve".into();
+    report.diagnostics = Some(native_api::diagnostics::DiagnosticContext {
+        attempts: vec![native_api::diagnostics::DiagnosticAttempt {
+            account_id: "pool-a".into(), confirmed_quota_cooldown_recorded: true, ..Default::default()
+        }],
+        ..Default::default()
+    });
+    host.record_failure_cooldown(&report);
+    let states = host.cooldowns.lock().unwrap();
+    assert!(native_cooldown_wait(&states, "pool-a", "gpt-5.6-luna", false, now).is_none());
+    assert_eq!(native_cooldown_wait(&states, "pool-a", "gpt-reserve", false, now), Some(Duration::from_secs(60)));
+}
+
+#[test]
+fn native_quota_refresh_requires_positive_authoritative_allowance() {
+    let now = 100;
+    let started = Instant::now();
+    let mut quota = CodexQuota {
+        hourly_percentage: 80,
+        hourly_window_present: Some(true),
+        hourly_reset_time: Some(200),
+        weekly_window_present: Some(false),
+        raw_data: Some(serde_json::json!({"rate_limit":{"primary_window":{"used_percent":20},"secondary_window":null}})),
+        hourly_window_minutes: Some(300),
+        weekly_percentage: 0,
+        weekly_window_minutes: None,
+        weekly_reset_time: None,
+        reset_credits_available: None,
+        reset_credits: vec![],
+        reset_credits_next_expires_at: None,
+    };
+    assert!(quota_refresh_confirms_usable_allowance(&quota, started, now));
+    quota.raw_data.as_mut().unwrap()["rate_limit"].as_object_mut().unwrap().remove("secondary_window");
+    assert!(!quota_refresh_confirms_usable_allowance(&quota, started, now));
+    quota.raw_data.as_mut().unwrap()["rate_limit"]["secondary_window"] = serde_json::Value::Null;
+    quota.hourly_reset_time = Some(now);
+    assert!(!quota_refresh_confirms_usable_allowance(&quota, started, now));
+    quota.hourly_reset_time = Some(200);
+    quota.raw_data.as_mut().unwrap()["rate_limit"]["primary_window"]["used_percent"] = serde_json::json!(100);
+    assert!(!quota_refresh_confirms_usable_allowance(&quota, started, now));
+}
+
+#[test]
+fn native_server_failure_streak_spans_models_and_preserves_quota() {
+    let mut states = HashMap::new();
+    let start = Instant::now();
+    for (attempt, (model, status)) in [("m1", 503), ("m2", 502), ("m1", 504)].into_iter().enumerate() {
+        let now = start + Duration::from_secs(attempt as u64 * 61);
+        native_upsert_cooldown(&mut states, "a", model, status, None, false, now);
+        assert_eq!(states[&native_upstream_failure_key("a")].non_quota_failures, (attempt + 1) as u8);
+        assert_eq!(
+            native_cooldown_wait(&states, "a", "healthy-model", false, now),
+            (attempt == 2).then_some(Duration::from_secs(600)),
+        );
+        assert!(native_cooldown_wait(&states, "b", model, false, now).is_none());
+    }
+    let now = start + Duration::from_secs(124);
+    native_mark_quota_exhausted(&mut states, "a", Some(Duration::from_secs(3600)), now);
+    assert_eq!(states[&native_upstream_failure_key("a")].non_quota_failures, 0);
+    assert_eq!(native_cooldown_wait(&states, "a", "m1", false, now), Some(Duration::from_secs(3600)));
+    assert!(native_clear_quota_cooldowns(&mut states, "a", now + Duration::from_secs(1), true, false));
+    assert_eq!(native_cooldown_wait(&states, "a", "healthy-model", false, now), Some(Duration::from_secs(598)));
+    assert!(native_cooldown_wait(&states, "a", "healthy-model", false, now + Duration::from_secs(598)).is_none());
+}
+
+#[tokio::test]
+async fn native_failure_report_counts_each_dispatch_once_and_success_resets_it() {
+    let host = NativeHostBridge::default();
+    let key = native_upstream_failure_key("pool-a");
+    for number in 1..=3 {
+        native_contract::Host::route_failed_for_model(&host, "pool-a", "fixture-model", 503, None, false).await;
+        let mut report = native_cooldown_report(503, "upstream_http_503");
+        report.diagnostics = Some(native_api::diagnostics::DiagnosticContext {
+            attempts: vec![native_api::diagnostics::DiagnosticAttempt {
+                account_id: "pool-a".into(),
+                failure_cooldown_recorded: true,
+                ..Default::default()
+            }],
+            ..Default::default()
+        });
+        host.record_failure_cooldown(&report);
+        assert_eq!(host.cooldowns.lock().unwrap()[&key].non_quota_failures, number);
+    }
+    assert!(host.cooldowns.lock().unwrap()[&key].until >= Instant::now() + Duration::from_secs(599));
+    let mut success = native_cooldown_report(200, "");
+    success.success = true;
+    success.upstream_model = "another-model".into();
+    host.record_failure_cooldown(&success);
+    assert!(!host.cooldowns.lock().unwrap().contains_key(&key));
+    host.record_failure_cooldown(&native_cooldown_report(503, "upstream_http_503"));
+    assert_eq!(host.cooldowns.lock().unwrap()[&key].non_quota_failures, 1);
+}
+
+#[tokio::test]
+async fn native_suspended_pool_member_fails_over_with_legacy_settings_and_keeps_alias_scope() {
+    let mut host = native_test_routing_host();
+    let mut legacy = serde_json::to_value(host.collection_override.take().unwrap()).unwrap();
+    legacy.as_object_mut().unwrap().remove("maxRetryCredentials");
+    legacy["modelAliases"] = json!([{"alias": "exclusive-alias", "sourceModel": "exclusive-upstream"}]);
+    legacy["customRoutingRules"] = json!([{"accountId": "pool-a", "isPreferred": true}]);
+    host.collection_override = Some(serde_json::from_value(legacy).unwrap());
+    host.account_overrides.get_mut("pool-a").unwrap().api_model_catalog
+        .push("exclusive-upstream".into());
+    let caller = native_test_caller(NATIVE_PRIMARY_CALLER);
+    let request = native_test_route_request("account-pause");
+    let route = native_select_route(&host, &caller, request.clone()).await.unwrap();
+    assert_eq!(route.account_id, "pool-a");
+    drop(route);
+    assert_eq!(native_contract::Host::execution_policy(&host).await.unwrap().credential_retries, 0);
+
+    for model in ["gpt-fixture", "exclusive-upstream", "gpt-fixture"] {
+        native_contract::Host::route_failed_for_model(&host, "pool-a", model, 503, None, false).await;
+    }
+
+    let route = native_select_route(&host, &caller, request.clone()).await.unwrap();
+    assert_eq!(route.account_id, "pool-b");
+    drop(route);
+    let mut alias = request;
+    alias.model = "exclusive-alias".into();
+    let error = native_select_route(&host, &caller, alias).await.err()
+        .expect("the healthy account cannot serve the alias");
+    assert_eq!((error.status, error.code), (503, "no_available_account"));
+    assert!(error.retry_after.unwrap() >= Duration::from_secs(598));
 }

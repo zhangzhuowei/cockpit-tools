@@ -22,7 +22,7 @@ use std::{
     collections::VecDeque,
     path::PathBuf,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU16, Ordering},
         Arc, Mutex,
     },
     time::Duration,
@@ -38,6 +38,7 @@ enum Step {
     RawEvents(Vec<Value>),
     HttpOverload,
     HttpRateLimit,
+    HttpTokenRevoked,
     SseOverload,
     Hold(&'static str),
 }
@@ -59,6 +60,9 @@ struct TestHost {
     oauth: AtomicBool,
     passthrough: AtomicBool,
     removed_a: AtomicBool,
+    missing_owner_status: AtomicU16,
+    immediate_sse: AtomicBool,
+    capacity_recovery_checks: Mutex<Option<usize>>,
     local_quota_preparation_denied: Mutex<Vec<String>>,
     local_quota_send_denied: Mutex<Vec<String>>,
     local_quota_send_checks: Mutex<Vec<String>>,
@@ -92,10 +96,23 @@ impl Host for TestHost {
     ) -> BoxFuture<'a, Result<Route, ServiceError>> {
         Box::pin(async move {
             self.selections.lock().unwrap().push(request.clone());
+            {
+                let mut recovery = self.capacity_recovery_checks.lock().unwrap();
+                if let Some(checks) = recovery.as_mut() {
+                    if *checks < 2 && request.excluded_account_ids.iter().any(|id| id == "a") {
+                        *checks += 1;
+                        return Err(ServiceError::new(503, "no_available_account", "Backup is still unavailable"));
+                    }
+                    if *checks == 2 && request.preferred_account_id.as_deref() == Some("a") {
+                        *checks += 1;
+                        return Err(ServiceError::new(429, "account_busy", "Original account is busy"));
+                    }
+                }
+            }
             let account = if let Some(preferred) = request.preferred_account_id.as_deref() {
                 if preferred == "a" && self.removed_a.load(Ordering::SeqCst) {
                     return Err(ServiceError::new(
-                        503,
+                        self.missing_owner_status.load(Ordering::SeqCst),
                         "account_binding_unavailable",
                         "Synthetic account A removed",
                     ));
@@ -166,8 +183,12 @@ impl Host for TestHost {
     }
     fn execution_policy(&self) -> BoxFuture<'_, Result<ExecutionPolicy, ServiceError>> {
         Box::pin(async {
+            let continuous = self.capacity_recovery_checks.lock().unwrap().is_some();
             Ok(ExecutionPolicy {
                 account_switch_rebuild: self.enabled.load(Ordering::SeqCst),
+                immediate_sse: self.immediate_sse.load(Ordering::SeqCst),
+                continuous_overload_retry: continuous,
+                websocket_heartbeat: if continuous { Duration::from_millis(100) } else { Duration::ZERO },
                 credential_retries: 0,
                 status_retries: 0,
                 send_retries: 0,
@@ -265,6 +286,7 @@ async fn upstream_http(
         Step::RawEvents(events) => sse(events),
         Step::HttpOverload => (StatusCode::SERVICE_UNAVAILABLE,Json(json!({"error":{"type":"server_error","code":"server_error","message":"Synthetic overloaded"}}))).into_response(),
         Step::HttpRateLimit => (StatusCode::TOO_MANY_REQUESTS,Json(json!({"error":{"type":"usage_limit_reached","code":"usage_limit_reached","message":"Synthetic quota exhausted"}}))).into_response(),
+        Step::HttpTokenRevoked => (StatusCode::UNAUTHORIZED,Json(json!({"error":{"type":"authentication_error","code":"token_revoked","message":"Synthetic token revoked"}}))).into_response(),
         Step::SseOverload => sse(vec![json!({"type":"error","status_code":503,"error":{"type":"service_unavailable_error","code":"server_is_overloaded","message":"Synthetic overloaded"}})]),
         Step::CompleteItems(id,items) => {
             let response=json!({"id":id,"status":"completed","output":items});
@@ -377,6 +399,9 @@ impl Fixture {
             oauth: AtomicBool::new(false),
             passthrough: AtomicBool::new(false),
             removed_a: AtomicBool::new(false),
+            missing_owner_status: AtomicU16::new(503),
+            immediate_sse: AtomicBool::new(false),
+            capacity_recovery_checks: Mutex::new(None),
             local_quota_preparation_denied: Mutex::new(vec![]),
             local_quota_send_denied: Mutex::new(vec![]),
             local_quota_send_checks: Mutex::new(vec![]),
@@ -464,15 +489,19 @@ fn identity(sent: &Sent) -> (Value, Value) {
     )
 }
 fn assert_fresh(source: &Sent, rebuilt: &Sent, expected: Value) {
-    assert_ne!(identity(source), identity(rebuilt));
-    assert_ne!(
+    assert_eq!(identity(source), identity(rebuilt));
+    assert_eq!(
         source.headers.get("session-id"),
         rebuilt.headers.get("session-id")
     );
-    assert_ne!(
+    assert_eq!(
         source.headers.get("thread-id"),
         rebuilt.headers.get("thread-id")
     );
+    assert_rebuilt_request(rebuilt, expected);
+}
+
+fn assert_rebuilt_request(rebuilt: &Sent, expected: Value) {
     assert!(rebuilt.body.get("previous_response_id").is_none());
     assert!(!rebuilt.headers.contains_key("x-codex-turn-state"));
     assert!(rebuilt.body["client_metadata"]
@@ -594,8 +623,8 @@ async fn context_rebuild_a_b_a_uses_new_a_generation_and_does_not_reassign_old_c
             .collect::<Vec<_>>(),
         vec!["a", "a", "b", "b", "a"]
     );
-    assert_ne!(identity(&sent[0]), identity(&sent[4]));
-    assert_ne!(identity(&sent[2]), identity(&sent[4]));
+    assert_eq!(identity(&sent[0]), identity(&sent[4]));
+    assert_eq!(identity(&sent[2]), identity(&sent[4]));
     assert_fresh(
         &sent[3],
         &sent[4],
@@ -927,6 +956,59 @@ async fn context_rebuild_only_replays_tool_history_after_call_and_result_are_pai
 }
 
 #[tokio::test]
+async fn context_rebuild_websocket_keeps_tool_turn_connected_until_backup_recovers() {
+    let call = json!({"type":"function_call","name":"lookup","call_id":"synthetic-lookup","arguments":"{}","status":"completed"});
+    let result = json!({"type":"function_call_output","call_id":"synthetic-lookup","output":"synthetic result"});
+    let fixture = Fixture::new(
+        true,
+        vec![Step::Complete("a-root", Some(call.clone())), Step::SseOverload],
+        vec![Step::Complete("b-recovered", None)],
+    ).await;
+    fixture.host.passthrough.store(true, Ordering::SeqCst);
+    *fixture.host.capacity_recovery_checks.lock().unwrap() = Some(0);
+    let mut socket = fixture.socket().await;
+    let user_message = message("user", "run lookup");
+    ws_send(&mut socket, body(vec![user_message.clone()], None, true)).await;
+    assert_eq!(ws_event(&mut socket, "response.completed").await["response"]["id"], "a-root");
+    ws_send(&mut socket, body(vec![result.clone()], Some("a-root"), true)).await;
+
+    let (response, heartbeats) = tokio::time::timeout(Duration::from_secs(5), async {
+        let mut heartbeats = 0;
+        loop {
+            match socket.next().await.unwrap().unwrap() {
+                Message::Ping(_) => {
+                    if fixture.sent().len() == 2 {
+                        heartbeats += 1;
+                    }
+                    socket.flush().await.unwrap();
+                }
+                Message::Text(text) => {
+                    let event: Value = serde_json::from_str(&text).unwrap();
+                    match event["type"].as_str() {
+                        Some("error" | "response.failed") => panic!("Unexpected WS error: {event}"),
+                        Some("response.completed") => break (event, heartbeats),
+                        _ => {}
+                    }
+                }
+                Message::Close(frame) => panic!("Client connection closed during recovery: {frame:?}"),
+                _ => {}
+            }
+        }
+    }).await.unwrap();
+    assert_eq!(response["response"]["id"], "b-recovered");
+    assert!(heartbeats >= 2, "Expected heartbeats while the original request waited");
+    assert_eq!(*fixture.host.capacity_recovery_checks.lock().unwrap(), Some(3));
+    let sent = fixture.sent();
+    assert_eq!(sent.iter().map(|item| item.account.as_str()).collect::<Vec<_>>(), ["a", "a", "b"]);
+    assert_fresh(&sent[1], &sent[2], json!([
+        user_message, message("assistant", "answer-a-root"), call, result
+    ]));
+    socket.close(None).await.unwrap();
+    drop(socket);
+    fixture.finish().await;
+}
+
+#[tokio::test]
 async fn context_rebuild_upstream_websocket_overload_rebuilds_then_reuses_b_generation() {
     let fixture = Fixture::new(
         true,
@@ -1061,8 +1143,14 @@ mod opaque_tests;
 #[path = "context_rebuild_host_results_tests.rs"]
 mod host_results_tests;
 
+#[path = "context_rebuild_agent_browser_tests.rs"]
+mod agent_browser_tests;
+
 #[path = "context_rebuild_codex_app_failover_tests.rs"]
 mod codex_app_failover_tests;
+
+#[path = "context_rebuild_notify_results_tests.rs"]
+mod notify_results_tests;
 
 #[path = "context_rebuild_output_evidence_tests.rs"]
 mod output_evidence_tests;

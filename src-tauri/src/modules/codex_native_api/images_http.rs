@@ -41,7 +41,7 @@ async fn handle(
     incoming: Request,
     operation: ImageOperation,
 ) -> Result<Response, ServiceError> {
-    let mut tracker = state.begin()?;
+    let mut tracker = state.begin_with_peer(super::super::server::request_peer(incoming.extensions()))?;
     let capture = tokio::time::timeout(
         state.options.request_timeout,
         state.host.payload_logging_enabled(),
@@ -55,10 +55,21 @@ async fn handle(
         capture,
     );
     let caller = state.authorize(incoming.headers()).await?;
+    tracker.set_operation(if operation == ImageOperation::Edit { "image_edit" } else { "image_generation" });
+    tracker.authorized(&caller, "");
     let headers = incoming.headers().clone();
-    let request = parse_request(&state, incoming, operation).await?;
+    let request = match parse_request(&state, incoming, operation).await {
+        Ok(request) => request,
+        Err(error) => {
+            tracker.fail(&error).await;
+            return Err(error);
+        }
+    };
     tracker.authorized(&caller, request.model.as_deref().unwrap_or(""));
-    tracker.admit(&caller).await?;
+    if let Err(error) = tracker.admit(&caller).await {
+        tracker.fail(&error).await;
+        return Err(error);
+    }
     let mut policy = match super::super::retry::execution_policy(&state).await {
         Ok(policy) => policy.for_images(),
         Err(error) => {
@@ -145,7 +156,7 @@ async fn handle_prepared(
         owner_committed: false,
     };
     execution.record_route();
-    if execution.selected.route.chatgpt {
+    if execution.selected.route.chatgpt && execution.selected.main_model.is_some() {
         forward_oauth(execution).await
     } else {
         forward_native(execution).await
@@ -255,7 +266,7 @@ async fn parse_request(
     let mut stop = state.stop.clone();
     let bytes = tokio::select! {
         _ = stop.wait() => return Err(stopping_error()),
-        result = tokio::time::timeout(state.options.request_timeout, to_bytes(incoming.into_body(), state.options.max_body_bytes)) =>
+        result = tokio::time::timeout(state.options.body_timeout(), to_bytes(incoming.into_body(), state.options.max_body_bytes)) =>
             result.map_err(|_| ServiceError::new(408,"request_body_timeout","Timed out reading image request"))?
                 .map_err(|_| ServiceError::new(413,"request_too_large","Image request exceeds its size limit"))?,
     };
@@ -361,8 +372,8 @@ impl Execution {
         &mut self,
         oauth: bool,
     ) -> Result<(reqwest::Response, Option<Binding>), ServiceError> {
-        if !oauth {
-            // Go's independent Images API waits for generation with one
+        if !oauth && !self.selected.route.chatgpt {
+            // Go's independent API-key Images API waits for generation with one
             // five-minute context; the OAuth stream-open/idle knobs do not apply.
             let image_timeout = std::time::Duration::from_secs(300);
             self.budget.total_deadline = self.budget.total_deadline
@@ -401,6 +412,10 @@ impl Execution {
             headers.remove(header::CONTENT_LENGTH);
             headers.remove(header::CONTENT_ENCODING);
             headers.remove(header::CONTENT_TYPE);
+            if self.selected.route.chatgpt && !oauth {
+                headers.remove(header::USER_AGENT);
+                if let Some(ua) = self.selected.route.headers.get(header::USER_AGENT) { headers.insert(header::USER_AGENT, ua.clone()); }
+            }
             headers.insert(
                 header::ACCEPT,
                 HeaderValue::from_static("application/json, text/event-stream"),
@@ -443,11 +458,15 @@ impl Execution {
             } else {
                 (
                     self.request.operation.path(),
-                    self.request.native_json(&self.selected.image_model),
+                    if self.selected.route.chatgpt {
+                        self.request.codex_native_json(&self.selected.image_model)
+                    } else {
+                        self.request.native_json(&self.selected.image_model)
+                    },
                     None,
                 )
             };
-            if oauth {
+            if self.selected.route.chatgpt {
                 super::super::account_installation::apply(
                     &self.selected.route,
                     &mut headers,
@@ -462,9 +481,17 @@ impl Execution {
                 self.selected.route.base_url.trim_end_matches('/'),
                 path
             );
+            if oauth {
+                super::super::reasoning_policy::check_dispatch(
+                    &self.state, &self.caller, &self.selected.route, &self.request.original, &payload,
+                    super::super::contract::WireApi::Responses,
+                ).await?;
+            }
             let mut outgoing = self.selected.route.client.post(url).headers(headers);
             if !oauth {
-                if let Some(parts) = self.request.native_parts(&self.selected.image_model) {
+                let parts = if self.selected.route.chatgpt { None }
+                    else { self.request.native_parts(&self.selected.image_model) };
+                if let Some(parts) = parts {
                     let mut form = reqwest::multipart::Form::new();
                     for part in parts {
                         let mut value = reqwest::multipart::Part::bytes(part.bytes);
@@ -497,13 +524,32 @@ impl Execution {
             let open_deadline = deadline.cap(self.budget.prepare_deadline());
             let outgoing = async {
                 let built = built?;
+                #[cfg(test)]
+                super::capture_live_geometry(&built)?;
                 if tokio::time::Instant::now() >= open_deadline {
-                    return Err(ServiceError::new(504,"upstream_connect_timeout","Image upstream response headers timed out"));
+                    return Err(ServiceError::new(
+                        504,
+                        "upstream_connect_timeout",
+                        "Image upstream response headers timed out",
+                    )
+                    .with_upstream_not_sent(true));
                 }
                 self.tracker.begin_attempt("http");
-                self.tracker.payload("upstream_request", "http", built.headers(), &payload.to_string());
+                self.tracker.payload_with("upstream_request", "http", built.headers(), || payload.to_string());
                 self.tracker.upstream_headers(built.headers());
                 self.tracker.check_quota_before_send()?;
+                self.tracker.image_request_models(
+                    crate::models::codex_local_access::CodexLocalAccessImageRequestDiagnostic {
+                        requested_model: self.request.model.clone(),
+                        upstream_model: self.selected.image_model.clone(),
+                        responses_model: if oauth {
+                            payload["model"].as_str().map(str::to_owned)
+                        } else {
+                            None
+                        },
+                        upstream_status: None,
+                    },
+                );
                 self.tracker.quota_request_started();
                 client.execute(built).await.map_err(|error| {
                     super::super::diagnostics::transport_failure(502,"upstream_unavailable","Unable to connect to the image upstream",&error)
@@ -528,6 +574,15 @@ impl Execution {
                     }
                     if tokio::time::Instant::now() >= deadline {
                         return Err(super::super::retry::total_timeout());
+                    }
+                    // Non-streaming generation can finish before sending any headers.
+                    // A header timeout does not prove the POST was rejected; replaying
+                    // it on this or another source could generate a second image.
+                    if !streaming
+                        && error.code == "upstream_connect_timeout"
+                        && !error.upstream_not_sent
+                    {
+                        return Err(error);
                     }
                     let stream_open_timeout = streaming && error.code == "upstream_connect_timeout";
                     if stream_open_timeout {
@@ -574,11 +629,12 @@ impl Execution {
                         deadline,
                     )
                     .await?;
-                    self.renew_transport_after_tls(&error).await?;
+                    self.renew_transport_after_failure(&error).await?;
                     continue;
                 }
             };
             self.tracker.upstream_http_version(response.version());
+            self.tracker.image_upstream_status(response.status().as_u16());
             self.tracker.upstream_response_headers(response.headers());
             response = super::super::http_compression::decode_response(response)?;
             self.tracker.quota_headers(response.headers());
@@ -613,7 +669,7 @@ impl Execution {
                                     deadline,
                                 )
                                 .await?;
-                                self.renew_transport_after_tls(&error).await?;
+                                self.renew_transport_after_failure(&error).await?;
                                 continue;
                             }
                             return Err(error);
@@ -635,6 +691,7 @@ impl Execution {
                     deadline,
                     &self.selected.image_model,
                     super::super::grok_errors::applies(&self.selected.route),
+                    self.selected.route.chatgpt_plan,
                 )
                 .await?;
                 exhausted = inspected.10.as_ref().and_then(super::super::quota_exhaustion::code);
@@ -694,7 +751,7 @@ impl Execution {
                 self.tracker.set_retry_after(retry_after);
                 return Ok((response, binding));
             }
-            if oauth
+            if self.selected.route.chatgpt
                 && exhausted.is_none()
                 && response.status() == StatusCode::UNAUTHORIZED
                 && !refreshed
@@ -766,7 +823,7 @@ impl Execution {
             }
             let mut failure_recorded = exhausted.is_some();
             let retryable_source = exhausted.is_some() || model_unavailable
-                || oauth && matches!(response.status().as_u16(), 401 | 402)
+                || self.selected.route.chatgpt && matches!(response.status().as_u16(), 401 | 402)
                 || matches!(
                     response.status().as_u16(),
                     403 | 408 | 429 | 500 | 502 | 503 | 504
@@ -807,6 +864,7 @@ impl Execution {
                         _=stop.wait()=>return Err(stopping_error()),
                         result=deadline::timeout_at(deadline,self.state.host.route_failed_attempt(&self.selected.route,&self.selected.image_model,if model_unavailable { 404 } else { response.status().as_u16() },retry_after,credential_scope,failure_message.as_deref()))=>result.map_err(|_|super::super::retry::total_timeout())?,
                     }
+                    self.tracker.mark_failure_cooldown_recorded(&self.selected.route.account_id);
                 }
                 if self
                     .cooldown_round(response.status().as_u16(), &policy, deadline)
@@ -835,8 +893,8 @@ impl Execution {
         }
     }
 
-    async fn renew_transport_after_tls(&mut self, error: &ServiceError) -> Result<(), ServiceError> {
-        if !matches!(error.transport_failure, Some(super::super::contract::TransportFailureKind::TlsDecrypt | super::super::contract::TransportFailureKind::TlsDecryptHttp2)) {
+    async fn renew_transport_after_failure(&mut self, error: &ServiceError) -> Result<(), ServiceError> {
+        if error.transport_failure_kind().is_none() {
             return Ok(());
         }
         self.tracker.release_route();
@@ -882,6 +940,7 @@ impl Execution {
                 _=stop.wait()=>return Err(stopping_error()),
                 result=deadline::timeout_at(deadline,self.state.host.route_failed_attempt(&self.selected.route,&self.selected.image_model,status,retry_after,credential_scope,message))=>{result.map_err(|_|super::super::retry::total_timeout())?;}
             }
+            self.tracker.mark_failure_cooldown_recorded(&self.selected.route.account_id);
         }
         self.tracker.release_route();
         self.selected.route.permit = None;
@@ -1432,7 +1491,7 @@ impl ImageStreamProgress {
         self.image_events = self.image_events.saturating_add(usize::from(image));
         self.completion_seen |= matches!(
             kind,
-            "response.completed" | "image_generation.completed" | "image_edit.completed"
+            "response.completed" | "response.done" | "image_generation.completed" | "image_edit.completed"
         );
         self.last_event = if kind.ends_with(".partial_image") && image {
             "image_partial"
@@ -1450,7 +1509,8 @@ impl ImageStreamProgress {
     fn failure(&self, mut error: ServiceError) -> ServiceError {
         if !matches!(
             error.code,
-            "upstream_stream_error"
+            "image_output_missing"
+                | "upstream_stream_error"
                 | "upstream_timeout"
                 | "upstream_idle_timeout"
                 | "upstream_total_timeout"
@@ -1458,7 +1518,9 @@ impl ImageStreamProgress {
         ) {
             return error;
         }
-        let stage = if self.image_events > 0 {
+        let stage = if error.code == "image_output_missing" && self.completion_seen {
+            "completed_without_image"
+        } else if self.image_events > 0 {
             "image_activity"
         } else if self.business_events > 0 {
             "business_output"
@@ -1799,7 +1861,7 @@ impl OAuthStream {
             usage_inputs.push(json!({"data":[],"usage":self.accumulator.usage}));
             self.execution.usage = merge_responses(&usage_inputs)?.get("usage").cloned();
             self.execution.tracker.capture_usage(&self.execution.usage);
-            for mut output in converted? {
+            for mut output in converted.map_err(|error| self.progress.failure(error))? {
                 let offset: usize = self
                     .results
                     .iter()

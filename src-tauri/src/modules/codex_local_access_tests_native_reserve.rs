@@ -96,6 +96,33 @@ fn native_reserve_catalog_lists_explicit_capability_independently_of_current_ent
     }
 }
 
+#[tokio::test]
+#[ignore = "writes a synthetic API Service profile for an offline official app-server test"]
+async fn prepare_reserve_picker_profile_for_official_app_server() {
+    assert_eq!(std::env::var("COCKPIT_CODEX_OFFLINE_INTEGRATION").as_deref(), Ok("1"));
+    let root = PathBuf::from(std::env::var_os("COCKPIT_CODEX_OFFLINE_ROOT").unwrap());
+    let profile = codex_account::get_codex_home();
+    assert!(root.is_absolute() && profile.starts_with(&root));
+    assert!(account::get_data_dir().unwrap().starts_with(&root));
+    let denied = std::net::TcpStream::connect_timeout(
+        &"127.0.0.1:9".parse().unwrap(), Duration::from_millis(100),
+    ).unwrap_err();
+    assert!(matches!(denied.raw_os_error(), Some(1 | 13)), "{denied}");
+    fs::create_dir_all(&profile).unwrap();
+    fs::write(profile.join("config.toml"),
+        "model = 'gpt-5.6-luna'\ncli_auth_credentials_store = 'file'\n[analytics]\nenabled = false\n[feedback]\nenabled = false\n",
+    ).unwrap();
+    let mut collection = native_test_collection();
+    collection.account_ids = vec!["pool-a".into()];
+    collection.gateway_mode = CodexLocalAccessGatewayMode::Native;
+    let catalog = native_catalog(&collection, None, &[native_reserve_account(false)]).unwrap();
+    write_local_access_profile_credentials(&profile, &collection, None, None, None).await.unwrap();
+    write_local_access_profile_client_models(&profile, false, catalog).unwrap();
+    let doc = crate::modules::codex_config_format::load_codex_config_doc(&profile.join("config.toml")).unwrap();
+    assert_eq!(doc["model"].as_str(), Some("gpt-5.6-luna"));
+    assert_eq!(doc["model_provider"].as_str(), Some(CODEX_LOCAL_ACCESS_RUNTIME_PROVIDER_ID));
+}
+
 #[test]
 fn native_reserve_catalog_and_aliases_keep_key_scope_prefix_and_model_acl() {
     let mut collection = native_test_collection();
@@ -154,4 +181,31 @@ async fn native_reserve_unqualified_accounts_fail_before_credential_preparation(
         .unwrap();
     assert_eq!(error.code, "no_available_account");
     assert!(host.bindings.lock().await.is_empty());
+}
+
+#[tokio::test]
+async fn native_reserve_keeps_its_own_cooldown_after_an_included_quota_rejection() {
+    let (_root, mut host, request) = native_quota_continuation_fixture(None);
+    host.collection_override.as_mut().unwrap().account_ids = vec!["pool-a".into()];
+    host.account_overrides.get_mut("pool-a").unwrap().quota.as_mut().unwrap().hourly_percentage = 80;
+    let caller = native_test_caller(NATIVE_PRIMARY_CALLER);
+    let normal = native_select_route(&host, &caller, request.clone()).await.unwrap();
+    assert!(normal.chatgpt);
+    native_contract::Host::route_quota_exhausted(&host, &normal, 429, Some(Duration::from_secs(300))).await;
+    assert!(!host.cooldowns.lock().unwrap().is_empty());
+    drop(normal);
+    host.account_overrides.get_mut("pool-a").unwrap().quota.as_mut().unwrap().raw_data =
+        native_reserve_account(true).quota.unwrap().raw_data;
+    let mut reserve_request = request.clone();
+    reserve_request.model = "gpt-reserve".into();
+    let reserve = native_select_route(&host, &caller, reserve_request.clone()).await
+        .expect("the eligible reserve lane must survive ordinary quota exhaustion");
+    assert_eq!(reserve.account_id, "pool-a");
+    assert_eq!(reserve.model, "gpt-reserve");
+    native_contract::Host::route_quota_exhausted(&host, &reserve, 429, Some(Duration::from_secs(90))).await;
+    drop(reserve);
+    let exhausted = native_select_route(&host, &caller, reserve_request).await.err().unwrap();
+    assert!(exhausted.retry_after.is_some_and(|wait| wait > Duration::from_secs(85) && wait <= Duration::from_secs(90)));
+    let normal = native_select_route(&host, &caller, request).await.err().unwrap();
+    assert!(normal.retry_after.is_some_and(|wait| wait > Duration::from_secs(295) && wait <= Duration::from_secs(300)));
 }

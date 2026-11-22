@@ -330,6 +330,13 @@ fn normalize_request_diagnostics(
         attempt.account_id = diagnostic_truncate(&attempt.account_id, 256);
         attempt.account_email = diagnostic_optional(attempt.account_email.take(), 256);
         attempt.model_id = diagnostic_truncate(&attempt.model_id, 256);
+        attempt.response_model = diagnostic_optional(attempt.response_model.take(), 256);
+        if let Some(models) = &mut attempt.image_request {
+            models.requested_model = diagnostic_optional(models.requested_model.take(), 256);
+            models.upstream_model = diagnostic_truncate(&models.upstream_model, 256);
+            models.responses_model = diagnostic_optional(models.responses_model.take(), 256);
+            models.upstream_status = models.upstream_status.filter(|status| (100..=599).contains(status));
+        }
         attempt.transport = diagnostic_truncate(&attempt.transport, 32);
         attempt.error_category = diagnostic_optional(attempt.error_category.take(), 128);
         attempt.error_message = diagnostic_optional(attempt.error_message.take(), 1024);
@@ -338,7 +345,8 @@ fn normalize_request_diagnostics(
                 && value.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
         });
         attempt.failure_phase = diagnostic_optional(attempt.failure_phase.take(), 80);
-        attempt.transport_error = attempt.transport_error.take().filter(|kind| kind == "tls_decrypt");
+        attempt.transport_error = attempt.transport_error.take()
+            .filter(|kind| matches!(kind.as_str(), "tls_decrypt" | "network"));
         if attempt.transport_error.is_none() {
             attempt.transport_pool_retired = None;
         }
@@ -578,6 +586,9 @@ fn merge_request_diagnostics(
                     attempt.authorization_route = attempt.authorization_route.or_else(|| old.authorization_route.clone());
                     attempt.authorization_fallback = attempt.authorization_fallback.or_else(|| old.authorization_fallback.clone());
                     attempt.upstream_request_id = attempt.upstream_request_id.or_else(|| old.upstream_request_id.clone());
+                    attempt.responses_history_rejection = attempt.responses_history_rejection
+                        .or_else(|| old.responses_history_rejection.clone());
+                    attempt.response_model = attempt.response_model.or_else(|| old.response_model.clone());
                     attempt.transport_error = attempt.transport_error.or_else(|| old.transport_error.clone());
                     attempt.transport_pool_retired = match (old.transport_pool_retired, attempt.transport_pool_retired) {
                         (Some(old), Some(new)) => Some(old || new),

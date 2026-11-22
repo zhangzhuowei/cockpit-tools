@@ -74,6 +74,7 @@ fn prepare_codex_windows_default_command(
         }
     }
     cmd.env_remove("CODEX_ELECTRON_USER_DATA_PATH")
+        .env_remove("CODEX_CLI_PATH")
         .args(build_codex_windows_profile_args(extra_args, None));
 }
 
@@ -237,10 +238,12 @@ fn wait_for_codex_default_start_pid(
                 let started_after_launch =
                     codex_process_started_at_or_after(pid, launch_not_before_epoch_secs)
                         .unwrap_or(false);
-                if (receipt_candidate == Some(pid) || full_pids.contains(&pid))
-                    && old_pids_still_running.is_empty()
-                    && started_after_launch
-                {
+                let matches_launch = receipt_candidate == Some(pid)
+                    || (full_pids.contains(&pid)
+                        && package_family.is_none_or(|family| {
+                            verify_codex_process_package(pid, family).is_ok()
+                        }));
+                if matches_launch && old_pids_still_running.is_empty() && started_after_launch {
                     crate::modules::logger::log_info(&format!(
                         "[Codex Start] 已确认新的默认 ChatGPT 主进程 pid={}, stable_probes={}, elapsed_ms={}",
                         pid,
@@ -295,7 +298,7 @@ fn start_codex_default_internal(
             &args,
             true,
             &[],
-            launch_proxy,
+            Some(launch_proxy),
         )
         .map_err(|e| format!("启动 Codex 失败: {}", e))?;
         crate::modules::logger::log_info("Codex 默认实例启动命令已发送（open -n -a）");
@@ -342,9 +345,8 @@ fn start_codex_default_internal(
                 .stdout(Stdio::null())
                 .stderr(Stdio::null());
         }
-        let child = spawn_detached_unix(&mut command)
+        let spawned_pid = spawn_detached_unix(&mut command)
             .map_err(|error| format!("启动 Codex 失败: {}", error))?;
-        let spawned_pid = child.id();
         let probe_started = Instant::now();
         while probe_started.elapsed() < Duration::from_secs(10) {
             if let Some(pid) = resolve_codex_pid(None, None) {
@@ -440,7 +442,7 @@ pub fn close_codex_default_fast_by_pid(
 
         let remaining = collect_running_pids(&[pid]);
         if !remaining.is_empty() {
-            close_pids(&remaining, timeout_secs)?;
+            close_windows_codex_main_pids(&remaining, timeout_secs)?;
         }
         if is_pid_running(pid) {
             return Err(
@@ -512,7 +514,7 @@ fn close_windows_codex_default_pids(pids: &[u32], timeout_secs: u64) -> Result<(
             "[Codex Close] 默认 ChatGPT 正常退出未完成，强制关闭: {}",
             summarize_pid_list_for_log(&remaining)
         ));
-        close_pids(&remaining, timeout_secs)?;
+        close_windows_codex_main_pids(&remaining, timeout_secs)?;
     }
     let still_running = collect_running_pids(&targets);
     if !still_running.is_empty() {
@@ -569,13 +571,9 @@ fn codex_windows_process_snapshot_is_stale(process: Option<(&str, Option<&str>)>
 }
 
 #[cfg(target_os = "windows")]
-fn close_codex_default_windows(timeout_secs: u64) -> Result<(), String> {
-    let Some(launch_path) = codex_close_path_or_confirmed_idle(
-        resolve_codex_launch_path(),
-        confirm_no_codex_windows_runtime,
-    )? else {
-        return Ok(());
-    };
+fn codex_default_windows_close_targets(
+    launch_path: &Path,
+) -> Result<(Vec<u32>, HashSet<String>), String> {
     let launch_path_text = launch_path.to_string_lossy().to_string();
     let default_home = crate::modules::codex_account::get_codex_home()
         .to_string_lossy()
@@ -641,10 +639,31 @@ fn close_codex_default_windows(timeout_secs: u64) -> Result<(), String> {
                 "未发现默认 ChatGPT 主进程，仅检测到受管实例；无需关闭默认实例",
             );
         }
+    }
+
+    Ok((pids, default_app_dirs))
+}
+
+#[cfg(target_os = "windows")]
+fn close_codex_default_windows(timeout_secs: u64) -> Result<(), String> {
+    let Some(launch_path) = codex_close_path_or_confirmed_idle(
+        resolve_codex_launch_path(),
+        confirm_no_codex_windows_runtime,
+    )? else {
+        return Ok(());
+    };
+    let (pids, default_app_dirs) = codex_default_windows_close_targets(&launch_path)?;
+    if pids.is_empty() {
         return Ok(());
     }
 
+    let app_servers = capture_windows_codex_app_servers(&pids, &launch_path)?;
+    crate::modules::logger::log_info(&format!(
+        "[Codex Close] captured Windows app-server count={}",
+        app_servers.len()
+    ));
     close_windows_codex_default_pids(&pids, timeout_secs)?;
+    close_captured_windows_codex_app_servers(&app_servers, timeout_secs)?;
 
     let mut remaining = Vec::new();
     for attempt in 0..3 {
@@ -673,21 +692,6 @@ fn close_codex_default_windows(timeout_secs: u64) -> Result<(), String> {
         ));
     }
 
-    if std::env::var("COCKPIT_CODEX_CLOSE_RESOURCE_CLEANUP")
-        .ok()
-        .as_deref()
-        == Some("1")
-    {
-        let resource_pids = collect_codex_windows_resource_process_pids();
-        if !resource_pids.is_empty() {
-            crate::modules::logger::log_info(&format!(
-                "[Codex Close] closing bundled resource codex processes for default instance: {}",
-                summarize_pid_list_for_log(&resource_pids)
-            ));
-            let _ = close_pids(&resource_pids, timeout_secs.min(5).max(1));
-        }
-    }
-
     Ok(())
 }
 
@@ -712,96 +716,14 @@ pub fn close_codex_default(timeout_secs: u64) -> Result<(), String> {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn request_codex_graceful_close(pid: u32) -> bool {
-    if pid == 0 {
-        return true;
-    }
-    let Ok(native_pid) = i32::try_from(pid) else {
-        crate::modules::logger::log_warn(&format!(
-            "[Codex Close] graceful native terminate invalid pid={}",
-            pid
-        ));
-        return false;
-    };
-    if !is_pid_running(pid) {
-        return true;
-    }
-
-    objc2::rc::autoreleasepool(|_| {
-        let Some(application) =
-            objc2_app_kit::NSRunningApplication::runningApplicationWithProcessIdentifier(
-                native_pid,
-            )
-        else {
-            crate::modules::logger::log_warn(&format!(
-                "[Codex Close] graceful native terminate application unavailable pid={}",
-                pid
-            ));
-            return false;
-        };
-        // Send a normal quit request to this PID only. The caller still waits for
-        // actual process exit and falls back to its precise process cleanup.
-        let requested = application.terminate();
-        if requested {
-            crate::modules::logger::log_info(&format!(
-                "[Codex Close] graceful native terminate requested pid={}",
-                pid
-            ));
-        } else {
-            crate::modules::logger::log_warn(&format!(
-                "[Codex Close] graceful native terminate rejected pid={}",
-                pid
-            ));
-        }
-        requested
-    })
+    request_desktop_graceful_close(pid, "Codex Close")
 }
 
-/// Request a normal Windows app shutdown before falling back to force close.
 #[cfg(target_os = "windows")]
-fn request_codex_graceful_close(pid: u32) -> bool {
-    if pid == 0 || !is_pid_running(pid) {
-        return true;
-    }
-
-    use std::os::windows::process::CommandExt;
-
-    crate::modules::logger::log_info(&format!(
-        "[Codex Close] graceful taskkill start pid={}",
-        pid
-    ));
-    let output = Command::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/T"])
-        .creation_flags(CREATE_NO_WINDOW)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .output();
-    match output {
-        Ok(value) => {
-            if value.status.success() {
-                crate::modules::logger::log_info(&format!(
-                    "[Codex Close] graceful taskkill success pid={} status={}",
-                    pid, value.status
-                ));
-                true
-            } else {
-                crate::modules::logger::log_warn(&format!(
-                    "[Codex Close] graceful taskkill failed pid={} status={}",
-                    pid, value.status
-                ));
-                false
-            }
-        }
-        Err(err) => {
-            crate::modules::logger::log_warn(&format!(
-                "[Codex Close] graceful taskkill error pid={} err={}",
-                pid, err
-            ));
-            false
-        }
-    }
+fn close_windows_codex_main_pids(pids: &[u32], timeout_secs: u64) -> Result<(), String> {
+    close_pids_with_signal(pids, timeout_secs, |pid| send_close_signal_with_tree(pid, false))
 }
 
 #[cfg(target_os = "linux")]
@@ -840,6 +762,58 @@ pub fn restart_codex_default(extra_args: &[String], timeout_secs: u64) -> Result
     start_codex_default(extra_args)
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn codex_unix_close_targets(target_homes: &HashSet<String>) -> Vec<u32> {
+    let default_home = normalize_path_for_compare(
+        &crate::modules::codex_account::get_codex_home()
+            .to_string_lossy()
+            .to_string(),
+    );
+    let entries = collect_codex_process_entries();
+    let mut pids: Vec<u32> = entries
+        .iter()
+        .filter_map(|(pid, home)| {
+            let resolved_home = home
+                .as_ref()
+                .map(|value| normalize_path_for_compare(value))
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| default_home.clone());
+            if !resolved_home.is_empty() && target_homes.contains(&resolved_home) {
+                Some(*pid)
+            } else {
+                None
+            }
+        })
+        .collect();
+    pids.sort();
+    pids.dedup();
+    pids
+}
+
+pub(crate) fn default_codex_desktop_pids() -> Result<Vec<u32>, String> {
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        let home = crate::modules::codex_account::get_codex_home();
+        let home = normalize_path_for_compare(&home.to_string_lossy());
+        Ok(codex_unix_close_targets(&HashSet::from([home])))
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let path = codex_close_path_or_confirmed_idle(
+            resolve_codex_launch_path(),
+            confirm_no_codex_windows_runtime,
+        )?;
+        match path {
+            Some(path) => codex_default_windows_close_targets(&path).map(|(pids, _)| pids),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    Err("当前系统不支持 Codex 桌面应用进程识别".to_string())
+}
+
 /// 关闭受管 Codex 实例（按 CODEX_HOME 匹配，包含默认实例目录）
 pub fn close_codex_instances(codex_homes: &[String], timeout_secs: u64) -> Result<(), String> {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -856,29 +830,7 @@ pub fn close_codex_instances(codex_homes: &[String], timeout_secs: u64) -> Resul
             return Ok(());
         }
 
-        let default_home = normalize_path_for_compare(
-            &crate::modules::codex_account::get_codex_home()
-                .to_string_lossy()
-                .to_string(),
-        );
-        let entries = collect_codex_process_entries();
-        let mut pids: Vec<u32> = entries
-            .iter()
-            .filter_map(|(pid, home)| {
-                let resolved_home = home
-                    .as_ref()
-                    .map(|value| normalize_path_for_compare(value))
-                    .filter(|value| !value.is_empty())
-                    .unwrap_or_else(|| default_home.clone());
-                if !resolved_home.is_empty() && target_homes.contains(&resolved_home) {
-                    Some(*pid)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        pids.sort();
-        pids.dedup();
+        let pids = codex_unix_close_targets(&target_homes);
         if pids.is_empty() {
             crate::modules::logger::log_info("受管 Codex 实例未在运行，无需关闭");
             return Ok(());
@@ -1054,7 +1006,7 @@ pub fn close_codex_instances(codex_homes: &[String], timeout_secs: u64) -> Resul
                 "[Codex Close] graceful close incomplete, retry force close for remaining pids={}",
                 summarize_pid_list_for_log(&remaining)
             ));
-            let force_close_error = close_pids(&remaining, timeout_secs).err();
+            let force_close_error = close_windows_codex_main_pids(&remaining, timeout_secs).err();
             if let Some(err) = force_close_error.as_deref() {
                 crate::modules::logger::log_warn(&format!(
                     "[Codex Close] force close_pids failed: {}",
@@ -1502,7 +1454,7 @@ pub fn start_opencode_with_path(custom_path: Option<&str>) -> Result<(), String>
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             if stderr.contains("Unable to find application") {
-                return Err("未找到 OpenCode 应用，请在设置中配置启动路径".to_string());
+                return Err("APP_PATH_NOT_FOUND:opencode".to_string());
             }
             return Err(format!("启动 OpenCode 失败: {}", stderr));
         }
@@ -1518,13 +1470,11 @@ pub fn start_opencode_with_path(custom_path: Option<&str>) -> Result<(), String>
             candidates.push(custom);
         }
 
-        if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
-            candidates.push(format!("{}/Programs/OpenCode/OpenCode.exe", local_appdata));
-        }
-
-        if let Ok(program_files) = std::env::var("PROGRAMFILES") {
-            candidates.push(format!("{}/OpenCode/OpenCode.exe", program_files));
-        }
+        candidates.extend(
+            windows_opencode_install_candidates()
+                .into_iter()
+                .map(|path| path.to_string_lossy().into_owned()),
+        );
 
         for candidate in candidates {
             if candidate.contains('/') || candidate.contains('\\') {
@@ -1541,7 +1491,7 @@ pub fn start_opencode_with_path(custom_path: Option<&str>) -> Result<(), String>
             }
         }
 
-        return Err("未找到 OpenCode 可执行文件，请在设置中配置启动路径".to_string());
+        return Err("APP_PATH_NOT_FOUND:opencode".to_string());
     }
 
     #[cfg(target_os = "linux")]
@@ -1569,7 +1519,7 @@ pub fn start_opencode_with_path(custom_path: Option<&str>) -> Result<(), String>
             }
         }
 
-        return Err("未找到 OpenCode 可执行文件，请在设置中配置启动路径".to_string());
+        return Err("APP_PATH_NOT_FOUND:opencode".to_string());
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]

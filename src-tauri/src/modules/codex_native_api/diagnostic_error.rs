@@ -1,5 +1,6 @@
 //! Bounded local failure details. Never retain URLs, credentials or authorization values.
 use super::super::contract::{ServiceError, TransportFailureKind};
+use axum::http::{header, HeaderMap, StatusCode};
 use regex::Regex;
 use serde_json::Value;
 use std::{error::Error, sync::LazyLock};
@@ -9,7 +10,26 @@ pub(crate) fn is_cloudflare_challenge(message: &str) -> bool {
     lower.contains("challenge-platform")
         || lower.contains("cf-mitigated")
         || lower.contains("cloudflare challenge")
-        || (lower.contains("cloudflare") && lower.contains("<html"))
+        || (lower.contains("cloudflare") && lower.contains("<html")
+            && (lower.contains("just a moment") || lower.contains("attention required")))
+}
+
+pub(crate) fn cloudflare_gateway_message(status: StatusCode, headers: &HeaderMap) -> Option<String> {
+    if !matches!(status, StatusCode::BAD_GATEWAY | StatusCode::GATEWAY_TIMEOUT)
+        || !headers.get(header::CONTENT_TYPE).and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.split(';').next().is_some_and(|mime| mime.trim().eq_ignore_ascii_case("text/html")))
+    {
+        return None;
+    }
+    let ray = headers.get("cf-ray")?.to_str().ok()?.trim();
+    if ray.is_empty() || ray.len() > 64 || !ray.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-') {
+        return None;
+    }
+    Some(crate::modules::i18n::translate(
+        &crate::modules::config::get_user_config().language,
+        "codex.requestDiagnostics.cloudflareGatewayError",
+        &[("status", status.as_str()), ("ray", ray)],
+    ))
 }
 
 pub(crate) fn sanitize_error_text(message: &str) -> String {
@@ -41,6 +61,7 @@ pub(crate) fn transport_failure(
     let mut timed_out = false;
     let mut tls_decrypt = false;
     let mut http2_decrypt = false;
+    let mut network_failure = false;
     // Bootstrap can rewrap a reqwest body before canonical adaptation. Its
     // real TLS cause sits deeper than eight wrappers; still bound traversal
     // so a malformed/cyclic Error implementation cannot block the request.
@@ -63,6 +84,15 @@ pub(crate) fn transport_failure(
             .and_then(h2::Error::get_io)
             .is_some_and(|io| io.kind() == std::io::ErrorKind::InvalidData
                 && io.to_string() == "cannot decrypt peer's message");
+        network_failure |= error.downcast_ref::<std::io::Error>().is_some_and(|error| {
+            matches!(error.kind(), std::io::ErrorKind::ConnectionReset
+                | std::io::ErrorKind::ConnectionAborted | std::io::ErrorKind::ConnectionRefused
+                | std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::NotConnected
+                | std::io::ErrorKind::UnexpectedEof | std::io::ErrorKind::TimedOut)
+        }) || error.downcast_ref::<reqwest::Error>()
+            .is_some_and(|error| error.is_connect() || error.is_timeout())
+            || error.downcast_ref::<hyper::Error>()
+                .is_some_and(|error| error.is_closed() || error.is_incomplete_message() || error.is_timeout());
         let detail = sanitize_error_text(&error.to_string());
         timed_out |= error
             .downcast_ref::<std::io::Error>()
@@ -96,8 +126,10 @@ pub(crate) fn transport_failure(
     let mut error = ServiceError::new(status, code, format!("{context}: {message}"));
     error.transport_failure = if http2_decrypt {
         Some(TransportFailureKind::TlsDecryptHttp2)
+    } else if tls_decrypt {
+        Some(TransportFailureKind::TlsDecrypt)
     } else {
-        tls_decrypt.then_some(TransportFailureKind::TlsDecrypt)
+        network_failure.then_some(TransportFailureKind::Network)
     };
     error
 }
@@ -141,16 +173,19 @@ pub(crate) fn upstream_error_metadata(value: &Value) -> (Option<String>, bool) {
 
 /// WebSocket errors can wrap the HTTP error envelope under `body`.
 pub(crate) fn error_object(value: &Value) -> &Value {
+    let has_detail = |error: &&Value| super::super::upstream_errors::error_value(error);
     value
         .pointer("/response/error")
-        .filter(|error| !error.is_null())
-        .or_else(|| value.get("error").filter(|error| !error.is_null()))
+        .filter(has_detail)
+        .or_else(|| value.get("error").filter(has_detail))
         .or_else(|| {
-            value
-                .pointer("/body/error")
-                .filter(|error| !error.is_null())
+            // A named non-error event can carry provider metadata under body.
+            // Only infer an error there when the wire event permits it.
+            super::super::upstream_errors::can_infer_wrapped_error(value, None)
+                .then(|| value.pointer("/body/error").filter(has_detail))
+                .flatten()
         })
-        .or_else(|| value.get("detail").filter(|error| !error.is_null()))
+        .or_else(|| value.get("detail").filter(has_detail))
         .unwrap_or(value)
 }
 
@@ -211,6 +246,7 @@ pub(crate) fn failure_phase(code: &str) -> &'static str {
             "stream_read"
         }
         "upstream_idle_timeout" => "stream_idle",
+        "image_output_missing" => "upstream_response",
         "upstream_total_timeout" => "total_timeout",
         "client_cancelled" | "client_disconnected" | "client_interrupted" => "client_cancelled",
         "identity_store_unavailable" | "identity_store_full" | "unknown_upstream_state" => {
@@ -244,7 +280,6 @@ mod tests {
         assert_eq!(restored.message, failure.message);
         for raw in [
             std::io::Error::other("cannot decrypt peer's message"),
-            std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "unexpected EOF"),
             std::io::Error::other(rustls::Error::InvalidCertificate(
                 rustls::CertificateError::UnknownIssuer,
             )),
@@ -309,9 +344,19 @@ mod tests {
             let error = std::io::Error::other(std::io::Error::new(kind, message));
             let failure = transport_failure(502, "upstream_stream_error", "Read failed", &error);
             assert_eq!((failure.status, failure.code), (status, code));
+            assert_eq!(failure.transport_failure, Some(TransportFailureKind::Network));
             assert!(failure.message.contains(message));
             assert_eq!(failure_phase(code), "stream_read");
         }
+    }
+
+    #[test]
+    fn network_failure_text_cannot_retire_a_healthy_transport() {
+        let raw = std::io::Error::other("connection reset: keepalive timeout");
+        let error = transport_failure(502, "upstream_stream_error", "Read failed", &raw);
+        assert_eq!(error.transport_failure_kind(), None);
+        let remote = ServiceError::new(503, "upstream_http_error", "connection reset: keepalive timeout");
+        assert_eq!(remote.transport_failure_kind(), None);
     }
     #[test]
     fn nested_transport_layers_keep_one_specific_cause() {

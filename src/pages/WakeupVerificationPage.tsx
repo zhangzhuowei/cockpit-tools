@@ -3,10 +3,12 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { confirm as confirmDialog } from '@tauri-apps/plugin-dialog';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { ChevronLeft, ShieldCheck, X } from 'lucide-react';
+import { ShieldCheck, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { SingleSelectDropdown } from '../components/SingleSelectDropdown';
 import { ModalErrorMessage, useModalErrorState } from '../components/ModalErrorMessage';
 import { useEscClose } from '../hooks/useEscClose';
+import { LOCAL_HISTORY_TIMEOUT, useLocalHistory, type LocalHistoryRead } from '../hooks/useLocalHistory';
 import { OverviewTabsHeader } from '../components/OverviewTabsHeader';
 import { MultiSelectFilterDropdown, type MultiSelectFilterOption } from '../components/MultiSelectFilterDropdown';
 import { useAccountStore } from '../stores/useAccountStore';
@@ -35,12 +37,7 @@ import {
   maskSensitiveValue,
   PRIVACY_MODE_CHANGED_EVENT,
 } from '../utils/privacy';
-import {
-  loadWakeupOfficialLsVersionMode,
-  saveWakeupOfficialLsVersionMode,
-  WAKEUP_OFFICIAL_LS_VERSION_CHANGED_EVENT,
-  type WakeupOfficialLsVersionMode,
-} from '../utils/wakeupOfficialLsVersion';
+import { formatWakeupRuntimeError } from '../utils/wakeupRuntimeError';
 
 interface WakeupVerificationPageProps {
   onNavigate?: (page: Page) => void;
@@ -102,6 +99,7 @@ interface WakeupVerificationBatchResult {
   tosViolationCount: number;
   failedCount: number;
   records: WakeupVerificationStateItem[];
+  storageError?: string;
 }
 
 const DEFAULT_PROMPT = 'hi';
@@ -186,6 +184,9 @@ function matchesDetailFilter(item: WakeupVerificationStateItem, filter: DetailFi
   return isFailedStatus(normalized);
 }
 
+const readHistory = (retry: boolean): Promise<LocalHistoryRead<WakeupVerificationBatchHistoryItem>> =>
+  invoke('wakeup_verification_load_history', { retry });
+
 export function WakeupVerificationPage({ onNavigate }: WakeupVerificationPageProps) {
   const { t, i18n } = useTranslation();
   const { accounts, fetchAccounts } = useAccountStore();
@@ -194,7 +195,20 @@ export function WakeupVerificationPage({ onNavigate }: WakeupVerificationPagePro
   const [running, setRunning] = useState(false);
   const [notice, setNotice] = useState<{ text: string; tone: 'success' | 'warning' | 'error' } | null>(null);
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([]);
-  const [historyBatches, setHistoryBatches] = useState<WakeupVerificationBatchHistoryItem[]>([]);
+  const {
+    records: savedBatches, loading: historyLoading, migrationPending: historyMigrating,
+    error: historyReadError, refresh: refreshHistory, updateRecords: updateHistoryRecords,
+  } = useLocalHistory(readHistory);
+  const [latestBatch, setLatestBatch] = useState<WakeupVerificationBatchHistoryItem | null>(null);
+  const historyBatches = useMemo(() => {
+    if (!latestBatch || savedBatches.some(batch => batch.batchId === latestBatch.batchId)) return savedBatches;
+    return mergeHistoryBatches(savedBatches, [latestBatch]);
+  }, [savedBatches, latestBatch]);
+  useEffect(() => {
+    if (latestBatch && savedBatches.some(batch => batch.batchId === latestBatch.batchId)) {
+      setLatestBatch(null);
+    }
+  }, [latestBatch, savedBatches]);
   const [liveStates, setLiveStates] = useState<Record<string, WakeupVerificationStateItem>>({});
 
   const [showConfigModal, setShowConfigModal] = useState(false);
@@ -231,9 +245,6 @@ export function WakeupVerificationPage({ onNavigate }: WakeupVerificationPagePro
   const [configTagFilter, setConfigTagFilter] = useState<string[]>([]);
   const [configGroupFilter, setConfigGroupFilter] = useState<string[]>([]);
   const [accountGroups, setAccountGroups] = useState<AccountGroup[]>([]);
-  const [officialLsVersionMode, setOfficialLsVersionMode] = useState<WakeupOfficialLsVersionMode>(
-    () => loadWakeupOfficialLsVersionMode(),
-  );
 
   const activeBatchIdRef = useRef<string | null>(null);
   const accountSelectAllRef = useRef<HTMLInputElement | null>(null);
@@ -494,14 +505,6 @@ export function WakeupVerificationPage({ onNavigate }: WakeupVerificationPagePro
     (value?: string | null) => maskSensitiveValue(value, privacyModeEnabled),
     [privacyModeEnabled],
   );
-  const handleOfficialLsVersionModeChange = useCallback((value: string) => {
-    const nextMode =
-      value === 'lt_1_21_6'
-        ? 'lt_1_21_6'
-        : 'gte_1_21_6';
-    setOfficialLsVersionMode(nextMode);
-    saveWakeupOfficialLsVersionMode(nextMode);
-  }, []);
   const resolveAccountPlanBadge = useCallback(
     (accountId?: string | null) => {
       if (!accountId) return null;
@@ -511,11 +514,6 @@ export function WakeupVerificationPage({ onNavigate }: WakeupVerificationPagePro
     },
     [accountById],
   );
-
-  const fetchHistory = async () => {
-    const result = await invoke<WakeupVerificationBatchHistoryItem[]>('wakeup_verification_load_history');
-    setHistoryBatches((result || []).sort((a, b) => b.verifiedAt - a.verifiedAt));
-  };
 
   const fetchModels = async (accountList: typeof accounts = accounts) => {
     const allowedModelKeys = collectAntigravityQuotaModelKeys(accountList);
@@ -555,7 +553,7 @@ export function WakeupVerificationPage({ onNavigate }: WakeupVerificationPagePro
         await fetchAccounts();
         if (!active) return;
         const latestAccounts = useAccountStore.getState().accounts;
-        await Promise.all([fetchHistory(), fetchModels(latestAccounts)]);
+        await fetchModels(latestAccounts);
       } catch (error) {
         if (!active) return;
         setNotice({ text: String(error), tone: 'error' });
@@ -566,39 +564,6 @@ export function WakeupVerificationPage({ onNavigate }: WakeupVerificationPagePro
       active = false;
     };
   }, [fetchAccounts]);
-
-  useEffect(() => {
-    const syncMode = () => {
-      setOfficialLsVersionMode(loadWakeupOfficialLsVersionMode());
-    };
-    const handleModeChanged = (event: Event) => {
-      const detail = (event as CustomEvent<WakeupOfficialLsVersionMode>).detail;
-      if (detail === 'lt_1_21_6' || detail === 'gte_1_21_6') {
-        setOfficialLsVersionMode(detail);
-        return;
-      }
-      syncMode();
-    };
-
-    window.addEventListener(
-      WAKEUP_OFFICIAL_LS_VERSION_CHANGED_EVENT,
-      handleModeChanged as EventListener,
-    );
-    window.addEventListener('focus', syncMode);
-    return () => {
-      window.removeEventListener(
-        WAKEUP_OFFICIAL_LS_VERSION_CHANGED_EVENT,
-        handleModeChanged as EventListener,
-      );
-      window.removeEventListener('focus', syncMode);
-    };
-  }, []);
-
-  useEffect(() => {
-    invoke('wakeup_set_official_ls_version_mode', { mode: officialLsVersionMode }).catch((error) => {
-      console.error('同步官方 LS 版本模式失败:', error);
-    });
-  }, [officialLsVersionMode]);
 
   useEffect(() => {
     if (!selectedModel && preferredDefaultModelId) {
@@ -851,7 +816,8 @@ export function WakeupVerificationPage({ onNavigate }: WakeupVerificationPagePro
       const deleted = await invoke<number>('wakeup_verification_delete_history', { batchIds });
       if (deleted > 0) {
         const deletedSet = new Set(batchIds);
-        setHistoryBatches((prev) => prev.filter((item) => !deletedSet.has(item.batchId)));
+        updateHistoryRecords((prev) => prev.filter((item) => !deletedSet.has(item.batchId)));
+        setLatestBatch((prev) => prev && deletedSet.has(prev.batchId) ? null : prev);
         setSelectedBatchIds((prev) => prev.filter((id) => !deletedSet.has(id)));
         setNotice({ text: t('messages.actionSuccess', { action: t('common.delete') }), tone: 'success' });
       }
@@ -937,7 +903,7 @@ export function WakeupVerificationPage({ onNavigate }: WakeupVerificationPagePro
       setNotice({ text: message, tone: 'error' });
     });
     try {
-      await invoke('wakeup_ensure_runtime_ready', { officialLsVersionMode });
+      await invoke('wakeup_ensure_runtime_ready');
       return true;
     } catch (error) {
       const message = formatErrorMessage(error);
@@ -951,10 +917,10 @@ export function WakeupVerificationPage({ onNavigate }: WakeupVerificationPagePro
         reportError(pathErrorText);
         return false;
       }
-      reportError(message);
+      reportError(formatWakeupRuntimeError(message, t));
       return false;
     }
-  }, [officialLsVersionMode, t]);
+  }, [t]);
 
   const runBatchVerification = async (options: {
     accountIds: string[];
@@ -1017,7 +983,6 @@ export function WakeupVerificationPage({ onNavigate }: WakeupVerificationPagePro
         model,
         prompt,
         maxOutputTokens: 0,
-        officialLsVersionMode,
       });
 
       const finalBatch: WakeupVerificationBatchHistoryItem = {
@@ -1047,10 +1012,18 @@ export function WakeupVerificationPage({ onNavigate }: WakeupVerificationPagePro
         item: null,
       });
       setRunning(false);
-      setHistoryBatches((prev) => mergeHistoryBatches(prev, [finalBatch]));
+      setLatestBatch(finalBatch);
       setDetailMode('history');
       setDetailBatchId(result.batchId);
       setShowDetailModal(true);
+
+      if (result.storageError) {
+        reportDetailModalError(t('messages.actionFailed', {
+          action: t('common.save'),
+          error: result.storageError,
+        }));
+        return;
+      }
 
       const tone = result.failedCount > 0 ? 'warning' : 'success';
       setNotice({
@@ -1061,7 +1034,7 @@ export function WakeupVerificationPage({ onNavigate }: WakeupVerificationPagePro
         tone,
       });
 
-      await fetchHistory();
+      refreshHistory();
     } catch (error) {
       console.error('批量验证失败:', error);
       activeBatchIdRef.current = null;
@@ -1205,7 +1178,19 @@ export function WakeupVerificationPage({ onNavigate }: WakeupVerificationPagePro
 
       <div className="toolbar">
         <div className="toolbar-left">
-          <span className="wakeup-hint">{t('wakeup.historyCount', { count: historyBatches.length })}</span>
+          {!historyLoading && !historyMigrating && !historyReadError && (
+            <span className="wakeup-hint">{t('wakeup.historyCount', { count: historyBatches.length })}</span>
+          )}
+          {historyMigrating && <span className="wakeup-hint" role="status">{t('common.historyRestoring')}</span>}
+          {historyReadError && (
+            <div role="alert">
+              <span className="wakeup-hint">{historyReadError === LOCAL_HISTORY_TIMEOUT
+                ? t('common.dataQueryBusy') : historyReadError}</span>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => refreshHistory(true)}>
+                {t('common.retry')}
+              </button>
+            </div>
+          )}
         </div>
         <div className="toolbar-right verification-toolbar-actions">
           <button
@@ -1266,7 +1251,7 @@ export function WakeupVerificationPage({ onNavigate }: WakeupVerificationPagePro
             {historyBatches.length === 0 ? (
               <tr>
                 <td colSpan={9} className="verification-empty-cell">
-                  {t('wakeup.historyEmpty')}
+                  {historyLoading ? t('common.loading') : !historyMigrating && !historyReadError && t('wakeup.historyEmpty')}
                 </td>
               </tr>
             ) : (
@@ -1326,15 +1311,6 @@ export function WakeupVerificationPage({ onNavigate }: WakeupVerificationPagePro
         <div className="modal-overlay">
           <div className="modal wakeup-modal verification-config-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <button
-                className="btn btn-secondary icon-only"
-                onClick={closeConfigModal}
-                title={t('common.back', '返回')}
-                aria-label={t('common.back', '返回')}
-                disabled={running}
-              >
-                <ChevronLeft size={14} />
-              </button>
               <h2>{t('wakeup.verification.actions.runCheckNow', '立即检测')}</h2>
               <button className="modal-close" onClick={closeConfigModal} disabled={running}>
                 <X />
@@ -1343,36 +1319,20 @@ export function WakeupVerificationPage({ onNavigate }: WakeupVerificationPagePro
             <div className="modal-body verification-modal-body">
               <ModalErrorMessage message={configModalError} scrollKey={configModalErrorScrollKey} />
               <div className="wakeup-form-group">
-                <label>{t('wakeup.form.antigravityVersion', 'Antigravity IDE Version')}</label>
-                <div className="verification-select-wrap">
-                  <select
-                    className="wakeup-input verification-select"
-                    value={officialLsVersionMode}
-                    onChange={(event) => handleOfficialLsVersionModeChange(event.target.value)}
-                  >
-                    <option value="gte_1_21_6">&gt;=1.21.6</option>
-                    <option value="lt_1_21_6">&lt;1.21.6</option>
-                  </select>
-                </div>
-              </div>
-              <div className="wakeup-form-group">
                 <label>{t('wakeup.form.modelSelect')}</label>
                 <div className="verification-select-wrap">
-                  <select
-                    className="wakeup-input verification-select"
+                  <SingleSelectDropdown
+                    className="verification-select-dropdown"
                     value={selectedModel}
-                    onChange={(event) => setSelectedModel(event.target.value)}
-                  >
-                    {filteredModels.length === 0 ? (
-                      <option value="">{t('wakeup.form.modelsEmpty')}</option>
-                    ) : (
-                      filteredModels.map((model) => (
-                        <option key={model.id} value={model.id}>
-                          {model.displayName || getAntigravityModelDisplayName(model.id) || model.id}
-                        </option>
-                      ))
-                    )}
-                  </select>
+                    disabled={filteredModels.length === 0}
+                    placeholder={t('wakeup.form.modelsEmpty')}
+                    ariaLabel={t('wakeup.form.modelSelect')}
+                    options={filteredModels.map((model) => ({
+                      value: model.id,
+                      label: model.displayName || getAntigravityModelDisplayName(model.id) || model.id,
+                    }))}
+                    onChange={setSelectedModel}
+                  />
                 </div>
               </div>
               <div className="verification-confirm-hint verification-run-hint">
@@ -1403,7 +1363,7 @@ export function WakeupVerificationPage({ onNavigate }: WakeupVerificationPagePro
                     <input
                       type="text"
                       className="verification-account-search"
-                      placeholder={t('accounts.search.placeholder', '搜索账号...')}
+                      placeholder={t('common.shared.search', '搜索账号...')}
                       value={accountSearchQuery}
                       onChange={(e) => setAccountSearchQuery(e.target.value)}
                     />
@@ -1454,6 +1414,7 @@ export function WakeupVerificationPage({ onNavigate }: WakeupVerificationPagePro
                   {filteredConfigAccounts.map((account) => {
                     const maskedEmail = maskAccountText(account.email);
                     const isSelected = selectedAccountSet.has(account.id);
+                    const planBadge = resolveAccountPlanBadge(account.id);
                     return (
                       <label
                         key={account.id}
@@ -1469,6 +1430,11 @@ export function WakeupVerificationPage({ onNavigate }: WakeupVerificationPagePro
                         <span className="verification-account-item-email" title={maskedEmail}>
                           {maskedEmail}
                         </span>
+                        {planBadge && (
+                          <span className={`tier-badge ${planBadge.className}`}>
+                            {planBadge.label}
+                          </span>
+                        )}
                       </label>
                     );
                   })}
@@ -1495,7 +1461,6 @@ export function WakeupVerificationPage({ onNavigate }: WakeupVerificationPagePro
         <div className="modal-overlay">
           <div className="modal wakeup-modal verification-progress-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <button className="btn btn-secondary icon-only" onClick={closeDetailModal} title={t('common.back', '返回')} aria-label={t('common.back', '返回')}><ChevronLeft size={14} /></button>
               <h2>{t('accounts.actions.viewDetails')}</h2>
               <button className="modal-close" onClick={closeDetailModal}>
                 <X />

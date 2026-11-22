@@ -12,7 +12,7 @@ mod final_headers;
 mod lite;
 #[path = "codex_wire_schema.rs"]
 mod schema;
-pub(super) use final_headers::finalize_routing_hint;
+pub(super) use final_headers::{finalize_routing_hint, ROUTING_HINT};
 
 pub(super) const LITE_HEADER: &str = "x-openai-internal-codex-responses-lite";
 
@@ -82,6 +82,10 @@ fn normalize_inner(
     compact: bool,
     websocket: bool,
 ) -> Result<(), ServiceError> {
+    if chatgpt {
+        super::codex_hosted_images::validate(headers, body)?;
+        super::codex_hosted_images::normalize(body);
+    }
     let streaming = body.get("stream").and_then(Value::as_bool) == Some(true);
     let Some(object) = body.as_object_mut() else {
         return Err(ServiceError::new(
@@ -126,7 +130,6 @@ fn normalize_inner(
             },
         );
         for field in [
-            "max_output_tokens",
             "max_completion_tokens",
             "temperature",
             "top_p",
@@ -188,6 +191,7 @@ fn normalize_inner(
         normalize_builtin_tools(body);
     }
     calls::normalize(body);
+    super::responses_tool_history::strip_legacy_codex_item_ids(body);
     let object = body.as_object_mut().expect("Object checked above");
     if object.get("instructions").is_none_or(Value::is_null) {
         object.insert("instructions".into(), json!(""));
@@ -215,8 +219,11 @@ fn normalize_inner(
     if !compact && (header_lite || metadata_lite) {
         body["parallel_tool_calls"] = json!(false);
         if lite::uses_image(body) {
-            // Go promotes explicit image requests to full Responses rather than discarding them.
-            headers.remove(LITE_HEADER);
+            // Optional image declarations never change the selected protocol.
+            // Forced hosted images were rejected before any mutation above.
+            if metadata_lite && !header_lite {
+                headers.insert(LITE_HEADER, axum::http::HeaderValue::from_static("true"));
+            }
         } else {
             lite::filter(body);
             if metadata_lite && !header_lite {

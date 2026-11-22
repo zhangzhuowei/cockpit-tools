@@ -70,7 +70,7 @@ fn try_rebuild_thread_metadata(instance: &CodexSyncInstance) -> bool {
     }
 }
 
-fn read_target_provider(data_dir: &Path) -> Result<String, String> {
+pub(crate) fn read_target_provider(data_dir: &Path) -> Result<String, String> {
     let config_path = data_dir.join(CONFIG_FILE_NAME);
     if !config_path.exists() {
         return Ok(DEFAULT_PROVIDER_ID.to_string());
@@ -259,8 +259,8 @@ fn collect_rollout_provider_changes(
         }
         let rollout_paths = list_rollout_files(&root_dir)?;
         for rollout_path in rollout_paths {
-            let Some(content) = read_rollout_text(&rollout_path)? else { continue; };
-            let rewrite = scan_rollout_session_meta_providers(&content)?;
+            let Some(scan) = read_rollout_summary(&rollout_path)? else { continue; };
+            let rewrite = scan.provider_facts();
             if rewrite.session_meta_count == 0 {
                 continue;
             }
@@ -289,7 +289,7 @@ fn collect_rollout_provider_changes(
             let target_modified_at = resolve_target_modified_at_ms(
                 session_id.as_deref(),
                 &session_index_map,
-                &rollout_path,
+                scan.activity_ms,
                 fallback_modified_ms,
             )
             .and_then(modules::codex_session_file_time::system_time_from_unix_millis);
@@ -332,7 +332,6 @@ fn collect_referenced_rollout_provider_changes(
 ) -> Result<Vec<RolloutProviderChange>, String> {
     let mut candidates: HashMap<PathBuf, Option<SystemTime>> = HashMap::new();
     for db_path in sqlite_candidate_paths_for_options(data_dir, options) {
-        check_launch_visibility_budget("scan_rollout_references")?;
         collect_referenced_rollout_paths_for_db(
             data_dir,
             &db_path,
@@ -344,31 +343,18 @@ fn collect_referenced_rollout_provider_changes(
     }
 
     let mut changes = Vec::new();
-    for (index, (rollout_path, target_modified_at)) in candidates.into_iter().enumerate() {
-        check_launch_visibility_budget("scan_rollout_headers")?;
+    for (index, (relative_path, target_modified_at)) in candidates.into_iter().enumerate() {
         if index % 64 == 0 {
             std::thread::yield_now();
         }
+        let rollout_path = data_dir.join(&relative_path);
         if !rollout_path.exists() || !is_plain_rollout_file(&rollout_path) {
             continue;
         }
         let rewrite = scan_rollout_first_session_meta_provider(&rollout_path)?;
-        if rewrite.session_meta_count == 0 { continue; }
-        if rewrite.non_root_agent {
+        if rewrite.session_meta_count == 0 || rewrite.non_root_agent {
             continue;
         }
-        let Some(relative_path) = rollout_path
-            .strip_prefix(data_dir)
-            .ok()
-            .map(Path::to_path_buf)
-        else {
-            modules::logger::log_warn(&format!(
-                "跳过 Codex 会话可见性修复中的实例外 rollout: data_dir={}, rollout={}",
-                data_dir.display(),
-                rollout_path.display()
-            ));
-            continue;
-        };
         let source_metadata = fs::metadata(&rollout_path).map_err(|error| format!("{}: {}", rollout_path.display(), error))?;
         let source_modified_at = source_metadata.modified().ok();
         if target_modified_at.is_none() || modules::codex_session_file_time::same_modified_time_millis(source_modified_at, target_modified_at) { continue; }
@@ -386,6 +372,29 @@ fn collect_referenced_rollout_provider_changes(
 
     changes.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
     Ok(changes)
+}
+
+fn referenced_rollout_relative_path(data_dir: &Path, rollout_path: &Path) -> Option<PathBuf> {
+    if let Ok(relative) = rollout_path.strip_prefix(data_dir) {
+        if relative
+            .components()
+            .all(|part| matches!(part, std::path::Component::Normal(_)))
+        {
+            return Some(relative.to_path_buf());
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        // The stored reference and configured directory can use different
+        // drive or UNC spellings for the same location.
+        let root = data_dir.canonicalize().ok()?;
+        let rollout = rollout_path.canonicalize().ok()?;
+        return rollout.strip_prefix(root).ok().map(Path::to_path_buf);
+    }
+
+    #[cfg(not(windows))]
+    None
 }
 
 fn collect_referenced_rollout_paths_for_db(
@@ -413,7 +422,6 @@ fn collect_referenced_rollout_paths_for_db(
             ));
         }
     };
-    configure_launch_visibility_connection(&connection)?;
 
     let mut table_info = connection
         .prepare("PRAGMA table_info(threads)")
@@ -492,7 +500,6 @@ fn collect_referenced_rollout_paths_for_db(
         })?;
 
     for row in rows {
-        check_launch_visibility_budget("read_rollout_references")?;
         let (thread_id, rollout_path, updated_at, updated_at_ms) = row.map_err(|error| {
             format_sqlite_read_error(db_path, "读取 SQLite rollout 引用失败", &error)
         })?;
@@ -500,13 +507,21 @@ fn collect_referenced_rollout_paths_for_db(
             continue;
         }
         let rollout_path = resolve_rollout_path(data_dir, &rollout_path);
+        let Some(relative_path) = referenced_rollout_relative_path(data_dir, &rollout_path) else {
+            modules::logger::log_warn(&format!(
+                "跳过 Codex 会话可见性修复中的实例外 rollout: data_dir={}, rollout={}",
+                data_dir.display(),
+                rollout_path.display()
+            ));
+            continue;
+        };
         let target_modified_at = updated_at_ms
             .or_else(|| updated_at.map(|value| value * 1000))
             .and_then(|value| {
                 modules::codex_session_file_time::system_time_from_unix_millis(value as i128)
             });
         candidates
-            .entry(rollout_path)
+            .entry(relative_path)
             .and_modify(|existing| {
                 if existing.is_none() {
                     *existing = target_modified_at;
@@ -527,16 +542,11 @@ struct RolloutProviderRewrite {
     providers: HashSet<String>,
 }
 
+#[cfg(test)]
 fn scan_rollout_session_meta_providers(content: &str) -> Result<RolloutProviderRewrite, String> {
-    let mut facts = RolloutProviderRewrite::default();
-    for line in content.lines() {
-        if let Ok(record) = serde_json::from_str::<JsonValue>(line) {
-            if record.get("type").and_then(JsonValue::as_str) == Some("session_meta") {
-                scan_session_meta_record(&record, &mut facts);
-            }
-        }
-    }
-    Ok(facts)
+    scan_rollout_summary(content.as_bytes())
+        .map(|scan| scan.provider_facts())
+        .map_err(|error| error.to_string())
 }
 
 fn scan_rollout_first_session_meta_provider(path: &Path) -> Result<RolloutProviderRewrite, String> {
@@ -580,25 +590,13 @@ fn source_text_marks_non_root_agent(source: &str) -> bool {
 }
 
 fn read_first_line(path: &Path) -> Result<Option<(String, String)>, String> {
-    check_launch_visibility_budget("read_rollout_header")?;
     let file = fs::File::open(path)
         .map_err(|error| format!("打开 rollout 文件失败 ({}): {}", path.display(), error))?;
-    // Limit only the launch path. Manual repair keeps its historical semantics;
-    // a malformed multi-GB first line must never be allocated during switching.
-    let limit = launch_visibility_budget()
-        .map(|_| MAX_LAUNCH_ROLLOUT_FIRST_LINE_BYTES + 1)
-        .unwrap_or(u64::MAX);
-    let mut reader = BufReader::new(std::io::Read::take(file, limit));
+    let mut reader = BufReader::new(file);
     let mut buffer = Vec::new();
     let bytes_read = reader
         .read_until(b'\n', &mut buffer)
         .map_err(|error| format!("读取 rollout 首行失败 ({}): {}", path.display(), error))?;
-    check_launch_visibility_budget("read_rollout_header")?;
-    if launch_visibility_budget().is_some()
-        && bytes_read as u64 > MAX_LAUNCH_ROLLOUT_FIRST_LINE_BYTES
-    {
-        return Err(format!("{LAUNCH_VISIBILITY_LINE_TOO_LARGE}: {}", path.display()));
-    }
     if bytes_read == 0 {
         return Ok(None);
     }
@@ -623,25 +621,6 @@ fn read_first_line(path: &Path) -> Result<Option<(String, String)>, String> {
         }
     };
     Ok(Some((line, separator.to_string())))
-}
-
-fn read_rollout_text(path: &Path) -> Result<Option<String>, String> {
-    match fs::read_to_string(path) {
-        Ok(content) => Ok(Some(content)),
-        Err(error) if error.kind() == std::io::ErrorKind::InvalidData => {
-            modules::logger::log_warn(&format!(
-                "跳过非 UTF-8 Codex rollout 文件 ({}): {}",
-                path.display(),
-                error
-            ));
-            Ok(None)
-        }
-        Err(error) => Err(format!(
-            "读取 rollout 文件失败 ({}): {}",
-            path.display(),
-            error
-        )),
-    }
 }
 
 fn parse_session_meta_record(first_line: &str) -> Option<JsonValue> {
@@ -694,63 +673,34 @@ fn collect_rollout_thread_facts(
             continue;
         }
         for rollout_path in list_rollout_files(&root_dir)? {
-            let Some(content) = read_rollout_text(&rollout_path)? else {
+            let Some(scan) = read_rollout_summary(&rollout_path)? else {
                 continue;
             };
-            let has_user_event =
-                content.contains("\"user_message\"") || content.contains("\"user_input\"");
-            let contains_encrypted_content = content.contains("encrypted_content");
             let mut file_providers = HashSet::new();
-            for line in content.lines() {
-                let Ok(record) = serde_json::from_str::<JsonValue>(line.trim()) else {
-                    continue;
-                };
-                if record.get("type").and_then(JsonValue::as_str) != Some("session_meta") {
-                    continue;
-                }
-                let Some(payload) = record.get("payload").and_then(JsonValue::as_object) else {
-                    continue;
-                };
-                let Some(thread_id) = payload
-                    .get("id")
-                    .or_else(|| payload.get("session_id"))
-                    .and_then(JsonValue::as_str)
-                    .map(str::to_string)
-                else {
-                    continue;
-                };
+            for record in scan.metadata {
+                let Some(payload) = record.payload else { continue; };
+                let Some(thread_id) = payload.thread_id().map(str::to_owned) else { continue; };
                 if !selection.includes_session_id(&thread_id) {
                     continue;
                 }
-                if payload
-                    .get("source")
-                    .is_some_and(source_value_marks_non_root_agent)
-                {
+                if payload.is_non_root() {
                     facts.subagent_thread_ids.insert(thread_id.clone());
                     continue;
                 }
-                if let Some(provider) = payload
-                    .get("model_provider")
-                    .and_then(JsonValue::as_str)
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                {
+                if let Some(provider) = payload.provider() {
                     file_providers.insert(provider.to_string());
                 }
-                if has_user_event {
+                if scan.markers.has_user_event {
                     facts.user_event_thread_ids.insert(thread_id.clone());
                 }
                 if !projectless_thread_ids.contains(&thread_id) {
-                    if let Some(cwd) = payload
-                        .get("cwd")
-                        .and_then(JsonValue::as_str)
-                        .and_then(to_desktop_workspace_path)
+                    if let Some(cwd) = payload.cwd.as_str().and_then(to_desktop_workspace_path)
                     {
                         facts.cwd_by_thread_id.entry(thread_id).or_insert(cwd);
                     }
                 }
             }
-            if contains_encrypted_content {
+            if scan.markers.contains_encrypted_content {
                 for provider in file_providers {
                     *facts.encrypted_content_counts.entry(provider).or_insert(0) += 1;
                 }

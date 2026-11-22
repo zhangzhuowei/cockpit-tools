@@ -16,6 +16,7 @@ function harness() {
   let cleanups = 0;
   const registration = deferred<() => void>();
   const copies: { command: string; task: ReturnType<typeof deferred<void>> }[] = [];
+  const restarts: { codexHome: string; task: ReturnType<typeof deferred<void | string>> }[] = [];
   const h = loadHookModule(new URL('./CodexCliDaemonNotice.tsx', import.meta.url), {
     'react-dom': { createPortal: (value: unknown) => value },
     'react-i18next': { useTranslation: () => ({ t: (key: string) => key }) },
@@ -26,12 +27,20 @@ function harness() {
         return registration.promise;
       },
     },
+    '@tauri-apps/api/core': {
+      invoke(commandName: string, args: { codexHome: string }) {
+        assert.equal(commandName, 'codex_restart_cli_daemon');
+        const task = deferred<void | string>();
+        restarts.push({ codexHome: args.codexHome, task });
+        return task.promise;
+      },
+    },
     '../hooks/useEscClose': { useEscCloseTopmost(open: boolean, close: () => void) { escape = open ? close : undefined; } },
     '../hooks/useModalFocusTrap': { useModalFocusTrap() {} },
     '../hooks/useModalScrollLock': { useModalScrollLock() {} },
   }, {
     document: { body: {} },
-    console,
+    console: { warn() {} },
     navigator: { clipboard: { writeText(command: string) {
       const task = deferred<void>();
       copies.push({ command, task });
@@ -40,9 +49,10 @@ function harness() {
   });
   h.render(() => h.exports.CodexCliDaemonNotice());
   return {
-    h, copies, registration,
+    h, copies, restarts, registration,
     button(key: string) {
-      const button = nodes(h.flush()).find((node) => node.type === 'button' && node.props.children === `common.${key}`);
+      const button = nodes(h.flush()).find((node) => node.type === 'button'
+        && [`common.${key}`, `codex.cliDaemon.${key}`].includes(node.props.children));
       assert.ok(button, `Missing ${key}`);
       return button;
     },
@@ -54,6 +64,44 @@ function harness() {
 }
 
 const command = "CODEX_HOME='/tmp/Alice'\"'\"'s Codex/$profile' codex app-server daemon restart";
+
+test('a deferred automatic refresh keeps the explicit restart and copy actions', () => {
+  const h = harness();
+  h.notify({ command, codexHome: '/tmp/profile', autoDeferred: true });
+  assert.equal(nodes(h.h.flush()).find((node) => node.props.role === 'status')?.props.children,
+    'codex.cliDaemon.autoDeferred');
+  assert.equal(h.restarts.length, 0);
+  assert.equal(h.button('restart').props.disabled, false);
+  assert.equal(h.button('copy').props.disabled, false);
+});
+
+test('a newer incomplete write removes the restart action for that profile', () => {
+  const h = harness();
+  const codexHome = "/tmp/Alice's Codex/$profile";
+  h.notify({ command, codexHome });
+  h.button('restart');
+  h.notify({ command: 'second profile command', codexHome: '/tmp/other' });
+
+  h.notify({ command, codexHome: null });
+  assert.equal(nodes(h.h.flush()).some((node) => node.props.children === 'codex.cliDaemon.restart'), false);
+  h.button('copy');
+  h.escape();
+  h.button('restart');
+});
+
+test('a write that arrives during a restart is shown when the current notice closes', async () => {
+  const h = harness();
+  h.notify({ command, codexHome: "/tmp/Alice's Codex/$profile" });
+  h.button('restart').props.onClick();
+  h.notify({ command, codexHome: null });
+  h.restarts[0].task.resolve();
+  await settlePromises();
+  h.escape();
+
+  h.button('copy');
+  assert.equal(nodes(h.h.flush()).some((node) => node.props.children === 'codex.cliDaemon.restart'), false);
+  assert.equal(h.escape(), null);
+});
 
 test('daemon guidance ignores invalid events, deduplicates and copies the exact command', async () => {
   const h = harness();
@@ -100,4 +148,85 @@ test('unmount releases late event registration and discards late events', async 
   await settlePromises();
   assert.equal(h.cleanups(), 1);
   assert.equal(h.notify(command), null);
+});
+
+test('a completed write enables restart for its exact profile and permits retry after failure', async () => {
+  const h = harness();
+  h.notify({ command, codexHome: null });
+  assert.equal(nodes(h.h.flush()).some((node) => node.props.children === 'codex.cliDaemon.restart'), false);
+  const codexHome = "/tmp/Alice's Codex/$profile";
+  h.notify({ command, codexHome });
+  assert.equal(h.restarts.length, 0);
+
+  const restart = h.button('restart').props.onClick;
+  restart();
+  restart();
+  assert.equal(h.restarts.length, 1);
+  assert.equal(h.restarts[0].codexHome, codexHome);
+  assert.equal(h.button('restarting').props.disabled, true);
+  h.restarts[0].task.reject(new Error('daemon failed'));
+  await settlePromises();
+  assert.equal(nodes(h.h.flush()).find((node) => node.props.role === 'alert')?.props.children, 'codex.cliDaemon.restartFailed');
+
+  h.button('restart').props.onClick();
+  assert.equal(nodes(h.h.flush()).some((node) => node.props.role === 'alert'), false);
+  h.restarts[1].task.resolve('restarted');
+  await settlePromises();
+  assert.equal(nodes(h.h.flush()).find((node) => node.props.role === 'status')?.props.children, 'codex.cliDaemon.restarted');
+  assert.equal(h.button('restart').props.disabled, true);
+  assert.equal(h.escape(), null);
+});
+
+test('an unverified restart stays open and keeps the terminal command available', async () => {
+  const h = harness();
+  h.notify({ command, codexHome: '/tmp/profile' });
+  h.button('restart').props.onClick();
+  h.restarts[0].task.reject('CODEX_CLI_DAEMON_RESTART_UNCONFIRMED');
+  await settlePromises();
+  assert.equal(nodes(h.h.flush()).find((node) => node.props.role === 'alert')?.props.children,
+    'codex.cliDaemon.restartUnconfirmed');
+  assert.equal(nodes(h.h.flush()).some((node) => node.props.role === 'status'), false);
+  assert.equal(h.button('restart').props.disabled, false);
+  assert.equal(h.button('copy').props.disabled, false);
+  h.button('copy').props.onClick();
+  h.copies[0].task.reject(new Error('clipboard unavailable'));
+  await settlePromises();
+  assert.deepEqual(nodes(h.h.flush()).filter((node) => node.props.role === 'alert')
+    .map((node) => node.props.children), ['codex.cliDaemon.restartUnconfirmed', 'codex.cliDaemon.copyFailed']);
+  h.button('copy').props.onClick();
+  h.copies[1].task.resolve();
+  await settlePromises();
+  h.button('copied');
+  assert.equal(nodes(h.h.flush()).find((node) => node.props.role === 'alert')?.props.children,
+    'codex.cliDaemon.restartUnconfirmed');
+});
+
+test('an unrecognized restart response does not report success', async () => {
+  const h = harness();
+  h.notify({ command, codexHome: '/tmp/profile' });
+  h.button('restart').props.onClick();
+  h.restarts[0].task.resolve();
+  await settlePromises();
+  assert.equal(nodes(h.h.flush()).find((node) => node.props.role === 'alert')?.props.children,
+    'codex.cliDaemon.restartUnconfirmed');
+  assert.equal(h.button('restart').props.disabled, false);
+});
+
+test('OAuth restart distinguishes a confirmed workspace, missing evidence, and a mismatch', async () => {
+  for (const outcome of ['workspaceConfirmed', 'workspaceUnconfirmed', 'workspaceMismatch']) {
+    const h = harness();
+    h.notify({ command, codexHome: '/tmp/profile' });
+    h.button('restart').props.onClick();
+    const isMismatch = outcome === 'workspaceMismatch';
+    if (isMismatch) {
+      h.restarts[0].task.reject('CODEX_CLI_DAEMON_WORKSPACE_MISMATCH');
+    } else {
+      h.restarts[0].task.resolve(outcome);
+    }
+    await settlePromises();
+    assert.equal(nodes(h.h.flush()).find((node) =>
+      node.props.role === (isMismatch ? 'alert' : 'status'))?.props.children, 'codex.cliDaemon.' + outcome);
+    assert.equal(h.button('restart').props.disabled, !isMismatch);
+    assert.equal(h.button('copy').props.disabled, false);
+  }
 });

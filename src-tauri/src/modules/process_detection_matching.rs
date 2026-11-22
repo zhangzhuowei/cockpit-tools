@@ -95,6 +95,42 @@ mod linux_antigravity_process_candidate_tests {
             false,
         ));
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn standalone_proc_scan_keeps_default_and_custom_profile_main_processes() {
+        use super::{collect_antigravity_process_entries_from_proc, select_main_pids_by_target_dirs};
+        use std::{collections::HashSet, fs, os::unix::fs::symlink};
+
+        let proc_root = tempfile::tempdir().unwrap();
+        let standalone = "/opt/Antigravity/antigravity";
+        let profile = "/work/profiles/custom profile";
+        let default = "/home/test/.config/antigravity";
+
+        for (pid, executable, args) in [
+            (101, standalone, ""),
+            (102, standalone, "--user-data-dir\0/work/profiles/custom profile\0"),
+            (103, standalone, "--type=renderer\0"),
+            (104, "/opt/Antigravity IDE/antigravity-ide", ""),
+        ] {
+            let entry = proc_root.path().join(pid.to_string());
+            fs::create_dir(&entry).unwrap();
+            symlink(executable, entry.join("exe")).unwrap();
+            fs::write(entry.join("cmdline"), format!("{executable}\0{args}")).unwrap();
+        }
+
+        let mut entries = collect_antigravity_process_entries_from_proc(proc_root.path(), standalone);
+        entries.sort_unstable_by_key(|(pid, _)| *pid);
+        assert_eq!(entries, [(101, None), (102, Some(profile.to_string()))]);
+        assert_eq!(
+            select_main_pids_by_target_dirs(&entries, &HashSet::from([default.into()]), Some(default)),
+            [101]
+        );
+        assert_eq!(
+            select_main_pids_by_target_dirs(&entries, &HashSet::from([profile.into()]), Some(default)),
+            [102]
+        );
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -558,43 +594,6 @@ fn resolve_expected_codex_launch_path_for_match() -> Option<String> {
     Some(normalized)
 }
 
-#[cfg(target_os = "macos")]
-fn collect_antigravity_process_entries_from_ps() -> Vec<(u32, Option<String>)> {
-    let mut result = Vec::new();
-    let output = Command::new("ps").args(["-axo", "pid,command"]).output();
-    let output = match output {
-        Ok(value) => value,
-        Err(_) => return result,
-    };
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    for line in stdout.lines().skip(1) {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        let mut parts = line.splitn(2, |ch: char| ch.is_whitespace());
-        let pid_str = parts.next().unwrap_or("").trim();
-        let cmdline = parts.next().unwrap_or("").trim();
-        let pid = match pid_str.parse::<u32>() {
-            Ok(value) => value,
-            Err(_) => continue,
-        };
-        let lower = cmdline.to_lowercase();
-        if !lower.contains(ANTIGRAVITY_APP_CONTENTS_MARKER) {
-            continue;
-        }
-        if lower.contains("antigravity tools.app/contents/")
-            || lower.contains("crashpad_handler")
-            || is_helper_command_line(&lower)
-        {
-            continue;
-        }
-        let dir = extract_user_data_dir_from_command_line(cmdline);
-        result.push((pid, dir));
-    }
-    result
-}
-
 #[cfg(target_os = "windows")]
 fn windows_antigravity_process_name_for_expected_exe(expected_exe_path: &str) -> String {
     Path::new(expected_exe_path)
@@ -762,10 +761,11 @@ fn collect_antigravity_process_entries_from_sysinfo_fallback(
 
 #[cfg(any(target_os = "linux", test))]
 fn collect_antigravity_process_entries_from_proc(
+    proc_root: &Path,
     expected_launch: &str,
 ) -> Vec<(u32, Option<String>)> {
     let mut result = Vec::new();
-    let entries = match std::fs::read_dir("/proc") {
+    let entries = match std::fs::read_dir(proc_root) {
         Ok(value) => value,
         Err(_) => return result,
     };
@@ -779,8 +779,8 @@ fn collect_antigravity_process_entries_from_proc(
             Ok(value) => value,
             Err(_) => continue,
         };
-        let cmdline_path = format!("/proc/{}/cmdline", pid);
-        let cmdline = match std::fs::read(&cmdline_path) {
+        let process_dir = entry.path();
+        let cmdline = match std::fs::read(process_dir.join("cmdline")) {
             Ok(value) => value,
             Err(_) => continue,
         };
@@ -788,7 +788,7 @@ fn collect_antigravity_process_entries_from_proc(
         if args.is_empty() {
             continue;
         }
-        let exe_path = std::fs::read_link(format!("/proc/{}/exe", pid))
+        let exe_path = std::fs::read_link(process_dir.join("exe"))
             .ok()
             .and_then(|path| path.to_str().map(str::to_string))
             .unwrap_or_default();
@@ -948,7 +948,7 @@ pub fn collect_antigravity_process_entries() -> Vec<(u32, Option<String>)> {
         let expected = expected_launch
             .as_deref()
             .expect("expected launch path must exist");
-        let entries = collect_antigravity_process_entries_from_proc(expected);
+        let entries = collect_antigravity_process_entries_from_proc(Path::new("/proc"), expected);
         if !entries.is_empty() {
             return filter_antigravity_entries_by_expected_launch_path(
                 "AG",
@@ -982,44 +982,6 @@ fn resolve_expected_antigravity_legacy_launch_path_for_match() -> Option<String>
         return None;
     }
     Some(normalized)
-}
-
-#[cfg(target_os = "macos")]
-fn collect_antigravity_legacy_process_entries_from_ps() -> Vec<(u32, Option<String>)> {
-    let mut result = Vec::new();
-    let output = Command::new("ps").args(["-axo", "pid,command"]).output();
-    let output = match output {
-        Ok(value) => value,
-        Err(_) => return result,
-    };
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    for line in stdout.lines().skip(1) {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        let mut parts = line.splitn(2, |ch: char| ch.is_whitespace());
-        let pid_str = parts.next().unwrap_or("").trim();
-        let cmdline = parts.next().unwrap_or("").trim();
-        let pid = match pid_str.parse::<u32>() {
-            Ok(value) => value,
-            Err(_) => continue,
-        };
-        let lower = cmdline.to_lowercase();
-        if !lower.contains(ANTIGRAVITY_LEGACY_APP_CONTENTS_MARKER) {
-            continue;
-        }
-        if lower.contains("antigravity ide.app/contents/")
-            || lower.contains("antigravity tools.app/contents/")
-            || lower.contains("crashpad_handler")
-            || is_helper_command_line(&lower)
-        {
-            continue;
-        }
-        let dir = extract_user_data_dir_from_command_line(cmdline);
-        result.push((pid, dir));
-    }
-    result
 }
 
 #[cfg(target_os = "windows")]
@@ -1060,7 +1022,10 @@ fn collect_antigravity_legacy_process_entries_from_powershell(
             Err(_) => continue,
         };
         let lower = cmdline.to_lowercase();
-        if !lower.contains("antigravity.exe") || lower.contains("antigravity ide.exe") {
+        if !lower.contains("antigravity.exe")
+            || lower.contains("antigravity ide.exe")
+            || lower.contains("--type=")
+        {
             continue;
         }
         let dir = extract_user_data_dir_from_command_line(cmdline);
@@ -1101,13 +1066,9 @@ pub fn collect_antigravity_legacy_process_entries() -> Vec<(u32, Option<String>)
         let expected = expected_launch
             .as_deref()
             .expect("expected launch path must exist");
-        let entries = collect_antigravity_process_entries_from_proc(expected)
-            .into_iter()
-            .filter(|(_, dir)| {
-                dir.as_deref()
-                    .is_some_and(|value| value.contains("Antigravity"))
-            })
-            .collect::<Vec<_>>();
+        // The process scan verifies the executable. Profile matching happens
+        // later, where a missing flag identifies the default instance.
+        let entries = collect_antigravity_process_entries_from_proc(Path::new("/proc"), expected);
         return filter_antigravity_entries_by_expected_launch_path(
             "AG Legacy",
             entries,
@@ -1273,11 +1234,26 @@ fn resolve_codebuddy_cn_target_and_fallback(user_data_dir: Option<&str>) -> Opti
 }
 
 fn resolve_qoder_target_and_fallback(user_data_dir: Option<&str>) -> Option<(String, bool)> {
-    build_user_data_dir_match_target(
-        user_data_dir,
-        get_default_qoder_user_data_dir_for_os(),
-        !strict_process_detect_enabled(),
-    )
+    let target = match user_data_dir {
+        Some(path) => normalize_non_empty_path_for_compare(path)?,
+        None => normalize_non_empty_path_for_compare(&get_default_qoder_user_data_dir_for_os()?)?,
+    };
+    let unflagged = get_unflagged_qoder_user_data_dir()
+        .and_then(|path| normalize_non_empty_path_for_compare(&path));
+    let allow_none = unflagged.as_deref() == Some(target.as_str());
+    Some((target, allow_none))
+}
+
+fn get_unflagged_qoder_user_data_dir() -> Option<String> {
+    let executable = resolve_qoder_launch_path().ok();
+    crate::modules::qoder_paths::user_data_dir(&[], executable.as_deref())
+        .ok()
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
+pub(crate) fn same_qoder_profile_path(left: &Path, right: &Path) -> bool {
+    normalize_path_for_compare(&left.to_string_lossy())
+        == normalize_path_for_compare(&right.to_string_lossy())
 }
 
 fn resolve_trae_target_and_fallback(user_data_dir: Option<&str>) -> Option<(String, bool)> {
@@ -1480,22 +1456,33 @@ fn resolve_codex_windows_target_and_fallback(codex_home: Option<&str>) -> Option
 }
 
 #[cfg(target_os = "macos")]
-fn is_qoder_macos_main_process_command_line(cmdline: &str) -> bool {
-    let lower = cmdline.to_lowercase();
-    if lower.contains("crashpad_handler") || is_helper_command_line(&lower) {
-        return false;
+fn qoder_macos_process_profile(cmdline: &str, expected: &str) -> Option<Option<String>> {
+    let executable = extract_macos_exe_from_cmdline(cmdline)?;
+    if executable != expected
+        && (Path::new(&executable).file_name() != Path::new(expected).file_name()
+            || normalize_path_for_compare(&executable) != expected)
+    {
+        return None;
     }
-    lower.contains("/qoder ide.app/contents/macos/qoder")
-        || lower.contains("/qoder.app/contents/macos/qoder")
+    let args = &cmdline[executable.len()..];
+    if split_command_tokens(args)
+        .iter()
+        .take_while(|arg| arg.as_str() != "--")
+        .any(|arg| arg == "--type" || arg.starts_with("--type="))
+    {
+        return None;
+    }
+    let profile_args = args.split_once(" -- ").map_or(args, |(before, _)| before);
+    Some(extract_user_data_dir_from_command_line(profile_args))
 }
 
 #[cfg(target_os = "macos")]
-fn collect_qoder_process_entries_macos() -> Vec<(u32, Option<String>)> {
+fn collect_qoder_process_entries_macos(expected: &str) -> Vec<(u32, Option<String>)> {
     let mut entries = Vec::new();
-    let output = Command::new("ps").args(["-axo", "pid,command"]).output();
+    let output = Command::new("ps").args(["-axww", "-o", "pid=,command="]).output();
     if let Ok(output) = output {
         let stdout = String::from_utf8_lossy(&output.stdout);
-        for line in stdout.lines().skip(1) {
+        for line in stdout.lines() {
             let line = line.trim();
             if line.is_empty() {
                 continue;
@@ -1507,17 +1494,9 @@ fn collect_qoder_process_entries_macos() -> Vec<(u32, Option<String>)> {
                 Ok(value) => value,
                 Err(_) => continue,
             };
-            // Qoder's current macOS bundle is named `Qoder IDE.app`, while
-            // older builds used `Qoder.app`. The main Electron process does
-            // not expose `--user-data-dir`, so it must still be collected and
-            // matched to the configured default profile via the `None`
-            // fallback. Match the executable segment, not just the bundle
-            // name, so helpers under `Contents/Frameworks` are excluded.
-            if !is_qoder_macos_main_process_command_line(cmdline) {
-                continue;
+            if let Some(dir) = qoder_macos_process_profile(cmdline, expected) {
+                entries.push((pid, dir));
             }
-            let dir = extract_user_data_dir_from_command_line(cmdline);
-            entries.push((pid, dir));
         }
     }
     entries
@@ -1740,42 +1719,6 @@ public class Win32 {{
     Err(format!("窗口聚焦失败: {}", stderr.trim()))
 }
 
-#[cfg(target_os = "windows")]
-pub fn focus_current_process_main_window() -> Result<(), String> {
-    focus_window_by_pid(std::process::id())
-}
-
-/// Focus a specific HWND (e.g. Tauri `main` window), not the process MainWindowHandle.
-/// After tray destroy, MainWindowHandle often points at the floating card.
-#[cfg(target_os = "windows")]
-pub fn focus_window_by_hwnd(hwnd: isize) -> Result<(), String> {
-    if hwnd == 0 {
-        return Err("HWND_EMPTY".to_string());
-    }
-    let command = format!(
-        r#"Add-Type @'
-using System;
-using System.Runtime.InteropServices;
-public class Win32FocusHwnd {{
-  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
-  [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
-}}
-'@; $h = [IntPtr]{hwnd}; [Win32FocusHwnd]::ShowWindowAsync($h, 9) | Out-Null; [Win32FocusHwnd]::SetForegroundWindow($h) | Out-Null;"#
-    );
-    crate::modules::logger::log_info(&format!("[Focus] Windows PowerShell focus hwnd={}", hwnd));
-    let output = powershell_output(&["-NoProfile", "-Command", &command])
-        .map_err(|e| format!("调用 PowerShell 失败: {}", e))?;
-    if output.status.success() {
-        crate::modules::logger::log_info(&format!(
-            "[Focus] Windows PowerShell hwnd success hwnd={}",
-            hwnd
-        ));
-        return Ok(());
-    }
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    Err(format!("窗口聚焦失败: {}", stderr.trim()))
-}
-
 #[cfg(target_os = "linux")]
 fn focus_window_by_pid(pid: u32) -> Result<(), String> {
     if let Ok(output) = Command::new("wmctrl").arg("-lp").output() {
@@ -1873,6 +1816,17 @@ pub fn resolve_codex_pid_from_entries(
     let target = codex_home
         .map(|value| normalize_path_for_compare(value))
         .filter(|value| !value.is_empty());
+    // launchd can pass the standard home to the official macOS app. A
+    // nonstandard home still belongs to a separately managed instance.
+    #[cfg(target_os = "macos")]
+    let standard_home = if target.is_none() {
+        dirs::home_dir()
+            .map(|home| normalize_path_for_compare(&home.join(".codex").to_string_lossy()))
+    } else {
+        None
+    };
+    #[cfg(target_os = "linux")]
+    let standard_home: Option<String> = None;
 
     let mut matches = Vec::new();
     for (pid, home) in entries {
@@ -1888,7 +1842,7 @@ pub fn resolve_codex_pid_from_entries(
             }
             (None, Some(home)) => {
                 let normalized = normalize_path_for_compare(home);
-                if normalized.is_empty() {
+                if normalized.is_empty() || standard_home.as_deref() == Some(normalized.as_str()) {
                     matches.push(*pid);
                 }
             }
@@ -1918,6 +1872,32 @@ pub fn resolve_codex_pid_from_entries(
     }
 
     pick_preferred_pid(matches)
+}
+
+#[cfg(all(test, target_os = "macos"))]
+#[test]
+fn macos_codex_default_accepts_inherited_standard_home_and_excludes_managed_home() {
+    let pid = std::process::id();
+    let standard = dirs::home_dir().unwrap().join(".codex");
+    let managed = tempfile::tempdir().unwrap();
+    let standard = standard.to_string_lossy();
+    let managed = managed.path().to_string_lossy();
+
+    for reported_home in [None, Some(standard.to_string())] {
+        assert_eq!(
+            resolve_codex_pid_from_entries(None, None, &[(pid, reported_home)]),
+            Some(pid)
+        );
+    }
+    let managed_entry = [(pid, Some(managed.to_string()))];
+    assert_eq!(
+        resolve_codex_pid_from_entries(Some(pid), None, &managed_entry),
+        None
+    );
+    assert_eq!(
+        resolve_codex_pid_from_entries(None, Some(&managed), &managed_entry),
+        Some(pid)
+    );
 }
 
 #[cfg(target_os = "windows")]
@@ -1999,7 +1979,11 @@ fn collect_vscode_process_entries_from_powershell(
     expected_exe_path: &str,
 ) -> Vec<(u32, Option<String>)> {
     let mut entries: Vec<(u32, Option<String>)> = Vec::new();
-    let script = build_windows_path_filtered_process_probe_script("Code.exe", expected_exe_path);
+    let process_name = Path::new(expected_exe_path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("Code.exe");
+    let script = build_windows_path_filtered_process_probe_script(process_name, expected_exe_path);
     let output = powershell_output(&["-Command", &script]);
     let output = match output {
         Ok(value) => value,
@@ -2080,7 +2064,8 @@ fn collect_vscode_process_entries_from_sysinfo_fallback(
             .map(|arg| arg.to_string_lossy().to_lowercase())
             .collect::<Vec<String>>()
             .join(" ");
-        let is_vscode = name == "code.exe" || exe_path.ends_with("\\code.exe");
+        let expected_name = expected.rsplit('\\').next().unwrap_or("code.exe");
+        let is_vscode = name == expected_name || exe_path.rsplit('\\').next() == Some(expected_name);
         if !is_vscode
             || is_helper_command_line(&args_line)
             || args_line.contains("crashpad_handler")
@@ -2129,16 +2114,13 @@ fn collect_vscode_process_entries_from_sysinfo_fallback(
 }
 
 pub fn collect_vscode_process_entries() -> Vec<(u32, Option<String>)> {
-    let expected_launch = resolve_expected_vscode_launch_path_for_match();
-    if expected_launch.is_none() {
+    let Some(expected_launch) = resolve_expected_vscode_launch_path_for_match() else {
         return Vec::new();
-    }
+    };
 
     #[cfg(target_os = "windows")]
     {
-        let expected = expected_launch
-            .as_deref()
-            .expect("expected launch path must exist");
+        let expected = expected_launch.as_str();
         let entries = collect_vscode_process_entries_from_powershell(expected);
         if !entries.is_empty() {
             return entries;
@@ -2152,6 +2134,7 @@ pub fn collect_vscode_process_entries() -> Vec<(u32, Option<String>)> {
     #[cfg(target_os = "macos")]
     {
         let mut entries = Vec::new();
+        let expected_bundle = normalize_macos_app_root(Path::new(&expected_launch));
         let output = Command::new("ps").args(["-axo", "pid,command"]).output();
         if let Ok(output) = output {
             let stdout = String::from_utf8_lossy(&output.stdout);
@@ -2168,7 +2151,9 @@ pub fn collect_vscode_process_entries() -> Vec<(u32, Option<String>)> {
                     Err(_) => continue,
                 };
                 let lower = cmdline.to_lowercase();
-                if !lower.contains("visual studio code.app/contents/macos/") {
+                let bundle = extract_macos_exe_from_cmdline(cmdline)
+                    .and_then(|exe| normalize_macos_app_root(Path::new(&exe)));
+                if expected_bundle.is_none() || bundle != expected_bundle {
                     continue;
                 }
                 if lower.contains("crashpad_handler") || is_helper_command_line(&lower) {
@@ -2184,6 +2169,13 @@ pub fn collect_vscode_process_entries() -> Vec<(u32, Option<String>)> {
     #[cfg(target_os = "linux")]
     {
         let mut entries = Vec::new();
+        let expected_name = if crate::modules::vscode_paths::vscode_launch_path_is_insiders(
+            &expected_launch,
+        ) {
+            "code-insiders"
+        } else {
+            "code"
+        };
         if let Ok(proc_entries) = std::fs::read_dir("/proc") {
             for entry in proc_entries.flatten() {
                 let file_name = entry.file_name();
@@ -2205,11 +2197,10 @@ pub fn collect_vscode_process_entries() -> Vec<(u32, Option<String>)> {
                 }
                 let cmdline_str = String::from_utf8_lossy(&cmdline).replace('\0', " ");
                 let cmd_lower = cmdline_str.to_lowercase();
-                let exe_path = std::fs::read_link(format!("/proc/{}/exe", pid))
-                    .ok()
-                    .and_then(|p| p.to_str().map(|s| s.to_lowercase()))
-                    .unwrap_or_default();
-                if !cmd_lower.contains("code") && !exe_path.contains("/code") {
+                let Ok(exe_path) = std::fs::read_link(format!("/proc/{}/exe", pid)) else {
+                    continue;
+                };
+                if exe_path.file_name().and_then(|name| name.to_str()) != Some(expected_name) {
                     continue;
                 }
                 if is_helper_command_line(&cmd_lower) {
@@ -2238,42 +2229,9 @@ pub fn resolve_vscode_pid(last_pid: Option<u32>, user_data_dir: Option<&str>) ->
 }
 
 fn get_default_vscode_user_data_dir_for_os() -> Option<String> {
-    #[cfg(target_os = "macos")]
-    {
-        let home = dirs::home_dir()?;
-        return Some(
-            home.join("Library")
-                .join("Application Support")
-                .join("Code")
-                .to_string_lossy()
-                .to_string(),
-        );
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        let appdata = std::env::var("APPDATA").ok()?;
-        return Some(
-            Path::new(&appdata)
-                .join("Code")
-                .to_string_lossy()
-                .to_string(),
-        );
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        let home = dirs::home_dir()?;
-        return Some(
-            home.join(".config")
-                .join("Code")
-                .to_string_lossy()
-                .to_string(),
-        );
-    }
-
-    #[allow(unreachable_code)]
-    None
+    crate::modules::vscode_paths::resolve_preferred_vscode_data_root()
+        .ok()
+        .map(|path| path.to_string_lossy().into_owned())
 }
 
 #[cfg(target_os = "windows")]
@@ -3057,16 +3015,13 @@ pub fn resolve_codebuddy_cn_pid(last_pid: Option<u32>, user_data_dir: Option<&st
 }
 
 pub fn collect_qoder_process_entries() -> Vec<(u32, Option<String>)> {
-    let expected_launch = resolve_expected_qoder_launch_path_for_match();
-    if expected_launch.is_none() {
+    let Some(expected_launch) = resolve_expected_qoder_launch_path_for_match() else {
         return Vec::new();
-    }
+    };
 
     #[cfg(target_os = "windows")]
     {
-        let expected = expected_launch
-            .as_deref()
-            .expect("expected launch path must exist");
+        let expected = expected_launch.as_str();
         let entries =
             collect_named_electron_process_entries_from_powershell(expected, "Qoder.exe", "Qoder");
         if !entries.is_empty() {
@@ -3085,18 +3040,15 @@ pub fn collect_qoder_process_entries() -> Vec<(u32, Option<String>)> {
 
     #[cfg(target_os = "macos")]
     {
-        let entries = collect_qoder_process_entries_macos();
-        if !entries.is_empty() {
-            return filter_entries_by_expected_launch_path("Qoder", entries, expected_launch);
-        }
-        return Vec::new();
+        return collect_qoder_process_entries_macos(&expected_launch);
     }
 
     #[cfg(target_os = "linux")]
     {
-        let entries = collect_named_electron_process_entries_from_proc("qoder");
+        let mut entries = collect_named_electron_process_entries_from_proc("qoder-ide");
+        entries.extend(collect_named_electron_process_entries_from_proc("qoder"));
         if !entries.is_empty() {
-            return filter_entries_by_expected_launch_path("Qoder", entries, expected_launch);
+            return filter_entries_by_expected_launch_path("Qoder", entries, Some(expected_launch));
         }
         return Vec::new();
     }
@@ -3165,17 +3117,70 @@ pub fn collect_trae_process_entries_for_platform(
     }
 }
 
-pub fn collect_workbuddy_process_entries() -> Vec<(u32, Option<String>)> {
-    let expected_launch = resolve_expected_workbuddy_launch_path_for_match();
-    if expected_launch.is_none() {
+#[cfg(target_os = "macos")]
+fn collect_workbuddy_macos_process_entries(expected_launch: &str) -> Vec<(u32, Option<String>)> {
+    use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
+
+    let Ok(output) = Command::new("ps")
+        .args(["-axww", "-o", "uid=,pid=,command="])
+        .output()
+    else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    let owner = unsafe { libc::geteuid() };
+    let lines = String::from_utf8_lossy(&output.stdout);
+    let candidates: Vec<Pid> = lines
+        .lines()
+        .filter_map(|line| {
+            let (pid, command) =
+                owned_macos_process_command(line, owner)?.split_once(char::is_whitespace)?;
+            if !workbuddy_macos_main_command_matches(command.trim_start(), expected_launch) {
+                return None;
+            }
+            Some(Pid::from_u32(pid.parse().ok()?))
+        })
+        .collect();
+    if candidates.is_empty() {
         return Vec::new();
     }
 
+    // ps flattens argument boundaries, including spaces inside --user-data-dir.
+    let mut system = System::new();
+    system.refresh_processes_specifics(
+        ProcessesToUpdate::Some(&candidates),
+        true,
+        ProcessRefreshKind::nothing()
+            .with_cmd(UpdateKind::Always)
+            .with_exe(UpdateKind::Always),
+    );
+    candidates
+        .into_iter()
+        .filter_map(|pid| {
+            let process = system.process(pid)?;
+            if normalize_path_for_compare(process.exe()?.to_str()?) != expected_launch {
+                return None;
+            }
+            let argv = process.cmd();
+            (!argv.is_empty()).then(|| {
+                // The managed WorkBuddy launcher puts its profile before extra arguments.
+                let profile = macos_profiles_from_argv(argv).next().map(str::to_owned);
+                (pid.as_u32(), profile)
+            })
+        })
+        .collect()
+}
+
+pub fn collect_workbuddy_process_entries() -> Vec<(u32, Option<String>)> {
+    let Some(expected_launch) = resolve_expected_workbuddy_launch_path_for_match() else {
+        return Vec::new();
+    };
+
     #[cfg(target_os = "windows")]
     {
-        let expected = expected_launch
-            .as_deref()
-            .expect("expected launch path must exist");
+        let expected = expected_launch.as_str();
         let entries = collect_workbuddy_process_entries_from_powershell(expected);
         if !entries.is_empty() {
             return entries;
@@ -3188,39 +3193,12 @@ pub fn collect_workbuddy_process_entries() -> Vec<(u32, Option<String>)> {
 
     #[cfg(target_os = "macos")]
     {
-        let mut entries = Vec::new();
-        let output = Command::new("ps").args(["-axo", "pid,command"]).output();
-        if let Ok(output) = output {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            for line in stdout.lines().skip(1) {
-                let line = line.trim();
-                if line.is_empty() {
-                    continue;
-                }
-                let mut parts = line.splitn(2, |ch: char| ch.is_whitespace());
-                let pid_str = parts.next().unwrap_or("").trim();
-                let cmdline = parts.next().unwrap_or("").trim();
-                let pid = match pid_str.parse::<u32>() {
-                    Ok(value) => value,
-                    Err(_) => continue,
-                };
-                let lower = cmdline.to_lowercase();
-                let is_workbuddy = lower.contains("workbuddy.app/contents/macos/");
-                if !is_workbuddy {
-                    continue;
-                }
-                if lower.contains("crashpad_handler") || is_helper_command_line(&lower) {
-                    continue;
-                }
-                let dir = extract_user_data_dir_from_command_line(cmdline);
-                entries.push((pid, dir));
-            }
-        }
-        return entries;
+        return collect_workbuddy_macos_process_entries(&expected_launch);
     }
 
     #[cfg(target_os = "linux")]
     {
+        let _ = expected_launch;
         let mut entries = Vec::new();
         if let Ok(proc_entries) = std::fs::read_dir("/proc") {
             for entry in proc_entries.flatten() {
@@ -3332,7 +3310,7 @@ pub fn collect_minimax_code_process_entries() -> Vec<(u32, Option<String>)> {
                 if lower.contains("crashpad_handler") || is_helper_command_line(&lower) {
                     continue;
                 }
-                if !lower.contains(&expected_lower) && !lower.contains("minimax code.app") {
+                if lower != expected_lower && !lower.starts_with(&format!("{expected_lower} ")) {
                     continue;
                 }
                 let dir = extract_user_data_dir_from_command_line(cmdline).and_then(|value| {
@@ -3570,43 +3548,40 @@ fn collect_minimax_code_process_entries_from_sysinfo_fallback(
     entries
 }
 
-/// 解析 MiniMax Code 实例 PID（按 exe 路径）。
-///
-/// 客户端不暴露 data root，所以**无法把进程归属到某个实例**。这里只相信持久化的
-/// `last_pid`：它仍在运行、且 exe 路径匹配时，才认为该实例在运行；否则返回 `None`。
-/// 刻意不做「取最小 PID」式的猜测 —— 那会让多个实例同时显示为运行中（同一个 PID）。
-///
-/// `user_data_dir` 为 `None`（默认实例）时没有可归属的目录，只能按 exe 路径给出一个
-/// PID，但同样要求进程确实存在。
-pub fn resolve_minimax_code_pid(
-    last_pid: Option<u32>,
-    user_data_dir: Option<&str>,
-) -> Option<u32> {
+/// Confirm absence by process name even when the configured launch path is missing
+/// or differs from the running client's path. An empty snapshot is inconclusive.
+pub fn minimax_code_client_confirmed_stopped() -> bool {
+    let configured_name = resolve_minimax_code_launch_path().ok().and_then(|path| {
+        path.file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+    });
+    let mut system = sysinfo::System::new();
+    let count = system.refresh_processes_specifics(
+        sysinfo::ProcessesToUpdate::All,
+        true,
+        sysinfo::ProcessRefreshKind::nothing(),
+    );
+    count > 0
+        && !system.processes().values().any(|process| {
+            let name = process.name().to_string_lossy();
+            ["MiniMax Code.exe", "MiniMax Code", "minimax-code"]
+                .iter()
+                .any(|known| name.eq_ignore_ascii_case(known))
+                || configured_name
+                    .as_deref()
+                    .is_some_and(|configured| name.eq_ignore_ascii_case(configured))
+        })
+}
+
+/// Resolve only processes belonging to the selected data directory. A process
+/// without a managed directory belongs to the default instance. Stored PIDs
+/// are hints and must still appear in that instance's current process set.
+pub fn resolve_minimax_code_pid(last_pid: Option<u32>, user_data_dir: Option<&str>) -> Option<u32> {
     let entries = collect_minimax_code_process_entries();
-    let mut matches: Vec<u32> = entries.into_iter().map(|(pid, _)| pid).collect();
-    matches.sort_unstable();
-    matches.dedup();
-
-    let _ = user_data_dir;
-    let Some(pid) = last_pid else {
-        // 没有持久化 PID 可归属。这里**刻意不做任何猜测**（尤其是「取最小 PID」）——
-        // 在 exe 路径匹配下那会让多个实例同时报告同一个 PID 在运行。
-        return None;
-    };
-
-    // `last_pid` 是启动时记录的 PID。它仍在运行、且确实探测到 MiniMax Code 进程，
-    // 才认为该实例在运行。
-    if !is_pid_running(pid) {
-        return None;
-    }
-    if matches.is_empty() {
-        crate::modules::logger::log_warn(&format!(
-            "[MiniMax Code PID Resolve] last_pid={} 仍在运行但未探测到 MiniMax Code 进程",
-            pid
-        ));
-        return None;
-    }
-    Some(pid)
+    let default_dir = crate::modules::minimax_code_instance::get_default_minimax_code_user_data_dir().ok()?;
+    let target = normalize_path_for_compare(user_data_dir.unwrap_or(default_dir.to_str()?));
+    let matches = minimax_code_pids_for_user_data_dirs(&entries, &[target]);
+    last_pid.filter(|pid| matches.contains(pid)).or_else(|| matches.first().copied())
 }
 
 fn get_default_codebuddy_user_data_dir_for_os() -> Option<String> {
@@ -3743,75 +3718,24 @@ pub fn focus_process_pid(pid: u32) -> Result<u32, String> {
     Ok(pid)
 }
 
-#[cfg(target_os = "macos")]
-fn collect_antigravity_process_entries_macos() -> Vec<(u32, Option<String>)> {
-    let mut pids = Vec::new();
-    if let Ok(output) = Command::new("pgrep")
-        .args(["-f", ANTIGRAVITY_APP_PATH])
-        .output()
-    {
-        if output.status.success() {
-            for line in String::from_utf8_lossy(&output.stdout).lines() {
-                if let Ok(pid) = line.trim().parse::<u32>() {
-                    pids.push(pid);
-                }
-            }
-        }
-    }
-
-    if pids.is_empty() {
-        return Vec::new();
-    }
-
-    pids.sort();
-    pids.dedup();
-
-    let mut result = Vec::new();
-    for pid in pids {
-        let output = Command::new("ps")
-            .args(["-Eww", "-p", &pid.to_string(), "-o", "command="])
-            .output();
-        let output = match output {
-            Ok(value) => value,
-            Err(_) => continue,
-        };
-        if !output.status.success() {
-            continue;
-        }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        for line in stdout.lines() {
-            let cmdline = line.trim();
-            if cmdline.is_empty() {
-                continue;
-            }
-            if !cmdline.to_lowercase().contains(ANTIGRAVITY_APP_EXEC_MARKER) {
-                continue;
-            }
-            let dir = extract_user_data_dir_from_command_line(cmdline);
-            result.push((pid, dir));
-        }
-    }
-
-    result
-}
 pub fn parse_extra_args(raw: &str) -> Vec<String> {
     let mut args = Vec::new();
     let mut current = String::new();
-    let mut in_single = false;
-    let mut in_double = false;
+    let mut quote = None;
+    let last_typographic_close = raw.rfind('”');
 
-    for ch in raw.chars() {
-        match ch {
-            '\'' if !in_double => {
-                in_single = !in_single;
+    for (index, ch) in raw.char_indices() {
+        match (quote, ch) {
+            (Some(end), _) if ch == end => quote = None,
+            (None, '\'' | '"') => quote = Some(ch),
+            (None, '“' | '”') if (current.is_empty() || current.ends_with('='))
+                && last_typographic_close.is_some_and(|close| close > index) => {
+                // Input methods can paste different opening glyphs for the same double quote.
+                quote = Some('”');
             }
-            '"' if !in_single => {
-                in_double = !in_double;
-            }
-            ' ' | '\t' if !in_single && !in_double => {
+            (None, ' ' | '\t') => {
                 if !current.is_empty() {
-                    args.push(current.clone());
-                    current.clear();
+                    args.push(std::mem::take(&mut current));
                 }
             }
             _ => current.push(ch),
@@ -3942,6 +3866,7 @@ fn close_managed_instances_common<CollectEntries, SelectMainPids, CollectRemaini
     failure_message: &str,
     user_data_dirs: &[String],
     timeout_secs: u64,
+    close_targets: impl Fn(&[u32], u64) -> Result<(), String>,
     collect_entries: CollectEntries,
     select_main_pids: SelectMainPids,
     collect_remaining_entries: CollectRemainingEntries,
@@ -4014,7 +3939,7 @@ where
         }
     }
 
-    if let Err(err) = close_pids(&pids, timeout_secs) {
+    if let Err(err) = close_targets(&pids, timeout_secs) {
         crate::modules::logger::log_warn(&format!(
             "[{}] close_pids returned error: {}",
             log_prefix, err
@@ -4038,7 +3963,7 @@ where
                 log_prefix,
                 summarize_pid_list_for_log(&remaining_pids)
             ));
-            if let Err(err) = close_pids(&remaining_pids, 6) {
+            if let Err(err) = close_targets(&remaining_pids, 6) {
                 crate::modules::logger::log_warn(&format!(
                     "[{}] retry close_pids returned error: {}",
                     log_prefix, err

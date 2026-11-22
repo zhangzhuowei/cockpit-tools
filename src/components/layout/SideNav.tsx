@@ -8,6 +8,7 @@ import { isMenuVisiblePlatform, PlatformId, PLATFORM_PAGE_MAP } from '../../type
 import {
   API_RELAY_LAYOUT_ENTRY_ID,
   ApiRelayLayoutEntryId,
+  makePlatformEntryId,
   resolveGroupChildIcon,
   resolveGroupChildName,
   parseGroupEntryId,
@@ -18,11 +19,9 @@ import {
   resolveEntryIdForPlatform,
   usePlatformLayoutStore,
 } from '../../stores/usePlatformLayoutStore';
-import { CLASSIC_SIDEBAR_ENTRY_LIMIT, ORIGINAL_SIDEBAR_ENTRY_LIMIT, useSideNavLayoutStore } from '../../stores/useSideNavLayoutStore';
+import { SIDEBAR_ENTRY_LIMITS, useSideNavLayoutStore } from '../../stores/useSideNavLayoutStore';
 import { useGlobalModal } from '../../hooks/useGlobalModal';
 import { getPlatformLabel, renderPlatformIcon } from '../../utils/platformMeta';
-import { useAntigravityRuntimeTarget } from '../../hooks/useAntigravityRuntimeTarget';
-import { setAntigravityRuntimeTargetFromPlatform } from '../../utils/antigravityRuntimeTarget';
 import { useRemoteConfigStore } from '../../stores/useRemoteConfigStore';
 import { useApiKeyFunCampaign } from '../../hooks/useApiKeyFunCampaign';
 import './SideNavCampaign.css';
@@ -57,6 +56,7 @@ interface SideNavEntry {
   targetPlatformId: PlatformId | null;
   platformIds: PlatformId[];
   group: PlatformLayoutGroup | null;
+  childIcon?: ReturnType<typeof resolveGroupChildIcon>;
 }
 
 const PAGE_PLATFORM_MAP: Partial<Record<Page, PlatformId>> = {
@@ -80,6 +80,7 @@ const PAGE_PLATFORM_MAP: Partial<Record<Page, PlatformId>> = {
   'trae-cn': 'trae_cn',
   'trae-solo-cn': 'trae_solo_cn',
   workbuddy: 'workbuddy',
+  workbuddy_ai: 'workbuddy_ai',
   minimaxcode: 'minimaxcode',
 };
 
@@ -103,6 +104,19 @@ function renderEntryIcon(entry: SideNavEntry, size: number) {
     );
   }
 
+  if (entry.childIcon) {
+    const { iconKind, iconCustomDataUrl, iconPlatformId } = entry.childIcon;
+    return iconKind === 'custom' && iconCustomDataUrl ? (
+      <img
+        src={iconCustomDataUrl}
+        alt=""
+        className="side-nav-group-icon"
+        width={size}
+        height={size}
+      />
+    ) : renderPlatformIcon(iconPlatformId, size);
+  }
+
   if (entry.group && entry.group.iconKind === 'custom' && entry.group.iconCustomDataUrl) {
     return (
       <img
@@ -115,21 +129,21 @@ function renderEntryIcon(entry: SideNavEntry, size: number) {
   }
 
   if (entry.group) {
-    const iconPlatform = isAntigravitySuitePlatformIds(entry.group.platformIds)
-      ? entry.targetPlatformId
-      : entry.group.iconPlatformId ?? entry.targetPlatformId;
+    const iconPlatform = entry.group.iconPlatformId ?? entry.targetPlatformId;
     return iconPlatform ? renderPlatformIcon(iconPlatform, size) : null;
   }
 
   return entry.targetPlatformId ? renderPlatformIcon(entry.targetPlatformId, size) : null;
 }
 
-function isAntigravitySuitePlatformIds(platformIds: PlatformId[]): boolean {
-  return platformIds.includes('antigravity') && platformIds.includes('antigravity_ide');
-}
-
 function isAntigravitySuitePage(page: Page): boolean {
-  return page === 'overview' || page === 'instances' || page === 'wakeup' || page === 'verification';
+  return (
+    page === 'overview' ||
+    page === 'antigravity-usage' ||
+    page === 'instances' ||
+    page === 'wakeup' ||
+    page === 'verification'
+  );
 }
 
 export function SideNav({
@@ -189,20 +203,9 @@ export function SideNav({
   } = usePlatformLayoutStore();
   const remoteHiddenPlatformIds = useRemoteConfigStore((state) => state.hiddenPlatformIds);
 
-  const antigravityRuntimeTarget = useAntigravityRuntimeTarget();
   const currentPlatformId = isAntigravitySuitePage(page)
-    ? antigravityRuntimeTarget
+    ? 'antigravity'
     : PAGE_PLATFORM_MAP[page] ?? null;
-  const currentEntryId = useMemo<SideNavEntryId | null>(
-    () => {
-      if (page === 'api-relay') {
-        return API_RELAY_LAYOUT_ENTRY_ID;
-      }
-      return currentPlatformId ? resolveEntryIdForPlatform(currentPlatformId, platformGroups) : null;
-    },
-    [currentPlatformId, page, platformGroups],
-  );
-
   const hiddenSet = useMemo(() => new Set(hiddenEntryIds), [hiddenEntryIds]);
   const sidebarSet = useMemo(() => new Set(sidebarEntryIds), [sidebarEntryIds]);
   const remoteHiddenPlatformSet = useMemo(
@@ -250,13 +253,9 @@ export function SideNav({
         }
 
         const resolvedTargetPlatformId = resolveEntryDefaultPlatformId(entryId, platformGroups);
-        const targetPlatformId =
-          isAntigravitySuitePlatformIds(group.platformIds)
-            && visiblePlatformIds.includes(antigravityRuntimeTarget)
-            ? antigravityRuntimeTarget
-            : resolvedTargetPlatformId && visiblePlatformIds.includes(resolvedTargetPlatformId)
-              ? resolvedTargetPlatformId
-              : visiblePlatformIds[0];
+        const targetPlatformId = resolvedTargetPlatformId && visiblePlatformIds.includes(resolvedTargetPlatformId)
+          ? resolvedTargetPlatformId
+          : visiblePlatformIds[0];
         if (!targetPlatformId) {
           return null;
         }
@@ -296,28 +295,40 @@ export function SideNav({
     platformGroups,
     hiddenSet,
     isPlatformAvailable,
-    antigravityRuntimeTarget,
     t,
   ]);
 
-  const sidebarVisibleEntries = useMemo(
-    () => orderedEntries.filter((entry) =>
-      entry.kind === 'api-relay' || sidebarSet.has(entry.id as PlatformLayoutEntryId),
-    ),
-    [orderedEntries, sidebarSet],
-  );
+  const sidebarVisibleEntries = useMemo(() => orderedEntries.flatMap((entry) => {
+    const visible = entry.kind === 'api-relay' || sidebarSet.has(entry.id as PlatformLayoutEntryId)
+      ? [entry]
+      : [];
+    const group = entry.group;
+    if (!group) return visible;
 
+    for (const platformId of entry.platformIds) {
+      const id = makePlatformEntryId(platformId);
+      if (!sidebarSet.has(id)) continue;
+      visible.push({
+        id,
+        kind: 'platform',
+        label: resolveGroupChildName(group, platformId, getPlatformLabel(platformId, t)),
+        hidden: entry.hidden,
+        targetPlatformId: platformId,
+        platformIds: [platformId],
+        group: null,
+        childIcon: resolveGroupChildIcon(group, platformId),
+      });
+    }
+    return visible;
+  }), [orderedEntries, sidebarSet, t]);
+
+  const sidebarEntryLimit = SIDEBAR_ENTRY_LIMITS[sideNavLayoutMode];
   const sidebarMenuEntries = useMemo(
-    () => (
-      isClassicLayout
-        ? sidebarVisibleEntries.slice(0, CLASSIC_SIDEBAR_ENTRY_LIMIT)
-        : sidebarVisibleEntries.slice(0, ORIGINAL_SIDEBAR_ENTRY_LIMIT)
-    ),
-    [isClassicLayout, sidebarVisibleEntries],
+    () => sidebarVisibleEntries.slice(0, sidebarEntryLimit),
+    [sidebarVisibleEntries, sidebarEntryLimit],
   );
 
   const navigateToPlatform = useCallback((platformId: PlatformId) => {
-    setAntigravityRuntimeTargetFromPlatform(platformId);
     setPage(PLATFORM_PAGE_MAP[platformId]);
   }, [setPage]);
 
@@ -342,6 +353,15 @@ export function SideNav({
     () => new Set(sidebarMenuEntries.map((entry) => entry.id)),
     [sidebarMenuEntries],
   );
+  let currentEntryId: SideNavEntryId | null = null;
+  if (page === 'api-relay') {
+    currentEntryId = API_RELAY_LAYOUT_ENTRY_ID;
+  } else if (currentPlatformId) {
+    const individualEntryId = makePlatformEntryId(currentPlatformId);
+    currentEntryId = sidebarMenuEntryIdSet.has(individualEntryId)
+      ? individualEntryId
+      : resolveEntryIdForPlatform(currentPlatformId, platformGroups);
+  }
 
   const sidebarMenuPlatformIdSet = useMemo(
     () => new Set(
@@ -695,7 +715,7 @@ export function SideNav({
   }, [showMore]);
 
   useEffect(() => {
-    if (!showMore || !isClassicLayout) return;
+    if (!showMore) return;
 
     const updatePopoverPosition = () => {
       const button = moreButtonRef.current;
@@ -723,6 +743,7 @@ export function SideNav({
     updatePopoverPosition();
     const rafId = window.requestAnimationFrame(updatePopoverPosition);
     window.addEventListener('resize', updatePopoverPosition);
+    window.addEventListener('scroll', updatePopoverPosition, true);
     const resizeObserver = typeof ResizeObserver !== 'undefined' && morePopoverRef.current
       ? new ResizeObserver(() => {
         updatePopoverPosition();
@@ -735,6 +756,7 @@ export function SideNav({
     return () => {
       window.cancelAnimationFrame(rafId);
       window.removeEventListener('resize', updatePopoverPosition);
+      window.removeEventListener('scroll', updatePopoverPosition, true);
       resizeObserver?.disconnect();
     };
   }, [showMore, isClassicLayout]);
@@ -760,16 +782,7 @@ export function SideNav({
     <div
       className={`side-nav-more-popover${isClassicLayout ? ' side-nav-more-popover-classic' : ''}`}
       ref={morePopoverRef}
-      style={
-        isClassicLayout
-          ? {
-              position: 'fixed',
-              top: `${morePopoverPosition.top}px`,
-              left: `${morePopoverPosition.left}px`,
-              maxHeight: `${morePopoverPosition.maxHeight}px`,
-            }
-          : undefined
-      }
+      style={{ position: 'fixed', top: `${morePopoverPosition.top}px`, left: `${morePopoverPosition.left}px`, maxHeight: `${morePopoverPosition.maxHeight}px`, transform: 'none' }}
     >
       <div className="side-nav-more-title">{t('nav.morePlatforms', '更多平台')}</div>
       <div className="side-nav-more-list">
@@ -998,7 +1011,7 @@ export function SideNav({
         </button>
 
         {morePopoverContent && (
-          isClassicLayout && typeof document !== 'undefined'
+          typeof document !== 'undefined'
             ? createPortal(morePopoverContent, document.body)
             : morePopoverContent
         )}
@@ -1047,6 +1060,14 @@ export function SideNav({
       {!isClassicLayout && (
         <>
           <div className="nav-footer">
+            <button
+              className={`nav-item ${page === '2fa' && !shouldLockActiveOnMore ? 'active' : ''}`}
+              onClick={() => setPage('2fa')}
+              title={t('nav.2faManager', '2FA / MFA 管理')}
+            >
+              <ShieldCheck size={20} />
+              <span className="tooltip">{t('nav.2faManager', '2FA / MFA 管理')}</span>
+            </button>
             <button
               className={`nav-item ${page === 'settings' && !shouldLockActiveOnMore ? 'active' : ''}`}
               onClick={() => setPage('settings')}

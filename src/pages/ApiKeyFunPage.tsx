@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { isTauri } from '@tauri-apps/api/core';
+import { save } from '@tauri-apps/plugin-dialog';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { useTranslation } from 'react-i18next';
 import {
@@ -29,26 +31,22 @@ import {
   getApiKeyFunPrefillPage,
   type ApiKeyFunPrefillTarget,
 } from '../utils/apiKeyFunPrefill';
+import { resolveApiKeyFunGrokModel } from '../utils/apikeyFunClientConfigs';
 import { ApiKeyFunKeyConfigModal } from '../components/apiKeyFun/ApiKeyFunKeyConfigModal';
 import { ApiKeyFunPromotionHeader } from '../components/apiKeyFun/ApiKeyFunPromotionHeader';
+import { ModalErrorMessage, useModalErrorState } from '../components/ModalErrorMessage';
 import { useSponsorStore } from '../stores/useSponsorStore';
+import {
+  exportLegacyApiKeyFunVault,
+  initializeApiKeyFunVault,
+  requiresApiKeyFunRecovery,
+  restoreApiKeyFunVault,
+  subscribeApiKeyFunVault,
+  updateApiKeyFunVault,
+  type ManagedApiKey,
+} from '../services/apiKeyFunVault';
 import './ApiKeyFunPage.css';
 
-type ManagedApiKey = {
-  id: string;
-  key: string;
-  name: string;
-  createdAt: number;
-  lastUsedAt: number;
-  lastStatus?: 'ok' | 'bad' | 'unknown';
-  lastRemaining?: string;
-  addedToCodexAt?: number;
-  codexProviderName?: string;
-  addedToClaudeAt?: number;
-  claudeAccountName?: string;
-};
-
-const APIKEY_FUN_KEYS_STORAGE_KEY = 'apikey_fun_managed_keys';
 const APIKEY_FUN_AUTO_QUERY_DELAY_MS = 650;
 
 function maskKey(value: string): string {
@@ -87,24 +85,6 @@ function usageValidityTone(summary: ModelProviderUsageSummary | null): 'ok' | 'b
 function providerErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error ?? 'UNKNOWN_ERROR');
-}
-
-function loadManagedApiKeys(): ManagedApiKey[] {
-  try {
-    const raw = window.localStorage.getItem(APIKEY_FUN_KEYS_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((item): item is ManagedApiKey => (
-      typeof item?.id === 'string' &&
-      typeof item?.key === 'string' &&
-      typeof item?.name === 'string' &&
-      typeof item?.createdAt === 'number' &&
-      typeof item?.lastUsedAt === 'number'
-    ));
-  } catch {
-    return [];
-  }
 }
 
 function buildManagedKeyName(key: string): string {
@@ -153,7 +133,14 @@ export function ApiKeyFunPage() {
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [queryingModels, setQueryingModels] = useState(false);
   const [saveFlash, setSaveFlash] = useState(false);
-  const [managedKeys, setManagedKeys] = useState<ManagedApiKey[]>(() => loadManagedApiKeys());
+  const [managedKeys, setManagedKeys] = useState<ManagedApiKey[]>([]);
+  const [vaultLoading, setVaultLoading] = useState(true);
+  const [vaultLoadFailed, setVaultLoadFailed] = useState(false);
+  const [vaultNeedsRecovery, setVaultNeedsRecovery] = useState(false);
+  const [vaultRestoreFailed, setVaultRestoreFailed] = useState(false);
+  const [vaultExporting, setVaultExporting] = useState(false);
+  const [vaultExportFailed, setVaultExportFailed] = useState(false);
+  const [vaultWriteFailed, setVaultWriteFailed] = useState(false);
   const [keyActionState, setKeyActionState] = useState<Record<string, {
     target: ApiKeyFunPrefillTarget;
     status: 'success' | 'error';
@@ -170,6 +157,10 @@ export function ApiKeyFunPage() {
   const [configKey, setConfigKey] = useState<ManagedApiKey | null>(null);
   const [configModels, setConfigModels] = useState<string[]>([]);
   const [configModelsLoading, setConfigModelsLoading] = useState(false);
+  const [pendingDeleteKey, setPendingDeleteKey] = useState<ManagedApiKey | null>(null);
+  const [deletingKey, setDeletingKey] = useState(false);
+  const deletingKeyRef = useRef(false);
+  const deleteError = useModalErrorState();
 
   const sponsorIntegration = useMemo(
     () => sponsorModule?.sponsors.find((item) => item.id === 'apikey-fun')?.integration ?? null,
@@ -201,23 +192,94 @@ export function ApiKeyFunPage() {
   );
   const canAddCurrentKeyToCodex = modelCatalogText.includes('gpt');
   const canAddCurrentKeyToClaude = apiKeyFunModelCatalog.some(isClaudeModelId);
-  const canShowTargetActions = canAddCurrentKeyToCodex || canAddCurrentKeyToClaude;
+  const canAddCurrentKeyToGrok = Boolean(resolveApiKeyFunGrokModel(apiKeyFunModelCatalog));
+  const canShowTargetActions = canAddCurrentKeyToCodex || canAddCurrentKeyToClaude || canAddCurrentKeyToGrok;
   const canPrefillCurrentKey =
     Boolean(currentSavedKey) && !queryingModels && apiKeyFunModelCatalog.length > 0;
 
+  const loadSavedKeys = useCallback(async () => {
+    setVaultLoading(true);
+    setVaultLoadFailed(false);
+    setVaultNeedsRecovery(false);
+    setVaultRestoreFailed(false);
+    try {
+      await initializeApiKeyFunVault();
+    } catch (error) {
+      if (requiresApiKeyFunRecovery(error)) setVaultNeedsRecovery(true);
+      else setVaultLoadFailed(true);
+    } finally {
+      setVaultLoading(false);
+    }
+  }, []);
+
+  const restoreSavedKeys = async () => {
+    setVaultLoading(true);
+    setVaultRestoreFailed(false);
+    try {
+      await restoreApiKeyFunVault();
+      setVaultNeedsRecovery(false);
+      setVaultLoadFailed(false);
+      setVaultWriteFailed(false);
+    } catch (error) {
+      if (String(error).includes('apikey_fun_vault_already_exists')) await loadSavedKeys();
+      else setVaultRestoreFailed(true);
+    } finally {
+      setVaultLoading(false);
+    }
+  };
+
+  const exportSavedKeys = async () => {
+    setVaultExporting(true);
+    setVaultExportFailed(false);
+    try {
+      const path = await save({
+        defaultPath: 'apikey_fun_legacy_keys.json',
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+      });
+      if (path) await exportLegacyApiKeyFunVault(path);
+    } catch {
+      setVaultExportFailed(true);
+    } finally {
+      setVaultExporting(false);
+    }
+  };
+
+  useEffect(() => {
+    const unsubscribe = subscribeApiKeyFunVault(setManagedKeys);
+    void loadSavedKeys();
+    return unsubscribe;
+  }, [loadSavedKeys]);
+
   useEffect(() => {
     if (initialManagedKeySelectedRef.current) return;
-    initialManagedKeySelectedRef.current = true;
-    if (apiKey.trim()) return;
+    if (apiKey.trim()) {
+      initialManagedKeySelectedRef.current = true;
+      return;
+    }
     const firstKey = managedKeys[0]?.key.trim();
     if (firstKey) {
+      initialManagedKeySelectedRef.current = true;
       setApiKey(firstKey);
     }
   }, [apiKey, managedKeys]);
 
-  useEffect(() => {
-    window.localStorage.setItem(APIKEY_FUN_KEYS_STORAGE_KEY, JSON.stringify(managedKeys));
-  }, [managedKeys]);
+  const changeSavedKeys = useCallback(async (
+    update: (keys: ManagedApiKey[]) => ManagedApiKey[],
+    reportFailure?: (needsRecovery: boolean) => void,
+  ) => {
+    setVaultWriteFailed(false);
+    try {
+      await updateApiKeyFunVault(update);
+      setVaultLoadFailed(false);
+      return true;
+    } catch (error) {
+      const needsRecovery = requiresApiKeyFunRecovery(error);
+      if (needsRecovery) setVaultNeedsRecovery(true);
+      if (reportFailure) reportFailure(needsRecovery);
+      else if (!needsRecovery) setVaultWriteFailed(true);
+      return false;
+    }
+  }, []);
 
   useEffect(() => {
     if (!saveFlash) return undefined;
@@ -266,7 +328,7 @@ export function ApiKeyFunPage() {
           const nextStatus = usageValidityTone(nextUsage);
           const nextRemaining = usagePrimaryValue(nextUsage, unlimitedLabel);
           setUsage(nextUsage);
-          setManagedKeys((items) => items.map((item) => (
+          void changeSavedKeys((items) => items.map((item) => (
             item.key === key
               ? {
                   ...item,
@@ -286,7 +348,7 @@ export function ApiKeyFunPage() {
               error: providerErrorMessage(error),
             }),
           );
-          setManagedKeys((items) => items.map((item) => (
+          void changeSavedKeys((items) => items.map((item) => (
             item.key === key
               ? {
                   ...item,
@@ -332,10 +394,10 @@ export function ApiKeyFunPage() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [apiKey, providerBaseUrl, t]);
+  }, [apiKey, changeSavedKeys, providerBaseUrl, t]);
 
   // 保存密钥
-  const handleSaveCurrentKey = useCallback(() => {
+  const handleSaveCurrentKey = useCallback(async () => {
     const key = apiKey.trim();
     if (!key) {
       setUsageError(t('apiKeyFun.error.missingApiKey', '请输入 API Key。'));
@@ -344,7 +406,7 @@ export function ApiKeyFunPage() {
     const now = Date.now();
     const nextStatus = usageValidityTone(usage);
     const nextRemaining = usagePrimaryValue(usage, unlimitedLabel);
-    setManagedKeys((items) => {
+    const saved = await changeSavedKeys((items) => {
       const existing = items.find((item) => item.key === key);
       if (existing) {
         return items.map((item) => (
@@ -372,9 +434,10 @@ export function ApiKeyFunPage() {
         ...items,
       ];
     });
+    if (!saved) return;
     setUsageError(null);
     setSaveFlash(true);
-  }, [apiKey, t, usage]);
+  }, [apiKey, changeSavedKeys, t, usage]);
 
   const setManagedKeyAction = useCallback((
     id: string,
@@ -401,7 +464,7 @@ export function ApiKeyFunPage() {
       ? 'Codex'
       : target === 'claude_desktop'
         ? 'Claude'
-        : 'Claude CLI';
+        : target === 'grok' ? 'Grok CLI' : 'Claude CLI';
     window.dispatchEvent(new CustomEvent<typeof page>('app-request-navigate', { detail: page }));
     window.setTimeout(() => {
       dispatchApiKeyFunPrefillEvent({
@@ -409,7 +472,7 @@ export function ApiKeyFunPage() {
         apiKey: key,
         apiKeyName: item.name || buildManagedKeyName(key),
         providerName: 'APIKEY.FUN',
-        baseUrl: target === 'codex' ? providerBaseUrl : claudeBaseUrl,
+        baseUrl: target === 'codex' || target === 'grok' ? providerBaseUrl : claudeBaseUrl,
         sourceTag: APIKEY_FUN_SOURCE_TAG,
         modelCatalog: apiKeyFunModelCatalog,
       });
@@ -446,15 +509,36 @@ export function ApiKeyFunPage() {
   const handleUseManagedKey = useCallback((item: ManagedApiKey) => {
     setApiKey(item.key);
     setUsageError(null);
-    setManagedKeys((items) => items.map((nextItem) => (
+    void changeSavedKeys((items) => items.map((nextItem) => (
       nextItem.id === item.id ? { ...nextItem, lastUsedAt: Date.now() } : nextItem
     )));
-  }, []);
+  }, [changeSavedKeys]);
 
-  // 删除密钥
-  const handleDeleteManagedKey = useCallback((id: string) => {
-    setManagedKeys((items) => items.filter((item) => item.id !== id));
-  }, []);
+  const closeDeleteKeyDialog = () => {
+    if (deletingKeyRef.current) return;
+    deleteError.clear();
+    setPendingDeleteKey(null);
+  };
+
+  const handleDeleteManagedKey = async () => {
+    if (!pendingDeleteKey || deletingKeyRef.current) return;
+    const targetId = pendingDeleteKey.id;
+    deletingKeyRef.current = true;
+    setDeletingKey(true);
+    deleteError.clear();
+    try {
+      const saved = await changeSavedKeys(
+        (items) => items.filter((item) => item.id !== targetId),
+        (needsRecovery) => deleteError.report(t(needsRecovery
+          ? 'apiKeyFun.keyManager.checkpointAvailable'
+          : 'apiKeyFun.keyManager.vaultWriteFailed')),
+      );
+      if (saved) setPendingDeleteKey(null);
+    } finally {
+      deletingKeyRef.current = false;
+      setDeletingKey(false);
+    }
+  };
 
   // 行内重命名密钥管理
   const handleStartRename = useCallback((item: ManagedApiKey, e: React.MouseEvent) => {
@@ -463,15 +547,15 @@ export function ApiKeyFunPage() {
     setEditNameValue(item.name);
   }, []);
 
-  const handleSaveRename = useCallback((id: string, e?: React.FormEvent) => {
+  const handleSaveRename = useCallback(async (id: string, e?: React.FormEvent) => {
     e?.preventDefault();
     const trimmed = editNameValue.trim();
     if (!trimmed) return;
-    setManagedKeys((items) => items.map((item) => (
-      item.id === id ? { ...item, name: trimmed } : item
+    const saved = await changeSavedKeys((items) => items.map((item) => (
+      item.id === id && item.name !== trimmed ? { ...item, name: trimmed } : item
     )));
-    setEditingId(null);
-  }, [editNameValue]);
+    if (saved) setEditingId(current => current === id ? null : current);
+  }, [changeSavedKeys, editNameValue]);
 
   const handleCancelRename = useCallback(() => {
     setEditingId(null);
@@ -590,6 +674,18 @@ export function ApiKeyFunPage() {
               </div>
               {canShowTargetActions && (
                 <div className="apikey-fun-target-actions">
+                  {canAddCurrentKeyToGrok && (
+                    <button
+                      type="button"
+                      className="btn apikey-fun-target-btn"
+                      disabled={!canPrefillCurrentKey}
+                      onClick={() => {
+                        if (currentSavedKey) handlePrefillTarget('grok', currentSavedKey);
+                      }}
+                    >
+                      <span>{t('apiKeyFun.keyManager.addToGrok', 'Add to Grok')}</span>
+                    </button>
+                  )}
                   {canAddCurrentKeyToCodex && (
                     <button
                       type="button"
@@ -735,7 +831,35 @@ export function ApiKeyFunPage() {
                 <p>{t('apiKeyFun.keyManager.desc', '保存常用 API Key，点击即可切换并自动查询额度。')}</p>
               </div>
             </div>
-            {managedKeys.length === 0 ? (
+            {isTauri() && !vaultLoadFailed && !vaultNeedsRecovery && (
+              <div>
+                <button type="button" className="btn btn-secondary btn-sm"
+                  disabled={vaultLoading || vaultExporting} onClick={exportSavedKeys}>
+                  {t(vaultExporting ? 'common.loading' : 'apiKeyFun.keyManager.exportLegacy')}
+                </button>
+              </div>
+            )}
+            {vaultLoadFailed && (
+              <div className="apikey-fun-empty-keys" role="alert">
+                <span>{t('apiKeyFun.keyManager.vaultLoadFailed')}</span>
+                <button className="btn btn-secondary btn-sm" onClick={() => void loadSavedKeys()}>
+                  {t('common.retry')}
+                </button>
+              </div>
+            )}
+            {vaultNeedsRecovery && !pendingDeleteKey && (
+              <div className="apikey-fun-empty-keys" role="alert">
+                <span>{t('apiKeyFun.keyManager.checkpointAvailable')}</span>
+                <button type="button" className="btn btn-secondary btn-sm" disabled={vaultLoading} onClick={restoreSavedKeys}>
+                  {t('apiKeyFun.keyManager.restoreCheckpoint')}
+                </button>
+              </div>
+            )}
+            {vaultRestoreFailed && <p role="alert">{t('apiKeyFun.keyManager.checkpointRestoreFailed')}</p>}
+            {vaultExportFailed && <p role="alert">{t('apiKeyFun.keyManager.legacyExportFailed')}</p>}
+            {vaultWriteFailed && <p role="alert">{t('apiKeyFun.keyManager.vaultWriteFailed')}</p>}
+            {vaultLoading && <p role="status">{t('common.loading')}</p>}
+            {managedKeys.length === 0 ? !vaultLoading && !vaultLoadFailed && !vaultNeedsRecovery && (
               <div className="apikey-fun-empty-keys">
                 <KeyRound size={16} />
                 <span>{t('apiKeyFun.keyManager.empty', '暂无保存的密钥。')}</span>
@@ -827,7 +951,9 @@ export function ApiKeyFunPage() {
                           disabled={isEditing}
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleDeleteManagedKey(item.id);
+                            if (pendingDeleteKey) return;
+                            deleteError.clear();
+                            setPendingDeleteKey(item);
                           }}
                           title={t('apiKeyFun.keyManager.deleteButton', '删除')}
                         >
@@ -850,6 +976,52 @@ export function ApiKeyFunPage() {
           modelsLoading={configModelsLoading}
           onClose={() => setConfigKey(null)}
         />
+      )}
+      {pendingDeleteKey && (
+        <div className="modal-overlay">
+          <div className="modal-content apikey-fun-delete-modal" role="alertdialog" aria-modal="true" aria-labelledby="apikey-fun-delete-title" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 id="apikey-fun-delete-title">{t('common.delete', '删除')}</h2>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={closeDeleteKeyDialog}
+                disabled={deletingKey}
+                aria-label={t('common.close', '关闭')}
+              >
+                <X />
+              </button>
+            </div>
+            <div className="modal-body">
+              <p>
+                {t(
+                  'apiKeyFun.keyManager.deleteConfirm',
+                  '确定删除已保存密钥“{{name}}”吗？此操作无法撤销。',
+                  { name: pendingDeleteKey.name },
+                )}
+              </p>
+              <ModalErrorMessage message={deleteError.message} scrollKey={deleteError.scrollKey} position="bottom" />
+            </div>
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={closeDeleteKeyDialog}
+                disabled={deletingKey}
+              >
+                {t('common.cancel', '取消')}
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={() => void handleDeleteManagedKey()}
+                disabled={deletingKey}
+              >
+                {deletingKey ? t('common.processing') : t('common.delete', '删除')}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

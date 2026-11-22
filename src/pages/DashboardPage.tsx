@@ -1,4 +1,7 @@
+import { getRecommendedWorkbuddyAccount } from '../utils/floatingCardSelectors';
+import { useWorkbuddyAiAccountStore } from '../stores/useWorkbuddyAiAccountStore';
 import { resolveCodexAccountDisplayName } from "../utils/codexAccountDisplayName";
+import { codexWakeupResultLabel, useCodexAccountWakeupResults } from '../hooks/useCodexAccountWakeupResults';
 import React, { useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAccountStore } from '../stores/useAccountStore';
@@ -52,9 +55,8 @@ import {
 } from '../types/trae';
 import {
   WorkbuddyAccount,
-  getWorkbuddyOfficialQuotaModel,
 } from '../types/workbuddy';
-import { CodexAccount, getCodexQuotaWindows } from '../types/codex';
+import { CodexAccount, getCodexQuotaWindows, isCodexAgentIdentityAccount } from '../types/codex';
 import type { MinimaxCodeAccount } from '../types/minimaxCode';
 import { getMiniMaxCodeQuotaGroups } from '../utils/minimaxCode/parser';
 import { GitHubCopilotAccount } from '../types/githubCopilot';
@@ -76,11 +78,14 @@ import {
   isCodexChatCompletionsApiKeyAccount,
   isCodexNewApiAccount,
 } from '../types/codex';
-import { isDeepSeekAccount } from '../utils/codexDeepSeekAccess';
+import { useCodexRelayBalanceDisabled } from '../hooks/useCodexRelayBalanceDisabled';
+import { canShowCodexProviderBalance, isDeepSeekAccount, isMoonshotBalanceUrl } from '../utils/codexDeepSeekAccess';
+import { ModelProviderUsagePanel } from '../components/model-provider/ModelProviderUsagePanel';
 import './DashboardPage.css';
 import apiKeyFunIcon from '../assets/icons/apikey-fun.png';
 import { RobotIcon } from '../components/icons/RobotIcon';
 import { CodexIcon } from '../components/icons/CodexIcon';
+import { requestCodexResetCreditDetails } from '../utils/codexResetCreditNavigation';
 import { CodexResetCreditExpiry } from '../components/CodexResetCreditExpiry';
 import { WindsurfIcon } from '../components/icons/WindsurfIcon';
 import { KiroIcon } from '../components/icons/KiroIcon';
@@ -93,7 +98,6 @@ import { WorkbuddyIcon } from '../components/icons/WorkbuddyIcon';
 import { MinimaxCodeIcon } from '../components/icons/MinimaxCodeIcon';
 import { isAccountPlatform, PlatformId, PLATFORM_PAGE_MAP } from '../types/platform';
 import { getPlatformLabel, renderPlatformIcon } from '../utils/platformMeta';
-import { setAntigravityRuntimeTargetFromPlatform } from '../utils/antigravityRuntimeTarget';
 import { useAntigravityRuntimeTarget } from '../hooks/useAntigravityRuntimeTarget';
 import { ManualHelpIconButton } from '../components/ManualHelpIconButton';
 import { AnnouncementCenter } from '../components/AnnouncementCenter';
@@ -125,22 +129,19 @@ import {
 } from '../services/codexApiKeyUsageRefreshService';
 import {
   isModelProviderUsageUnavailableError,
-  resolveNewApiQuotaSnapshot,
+  presentNewApiQuota,
   type ModelProviderUsageSummary,
 } from '../services/modelProviderUsageService';
 import * as traeService from '../services/traeService';
 import type { TraePlatformId } from '../services/traeService';
+import { DashboardAllAccounts, dashboardAccountCards } from './DashboardAllAccounts';
+import { prefetchDashboardAccounts } from './dashboardAccountPrefetch';
 
 interface DashboardPageProps {
   onNavigate: (page: Page) => void;
   onOpenPlatformLayout: () => void;
   onEasterEggTriggerClick: () => void;
 }
-
-const DASHBOARD_DEFERRED_PREFETCH_DELAY_MS = 6000;
-const DASHBOARD_DEFERRED_PREFETCH_BATCH_SIZE = 1;
-const DASHBOARD_DEFERRED_PREFETCH_BATCH_DELAY_MS = 1200;
-let dashboardStartupPrefetched = false;
 
 function normalizeDashboardCardPlatformId(platformId: PlatformId): PlatformId {
   return platformId === 'antigravity_ide' ? 'antigravity' : platformId;
@@ -279,6 +280,7 @@ function getZedRecommendationScore(account: ZedAccount): { remainingPercent: num
 
 interface DashboardCardCollapseState {
   workbuddy: boolean;
+  workbuddy_ai: boolean;
   minimaxcode: boolean;
 }
 
@@ -287,14 +289,18 @@ type DashboardEntryId = PlatformLayoutEntryId | ApiRelayLayoutEntryId;
 export function DashboardPage({
   onNavigate,
   onOpenPlatformLayout,
-  onEasterEggTriggerClick,
+  onEasterEggTriggerClick: _onEasterEggTriggerClick,
 }: DashboardPageProps) {
   const { t } = useTranslation();
   const antigravityRuntimeTarget = useAntigravityRuntimeTarget();
+  const relayBalanceDisabled = useCodexRelayBalanceDisabled();
+  const [showAllAccounts, setShowAllAccounts] = React.useState(false);
+  const [prefetchLoading, setPrefetchLoading] = React.useState(true);
 
   const [tagModalState, setTagModalState] = React.useState<{ accountId: string; platform: PlatformId | 'codebuddy_cn'; tags: string[] } | null>(null);
   const [dashboardCardCollapse, setDashboardCardCollapse] = React.useState<DashboardCardCollapseState>({
     workbuddy: false,
+    workbuddy_ai: false,
     minimaxcode: false,
   });
 
@@ -349,6 +355,9 @@ export function DashboardPage({
         case 'trae':
           await useTraeAccountStore.getState().updateAccountTags(accountId, newTags);
           break;
+        case 'workbuddy_ai':
+          await useWorkbuddyAiAccountStore.getState().updateAccountTags(accountId, newTags);
+          break;
         case 'workbuddy':
           await useWorkbuddyAccountStore.getState().updateAccountTags(accountId, newTags);
           break;
@@ -393,6 +402,11 @@ export function DashboardPage({
       }),
     [orderedEntryIds, hiddenEntrySet, platformGroups, remoteHiddenPlatformSet],
   );
+  const wakeupResults = useCodexAccountWakeupResults(
+    showAllAccounts || (!remoteHiddenPlatformSet.has('codex') && visibleEntryOrder.some(
+      entryId => resolveEntryPlatformIds(entryId, platformGroups).includes('codex'),
+    )),
+  );
   const visibleDashboardEntryOrder = useMemo<DashboardEntryId[]>(() => {
     const result: DashboardEntryId[] = [...visibleEntryOrder];
     if (!apiRelayDashboardEnabled) {
@@ -411,7 +425,6 @@ export function DashboardPage({
   );
   const [agDisplayGroups, setAgDisplayGroups] = React.useState<DisplayGroup[]>([]);
   const navigateToPlatform = useCallback((platformId: PlatformId) => {
-    setAntigravityRuntimeTargetFromPlatform(platformId);
     onNavigate(PLATFORM_PAGE_MAP[platformId]);
   }, [onNavigate]);
 
@@ -440,6 +453,7 @@ export function DashboardPage({
   // Antigravity Data
   const {
     accounts: agAccounts,
+    loading: agAccountsLoading,
     currentAccountsByTarget: agCurrentAccountsByTarget,
     switchAccount: switchAgAccount,
     fetchAccounts: fetchAgAccounts,
@@ -540,15 +554,16 @@ export function DashboardPage({
   const [traeCurrentIdsByPlatform, setTraeCurrentIdsByPlatform] = React.useState<
     Record<TraePlatformId, string | null>
   >(buildEmptyTraeCurrentIdsByPlatform);
+  const traeCurrentReadVersion = React.useRef(0);
 
   const refreshTraeCurrentIdsByPlatform = React.useCallback(async () => {
+    const requestVersion = ++traeCurrentReadVersion.current;
     try {
-      const entries = await Promise.all(
-        TRAE_SUITE_DASHBOARD_PLATFORM_IDS.map(async (platformId) => [
-          platformId,
-          await traeService.getTraeCurrentAccountId(platformId),
-        ] as const),
-      );
+      const accounts = await traeService.getTraeCurrentAccounts([...TRAE_SUITE_DASHBOARD_PLATFORM_IDS]);
+      if (requestVersion !== traeCurrentReadVersion.current) return;
+      const entries = TRAE_SUITE_DASHBOARD_PLATFORM_IDS.map(platformId => [
+        platformId, accounts[platformId]?.id ?? null,
+      ]);
       setTraeCurrentIdsByPlatform((prev) => ({
         ...prev,
         ...Object.fromEntries(entries),
@@ -575,6 +590,7 @@ export function DashboardPage({
     fetchAccounts: fetchWorkbuddyAccounts,
     switchAccount: switchWorkbuddyAccount,
   } = useWorkbuddyAccountStore();
+  const { accounts: workbuddyAiAccounts, currentAccountId: workbuddyAiCurrentId, fetchAccounts: fetchWorkbuddyAiAccounts } = useWorkbuddyAiAccountStore();
 
   const {
     accounts: minimaxCodeAccounts,
@@ -608,8 +624,6 @@ export function DashboardPage({
 
   React.useEffect(() => {
     let disposed = false;
-    let deferredTimer: number | null = null;
-    let deferredBatchTimer: number | null = null;
 
     const loadDisplayGroups = () => {
       getDisplayGroups()
@@ -643,49 +657,16 @@ export function DashboardPage({
       fetchZcodeAccounts,
       fetchTraeAccounts,
       fetchWorkbuddyAccounts,
+      fetchWorkbuddyAiAccounts,
       fetchMinimaxCodeAccounts,
     ];
 
-    const loadDeferredPlatforms = () => {
-      if (disposed) {
-        return;
-      }
-
-      let nextTaskIndex = 0;
-      const runNextBatch = () => {
-        if (disposed || nextTaskIndex >= deferredTasks.length) {
-          return;
-        }
-
-        const batch = deferredTasks.slice(
-          nextTaskIndex,
-          nextTaskIndex + DASHBOARD_DEFERRED_PREFETCH_BATCH_SIZE,
-        );
-        nextTaskIndex += batch.length;
-
-        void Promise.allSettled(batch.map((task) => task()));
-
-        if (nextTaskIndex < deferredTasks.length) {
-          deferredBatchTimer = window.setTimeout(runNextBatch, DASHBOARD_DEFERRED_PREFETCH_BATCH_DELAY_MS);
-        }
-      };
-
-      runNextBatch();
-    };
-
-    if (!dashboardStartupPrefetched) {
-      dashboardStartupPrefetched = true;
-      deferredTimer = window.setTimeout(loadDeferredPlatforms, DASHBOARD_DEFERRED_PREFETCH_DELAY_MS);
-    }
+    void prefetchDashboardAccounts(deferredTasks).then(() => {
+      if (!disposed) setPrefetchLoading(false);
+    });
 
     return () => {
       disposed = true;
-      if (deferredTimer !== null) {
-        window.clearTimeout(deferredTimer);
-      }
-      if (deferredBatchTimer !== null) {
-        window.clearTimeout(deferredBatchTimer);
-      }
     };
   }, []);
 
@@ -724,6 +705,7 @@ export function DashboardPage({
         zcodeAccounts.length +
         traeAccounts.length +
         workbuddyAccounts.length +
+        workbuddyAiAccounts.length +
         minimaxCodeAccounts.length,
       antigravity: agAccounts.length,
       codex: codexAccounts.length,
@@ -744,7 +726,7 @@ export function DashboardPage({
       workbuddy: workbuddyAccounts.length,
       minimaxcode: minimaxCodeAccounts.length,
     };
-  }, [agAccounts, codexAccounts, claudeAccounts, zedAccounts, githubCopilotAccounts, windsurfAccounts, kiroAccounts, cursorAccounts, grokAccounts, codebuddyAccounts, codebuddyCnAccounts, qoderAccounts, zcodeAccounts, traeAccounts, traeAccountsByPlatform, workbuddyAccounts, minimaxCodeAccounts]);
+  }, [agAccounts, codexAccounts, claudeAccounts, zedAccounts, githubCopilotAccounts, windsurfAccounts, kiroAccounts, cursorAccounts, grokAccounts, codebuddyAccounts, codebuddyCnAccounts, qoderAccounts, zcodeAccounts, traeAccounts, traeAccountsByPlatform, workbuddyAccounts, workbuddyAiAccounts, minimaxCodeAccounts]);
 
   const dashboardAvailableTags = useMemo(() => {
     const tagSet = new Set<string>();
@@ -763,6 +745,7 @@ export function DashboardPage({
       ...zcodeAccounts,
       ...traeAccounts,
       ...workbuddyAccounts,
+      ...workbuddyAiAccounts,
       ...minimaxCodeAccounts,
     ];
     for (const acc of allAccounts) {
@@ -773,7 +756,7 @@ export function DashboardPage({
       }
     }
     return Array.from(tagSet).sort((a, b) => a.localeCompare(b));
-  }, [agAccounts, codexAccounts, claudeAccounts, zedAccounts, githubCopilotAccounts, windsurfAccounts, kiroAccounts, cursorAccounts, grokAccounts, codebuddyAccounts, codebuddyCnAccounts, qoderAccounts, zcodeAccounts, traeAccounts, workbuddyAccounts, minimaxCodeAccounts]);
+  }, [agAccounts, codexAccounts, claudeAccounts, zedAccounts, githubCopilotAccounts, windsurfAccounts, kiroAccounts, cursorAccounts, grokAccounts, codebuddyAccounts, codebuddyCnAccounts, qoderAccounts, zcodeAccounts, traeAccounts, workbuddyAccounts, workbuddyAiAccounts, minimaxCodeAccounts]);
 
 
   // Refresh States
@@ -805,6 +788,7 @@ export function DashboardPage({
     zcode: boolean;
     trae: boolean;
     workbuddy: boolean;
+  workbuddy_ai: boolean;
     minimaxcode: boolean;
   }>({
     ag: false,
@@ -821,6 +805,7 @@ export function DashboardPage({
     zcode: false,
     trae: false,
     workbuddy: false,
+    workbuddy_ai: false,
     minimaxcode: false,
   });
 
@@ -889,13 +874,19 @@ export function DashboardPage({
     }
   };
 
+  const showCodexBalance = useCallback((account: CodexAccount) =>
+    !isCodexApiKeyAccount(account) || (!isCodexNewApiAccount(account)
+      ? canShowCodexProviderBalance(relayBalanceDisabled, account.api_base_url, codexApiUsageMap[account.id]?.summary?.mode)
+      : !relayBalanceDisabled), [codexApiUsageMap, relayBalanceDisabled]);
+
   const refreshCodexApiUsage = useCallback(async (
     account: CodexAccount,
     options?: { force?: boolean },
   ) => {
+    if (!showCodexBalance(account)) return;
     if (
       isCodexChatCompletionsApiKeyAccount(account) &&
-      !isDeepSeekAccount(account)
+      !isDeepSeekAccount(account) && !isMoonshotBalanceUrl(account.api_base_url)
     ) {
       return;
     }
@@ -937,7 +928,7 @@ export function DashboardPage({
         },
       }));
     }
-  }, []);
+  }, [showCodexBalance]);
 
   React.useEffect(() => {
     const syncUsageCache = () => {
@@ -1376,11 +1367,11 @@ export function DashboardPage({
     }
   };
 
-  const handleRefreshWorkbuddy = async (accountId: string) => {
+  const handleRefreshWorkbuddy = async (accountId: string, international = false) => {
     if (refreshing.has(accountId)) return;
     setRefreshing((prev) => new Set(prev).add(accountId));
     try {
-      await useWorkbuddyAccountStore.getState().refreshToken(accountId);
+      await (international ? useWorkbuddyAiAccountStore : useWorkbuddyAccountStore).getState().refreshToken(accountId);
     } catch (error) {
       console.error('Refresh failed:', error);
     } finally {
@@ -1487,18 +1478,21 @@ export function DashboardPage({
     }
   };
 
-  const handleRefreshWorkbuddyCard = async () => {
-    if (cardRefreshing.workbuddy) return;
-    setCardRefreshing((prev) => ({ ...prev, workbuddy: true }));
-    const idsToRefresh = Array.from(new Set([workbuddyCurrent?.id, workbuddyRecommended?.id].filter(Boolean))) as string[];
+  const handleRefreshWorkbuddyCard = async (platformId: 'workbuddy' | 'workbuddy_ai') => {
+    if (cardRefreshing[platformId]) return;
+    setCardRefreshing((prev) => ({ ...prev, [platformId]: true }));
+    const international = platformId === 'workbuddy_ai';
+    const current = international ? workbuddyAiCurrent : workbuddyCurrent;
+    const recommended = international ? workbuddyAiRecommended : workbuddyRecommended;
+    const idsToRefresh = Array.from(new Set([current?.id, recommended?.id].filter(Boolean))) as string[];
     try {
       for (const id of idsToRefresh) {
-        await useWorkbuddyAccountStore.getState().refreshToken(id);
+        await (international ? useWorkbuddyAiAccountStore : useWorkbuddyAccountStore).getState().refreshToken(id);
       }
     } catch (error) {
       console.error('Card refresh failed:', error);
     } finally {
-      setCardRefreshing((prev) => ({ ...prev, workbuddy: false }));
+      setCardRefreshing((prev) => ({ ...prev, [platformId]: false }));
     }
   };
 
@@ -1599,11 +1593,12 @@ export function DashboardPage({
     }
   };
 
-  const handleSwitchWorkbuddy = async (accountId: string) => {
+  const handleSwitchWorkbuddy = async (accountId: string, international = false) => {
     if (switching.has(accountId)) return;
     setSwitching((prev) => new Set(prev).add(accountId));
     try {
-      await switchWorkbuddyAccount(accountId);
+      const switchAccount = international ? useWorkbuddyAiAccountStore.getState().switchAccount : switchWorkbuddyAccount;
+      await switchAccount(accountId);
     } catch (error) {
       console.error('Switch failed:', error);
     } finally {
@@ -1689,16 +1684,16 @@ export function DashboardPage({
     const deduped = new Map<string, CodexAccount>();
     [codexCurrentAccount, codexRecommended].forEach((account) => {
       if (
-        !account ||
+        !account || !showCodexBalance(account) ||
         (isCodexChatCompletionsApiKeyAccount(account) &&
-          !isDeepSeekAccount(account))
+          !isDeepSeekAccount(account) && !isMoonshotBalanceUrl(account.api_base_url))
       ) {
         return;
       }
       deduped.set(account.id, account);
     });
     return Array.from(deduped.values());
-  }, [codexCurrentAccount, codexRecommended]);
+  }, [codexCurrentAccount, codexRecommended, showCodexBalance]);
 
   const canRefreshCodexCard = codexCardRefreshTargets.length > 0;
 
@@ -2106,42 +2101,18 @@ export function DashboardPage({
     return pickRecommendedTraeAccount(traeAccountsByPlatform[platformId], getTraeCurrentForPlatform(platformId)?.id);
   };
 
-  const workbuddyRecommended = useMemo(() => {
-    if (workbuddyAccounts.length <= 1) return null;
-    const currentId = workbuddyCurrent?.id;
-    const others = workbuddyAccounts.filter((a) => a.id !== currentId);
-    if (others.length === 0) return null;
-
-    const getScore = (account: WorkbuddyAccount) => {
-      const model = getWorkbuddyOfficialQuotaModel(account);
-      // 只使用基础包进行计算，不包含加量包
-      const baseResources = model.resources.filter(r => r.total > 0 || r.remain > 0);
-
-      // 计算平均剩余百分比（剩余越多越好）
-      let avgRemainPercent = -1;
-      if (baseResources.length > 0) {
-        const totalRemainPercent = baseResources.reduce((sum, r) => {
-          const pct = r.remainPercent ?? (r.total > 0 ? Math.max(0, (r.remain / r.total) * 100) : 0);
-          return sum + pct;
-        }, 0);
-        avgRemainPercent = totalRemainPercent / baseResources.length;
-      }
-
-      return {
-        remaining: avgRemainPercent, // 剩余百分比越高越好
-        freshness: account.last_used || account.created_at || 0,
-      };
-    };
-
-    return others.reduce((best, candidate) => {
-      const bestScore = getScore(best);
-      const candidateScore = getScore(candidate);
-      if (candidateScore.remaining !== bestScore.remaining) {
-        return candidateScore.remaining > bestScore.remaining ? candidate : best;
-      }
-      return candidateScore.freshness > bestScore.freshness ? candidate : best;
-    });
-  }, [workbuddyAccounts, workbuddyCurrent?.id]);
+  const workbuddyRecommended = useMemo(
+    () => getRecommendedWorkbuddyAccount(workbuddyAccounts, workbuddyCurrent?.id),
+    [workbuddyAccounts, workbuddyCurrent?.id],
+  );
+  const workbuddyAiCurrent = useMemo(
+    () => resolveDashboardCurrentAccount(workbuddyAiAccounts, workbuddyAiCurrentId),
+    [workbuddyAiAccounts, workbuddyAiCurrentId],
+  );
+  const workbuddyAiRecommended = useMemo(
+    () => getRecommendedWorkbuddyAccount(workbuddyAiAccounts, workbuddyAiCurrent?.id),
+    [workbuddyAiAccounts, workbuddyAiCurrent?.id],
+  );
 
   const minimaxCodeRecommended = useMemo(() => {
     if (minimaxCodeAccounts.length <= 1) return null;
@@ -2229,7 +2200,9 @@ export function DashboardPage({
     presentation: UnifiedAccountPresentation,
     limit = 3,
   ) => {
-    const quotaItems = presentation.quotaItems.slice(0, Math.max(0, limit));
+    const quotaItems = showAllAccounts
+      ? presentation.quotaItems
+      : presentation.quotaItems.slice(0, Math.max(0, limit));
     if (quotaItems.length === 0) {
       return <span className="no-data-text">{t('dashboard.noData', '暂无数据')}</span>;
     }
@@ -2271,11 +2244,12 @@ export function DashboardPage({
     sublineText,
     sublineTitle,
     maxMetrics = 3,
+    showMetrics = true,
     onEditTags,
     extraContent,
   }: {
     presentation: UnifiedAccountPresentation;
-    onRefresh: () => void;
+    onRefresh?: () => void;
     onSwitch: () => void;
     isRefreshing: boolean;
     isSwitching: boolean;
@@ -2283,6 +2257,7 @@ export function DashboardPage({
     sublineText?: string;
     sublineTitle?: string;
     maxMetrics?: number;
+    showMetrics?: boolean;
     onEditTags?: () => void;
     extraContent?: React.ReactNode;
   }) => {
@@ -2311,9 +2286,9 @@ export function DashboardPage({
           </div>
         )}
 
-        <div className="account-mini-quotas">
+        {showMetrics && <div className="account-mini-quotas">
           {renderPresentationQuotaItems(presentation, maxMetrics)}
-        </div>
+        </div>}
 
         {extraContent}
 
@@ -2327,14 +2302,14 @@ export function DashboardPage({
               <Tag size={14} />
             </button>
           )}
-          <button
+          {onRefresh && <button
             className="mini-icon-btn"
             onClick={onRefresh}
             title={t('common.refresh', '刷新')}
             disabled={isRefreshing || isSwitching}
           >
             <RotateCw size={14} className={isRefreshing ? 'loading-spinner' : ''} />
-          </button>
+          </button>}
           <button
             className="mini-icon-btn"
             onClick={onSwitch}
@@ -2352,14 +2327,18 @@ export function DashboardPage({
     if (!account) return <div className="empty-slot">{t('dashboard.noAccount', '无账号')}</div>;
 
     const presentation = buildAntigravityAccountPresentation(account, agDisplayGroups, t);
-    const quotaDisplayItems = presentation.quotaItems.slice(0, 4);
+    const maskedEmail = maskAccountText(presentation.displayName);
+    const displayName = /@gmail\.com$/i.test(presentation.displayName.trim())
+      ? maskedEmail.slice(0, maskedEmail.lastIndexOf('@'))
+      : maskedEmail;
+    const quotaDisplayItems = showAllAccounts ? presentation.quotaItems : presentation.quotaItems.slice(0, 4);
 
     return (
       <div className="account-mini-card">
         <div className="account-mini-header">
           <div className="account-info-row">
-            <span className="account-email" title={maskAccountText(presentation.displayName)}>
-              {maskAccountText(presentation.displayName)}
+            <span className="account-email" title={displayName}>
+              {displayName}
             </span>
             <span className={`tier-badge ${presentation.planClass}`}>{presentation.planLabel}</span>
           </div>
@@ -2372,12 +2351,14 @@ export function DashboardPage({
                 <span className="model-name">{item.label}</span>
                 <span className={`model-pct ${item.quotaClass}`}>{item.valueText}</span>
               </div>
-              <div className="mini-progress-track">
-                <div
-                  className={`mini-progress-bar ${item.quotaClass}`}
-                  style={{ width: `${item.percentage}%` }}
-                />
-              </div>
+              {item.showProgress !== false && (
+                <div className="mini-progress-track">
+                  <div
+                    className={`mini-progress-bar ${item.quotaClass}`}
+                    style={{ width: `${item.percentage}%` }}
+                  />
+                </div>
+              )}
               {item.resetText && (
                 <div className="mini-reset-time">
                   {item.resetText}
@@ -2418,6 +2399,8 @@ export function DashboardPage({
 
   const renderCodexAccountContent = (account: CodexAccount | null) => {
     if (!account) return <div className="empty-slot">{t('dashboard.noAccount', '无账号')}</div>;
+    const wakeupResult = wakeupResults.get(account.id);
+    const wakeupLabel = wakeupResult ? codexWakeupResultLabel(wakeupResult, t) : undefined;
 
     if (isCodexApiKeyAccount(account) && !isCodexNewApiAccount(account)) {
       const isChatCompletionsApiKey =
@@ -2439,17 +2422,11 @@ export function DashboardPage({
         const item = usageSummary?.details?.find((detail) => detail.key === key);
         return item?.value || '-';
       };
-      const newApiQuota = resolveNewApiQuotaSnapshot(usageSummary);
-      const newApiGranted = newApiQuota.granted;
-      const newApiAvailable = newApiQuota.available;
-      const newApiExpiresAt = newApiQuota.expiresAt;
-      const isUnlimited = usageSummary?.quotaUnlimited === true;
-      const progressPercent =
-        usageMode === 'new_api' && newApiGranted != null && newApiAvailable != null && newApiGranted > 0
-          ? Math.max(0, Math.min(100, Math.round(((newApiGranted - newApiAvailable) / newApiGranted) * 100)))
-          : isUnlimited
-            ? 100
-            : 0;
+      const newApiQuota = presentNewApiQuota(
+        usageSummary,
+        t('codex.newApi.quota.unlimited', '不限量'),
+        t('dashboard.noData', '暂无数据'),
+      );
 
       return (
         <div className={`account-mini-card codex-api-mini-card ${account.api_provider_id ? "sponsor-api-account" : ""}`}>
@@ -2464,29 +2441,27 @@ export function DashboardPage({
             </div>
           </div>
 
-          {(!isChatCompletionsApiKey || isDeepSeekAccount(account)) && (
+          {wakeupLabel && <div className="account-mini-subline" title={wakeupLabel}>{wakeupLabel}</div>}
+          {showCodexBalance(account) && (!isChatCompletionsApiKey || isDeepSeekAccount(account) || usageSummary?.mode === 'custom') && (
             <div className="account-mini-quotas codex-api-mini-quotas">
-              {usageMode === 'new_api' ? (
+              {usageSummary?.mode === 'custom' ? (
+                <ModelProviderUsagePanel summary={usageSummary} variant="card" />
+              ) : usageMode === 'new_api' ? (
                 <div className="mini-quota-row-stacked">
                   <div className="mini-quota-header">
                     <span className="model-name">{t('codex.cockpitApi.balance', '额度')}</span>
                     <span className="model-pct high">
-                      {isUnlimited
-                        ? t('codex.newApi.quota.unlimited', '不限量')
-                        : newApiAvailable != null && newApiGranted != null
-                          ? `$${newApiAvailable.toFixed(2)} / $${newApiGranted.toFixed(2)}`
-                          : '-'}
+                      {newApiQuota.text}
                     </span>
                   </div>
-                  <div className="mini-progress-track">
-                    <div
-                      className="mini-progress-bar high"
-                      style={{ width: `${progressPercent}%` }}
-                    />
-                  </div>
+                  {newApiQuota.percent != null && (
+                    <div className="mini-progress-track">
+                      <div className="mini-progress-bar high" style={{ width: `${newApiQuota.percent}%` }} />
+                    </div>
+                  )}
                   <div className="mini-reset-time">
-                    {newApiExpiresAt != null && newApiExpiresAt > 0
-                      ? `${t('codex.modelProviders.usage.fields.expiresAt', '过期时间')} ${new Date(newApiExpiresAt * 1000).toLocaleDateString()}`
+                    {newApiQuota.expiresAt != null && newApiQuota.expiresAt > 0
+                      ? `${t('codex.modelProviders.usage.fields.expiresAt', '过期时间')} ${new Date(newApiQuota.expiresAt * 1000).toLocaleDateString()}`
                       : t('dashboard.noData', '暂无数据')}
                   </div>
                 </div>
@@ -2527,7 +2502,7 @@ export function DashboardPage({
           )}
 
           <div className="account-mini-actions icon-only-row">
-            {(!isChatCompletionsApiKey || isDeepSeekAccount(account)) && (
+            {showCodexBalance(account) && (!isChatCompletionsApiKey || isDeepSeekAccount(account) || usageSummary?.mode === 'custom') && (
               <button
                 className="mini-icon-btn"
                 onClick={() => void refreshCodexApiUsage(account, { force: true })}
@@ -2552,15 +2527,21 @@ export function DashboardPage({
     const presentation = buildCodexAccountPresentation(account, t);
     return renderUnifiedAccountCard({
       presentation,
-      onRefresh: () => handleRefreshCodex(account.id),
+      sublineText: wakeupLabel,
+      showMetrics: showCodexBalance(account),
+      onRefresh: showCodexBalance(account) ? () => handleRefreshCodex(account.id) : undefined,
       onSwitch: () => switchCodexAccount(account.id),
       isRefreshing: refreshing.has(account.id),
       isSwitching: false,
       maxMetrics: 4,
-      extraContent: !isCodexApiKeyAccount(account) && (account.quota?.reset_credits_available ?? 0) > 0 ? (
+      extraContent: !isCodexApiKeyAccount(account) ? (
         <div className="account-mini-reset-credits">
+          {!isCodexAgentIdentityAccount(account) && <button type="button" className={`codex-reset-credit-pill ${(account.quota?.reset_credits_available ?? 0) > 0 ? 'is-available' : 'is-unavailable'}`}
+            onClick={() => { requestCodexResetCreditDetails(account.id); onNavigate('codex'); }}>
+            <RotateCw size={13} />{typeof account.quota?.reset_credits_available === 'number' ? t('codex.quota.resetCredits', { count: account.quota.reset_credits_available }) : t('codex.quota.resetCreditDetailsTitle')}
+          </button>}
           <CodexResetCreditExpiry key={account.id} accountId={account.id} quota={account.quota}
-            disabled={refreshing.has(account.id)} onClick={() => onNavigate('codex')} />
+            disabled={refreshing.has(account.id)} onClick={() => { requestCodexResetCreditDetails(account.id); onNavigate('codex'); }} />
         </div>
       ) : undefined,
       onEditTags: () => setTagModalState({ accountId: account.id, platform: 'codex', tags: account.tags || [] }),
@@ -2570,11 +2551,11 @@ export function DashboardPage({
   React.useEffect(() => {
     const targetAccounts = [codexCurrentAccount, codexRecommended].filter(
       (account): account is CodexAccount =>
-        Boolean(account) &&
+        Boolean(account) && showCodexBalance(account!) &&
         isCodexApiKeyAccount(account!) &&
         !isCodexNewApiAccount(account!) &&
         (!isCodexChatCompletionsApiKeyAccount(account!) ||
-          isDeepSeekAccount(account!)),
+          isDeepSeekAccount(account!) || isMoonshotBalanceUrl(account!.api_base_url)),
     );
     targetAccounts.forEach((account) => {
       const usageState = codexApiUsageMap[account.id];
@@ -2589,7 +2570,7 @@ export function DashboardPage({
       }
       void refreshCodexApiUsage(account, { force: false });
     });
-  }, [codexApiUsageMap, codexCurrentAccount, codexRecommended, refreshCodexApiUsage]);
+  }, [codexApiUsageMap, codexCurrentAccount, codexRecommended, refreshCodexApiUsage, showCodexBalance]);
 
   const renderClaudeAccountContent = (account: ClaudeAccount | null) => {
     if (!account) return <div className="empty-slot">{t('dashboard.noAccount', '无账号')}</div>;
@@ -2671,6 +2652,7 @@ export function DashboardPage({
     const maskedAuthIdText = authIdText ? maskAccountText(authIdText) : '--';
     return renderUnifiedAccountCard({
       presentation,
+      maxMetrics: presentation.quotaItems.length,
       onRefresh: () => handleRefreshCursor(account.id),
       onSwitch: () => handleSwitchCursor(account.id),
       isRefreshing: refreshing.has(account.id),
@@ -2773,17 +2755,17 @@ export function DashboardPage({
     });
   };
 
-  const renderWorkbuddyAccountContent = (account: WorkbuddyAccount | null) => {
+  const renderWorkbuddyAccountContent = (account: WorkbuddyAccount | null, platformId: 'workbuddy' | 'workbuddy_ai' = 'workbuddy') => {
     if (!account) return <div className="empty-slot">{t('dashboard.noAccount', '无账号')}</div>;
 
-    const presentation = buildWorkbuddyAccountPresentation(account, t);
+    const presentation = buildWorkbuddyAccountPresentation(account, t, false, platformId === 'workbuddy_ai');
     return renderUnifiedAccountCard({
       presentation,
-      onRefresh: () => handleRefreshWorkbuddy(account.id),
-      onSwitch: () => handleSwitchWorkbuddy(account.id),
+      onRefresh: () => handleRefreshWorkbuddy(account.id, platformId === 'workbuddy_ai'),
+      onSwitch: () => handleSwitchWorkbuddy(account.id, platformId === 'workbuddy_ai'),
       isRefreshing: refreshing.has(account.id),
       isSwitching: switching.has(account.id),
-      onEditTags: () => setTagModalState({ accountId: account.id, platform: 'workbuddy', tags: account.tags || [] }),
+      onEditTags: () => setTagModalState({ accountId: account.id, platform: platformId, tags: account.tags || [] }),
     });
   };
 
@@ -2822,6 +2804,7 @@ export function DashboardPage({
     trae_cn: stats.trae_cn,
     trae_solo_cn: stats.trae_solo_cn,
     workbuddy: stats.workbuddy,
+    workbuddy_ai: workbuddyAiAccounts.length,
     minimaxcode: stats.minimaxcode,
   };
 
@@ -3577,8 +3560,10 @@ export function DashboardPage({
       );
     }
 
-    if (platformId === 'workbuddy') {
-      const workbuddyCollapsed = dashboardCardCollapse.workbuddy;
+    if (platformId === 'workbuddy' || platformId === 'workbuddy_ai') {
+      const workbuddyCollapsed = dashboardCardCollapse[platformId];
+      const current = platformId === 'workbuddy_ai' ? workbuddyAiCurrent : workbuddyCurrent;
+      const recommended = platformId === 'workbuddy_ai' ? workbuddyAiRecommended : workbuddyRecommended;
       return (
         <div
           className={`main-card windsurf-card main-card-collapsible ${workbuddyCollapsed ? 'main-card-collapsed' : ''}`}
@@ -3592,17 +3577,17 @@ export function DashboardPage({
             <div className="header-action-group">
               <button
                 className="header-action-btn"
-                onClick={handleRefreshWorkbuddyCard}
-                disabled={cardRefreshing.workbuddy}
+                onClick={() => handleRefreshWorkbuddyCard(platformId)}
+                disabled={cardRefreshing[platformId]}
                 title={t('common.refresh', '刷新')}
               >
-                <RotateCw size={14} className={cardRefreshing.workbuddy ? 'loading-spinner' : ''} />
+                <RotateCw size={14} className={cardRefreshing[platformId] ? 'loading-spinner' : ''} />
                 <span>{t('common.refresh', '刷新')}</span>
               </button>
               {renderHideCardButton(platformId)}
               <button
                 className="header-action-btn header-collapse-btn"
-                onClick={() => toggleDashboardCardCollapse('workbuddy')}
+                onClick={() => toggleDashboardCardCollapse(platformId)}
                 title={workbuddyCollapsed ? t('common.expand', '展开') : t('common.collapse', '收起')}
                 aria-label={workbuddyCollapsed ? t('common.expand', '展开') : t('common.collapse', '收起')}
               >
@@ -3614,22 +3599,22 @@ export function DashboardPage({
           <div className="split-content">
             <div className="split-half current-half">
               <span className="half-label"><CheckCircle2 size={12} /> {t('dashboard.current', '当前账户')}</span>
-              {renderWorkbuddyAccountContent(workbuddyCurrent)}
+              {renderWorkbuddyAccountContent(current, platformId)}
             </div>
 
             <div className="split-divider"></div>
 
             <div className="split-half recommend-half">
               <span className="half-label"><Sparkles size={12} /> {t('dashboard.recommended', '推荐账号')}</span>
-              {workbuddyRecommended ? (
-                renderWorkbuddyAccountContent(workbuddyRecommended)
+              {recommended ? (
+                renderWorkbuddyAccountContent(recommended, platformId)
               ) : (
                 <div className="empty-slot-text">{t('dashboard.noRecommendation', '暂无更好推荐')}</div>
               )}
             </div>
           </div>
 
-          <button className="card-footer-action" onClick={() => onNavigate('workbuddy')}>
+          <button className="card-footer-action" onClick={() => navigateToPlatform(platformId)}>
             {t('dashboard.viewAllAccounts', '查看所有账号')}
           </button>
         </div>
@@ -3729,6 +3714,28 @@ export function DashboardPage({
     );
   };
 
+  const antigravityPlatform = remoteHiddenPlatformSet.has('antigravity') ? 'antigravity_ide' : 'antigravity';
+  const allAccountCards = showAllAccounts ? [
+    ...dashboardAccountCards(antigravityPlatform, agAccounts, renderAgAccountContent),
+    ...dashboardAccountCards('codex', codexAccounts, renderCodexAccountContent),
+    ...dashboardAccountCards('claude_manager', claudeAccounts, renderClaudeAccountContent),
+    ...dashboardAccountCards('zed', zedAccounts, renderZedAccountContent),
+    ...dashboardAccountCards('github-copilot', githubCopilotAccounts, renderGitHubCopilotAccountContent),
+    ...dashboardAccountCards('windsurf', windsurfAccounts, renderWindsurfAccountContent),
+    ...dashboardAccountCards('kiro', kiroAccounts, renderKiroAccountContent),
+    ...dashboardAccountCards('cursor', cursorAccounts, renderCursorAccountContent),
+    ...dashboardAccountCards('grok', grokAccounts, renderGrokAccountContent),
+    ...dashboardAccountCards('codebuddy', codebuddyAccounts, renderCodebuddyAccountContent),
+    ...dashboardAccountCards('codebuddy_cn', codebuddyCnAccounts, renderCodebuddyCnAccountContent),
+    ...dashboardAccountCards('qoder', qoderAccounts, renderQoderAccountContent),
+    ...dashboardAccountCards('zcode', zcodeAccounts, renderZcodeAccountContent),
+    ...TRAE_SUITE_DASHBOARD_PLATFORM_IDS.flatMap((platformId) =>
+      dashboardAccountCards(platformId, traeAccountsByPlatform[platformId], (account) => renderTraeAccountContent(account, platformId)),
+    ),
+    ...dashboardAccountCards('workbuddy', workbuddyAccounts, renderWorkbuddyAccountContent),
+    ...dashboardAccountCards('minimaxcode', minimaxCodeAccounts, renderMinimaxCodeAccountContent),
+  ].filter((account) => !remoteHiddenPlatformSet.has(account.platformId)) : [];
+
   return (
     <main className="main-content dashboard-page fade-in">
       <div className="page-tabs-row" style={{ minHeight: '60px' }}>
@@ -3737,6 +3744,9 @@ export function DashboardPage({
           <ManualHelpIconButton className="header-action-btn dashboard-manual-btn dashboard-title-manual-btn" />
         </div>
         <div className="dashboard-top-actions">
+          <button type="button" className="header-action-btn" onClick={() => setShowAllAccounts((current) => !current)}>
+            <span>{t(showAllAccounts ? 'common.back' : 'dashboard.viewAllAccounts')}</span>
+          </button>
           <button className="header-action-btn" onClick={onOpenPlatformLayout}>
             <span>{t('platformLayout.title', '平台布局')}</span>
           </button>
@@ -3758,8 +3768,7 @@ export function DashboardPage({
         </div>
       )}
 
-      {/* Top Stats */}
-      <div className="stats-row">
+      {!showAllAccounts && <div className="stats-row">
         <div className="stat-card">
           <div className="stat-icon-bg primary"><Users size={24} /></div>
           <div className="stat-info">
@@ -3844,14 +3853,7 @@ export function DashboardPage({
                   +{groupExtraCount}
                 </span>
               )}
-              <div
-                className={`stat-icon-bg ${iconClass} stat-icon-trigger`}
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onEasterEggTriggerClick();
-                }}
-              >
+              <div className={`stat-icon-bg ${iconClass}`}>
                 {group?.iconKind === 'custom' && group.iconCustomDataUrl ? (
                   <img
                     src={group.iconCustomDataUrl}
@@ -3871,22 +3873,25 @@ export function DashboardPage({
           );
         })}
 
-      </div>
+      </div>}
 
-      {/* Main Comparison Section */}
-      <div className="cards-section">
-        {cardRows.map((row, rowIndex) => (
-          <div
-            className={`cards-split-row${isSinglePlatformMode ? ' single-platform-row' : ''}`}
-            key={`row-${rowIndex}`}
-          >
-            {row.map((cardId) => (
-              renderPlatformCard(cardId)
-            ))}
-            {!isSinglePlatformMode && row.length < 2 && <div className="main-card main-card-placeholder" />}
-          </div>
-        ))}
-      </div>
+      {showAllAccounts ? (
+        <DashboardAllAccounts accounts={allAccountCards} loading={prefetchLoading || agAccountsLoading} />
+      ) : (
+        <div className="cards-section">
+          {cardRows.map((row, rowIndex) => (
+            <div
+              className={`cards-split-row${isSinglePlatformMode ? ' single-platform-row' : ''}`}
+              key={`row-${rowIndex}`}
+            >
+              {row.map((cardId) => (
+                renderPlatformCard(cardId)
+              ))}
+              {!isSinglePlatformMode && row.length < 2 && <div className="main-card main-card-placeholder" />}
+            </div>
+          ))}
+        </div>
+      )}
 
       {tagModalState && (
         <TagEditModal

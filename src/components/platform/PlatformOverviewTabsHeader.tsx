@@ -32,6 +32,7 @@ export type PlatformOverviewTab =
   | 'sessions'
   | 'providers'
   | 'proxy'
+  | 'quota-history'
   | 'top-layout';
 export type PlatformOverviewHeaderId =
   | 'codex'
@@ -51,6 +52,7 @@ export type PlatformOverviewHeaderId =
   | 'trae_cn'
   | 'trae_solo_cn'
   | 'workbuddy'
+  | 'workbuddy_ai'
   | 'minimaxcode';
 
 interface PlatformOverviewTabsHeaderProps<T extends string> {
@@ -127,7 +129,7 @@ const CONFIGS: Record<PlatformOverviewHeaderId, PlatformOverviewConfig> = {
     overviewIcon: <TraeIcon className="tab-icon" />,
   },
   trae_solo: {
-    platformLabel: 'TRAE SOLO',
+    platformLabel: 'TraeWork',
     overviewIcon: <TraeSoloIcon className="tab-icon" />,
   },
   trae_cn: {
@@ -135,11 +137,15 @@ const CONFIGS: Record<PlatformOverviewHeaderId, PlatformOverviewConfig> = {
     overviewIcon: <TraeCnIcon className="tab-icon" />,
   },
   trae_solo_cn: {
-    platformLabel: 'TRAE SOLO CN',
+    platformLabel: 'TraeWork CN',
     overviewIcon: <TraeSoloCnIcon className="tab-icon" />,
   },
   workbuddy: {
     platformLabel: 'WorkBuddy',
+    overviewIcon: <WorkbuddyIcon className="tab-icon" />,
+  },
+  workbuddy_ai: {
+    platformLabel: 'WorkBuddy AI',
     overviewIcon: <WorkbuddyIcon className="tab-icon" />,
   },
   minimaxcode: {

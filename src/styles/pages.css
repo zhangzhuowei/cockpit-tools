@@ -4,11 +4,11 @@
 @import "./pages/utilities.css";
 @import "./pages/responsive.css";
 @import "./pages/overview.css";
-@import "./pages/sidebar.css";
 @import "./pages/overview-extra.css";
 @import "./pages/settings-extra.css";
 @import "./pages/accounts.css";
 @import "./pages/accounts-aurora.css";
+@import "./pages/antigravity-token-usage.css";
 @import "./pages/wakeup.css";
 @import "./pages/wakeup-verification.css";
 @import "./pages/codex.css";

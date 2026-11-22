@@ -73,9 +73,9 @@ fn automatic_api_service_account_model_slots(account: &CodexAccount) -> Vec<(Str
 /// Chat Completions 账号需要 Gateway 做协议转换。Responses 账号只有在显式配置的图片
 /// 转模型目标能够匹配候选上游模型，或命中官方 DeepSeek 的既有自动转模型规则时，
 /// 才需要 Gateway；模型图片能力表本身不参与这项判断。
-fn automatic_api_service_provider_route_eligible(
+fn automatic_api_service_provider_route_eligible<Models: AsRef<[String]>>(
     account: &CodexAccount,
-    upstream_models: &[String],
+    upstream_models: impl FnOnce() -> Models,
 ) -> bool {
     if !account.is_api_key_auth() {
         return false;
@@ -88,10 +88,10 @@ fn automatic_api_service_provider_route_eligible(
         .as_deref()
         .is_some_and(|model| !model.trim().is_empty())
     {
-        return automatic_api_service_vision_routing_model(account, upstream_models).is_some();
+        return automatic_api_service_vision_routing_model(account, upstream_models().as_ref()).is_some();
     }
     is_official_deepseek_account(account)
-        && automatic_api_service_vision_routing_model(account, upstream_models).is_some()
+        && automatic_api_service_vision_routing_model(account, upstream_models().as_ref()).is_some()
 }
 
 /// 账号在自动路由里是否存在「图片自动转到识图模型」的兜底模型。
@@ -338,19 +338,45 @@ fn automatic_api_service_route_models(
     models
 }
 
-/// DeepSeek 模型在客户端模型列表里的默认推理档位。
-///
-/// 官方 DeepSeek 模板声明为 `high`，但 Cockpit 的 API 服务默认选最高档：DeepSeek 官方目录
-/// 已声明支持 `max`，接管 profile 时也会补齐客户端的 `max` 档位开关。该值只决定
-/// 「尚未选择过档位」或「当前档位对该模型不可用」时的回落值，不会覆盖用户已保存的档位。
-const DEEPSEEK_DEFAULT_REASONING_EFFORT: &str = "max";
+fn bailian_token_plan_model_template(account: &CodexAccount, upstream: &str) -> Option<Value> {
+    if !account.is_api_key_auth() || !upstream.eq_ignore_ascii_case("qwen3.8-max") {
+        return None;
+    }
+    let base = Url::parse(account.api_base_url.as_deref()?.trim()).ok()?;
+    if !matches!(
+        base.host_str(),
+        Some("token-plan.cn-beijing.maas.aliyuncs.com" | "token-plan.ap-southeast-1.maas.aliyuncs.com")
+    ) || provider_gateway_wire_api_for_account(account) != "responses"
+    {
+        return None;
+    }
 
-/// 账号模型的官方模板（目前覆盖 DeepSeek 官方目录）。
+    // Match the official Codex metadata for Bailian Token Plan.
+    let context_window = 983_616;
+    Some(json!({
+        "supports_parallel_tool_calls": false,
+        "default_reasoning_level": "xhigh",
+        "supported_reasoning_levels": [
+            {"effort":"low","description":"Low"},
+            {"effort":"medium","description":"Medium"},
+            {"effort":"xhigh","description":"Extra high"}
+        ],
+        "context_window": context_window,
+        "max_context_window": context_window,
+        "effective_context_window_percent": 95,
+        "auto_compact_token_limit": codex_protocol::derived_auto_compact_token_limit(context_window)
+    }))
+}
+
+/// 账号模型的供应商元数据。
 fn account_model_template(account: &CodexAccount, model: &str) -> Option<Value> {
     let model = model.trim();
     if let Some(catalog) = remote_catalog_for_account(account) {
         return catalog["models"].as_array()?.iter()
             .find(|entry| entry["slug"].as_str() == Some(model)).cloned();
+    }
+    if let Some(template) = bailian_token_plan_model_template(account, model) {
+        return Some(template);
     }
     if !is_official_deepseek_account(account) {
         if let Some(template) = codex_protocol::deepseek_model_template(model) {
@@ -368,7 +394,7 @@ fn account_model_template(account: &CodexAccount, model: &str) -> Option<Value> 
     }
     let catalog = codex_account::deepseek_official_catalog_json_for_account(account).ok()?;
     let catalog: Value = serde_json::from_str(&catalog).ok()?;
-    let mut entry = catalog
+    catalog
         .get("models")
         .and_then(Value::as_array)
         .into_iter()
@@ -379,10 +405,7 @@ fn account_model_template(account: &CodexAccount, model: &str) -> Option<Value> 
                 .and_then(Value::as_str)
                 .is_some_and(|slug| slug.eq_ignore_ascii_case(model))
         })
-        .cloned()?;
-    // 其余字段沿用官方模板，只把默认档位提升为最高档。
-    entry["default_reasoning_level"] = json!(DEEPSEEK_DEFAULT_REASONING_EFFORT);
-    Some(entry)
+        .cloned()
 }
 
 fn automatic_api_service_model_routing_value(
@@ -413,7 +436,7 @@ fn automatic_api_service_model_routing_value(
         );
         // Grok 供应商账号没有上游 API Key：模型直接以原生名称暴露，请求由 sidecar
         // 的 Grok(xAI) 执行器用绑定的 Grok 平台账号凭据发出。
-        if !automatic_api_service_provider_route_eligible(account, &upstream_models)
+        if !automatic_api_service_provider_route_eligible(account, || &upstream_models)
             || codex_account::is_grok_upstream_provider(account)
         {
             for model in models {
@@ -525,7 +548,7 @@ fn automatic_api_service_account_model_entries(
         .collect::<Vec<_>>();
     // 已进入 provider 路由且存在识图兜底模型时，客户端可对该路由暴露的任意模型发图片；
     // 这里描述图片能力，不决定账号是否进入 provider 路由。
-    let routed_vision = automatic_api_service_provider_route_eligible(account, &upstream_models)
+    let routed_vision = automatic_api_service_provider_route_eligible(account, || &upstream_models)
         && automatic_api_service_vision_routing_model(account, &upstream_models).is_some();
     automatic_api_service_route_models(collection, account, &[])
         .into_iter()
@@ -534,8 +557,8 @@ fn automatic_api_service_account_model_entries(
                 .get("clientModel")
                 .and_then(Value::as_str)?
                 .to_string();
-            let image_capable =
-                routed_vision || automatic_api_service_account_model_vision(account, &client_model);
+            let upstream = model.get("upstreamModel").and_then(Value::as_str)?;
+            let image_capable = routed_vision || native_account_model_vision(account, upstream);
             Some((client_model, image_capable))
         })
         .collect()
@@ -558,7 +581,7 @@ fn automatic_api_service_profile_extra_models(
     let mut gpt_backed_models: HashSet<String> = HashSet::new();
     for account in accounts {
         if !scoped_ids.iter().any(|id| id == &account.id)
-            || !is_local_access_eligible_account(account, collection.restrict_free_accounts)
+            || !is_local_access_eligible_account(account)
         {
             continue;
         }
@@ -569,20 +592,26 @@ fn automatic_api_service_profile_extra_models(
                 }
             }
         }
-        models.extend(automatic_api_service_account_model_entries(
-            collection, account,
-        ));
+        // Native OAuth mappings are added below after validating the actual
+        // account route, including the separate official authorization catalog.
+        if collection.gateway_mode != CodexLocalAccessGatewayMode::Native
+            || !native_is_oauth_authorization_account(account)
+            || account.api_model_mappings.is_empty()
+        {
+            models.extend(automatic_api_service_account_model_entries(collection, account));
+        }
     }
     // 该 API Key 自己的供应商网关模型同样要在客户端可选。
     if let Some(gateway) = api_key.provider_gateway.as_ref() {
-        let image_capable = provider_gateway_has_vision_support(gateway);
-        for model in
-            apply_model_aliases_to_ids(gateway.upstream_models.clone(), &collection.model_aliases)
-        {
-            if is_gpt_or_codex_namespace_model(&model) {
-                gpt_backed_models.insert(model.trim().to_ascii_lowercase());
+        let routed_vision = provider_gateway_has_vision_support(gateway);
+        for upstream in &gateway.upstream_models {
+            let image_capable = routed_vision || provider_gateway_model_vision(gateway, upstream);
+            for model in apply_model_aliases_to_ids(vec![upstream.clone()], &collection.model_aliases) {
+                if is_gpt_or_codex_namespace_model(&model) {
+                    gpt_backed_models.insert(model.trim().to_ascii_lowercase());
+                }
+                models.push((model, image_capable));
             }
-            models.push((model, image_capable));
         }
     }
     // GPT / Codex 命名空间只保留两类：官方推荐集（显示名与档位跟随官方客户端），以及账号自己
@@ -603,6 +632,40 @@ fn automatic_api_service_profile_extra_models(
             && !model_matches_any_rule(model, &api_key.excluded_models)
             && seen.insert(key)
     });
+    if collection.gateway_mode == CodexLocalAccessGatewayMode::Native {
+        let key = collection.api_keys.iter().find(|key| key.id == api_key.id);
+        for account in accounts.iter().filter(|account| {
+            scoped_ids.contains(&account.id)
+                && native_is_oauth_authorization_account(account)
+                && !account.api_model_mappings.is_empty()
+        }) {
+            let overlay = collection.official_account_bindings.get(&account.id).map(|registration| {
+                crate::modules::chatgpt_plan::official_runtime_overlay(account.clone(), registration)
+            });
+            let account = overlay.as_ref().unwrap_or(account);
+            for mapping in &account.api_model_mappings {
+                let model = &mapping.client_model;
+                let fingerprint = model.to_ascii_lowercase();
+                if seen.contains(&fingerprint) {
+                    continue;
+                }
+                let exposed = api_key.model_prefix.as_deref().filter(|prefix| !prefix.is_empty())
+                    .map(|prefix| format!("{}/{model}", prefix.trim_end_matches('/')))
+                    .unwrap_or_else(|| model.clone());
+                let Ok(public) = native_model_for_key(collection, key, &exposed) else { continue };
+                let Ok(plan) = native_model_route_plan(collection, key, &public) else { continue };
+                if !plan.provider && native_model_visible(collection, key, &plan, account) {
+                    seen.insert(fingerprint);
+                    let vision = codex_protocol::known_codex_model_template(&mapping.upstream_model)
+                        .and_then(|template| template["input_modalities"].as_array().map(|items| {
+                            items.iter().any(|item| item.as_str() == Some("image"))
+                        }))
+                        .unwrap_or(account.api_supports_vision);
+                    models.push((exposed, vision));
+                }
+            }
+        }
+    }
     models
 }
 
@@ -639,7 +702,7 @@ pub(crate) fn overlay_rendered_pool_models_on_experimental_catalog(
                 .cloned()
         })
         .filter(|account| {
-            is_local_access_eligible_account(account, collection.restrict_free_accounts)
+            is_local_access_eligible_account(account)
         })
         .collect();
     if !pool_provides_gpt_models(&pool_accounts) {
@@ -660,6 +723,7 @@ pub(crate) fn overlay_rendered_pool_models_on_experimental_catalog(
             model_id,
             reasoning_efforts: None,
             default_reasoning_effort: None,
+            ultra_reasoning_effort: None,
             context_window: None,
             auto_compact_token_limit: None,
         });

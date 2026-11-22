@@ -22,6 +22,15 @@ const SERVER_STATUS_FILE: &str = "server.json";
 const USER_CONFIG_FILE: &str = "config.json";
 const USER_CONFIG_LOCK_FILE: &str = "config.json.lock";
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CodexAutomaticSessionRepair {
+    Off,
+    IndexOnly,
+    #[default]
+    Quick,
+}
+
 /// 服务状态（写入共享文件供其他客户端读取）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerStatus {
@@ -65,6 +74,8 @@ pub struct UserConfig {
     /// NO_PROXY 白名单（逗号分隔）
     #[serde(default = "default_global_proxy_no_proxy")]
     pub global_proxy_no_proxy: String,
+    #[serde(default)]
+    pub codex_proxy_direct_hosts: Vec<String>,
     /// 是否启用匿名错误诊断上报
     #[serde(default = "default_diagnostics_error_reporting_enabled")]
     pub diagnostics_error_reporting_enabled: bool,
@@ -113,9 +124,12 @@ pub struct UserConfig {
     /// 官方客户端增强，仅在重启目标实例后应用。
     #[serde(default = "default_codex_app_enhancements_enabled")]
     pub codex_app_api_quota_compat_enabled: bool,
-    /// 本地 API 模式下的原生下一步预测；额外消耗供应商额度，默认关闭。
-    #[serde(default)]
+    /// 本地 API 模式下的原生下一步预测；额外消耗供应商额度，默认开启。
+    #[serde(default = "default_codex_app_native_predictions_enabled")]
     pub codex_app_native_predictions_enabled: bool,
+    /// 旧配置首次升级后开启预测，之后保留用户偏好。
+    #[serde(default)]
+    pub(crate) codex_app_native_predictions_default_on_migrated: bool,
     /// Codex WSL 配置目录 (Windows Only)
     #[serde(default = "default_codex_wsl_config_dir")]
     pub codex_wsl_config_dir: String,
@@ -185,9 +199,13 @@ pub struct UserConfig {
     /// 是否隐藏 Dock 图标（macOS）
     #[serde(default = "default_hide_dock_icon")]
     pub hide_dock_icon: bool,
+    #[serde(default = "default_show_tray_icon")]
+    pub show_tray_icon: bool,
     /// 菜单栏图标样式（macOS）
     #[serde(default = "default_tray_icon_style")]
     pub tray_icon_style: TrayIconStyle,
+    #[serde(default)]
+    pub menu_bar_left_click_opens_main_window: bool,
     /// 是否在 macOS 菜单栏图标旁显示当前账号剩余额度
     #[serde(default = "default_menu_bar_quota_enabled")]
     pub menu_bar_quota_enabled: bool,
@@ -197,6 +215,9 @@ pub struct UserConfig {
     /// macOS 菜单栏额度监控平台
     #[serde(default = "default_menu_bar_quota_platform")]
     pub menu_bar_quota_platform: String,
+    /// Antigravity 模型或配额窗口；空值沿用最低剩余额度。
+    #[serde(default)]
+    pub menu_bar_antigravity_metric: String,
     /// 是否在启动后自动显示悬浮卡片
     #[serde(default = "default_floating_card_show_on_startup")]
     pub floating_card_show_on_startup: bool,
@@ -306,6 +327,8 @@ pub struct UserConfig {
     /// Antigravity IDE 启动路径（为空则使用默认路径）
     #[serde(default = "default_antigravity_app_path")]
     pub antigravity_app_path: String,
+    #[serde(default)]
+    pub antigravity_legacy_app_path: String,
     /// Codex 启动路径（为空则使用默认路径）
     #[serde(default = "default_codex_app_path")]
     pub codex_app_path: String,
@@ -318,8 +341,16 @@ pub struct UserConfig {
     /// Claude 桌面应用启动路径（为空则使用默认路径）
     #[serde(default = "default_claude_app_path")]
     pub claude_app_path: String,
+    #[serde(default)]
+    pub claude_cli_path: String,
+    #[serde(default)]
+    pub antigravity_cli_path: String,
+    #[serde(default)]
+    pub codebuddy_cli_path: String,
     #[serde(default = "default_claude_app_scan_roots")]
     pub claude_app_scan_roots: String,
+    #[serde(default)]
+    pub claude_share_code_sessions_on_switch: bool,
     /// 切换 Codex 后需联动重启的指定应用路径
     #[serde(default = "default_codex_specified_app_path")]
     pub codex_specified_app_path: String,
@@ -389,6 +420,8 @@ pub struct UserConfig {
     /// WorkBuddy 启动路径（为空则使用默认路径）
     #[serde(default = "default_workbuddy_app_path")]
     pub workbuddy_app_path: String,
+    #[serde(default)]
+    pub workbuddy_ai_app_path: String,
     /// MiniMax Code 启动路径（为空则使用默认路径）
     #[serde(default = "default_minimax_code_app_path")]
     pub minimax_code_app_path: String,
@@ -422,6 +455,10 @@ pub struct UserConfig {
     /// 切换 Codex 时是否自动启动/重启 Codex App
     #[serde(default = "default_codex_launch_on_switch")]
     pub codex_launch_on_switch: bool,
+    #[serde(default)]
+    pub codex_cli_auto_refresh_on_switch: bool,
+    #[serde(default)]
+    pub codex_automatic_session_repair: CodexAutomaticSessionRepair,
     /// 启动时是否自动恢复 Codex 代理接管状态
     #[serde(default = "default_codex_auto_restore_takeover_on_launch")]
     pub codex_auto_restore_takeover_on_launch: bool,
@@ -455,6 +492,15 @@ pub struct UserConfig {
     /// Credits 自动切号阈值（剩余值）
     #[serde(default = "default_auto_switch_credits_threshold")]
     pub auto_switch_credits_threshold: i32,
+    /// 是否按 5h / 周 配额窗口分别设置切号阈值（类似 Codex）
+    #[serde(default = "default_auto_switch_window_thresholds_enabled")]
+    pub auto_switch_window_thresholds_enabled: bool,
+    /// 5h 配额窗口切号阈值（百分比）
+    #[serde(default = "default_auto_switch_window_threshold")]
+    pub auto_switch_five_hour_threshold: i32,
+    /// 周配额窗口切号阈值（百分比）
+    #[serde(default = "default_auto_switch_window_threshold")]
+    pub auto_switch_weekly_threshold: i32,
     /// 自动切号触发模式：any_group | selected_groups
     #[serde(default = "default_auto_switch_scope_mode")]
     pub auto_switch_scope_mode: String,
@@ -763,6 +809,10 @@ fn default_codex_app_enhancements_enabled() -> bool {
     true
 }
 
+fn default_codex_app_native_predictions_enabled() -> bool {
+    true
+}
+
 fn default_codex_wsl_config_dir() -> String {
     String::new()
 }
@@ -814,6 +864,10 @@ fn default_close_behavior() -> CloseWindowBehavior {
 fn default_minimize_behavior() -> MinimizeWindowBehavior {
     MinimizeWindowBehavior::DockAndTray
 }
+fn default_show_tray_icon() -> bool {
+    true
+}
+
 fn default_hide_dock_icon() -> bool {
     false
 }
@@ -826,6 +880,8 @@ fn default_menu_bar_quota_enabled() -> bool {
 fn default_menu_bar_show_account_prefix() -> bool {
     true
 }
+pub(crate) const MENU_BAR_QUOTA_CLAUDE_CLI: &str = "claude_cli";
+
 fn default_menu_bar_quota_platform() -> String {
     "codex".to_string()
 }
@@ -1117,6 +1173,12 @@ fn default_auto_switch_credits_enabled() -> bool {
 fn default_auto_switch_credits_threshold() -> i32 {
     5
 }
+fn default_auto_switch_window_thresholds_enabled() -> bool {
+    false
+}
+fn default_auto_switch_window_threshold() -> i32 {
+    5
+}
 fn default_auto_switch_scope_mode() -> String {
     "any_group".to_string()
 }
@@ -1268,6 +1330,7 @@ impl Default for UserConfig {
             global_proxy_enabled: default_global_proxy_enabled(),
             global_proxy_url: default_global_proxy_url(),
             global_proxy_no_proxy: default_global_proxy_no_proxy(),
+            codex_proxy_direct_hosts: Vec::new(),
             diagnostics_error_reporting_enabled: default_diagnostics_error_reporting_enabled(),
             diagnostics_error_reporting_debug: default_diagnostics_error_reporting_debug(),
             language: default_language(),
@@ -1284,7 +1347,8 @@ impl Default for UserConfig {
             codex_sync_wsl: default_codex_sync_wsl(),
             codex_app_ui_injection_enabled: default_codex_app_ui_injection_enabled(),
             codex_app_api_quota_compat_enabled: default_codex_app_enhancements_enabled(),
-            codex_app_native_predictions_enabled: false,
+            codex_app_native_predictions_enabled: default_codex_app_native_predictions_enabled(),
+            codex_app_native_predictions_default_on_migrated: true,
             codex_wsl_config_dir: default_codex_wsl_config_dir(),
             zed_auto_refresh_minutes: default_zed_auto_refresh(),
             ghcp_auto_refresh_minutes: default_ghcp_auto_refresh(),
@@ -1310,10 +1374,13 @@ impl Default for UserConfig {
             close_behavior: default_close_behavior(),
             minimize_behavior: default_minimize_behavior(),
             hide_dock_icon: default_hide_dock_icon(),
+            show_tray_icon: default_show_tray_icon(),
             tray_icon_style: default_tray_icon_style(),
+            menu_bar_left_click_opens_main_window: false,
             menu_bar_quota_enabled: default_menu_bar_quota_enabled(),
             menu_bar_show_account_prefix: default_menu_bar_show_account_prefix(),
             menu_bar_quota_platform: default_menu_bar_quota_platform(),
+            menu_bar_antigravity_metric: String::new(),
             floating_card_show_on_startup: default_floating_card_show_on_startup(),
             startup_minimized: default_startup_minimized(),
             startup_minimized_default_off_migrated:
@@ -1353,11 +1420,16 @@ impl Default for UserConfig {
             floating_card_position_y: None,
             opencode_app_path: default_opencode_app_path(),
             antigravity_app_path: default_antigravity_app_path(),
+            antigravity_legacy_app_path: String::new(),
             codex_app_path: default_codex_app_path(),
             codex_oauth_app_version: String::new(),
             grok_cli_path: None,
             claude_app_path: default_claude_app_path(),
+            claude_cli_path: String::new(),
+            antigravity_cli_path: String::new(),
+            codebuddy_cli_path: String::new(),
             claude_app_scan_roots: default_claude_app_scan_roots(),
+            claude_share_code_sessions_on_switch: false,
             codex_specified_app_path: default_codex_specified_app_path(),
             zed_app_path: default_zed_app_path(),
             vscode_app_path: default_vscode_app_path(),
@@ -1384,6 +1456,7 @@ impl Default for UserConfig {
             trae_cn_app_scan_roots: default_trae_app_scan_roots(),
             trae_solo_cn_app_scan_roots: default_trae_app_scan_roots(),
             workbuddy_app_path: default_workbuddy_app_path(),
+            workbuddy_ai_app_path: String::new(),
             minimax_code_app_path: default_minimax_code_app_path(),
             minimax_code_region: default_minimax_code_region(),
             workbuddy_share_sessions_on_switch: default_workbuddy_share_sessions_on_switch(),
@@ -1396,6 +1469,8 @@ impl Default for UserConfig {
             openclaw_auth_overwrite_on_switch: default_openclaw_auth_overwrite_on_switch(),
             hermes_auth_overwrite_on_switch: default_hermes_auth_overwrite_on_switch(),
             codex_launch_on_switch: default_codex_launch_on_switch(),
+            codex_cli_auto_refresh_on_switch: false,
+            codex_automatic_session_repair: CodexAutomaticSessionRepair::default(),
             codex_auto_restore_takeover_on_launch:
                 default_codex_auto_restore_takeover_on_launch(),
             antigravity_launch_on_switch: default_antigravity_launch_on_switch(),
@@ -1409,6 +1484,9 @@ impl Default for UserConfig {
             auto_switch_threshold: default_auto_switch_threshold(),
             auto_switch_credits_enabled: default_auto_switch_credits_enabled(),
             auto_switch_credits_threshold: default_auto_switch_credits_threshold(),
+            auto_switch_window_thresholds_enabled: default_auto_switch_window_thresholds_enabled(),
+            auto_switch_five_hour_threshold: default_auto_switch_window_threshold(),
+            auto_switch_weekly_threshold: default_auto_switch_window_threshold(),
             auto_switch_scope_mode: default_auto_switch_scope_mode(),
             auto_switch_selected_group_ids: default_auto_switch_selected_group_ids(),
             auto_switch_account_scope_mode: default_auto_switch_account_scope_mode(),
@@ -1615,6 +1693,28 @@ pub fn get_user_config_path() -> Result<PathBuf, String> {
     Ok(data_dir.join(USER_CONFIG_FILE))
 }
 
+fn split_legacy_antigravity_app_path(config: &mut serde_json::Map<String, serde_json::Value>) {
+    if config.contains_key("antigravity_legacy_app_path") {
+        return;
+    }
+    let Some(path) = config.get("antigravity_app_path").and_then(|value| value.as_str()) else {
+        return;
+    };
+    let normalized = path.trim().trim_matches('"').replace('\\', "/");
+    let lower = normalized.to_ascii_lowercase();
+    let desktop_bundle = lower.split('/').any(|part| part == "antigravity.app");
+    let windows_desktop = lower.as_bytes().get(1) == Some(&b':')
+        && lower.split('/').any(|part| part == "antigravity")
+        && !lower.contains("antigravity ide")
+        && !lower.contains("antigravity-ide");
+    let linux_desktop = normalized.trim_end_matches('/') == "/opt/Antigravity"
+        || normalized.starts_with("/opt/Antigravity/");
+    if desktop_bundle || windows_desktop || linux_desktop {
+        let desktop_path = config.remove("antigravity_app_path").unwrap_or_default();
+        config.insert("antigravity_legacy_app_path".to_string(), desktop_path);
+    }
+}
+
 /// 加载用户配置
 pub fn load_user_config() -> Result<UserConfig, String> {
     let config_path = get_user_config_path()?;
@@ -1654,6 +1754,7 @@ pub fn load_user_config() -> Result<UserConfig, String> {
 
     // 兼容旧配置：平台独立预警字段不存在时，继承历史全局预警配置
     if let Some(obj) = value.as_object_mut() {
+        split_legacy_antigravity_app_path(obj);
         if !obj.contains_key("kiro_auto_refresh_minutes") {
             let inherited_refresh = obj
                 .get("windsurf_auto_refresh_minutes")
@@ -2420,6 +2521,9 @@ pub fn load_user_config() -> Result<UserConfig, String> {
             return Ok(UserConfig::default());
         }
     };
+    if !config.codex_app_native_predictions_default_on_migrated {
+        config.codex_app_native_predictions_enabled = default_codex_app_native_predictions_enabled();
+    }
     let (include_accounts, include_config) = normalize_auto_backup_selection(
         config.auto_backup_include_accounts,
         config.auto_backup_include_config,
@@ -2550,6 +2654,7 @@ where
     drop(cached);
     let (mut next_config, _file_lock_guard) = load_latest(&cached_config)?;
     patch(&mut next_config)?;
+    next_config.codex_app_native_predictions_default_on_migrated = true;
 
     // Keep the writer transaction and cross-process file lock through commit,
     // while only holding the cache write lock for the in-memory assignment.
@@ -2586,6 +2691,18 @@ where
     )
 }
 
+pub(crate) fn persist_codex_native_predictions_default() {
+    if get_user_config().codex_app_native_predictions_default_on_migrated {
+        return;
+    }
+    // Reuse the settings transaction so a concurrent user change is preserved.
+    if let Err(error) = patch_user_config(|_| Ok(())) {
+        crate::modules::logger::log_warn(&format!(
+            "[Config] 保存 Codex 下一步预测默认值失败，下次启动将重试: {error}"
+        ));
+    }
+}
+
 /// 保存完整用户配置。
 pub fn save_user_config(config: &UserConfig) -> Result<(), String> {
     let replacement = config.clone();
@@ -2612,6 +2729,20 @@ pub fn get_user_config() -> UserConfig {
     get_runtime_state()
         .read()
         .map(|state| state.user_config.clone())
+        .unwrap_or_default()
+}
+
+#[cfg(target_os = "macos")]
+pub(super) fn menu_bar_left_click_opens_main_window() -> bool {
+    get_runtime_state()
+        .read()
+        .is_ok_and(|state| state.user_config.menu_bar_left_click_opens_main_window)
+}
+
+pub(crate) fn get_codex_proxy_direct_hosts() -> Vec<String> {
+    get_runtime_state()
+        .read()
+        .map(|state| state.user_config.codex_proxy_direct_hosts.clone())
         .unwrap_or_default()
 }
 
@@ -2688,6 +2819,31 @@ pub fn init_server_status(actual_port: u16, auth_token: String) -> Result<(), St
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn antigravity_desktop_path_migrates_once_without_overwriting_an_explicit_setting() {
+        use serde_json::json;
+
+        for path in [
+            "/Applications/Antigravity.app/Contents/MacOS/Antigravity",
+            r"C:\Users\fixture\AppData\Local\Programs\Antigravity\Antigravity.exe",
+            "/opt/Antigravity/antigravity",
+        ] {
+            let mut old = json!({"antigravity_app_path": path});
+            super::split_legacy_antigravity_app_path(old.as_object_mut().unwrap());
+            let config: UserConfig = serde_json::from_value(old).unwrap();
+            assert_eq!(config.antigravity_legacy_app_path, path);
+            assert!(config.antigravity_app_path.is_empty());
+        }
+        for mut config in [
+            json!({"antigravity_app_path": "/Applications/Antigravity IDE.app"}),
+            json!({"antigravity_app_path": "/opt/custom-app", "antigravity_legacy_app_path": ""}),
+        ] {
+            let expected = config.clone();
+            super::split_legacy_antigravity_app_path(config.as_object_mut().unwrap());
+            assert_eq!(config, expected);
+        }
+    }
+
     #[test]
     fn codex_refresh_scope_legacy_defaults_and_explicit_empty_round_trip() {
         let defaults = UserConfig::default();
@@ -2929,7 +3085,7 @@ mod tests {
     }
 
     #[test]
-    fn codex_native_predictions_remain_opt_in_across_config_upgrades() {
+    fn codex_native_predictions_default_to_enabled() {
         for config in [
             UserConfig::default(),
             serde_json::from_value(serde_json::json!({})).unwrap(),
@@ -2939,21 +3095,58 @@ mod tests {
             }))
             .unwrap(),
         ] {
-            assert!(!config.codex_app_native_predictions_enabled);
+            assert!(config.codex_app_native_predictions_enabled);
         }
-        for enabled in [true, false] {
-            let config: UserConfig = serde_json::from_value(serde_json::json!({
-                "codex_app_native_fast_enabled": false,
-                "codex_app_api_quota_compat_enabled": true,
-                "codex_app_native_predictions_enabled": enabled
-            }))
-            .expect("read an explicit prediction preference");
-            let restored: UserConfig =
-                serde_json::from_value(serde_json::to_value(config).unwrap()).unwrap();
-            assert_eq!(restored.codex_app_native_predictions_enabled, enabled);
+    }
 
-            assert!(restored.codex_app_api_quota_compat_enabled);
+    #[test]
+    fn codex_native_predictions_upgrade_enables_legacy_off_once() {
+        let _lock = crate::modules::test_support::env_lock()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let dir = tempfile::tempdir().expect("create config directory");
+        std::env::set_var("COCKPIT_TOOLS_TEST_DATA_DIR", dir.path());
+        let path = dir.path().join("config.json");
+        fs::write(
+            &path,
+            serde_json::json!({
+                "startup_minimized_default_off_migrated": true,
+                "codex_app_native_predictions_enabled": false,
+                "codex_app_api_quota_compat_enabled": false,
+                "language": "ja",
+            })
+            .to_string(),
+        )
+        .expect("write legacy config");
+
+        let loaded = super::load_user_config().expect("load legacy config");
+        assert!(loaded.codex_app_native_predictions_enabled);
+        assert!(!loaded.codex_app_native_predictions_default_on_migrated);
+        let state = make_runtime_state();
+        for setting in [None, Some(false)] {
+            patch_runtime_state(
+                &state,
+                super::load_latest_user_config_with_lock,
+                super::persist_user_config,
+                |_| {},
+                |config| {
+                    if let Some(enabled) = setting {
+                        config.codex_app_native_predictions_enabled = enabled;
+                    }
+                    Ok(())
+                },
+            )
+            .expect("save upgraded preference");
+            let reloaded = super::load_user_config().expect("reload persisted config");
+            assert_eq!(
+                reloaded.codex_app_native_predictions_enabled,
+                setting.unwrap_or(true)
+            );
+            assert!(reloaded.codex_app_native_predictions_default_on_migrated);
+            assert!(!reloaded.codex_app_api_quota_compat_enabled);
+            assert_eq!(reloaded.language, "ja");
         }
+        std::env::remove_var("COCKPIT_TOOLS_TEST_DATA_DIR");
     }
 
     #[test]

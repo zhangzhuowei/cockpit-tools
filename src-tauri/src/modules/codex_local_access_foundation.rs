@@ -263,6 +263,8 @@ const CODEX_PROVIDER_MODEL_SHELL_POOL: &[&str] = &["gpt-5.6-sol", "gpt-5.6-terra
 // account already exposes those exact models, without assigning them to unrelated
 // overflow models. The retired model remains valid only for explicit API providers.
 const CODEX_PROVIDER_IDENTITY_ONLY_MODEL_IDS: &[&str] = &[
+    crate::modules::codex_model_catalog::GPT_6_2_SOL_MODEL_ID,
+    crate::modules::codex_model_catalog::GPT_6_2_ASTRA_MODEL_ID,
     "gpt-6.1-sol",
     "gpt-6.1-terra",
     "gpt-6-astra",
@@ -363,7 +365,7 @@ const RESPONSE_AFFINITY_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 const MAX_RESPONSE_AFFINITY_BINDINGS: usize = 4096;
 const PREPARED_ACCOUNT_CACHE_TTL_MS: i64 = 30 * 1000;
 const STATE_RECENT_USAGE_EVENT_LIMIT: usize = 100;
-const DEFAULT_MODEL_PRICING_VERSION: u64 = 8;
+const DEFAULT_MODEL_PRICING_VERSION: u64 = 9;
 const MODEL_PRICING_REPRICE_BATCH_SIZE: i64 = 1_000;
 const MODEL_PRICING_REPRICE_PARALLEL_MIN_ROWS: usize = 2_000;
 const LOCAL_ACCESS_LOGS_DB_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -1014,6 +1016,7 @@ struct RoutingCandidate {
     plan_rank: Option<i32>,
     remaining_quota: Option<i32>,
     subscription_expiry_ms: Option<i64>,
+    five_hour_reset_at: Option<i64>,
 }
 
 fn gateway_runtime() -> &'static TokioMutex<GatewayRuntime> {
@@ -1435,13 +1438,10 @@ fn current_upstream_http_client_signature(
     connect_timeout: Duration,
 ) -> UpstreamHttpClientSignature {
     let connect_timeout_ms = duration_to_millis(connect_timeout);
-    if let Some(proxy_url) = upstream_proxy_url
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
+    if let Some(proxy_url) = normalize_upstream_proxy_url(upstream_proxy_url.map(str::to_owned)) {
         return UpstreamHttpClientSignature {
             proxy_source: UpstreamProxySource::ApiService,
-            proxy_url: Some(proxy_url.to_string()),
+            proxy_url: Some(proxy_url),
             connect_timeout_ms,
         };
     }
@@ -1726,6 +1726,8 @@ fn preserve_runtime_collection_fields(
     collection.continuous_overload_retry = current.continuous_overload_retry;
     collection.capability_fallback = current.capability_fallback.clone();
     collection.multi_agent = current.multi_agent.clone();
+    collection.account_quota_floors = current.account_quota_floors.clone();
+    prune_account_quota_floors(collection);
     prune_multi_agent_references(collection);
     prune_capability_fallback_references(collection);
     // Image main-model choices use their own field transaction, like the catalog.
@@ -1753,6 +1755,7 @@ fn sync_runtime_collection(
 ) {
     if runtime.collection.as_ref().is_some_and(|current| {
         collection.chatgpt_plan_service_revision < current.chatgpt_plan_service_revision
+            || collection.account_pool_revision < current.account_pool_revision
     }) {
         // A writer may have persisted before the authorization transaction but
         // reached runtime publication afterwards. Keep the committed membership.
@@ -1769,6 +1772,7 @@ fn sync_runtime_collection(
     collection.native_gateway_default_migrated = true;
     sync_quota_reserve_policy(&collection);
     REQUEST_PAYLOAD_LOGGING_ENABLED.store(collection.request_payload_logging, Ordering::SeqCst);
+    NATIVE_RESPONSE_TIMINGS_ENABLED.store(collection.debug_logs, Ordering::Relaxed);
     if let Some(handle) = runtime.native_handle.as_ref() {
         handle.set_cooling_disabled(collection.disable_cooling);
         handle.set_session_affinity_enabled(collection.session_affinity);
@@ -2107,6 +2111,7 @@ pub struct CodexOfficialWakeupChatResult {
     pub account: CodexAccount,
     pub reply: String,
     pub duration_ms: u64,
+    pub http_status: u16,
 }
 
 /// API 直连唤醒：优先使用所选账号绑定的独立官方授权，未绑定时使用原 Codex 凭据。
@@ -2253,6 +2258,7 @@ pub async fn run_official_wakeup_chat(
         account,
         reply,
         duration_ms: started_at.elapsed().as_millis() as u64,
+        http_status: status.as_u16(),
     })
 }
 
@@ -2275,21 +2281,22 @@ async fn schedule_stats_flush_if_needed() {
         loop {
             tokio::time::sleep(STATS_FLUSH_INTERVAL).await;
 
-            let (stats_snapshot, collection_snapshot) = {
+            let (stats_snapshot, key_usage_snapshot) = {
                 let mut runtime = gateway_runtime().lock().await;
                 if !runtime.stats_dirty && !runtime.collection_dirty {
                     runtime.stats_flush_inflight = false;
                     return;
                 }
-                let collection_snapshot = runtime
-                    .collection_dirty
-                    .then(|| runtime.collection.clone())
-                    .flatten();
+                let key_usage_snapshot = runtime
+                    .collection
+                    .as_ref()
+                    .filter(|_| runtime.collection_dirty)
+                    .map(|collection| collection.api_keys.clone());
                 runtime.stats_dirty = false;
                 runtime.collection_dirty = false;
                 (
                     stats_snapshot_without_events(&runtime.stats),
-                    collection_snapshot,
+                    key_usage_snapshot,
                 )
             };
 
@@ -2300,12 +2307,14 @@ async fn schedule_stats_flush_if_needed() {
                 ));
                 let mut runtime = gateway_runtime().lock().await;
                 runtime.stats_dirty = true;
-                runtime.collection_dirty |= collection_snapshot.is_some();
+                runtime.collection_dirty |= key_usage_snapshot.is_some();
                 runtime.stats_flush_inflight = false;
                 return;
             }
-            if let Some(collection_snapshot) = collection_snapshot.as_ref() {
-                if let Err(err) = save_collection_to_disk(collection_snapshot) {
+            if let Some(key_usage_snapshot) = key_usage_snapshot {
+                let result = local_access_file_path()
+                    .and_then(|path| save_collection_key_usage_to_path(&path, &key_usage_snapshot));
+                if let Err(err) = result {
                     logger::log_codex_api_warn(&format!(
                         "[CodexLocalAccess] background API key token usage save failed: {}",
                         err
@@ -2396,13 +2405,7 @@ fn local_gateway_visible_gpt_model_ids() -> Vec<String> {
 
 /// 客户端模型目录（profile `model_catalog_json`）里的 GPT 条目：模型 ID + 官方显示名。
 fn local_gateway_visible_gpt_model_definitions() -> Vec<(String, String)> {
-    let mut models = crate::modules::codex_model_catalog::recommended_models();
-    // Keep the existing Terra support until upstream includes its catalog entry.
-    // codex_protocol already owns the corresponding capability template.
-    if !models.iter().any(|(id, _)| id.eq_ignore_ascii_case("gpt-6.1-terra")) {
-        models.insert(1.min(models.len()), ("gpt-6.1-terra".into(), "GPT-6.1 Terra".into()));
-    }
-    models
+    crate::modules::codex_model_catalog::recommended_models()
 }
 
 /// API 服务对外展示的模型清单：官方推荐 GPT 集 + 客户端内部需要的隐藏模型。
@@ -2462,7 +2465,11 @@ pub(crate) fn refresh_api_service_experimental_model_ids() {
     if let Ok(store) = crate::modules::codex_instance::load_instance_store() {
         profile_dirs.extend(store.instances.into_iter().filter_map(|instance| {
             let profile = instance.user_data_dir.trim();
-            (!profile.is_empty()).then(|| PathBuf::from(profile))
+            let uses_api_service = instance
+                .bind_account_id
+                .as_deref()
+                .is_some_and(crate::modules::codex_instance::is_api_service_bind_account_id);
+            (uses_api_service && !profile.is_empty()).then(|| PathBuf::from(profile))
         }));
     }
 
@@ -2626,7 +2633,7 @@ fn base_codex_model_ids_for_collection(
         .iter()
         .filter_map(|id| codex_account::load_account(id))
         .filter(|account| {
-            is_local_access_eligible_account(account, collection.restrict_free_accounts)
+            is_local_access_eligible_account(account)
         })
         .collect();
     model_ids = automatic_api_service_pool_model_ids(&accounts, model_ids);
@@ -2741,21 +2748,26 @@ fn apply_model_aliases_to_ids(
         return model_ids;
     }
 
-    let alias_map: HashMap<String, &CodexLocalAccessModelAlias> = aliases
-        .iter()
-        .map(|alias| (alias.source_model.to_ascii_lowercase(), alias))
-        .collect();
+    let mut alias_map: HashMap<String, Vec<&CodexLocalAccessModelAlias>> = HashMap::new();
+    for alias in aliases {
+        alias_map
+            .entry(alias.source_model.to_ascii_lowercase())
+            .or_default()
+            .push(alias);
+    }
     let mut seen = HashSet::new();
     let mut visible = Vec::new();
 
     for model in model_ids {
         let key = model.to_ascii_lowercase();
-        if let Some(alias) = alias_map.get(&key) {
-            if alias.fork && seen.insert(key) {
+        if let Some(aliases) = alias_map.get(&key) {
+            if aliases.iter().any(|alias| alias.fork) && seen.insert(key) {
                 visible.push(model.clone());
             }
-            if seen.insert(alias.alias.to_ascii_lowercase()) {
-                visible.push(alias.alias.clone());
+            for alias in aliases {
+                if seen.insert(alias.alias.to_ascii_lowercase()) {
+                    visible.push(alias.alias.clone());
+                }
             }
         } else if seen.insert(key) {
             visible.push(model);
@@ -2878,7 +2890,7 @@ fn visible_codex_model_ids_for_api_key_with_supported_models(
             .iter()
             .filter(|account| scoped_account_ids.contains(&account.id))
             .filter(|account| {
-                is_local_access_eligible_account(account, collection.restrict_free_accounts)
+                is_local_access_eligible_account(account)
             })
             .cloned()
             .collect();

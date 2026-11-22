@@ -695,6 +695,8 @@
 
     fn build_antigravity_cards(lang: &str) -> (Vec<AccountCard>, Option<String>, Option<String>) {
         let accounts = modules::account::list_accounts().unwrap_or_default();
+        let config = modules::config::get_user_config();
+        let metric = config.menu_bar_antigravity_metric.trim();
         let current_id = modules::account::get_current_account()
             .ok()
             .flatten()
@@ -712,7 +714,13 @@
             .into_iter()
             .map(|account| {
                 let quota = account.quota.as_ref();
-                let quota_rows = build_antigravity_quota_rows(lang, quota);
+                let quota_rows = build_antigravity_quota_rows(lang, quota, metric);
+                let remaining_percent = if metric.is_empty() {
+                    min_quota_progress(&quota_rows, true)
+                } else {
+                    quota.and_then(|quota| selected_antigravity_menu_quota(quota, metric))
+                        .map(|model| model.percentage.clamp(0, 100))
+                };
                 AccountCard {
                     id: account.id,
                     title: account.email,
@@ -722,7 +730,7 @@
                         account.last_used,
                         account.created_at,
                     ),
-                    remaining_percent: min_quota_progress(&quota_rows, true),
+                    remaining_percent,
                     quota_rows,
                 }
             })
@@ -1447,14 +1455,27 @@
             .map(|account| {
                 let usage = read_cursor_tray_usage(&account);
                 let mut rows = Vec::new();
+                let total_label = if usage.weekly {
+                    translate_or(lang, "cursor.quota.weeklyUsage", "Weekly usage", &[])
+                } else {
+                    translate_or(lang, "cursor.quota.totalUsage", "Total Usage", &[])
+                };
                 if let Some(percentage) = usage.total_used_percent {
                     rows.push(make_progress_row(
-                        translate_or(lang, "cursor.quota.totalUsage", "Total Usage", &[]),
+                        total_label,
                         format!("{percentage}%"),
                         percentage,
                         format_reset_subtext(lang, usage.reset_ts),
                         cursor_usage_tone(percentage),
                     ));
+                } else if usage.weekly {
+                    rows.push(QuotaRow {
+                        label: total_label,
+                        value: "—".to_string(),
+                        progress: None,
+                        progress_tone: None,
+                        subtext: format_reset_subtext(lang, usage.reset_ts),
+                    });
                 }
                 if let Some(percentage) = usage.auto_used_percent {
                     rows.push(make_progress_row(
@@ -1503,6 +1524,15 @@
                         subtext: None,
                     });
                 }
+                if let Some(cents) = usage.paid_monthly_cents {
+                    rows.push(QuotaRow {
+                        label: translate_or(lang, "cursor.quota.additionalMonthlyUsed", "Additional usage this month", &[]),
+                        value: format!("${:.2}", cents as f64 / 100.0),
+                        progress: None,
+                        progress_tone: None,
+                        subtext: None,
+                    });
+                }
                 let account_id = account.id.clone();
                 let remaining_percent = min_quota_progress(&rows, false);
                 AccountCard {
@@ -1512,7 +1542,11 @@
                     } else {
                         account.email
                     },
-                    plan: account.membership_type,
+                    plan: account.membership_type.map(|plan| match plan.trim().to_ascii_lowercase().as_str() {
+                        "unified_ultra" => "Ultra".to_string(),
+                        "super" => "Super".to_string(),
+                        _ => plan,
+                    }),
                     updated_at: display_updated_at(
                         account.usage_updated_at,
                         account.last_used,

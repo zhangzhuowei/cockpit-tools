@@ -9,6 +9,12 @@ pub enum ZcodeAuthMode {
     ApiKey,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ZcodeTeamPlan {
+    pub organization_id: String,
+    pub project_id: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ZcodeAccount {
     pub id: String,
@@ -32,6 +38,8 @@ pub struct ZcodeAccount {
     pub api_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team_plan: Option<ZcodeTeamPlan>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plan_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -83,6 +91,8 @@ pub struct ZcodeAccountIndex {
     #[serde(default)]
     pub current_account_id: Option<String>,
     pub accounts: Vec<ZcodeAccountSummary>,
+    #[serde(skip)]
+    pub(crate) storage_revision: crate::modules::provider_account_index::Revision,
 }
 
 impl Default for ZcodeAccountIndex {
@@ -91,6 +101,7 @@ impl Default for ZcodeAccountIndex {
             version: "1.0".to_string(),
             current_account_id: None,
             accounts: Vec::new(),
+            storage_revision: Default::default(),
         }
     }
 }

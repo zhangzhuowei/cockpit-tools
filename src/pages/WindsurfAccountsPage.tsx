@@ -1,3 +1,4 @@
+import { useAccountsOverviewFilterState } from '../hooks/useAccountsOverviewFilterState';
 import { useState, useMemo, useCallback, useEffect, useRef, Fragment } from 'react';
 import {
   Plus,
@@ -11,6 +12,8 @@ import {
   Database,
   Copy,
   Check,
+  ArrowDown,
+  ArrowUp,
   RotateCw,
   CircleAlert,
   LayoutGrid,
@@ -73,12 +76,9 @@ import {
   normalizeAccountsOverviewScope,
   readAccountsOverviewFilterPersistenceEnabled,
   readAccountsOverviewFilterStringArray,
-  removeAccountsOverviewFilterField,
-  writeAccountsOverviewFilterField,
 } from '../utils/accountsOverviewFilterPersistence';
 
 const WINDSURF_FLOW_NOTICE_COLLAPSED_KEY = 'agtools.windsurf.flow_notice_collapsed';
-const WINDSURF_CURRENT_ACCOUNT_ID_KEY = 'agtools.windsurf.current_account_id';
 const WINDSURF_FILTER_PERSISTENCE_SCOPE = normalizeAccountsOverviewScope('Windsurf');
 const FILTER_TYPES_FIELD = 'filter_types';
 const WINDSURF_TOKEN_SINGLE_EXAMPLE = `sk-ws-xxxxx 或 eyJxxxxx`;
@@ -308,7 +308,7 @@ function parseWindsurfPasswordBatchTextInput(
 
 export function WindsurfAccountsPage() {
   const [activeTab, setActiveTab] = useState<WindsurfTab>('overview');
-  const [filterTypes, setFilterTypes] = useState<string[]>(() =>
+  const [filterTypes, setFilterTypes] = useAccountsOverviewFilterState<string[]>(WINDSURF_FILTER_PERSISTENCE_SCOPE, FILTER_TYPES_FIELD, () =>
     readAccountsOverviewFilterPersistenceEnabled(WINDSURF_FILTER_PERSISTENCE_SCOPE)
       ? readAccountsOverviewFilterStringArray(
           WINDSURF_FILTER_PERSISTENCE_SCOPE,
@@ -324,7 +324,6 @@ export function WindsurfAccountsPage() {
     platformKey: 'Windsurf',
     oauthLogPrefix: 'WindsurfOAuth',
     flowNoticeCollapsedKey: WINDSURF_FLOW_NOTICE_COLLAPSED_KEY,
-    currentAccountIdKey: WINDSURF_CURRENT_ACCOUNT_ID_KEY,
     exportFilePrefix: 'windsurf_accounts',
     defaultSortBy: 'recommended',
     store: {
@@ -360,7 +359,6 @@ export function WindsurfAccountsPage() {
   const {
     t, locale, privacyModeEnabled, togglePrivacyMode, maskAccountText,
     viewMode, setViewMode, searchQuery, setSearchQuery,
-    filterPersistenceEnabled, filterPersistenceScope,
     sortBy, setSortBy, sortDirection, setSortDirection,
     selected, toggleSelect, toggleSelectAll,
     tagFilter, groupByTag, setGroupByTag, showTagFilter, setShowTagFilter,
@@ -392,14 +390,6 @@ export function WindsurfAccountsPage() {
   } = page;
 
   const grouping = usePlatformAccountGroups('windsurf', () => toggleSelectAll(Array.from(selected)));
-
-  useEffect(() => {
-    if (!filterPersistenceEnabled) {
-      removeAccountsOverviewFilterField(filterPersistenceScope, FILTER_TYPES_FIELD);
-      return;
-    }
-    writeAccountsOverviewFilterField(filterPersistenceScope, FILTER_TYPES_FIELD, filterTypes);
-  }, [filterPersistenceEnabled, filterPersistenceScope, filterTypes]);
 
   const toggleFilterTypeValue = useCallback((value: string) => {
     setFilterTypes((prev) => {
@@ -1424,7 +1414,7 @@ export function WindsurfAccountsPage() {
               : (sortDirection === 'desc'
                 ? t('common.shared.sort.descTooltip', '当前：降序，点击切换为升序')
                 : t('common.shared.sort.ascTooltip', '当前：升序，点击切换为降序'))}
-            aria-label={t('common.shared.sort.toggleDirection', '切换排序方向')}>{sortDirection === 'desc' ? '⬇' : '⬆'}</button>
+            aria-label={t('common.shared.sort.toggleDirection', '切换排序方向')}>{sortDirection === 'desc' ? <ArrowDown size={15} /> : <ArrowUp size={15} />}</button>
         </div>
         <div className="toolbar-right">
           <button className="btn btn-primary icon-only" onClick={() => openAddModal('oauth')} title={t('common.shared.addAccount', '添加账号')}><Plus size={14} /></button>
@@ -1590,10 +1580,10 @@ export function WindsurfAccountsPage() {
             {addTab === 'token' && (
               <div className="add-section">
                 <p className="section-desc">{t('windsurf.token.desc', '粘贴您的 Windsurf API Key 或导出的 JSON 数据。')}</p>
-                <details className="token-format-collapse"><summary className="token-format-collapse-summary">必填字段与示例（点击展开）</summary>
-                  <div className="token-format"><p className="token-format-required">必填字段：github_access_token (API Key)</p>
-                    <div className="token-format-group"><div className="token-format-label">单条示例</div><pre className="token-format-code">{WINDSURF_TOKEN_SINGLE_EXAMPLE}</pre></div>
-                    <div className="token-format-group"><div className="token-format-label">批量示例（JSON）</div><pre className="token-format-code">{WINDSURF_TOKEN_BATCH_EXAMPLE}</pre></div>
+                <details className="token-format-collapse"><summary className="token-format-collapse-summary">{t('common.shared.tokenFormat.summary', '必填字段与示例（点击展开）')}</summary>
+                  <div className="token-format"><p className="token-format-required">{t('windsurf.token.requiredFields', '必填字段：github_access_token (API Key)')}</p>
+                    <div className="token-format-group"><div className="token-format-label">{t('common.shared.tokenFormat.single', '单条示例')}</div><pre className="token-format-code">{WINDSURF_TOKEN_SINGLE_EXAMPLE}</pre></div>
+                    <div className="token-format-group"><div className="token-format-label">{t('common.shared.tokenFormat.batchJson', '批量示例（JSON）')}</div><pre className="token-format-code">{WINDSURF_TOKEN_BATCH_EXAMPLE}</pre></div>
                   </div></details>
                 <textarea className="token-input" value={tokenInput} onChange={(e) => setTokenInput(e.target.value)} placeholder={t('common.shared.token.placeholder', '粘贴 Token 或 JSON...')} />
                 <button className="btn btn-primary btn-full" onClick={handleTokenImport} disabled={importing || !tokenInput.trim()}>

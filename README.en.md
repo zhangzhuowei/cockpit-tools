@@ -1,17 +1,19 @@
 # Cockpit Tools
 
-English · [Portuguese (BR)](README.pt-br.md) · [简体中文](README.md)
+English · [Portuguese (BR)](README.pt-br.md) · [한국어](README.ko.md) · [简体中文](README.md)
 
 [![GitHub stars](https://img.shields.io/github/stars/jlcodes99/cockpit-tools?style=flat&color=gold)](https://github.com/jlcodes99/cockpit-tools)
 [![GitHub downloads](https://img.shields.io/github/downloads/jlcodes99/cockpit-tools/total?style=flat&color=blue)](https://github.com/jlcodes99/cockpit-tools/releases)
 [![GitHub release](https://img.shields.io/github/v/release/jlcodes99/cockpit-tools?style=flat)](https://github.com/jlcodes99/cockpit-tools/releases)
 [![GitHub issues](https://img.shields.io/github/issues/jlcodes99/cockpit-tools)](https://github.com/jlcodes99/cockpit-tools/issues)
 
-A **universal AI IDE account management tool**, currently supporting **Antigravity IDE**, **Codex**, **GitHub Copilot**, **Windsurf**, **Kiro**, **Cursor**, **Grok CLI**, **CodeBuddy**, **CodeBuddy CN**, **Qoder**, **Trae**, **TRAE SOLO**, **Trae CN**, **TRAE SOLO CN**, **Zed**, and **ZCode**, with multi-instance parallel workflows.
+A **universal AI IDE account management tool**, currently supporting **Antigravity IDE**, **Codex**, **GitHub Copilot**, **Windsurf**, **Kiro**, **Cursor**, **Grok CLI**, **CodeBuddy**, **CodeBuddy CN**, **Qoder**, **Trae**, **TraeWork**, **Trae CN**, **TraeWork CN**, **Zed**, **ZCode**, and **WorkBuddy AI**, with multi-instance parallel workflows.
 
 > Designed to help users efficiently manage multiple AI IDE accounts, this tool supports one-click switching, quota monitoring, wake-up tasks, and multi-instance parallel runs, helping you fully utilize resources from different accounts.
 
 **Features**: One-click Switch · Multi-account Management · Multi-instance · Quota Monitoring · Wake-up Tasks · Plugin Integration · GitHub Copilot Management · Windsurf Management · Kiro Management · Cursor Management · Grok CLI Management · CodeBuddy Management · CodeBuddy CN Management · Qoder Management · Trae Suite Management · Zed Management · ZCode Management
+
+**WorkBuddy AI** (macOS and Windows) supports browser sign-in, import from the desktop app or JSON, credit balance, and desktop account switching.
 
 **Languages**: Supports 18 languages
 
@@ -54,7 +56,7 @@ A **universal AI IDE account management tool**, currently supporting **Antigravi
 
 A brand new visual dashboard providing a one-stop status overview:
 
-- **Sixteen-Platform Support**: Simultaneously displays Antigravity IDE, Codex, GitHub Copilot, Windsurf, Kiro, Cursor, Grok CLI, CodeBuddy, CodeBuddy CN, Qoder, Trae, TRAE SOLO, Trae CN, TRAE SOLO CN, Zed, and ZCode account status
+- **Sixteen-Platform Support**: Simultaneously displays Antigravity IDE, Codex, GitHub Copilot, Windsurf, Kiro, Cursor, Grok CLI, CodeBuddy, CodeBuddy CN, Qoder, Trae, TraeWork, Trae CN, TraeWork CN, Zed, and ZCode account status
 - **Quota Monitoring**: Real-time view of remaining quotas and reset times for each model
 - **Quick Actions**: One-click refresh, one-click wake-up
 - **Visual Progress**: Intuitive progress bars showing quota consumption
@@ -63,9 +65,10 @@ A brand new visual dashboard providing a one-stop status overview:
 
 > Screenshots updated on November 2, 2026, captured from Cockpit Tools v1.3.78 with account details hidden.
 
-### 2. Antigravity IDE Account Management
+### 2. Antigravity Account Management
 
-- **One-Click Switch**: Starting with IDE 2.6, the default IDE, desktop App and initialized `agy` share sign-in credentials. With launch enabled, switching also reopens the other client if it was running. Older IDE versions use a separate local sign-in.
+- **One account list**: Open the launch dialog from an account and choose Antigravity, Antigravity IDE, or the official CLI (`agy`). Switch accounts on its own or launch after switching. The CLI supports a working directory.
+- **Shared sign-in**: Starting with IDE 2.6, the default IDE, the App in system credential mode, and `agy` using Google sign-in can share credentials. Older IDE versions use a separate local sign-in.
 - **Multiple Import Methods**: OAuth, Refresh Token, Plugin Sync
 - **Wake-up Tasks**: Schedule AI model wake-ups to trigger quota reset cycles in advance
 
@@ -74,7 +77,9 @@ A brand new visual dashboard providing a one-stop status overview:
 > *(Wakeup Tasks)*
 > ![Wakeup Tasks](docs/images/wakeup_detail.png)
 
-#### 2.1 Antigravity IDE Multi-Instance
+#### 2.1 Antigravity Multi-Instance
+
+Manage App and IDE instances separately from the same page. Use an instance’s launch button to choose a desktop instance for either client or open the CLI in a terminal.
 
 Older IDE versions with separate SQLite sign-ins can run multiple instances under different accounts. Starting with IDE 2.6, instance directories separate projects and local settings while sharing sign-in credentials.
 
@@ -174,6 +179,7 @@ Manage Cursor instances with isolated profiles and lifecycle controls.
 ### 8. Grok CLI Account Management
 
 - **OAuth Authorization**: Supports xAI's official OIDC device flow and saves the account after browser verification completes
+- **Use with the Codex API service**: Authorize the account from **Grok CLI**, then open **Codex → API Service → Add Account**. Filter by **Grok**, select the account, and save. Cockpit creates a provider entry bound to the Grok account and prepares its xAI credentials for the service.
 - **API Keys and Third-Party Endpoints**: Supports official xAI API keys plus OpenAI-compatible third-party `Base URL` and model IDs; configuration is written to an account-specific `config.toml`, while the key is injected only into the corresponding CLI process at launch
 - **Import and Redacted Export**: Imports official credentials from the default `~/.grok/auth.json` or supplied JSON; account-page exports and generic account backups omit access/refresh tokens, cannot restore a sign-in, and require a separate official `auth.json` import when migrating
 - **Real Account Switching**: Writes the selected account to the default `~/.grok/auth.json` in Grok CLI's official registry format while preserving other registry scopes in the file
@@ -210,6 +216,7 @@ Manage CodeBuddy instances with isolated profiles and lifecycle controls.
 - **Quota View**: shows plan and usage status, with a shortcut to open detailed quota information on the official web page
 - **Batch Operations**: supports tags and bulk actions
 - **Switch Injection**: supports writing local auth state back and launching CodeBuddy CN after account switch
+- **Desktop and CLI launch**: Choose the desktop app or CLI from a saved account. The CLI remembers its working directory and offers installation instructions when needed.
 
 #### 9.1 CodeBuddy CN Multi-Instance
 
@@ -218,6 +225,11 @@ Manage CodeBuddy CN instances with isolated profiles and lifecycle controls.
 - **Isolated Profiles**: each instance uses its own user data directory
 - **Quick Lifecycle**: start/stop/force stop instances
 - **Window Control**: open instance windows and close all instances
+
+#### CLI
+
+- Start the official `codebuddy` CLI from an account in either CodeBuddy or CodeBuddy CN. Install [CodeBuddy Code CLI](https://www.codebuddy.ai/docs/cli/installation) first.
+- Switch to CLI under Multi-Instance in the matching version to manage named instances. Each instance has its own working directory and CLI configuration.
 
 ### 11. Qoder Account Management
 
@@ -239,7 +251,7 @@ Manage Qoder instances with isolated profiles and lifecycle controls.
 - **Account Import**: supports local import and JSON import
 - **Quota View**: shows raw plan values, USD spent/total budget, and reset time
 - **Batch Operations**: supports tags, filters, export, and batch delete/refresh
-- **Trae Suite**: supports local import and switch injection for the default clients of Trae, TRAE SOLO, Trae CN, and TRAE SOLO CN; they appear independently by default and can be grouped manually in Top Layout
+- **Trae Suite**: supports local import and switch injection for the default clients of Trae, TraeWork, Trae CN, and TraeWork CN; they appear independently by default and can be grouped manually in Top Layout
 - **Switch Injection**: supports writing back local auth state using each client's real on-disk rules and launching the target client
 
 #### 11.1 Trae Multi-Instance
@@ -294,6 +306,7 @@ These are the most common security questions answered directly:
   - `~/.codex`: official Codex current login `auth.json`
   - `~/.grok`: the official Grok CLI default instance and current sign-in `auth.json`
   - `~/.zcode/v2`: ZCode encrypted credentials for the current official sign-in and quota cache
+  - Saved 2FA entries and query history are encrypted in `mfa_vault.sqlite` under the application data directory. Saved APIKEY.FUN keys are stored in the encrypted `apikey_fun_vault.json` file. The encryption material lives in a private key file in the same application data directory, and old WebView data is retained during migration.
   - system application data under `com.jlcodes.cockpit-tools`: host WebView state and related data; historical `com.antigravity.cockpit-tools` directories are used only for legacy data imports
 - **Grok CLI credentials are not encrypted**: access and refresh tokens are stored locally as plaintext JSON and rely primarily on operating-system account isolation and local file permissions. On Unix systems, credential directories are set to `0700` and credential files to `0600`. Redacted exports contain no tokens and cannot serve as sign-in backups.
 - **WebSocket is local-only by default**: binds to `127.0.0.1`, default port `19528`; you can disable it or change the port in Settings.
@@ -377,10 +390,13 @@ Notes:
 Go to [GitHub Releases](https://github.com/jlcodes99/cockpit-tools/releases) to download the package for your system:
 
 *   **macOS**: `.dmg` (Apple Silicon & Intel)
-*   **Windows**: `.msi` (Recommended), `.exe`, or `x64-portable.zip` (extract and run)
+*   **Windows x64**: `_x64_en-US.msi` (recommended), `_x64-setup.exe`, or `x64-portable.zip` (extract and run)
+*   **Windows ARM64**: `_arm64-setup.exe`
 
 Extract the Windows portable archive and run the included `Cockpit Tools.exe` (or the bundled main executable). Windows 10/11 with the Microsoft Edge WebView2 Runtime is required. Accounts and settings remain in the current Windows user's data directory and are not moved with the ZIP folder.
-*   **Linux**: `.deb` (Debian/Ubuntu), `.rpm`, or `.AppImage` (Universal)
+*   **Linux**: `.deb` (Debian/Ubuntu), `.rpm`, or `.AppImage`
+
+Ubuntu 20.04 cannot install the current `.deb` because its repositories lack `libwebkit2gtk-4.1-0`. The current x64 AppImage binary requires glibc 2.34, and Ubuntu 20.04 provides glibc 2.31. Use Ubuntu 24.04 LTS. See the [Ubuntu 24.04 build guide](docs/build-wsl2-ubuntu24.md) for building from source.
 
 ### Option B: Install with Homebrew (macOS)
 
@@ -444,6 +460,18 @@ npm run tauri dev
 
 ```bash
 npm run tauri build
+```
+
+### Command line
+
+Download `cockpit-cli_<version>_linux_<architecture>.tar.gz` from a [GitHub Release](https://github.com/jlcodes99/cockpit-tools/releases) with CLI assets. Choose `x86_64` or `aarch64`, extract the archive, and run `./cockpit-cli list codex --json`. Release builds use Ubuntu 22.04 (x86_64) and Ubuntu 24.04 (aarch64). The CLI requires the system OpenSSL 3 runtime and runs without a desktop environment.
+
+You can also run it from source. Scripts can read JSON from stdout with `--json` and check the nonzero exit code and stderr on failure.
+
+```bash
+cargo run --locked --package cockpit-cli -- list codex --json
+cargo run --locked --package cockpit-cli -- switch codex "your-account-id" --json
+cargo run --locked --package cockpit-cli -- switch cursor "your-account-id" --json
 ```
 
 ---

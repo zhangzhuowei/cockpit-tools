@@ -1,6 +1,6 @@
 [package]
 name = "cockpit-tools"
-version = "1.3.79"
+version = "1.4.2"
 description = "Cockpit Tools"
 authors = ["jlcodes"]
 license = "CC-BY-NC-SA-4.0"
@@ -15,10 +15,13 @@ tauri-build = { version = "2", features = [] }
 swift-rs = { version = "1.0.7", features = ["build"] }
 
 [dev-dependencies]
+dotenvy = "0.15.7"
 hyper = { version = "1", features = ["server", "http2"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 
 [dependencies]
+# Inspect reqwest's typed HTTP/2 keepalive failures without parsing error text.
+hyper = { version = "1", features = ["client", "http2"] }
 tempfile = "3"
 tauri = { version = "2", features = ["macos-private-api", "tray-icon", "image-png", "unstable"] }
 # Reuse Tauri's web engine without its IPC bridge for untrusted generated HTML.
@@ -28,6 +31,7 @@ tauri-plugin-clipboard-manager = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-notification = "2"
+notify-rust = "4.11"
 tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 tauri-plugin-deep-link = "2"
@@ -55,7 +59,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "time"] }
 tracing-appender = "0.2"
 tracing-log = "0.2"
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.32", features = ["bundled", "backup"] }
 base64 = "0.22"
 minisign-verify = "0.2"
 tokio = { version = "1", features = ["full"] }
@@ -76,6 +80,7 @@ crypto_box = { version = "0.9.1", features = ["seal", "std"] }
 rsa = "0.9"
 serde_urlencoded = "0.7"
 url = "2.5"
+ipnet = "2"
 regex = "1"
 rand = "0.8"
 futures = "0.3"
@@ -103,16 +108,24 @@ pbkdf2 = "0.12"
 sha1 = "0.10"
 
 [target.'cfg(target_os = "windows")'.dependencies]
+dotenvy = "0.15.7"
 age = { version = "0.11", default-features = false }
 keyring = { version = "3.6", features = ["windows-native"] }
-windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_Storage_Packaging_Appx", "Win32_System_Com", "Win32_System_JobObjects", "Win32_System_LibraryLoader", "Win32_System_ProcessStatus", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+socket2 = "0.6"
+windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Networking_WinSock", "Win32_System_IO", "Win32_Graphics_Gdi", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_Storage_Packaging_Appx", "Win32_System_Com", "Win32_System_Console", "Win32_System_JobObjects", "Win32_System_LibraryLoader", "Win32_System_ProcessStatus", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 junction.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 mac-notification-sys = "0.6"
+plist = "1.8"
+# ZCode 3.18+ 把 v2 OAuth 凭据密钥保存在系统凭据库（macOS Keychain），导入时需要读取。
+keyring = { version = "3.6", features = ["apple-native"] }
 objc2 = "0.6.3"
 objc2-foundation = "0.3.2"
 objc2-app-kit = "0.3.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3.6", features = ["async-secret-service", "async-io", "crypto-rust"] }
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-process = "2.3.1"

@@ -16,6 +16,7 @@ import { createPortal } from 'react-dom';
 import { listen } from '@tauri-apps/api/event';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { ExportJsonModal } from './ExportJsonModal';
+import { SingleSelectDropdown } from './SingleSelectDropdown';
 import { useExportJsonModal } from '../hooks/useExportJsonModal';
 import { useEscCloseTopmost } from '../hooks/useEscClose';
 import { useModalFocusTrap } from '../hooks/useModalFocusTrap';
@@ -77,7 +78,7 @@ const DEFAULT_TRANSFER_SELECTION: DataTransferSelection = {
 };
 
 const BACKUP_FILE_NAME_REGEX =
-  /^cockpit_(auto|manual)_backup_(full|accounts|config)_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.(json|zip)$/i;
+  /^cockpit_(auto|manual)_backup_(full|accounts|config)_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}(?:_token-refresh-[a-f0-9-]{36})?(?:_mfa-pending)?\.(json|zip)$/i;
 
 const BACKUP_USAGE_SOURCE_ORDER = [
   'scheduled',
@@ -102,6 +103,7 @@ function normalizeImportErrorMessage(
   if (rawError === 'codex_top_layout_read_failed') return t('codex.more.topLayoutReadFailed');
   if (rawError === 'codex_top_layout_invalid') return t('settings.transfer.errors.codexTopLayoutInvalid');
   if (rawError === 'codex_top_layout_import_failed') return t('settings.transfer.errors.codexTopLayoutImportFailed');
+  if (rawError === 'platform_layout_import_failed') return t('settings.transfer.errors.platformLayoutImportFailed');
   if (rawError === 'transfer_selection_required') {
     return t('settings.transfer.errors.selectionRequired');
   }
@@ -1476,6 +1478,7 @@ export function SettingsAccountTransferSection({
               </div>
             </div>
 
+
             {!showImportModal && !showExportOptionsModal && feedbackNode && (
               <div className="settings-transfer-feedback-wrap">{feedbackNode}</div>
             )}
@@ -1990,18 +1993,20 @@ export function SettingsAccountTransferSection({
                     <div className="settings-backup-manager-desc">
                       {t('settings.transfer.backup.typeDesc')}
                     </div>
-                    <select
-                      className="settings-select"
+                    <SingleSelectDropdown
+                      className="settings-dropdown"
                       value={backupMode}
-                      onChange={(event) => {
-                        void handleBackupModeChange(event.target.value as AutoBackupMode);
+                      options={[
+                        { value: 'full', label: t('settings.transfer.backup.typeFull') },
+                        { value: 'accounts', label: t('settings.transfer.backup.typeAccounts') },
+                        { value: 'config', label: t('settings.transfer.backup.typeConfig') },
+                      ]}
+                      onChange={(nextValue) => {
+                        void handleBackupModeChange(nextValue as AutoBackupMode);
                       }}
                       disabled={backupControlsDisabled || !backupSettings}
-                    >
-                      <option value="full">{t('settings.transfer.backup.typeFull')}</option>
-                      <option value="accounts">{t('settings.transfer.backup.typeAccounts')}</option>
-                      <option value="config">{t('settings.transfer.backup.typeConfig')}</option>
-                    </select>
+                      ariaLabel={t('settings.transfer.backup.typeTitle')}
+                    />
                   </div>
 
                   <div className="settings-backup-manager-card">
@@ -2136,21 +2141,22 @@ export function SettingsAccountTransferSection({
                   {backupPlatformOptions.length > 0 && (
                     <div className="settings-backup-platform-filter">
                       <span>{t('settings.transfer.backup.platformFilterLabel')}</span>
-                      <select
-                        className="settings-select"
+                      <SingleSelectDropdown
+                        className="settings-dropdown"
                         value={backupPlatformFilter}
-                        onChange={(event) =>
-                          setBackupPlatformFilter(event.target.value as PlatformId | 'all')
+                        options={[
+                          { value: 'all', label: t('settings.transfer.backup.platformFilterAll') },
+                          ...backupPlatformOptions.map((platform) => ({
+                            value: platform,
+                            label: getPlatformLabel(platform, t),
+                          })),
+                        ]}
+                        onChange={(nextValue) =>
+                          setBackupPlatformFilter(nextValue as PlatformId | 'all')
                         }
                         disabled={backupControlsDisabled}
-                      >
-                        <option value="all">{t('settings.transfer.backup.platformFilterAll')}</option>
-                        {backupPlatformOptions.map((platform) => (
-                          <option key={platform} value={platform}>
-                            {getPlatformLabel(platform, t)}
-                          </option>
-                        ))}
-                      </select>
+                        ariaLabel={t('settings.transfer.backup.platformFilterLabel')}
+                      />
                     </div>
                   )}
 

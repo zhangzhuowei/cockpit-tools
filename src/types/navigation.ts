@@ -3,6 +3,7 @@ export type Page =
   | 'manual'
   | 'api-relay'
   | 'overview'
+  | 'antigravity-usage'
   | 'codex'
   | 'claude'
   | 'claude-cli'
@@ -22,6 +23,7 @@ export type Page =
   | 'trae-cn'
   | 'trae-solo-cn'
   | 'workbuddy'
+  | 'workbuddy_ai'
   | 'minimaxcode'
   | 'codex-instances'
   | 'instances'
@@ -37,6 +39,7 @@ export const MAIN_WINDOW_NAVIGABLE_PAGES: readonly Page[] = [
   'manual',
   'api-relay',
   'overview',
+  'antigravity-usage',
   'codex',
   'claude',
   'claude-cli',
@@ -56,6 +59,7 @@ export const MAIN_WINDOW_NAVIGABLE_PAGES: readonly Page[] = [
   'trae-cn',
   'trae-solo-cn',
   'workbuddy',
+  'workbuddy_ai',
   'minimaxcode',
   'settings',
 ] as const;

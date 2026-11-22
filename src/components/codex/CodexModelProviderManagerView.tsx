@@ -1,8 +1,11 @@
-import { resolveNewApiQuotaSnapshot } from "../../services/modelProviderUsageService";
+import { canShowCodexProviderBalance } from "../../utils/codexDeepSeekAccess";
+import { ModelProviderUsagePanel } from "../model-provider/ModelProviderUsagePanel";
+import { presentNewApiQuota, resolveNewApiQuotaSnapshot } from "../../services/modelProviderUsageService";
 import { OpenAIOfficialUsagePanel } from './OpenAIOfficialUsagePanel';
 import { currentOpenAIUsageState, isOpenAIOfficialUsageUrl } from '../../utils/openaiOfficialUsage';
+import { currentCustomProviderUsageState } from '../../utils/codexCustomProviderUsage';
 import { ModalErrorMessage } from "../ModalErrorMessage";
-import { Bird, ArrowDownWideNarrow, ArrowDown, ArrowUp, CircleAlert, ChevronDown, Copy, Clock, Database, ExternalLink, GripVertical, Link2, LayoutGrid, Pencil, Plus, Rows3, Trash2, X, Search, Settings, Activity, RefreshCw, RotateCw, Play } from "lucide-react";
+import { Bird, ArrowDownWideNarrow, ArrowDown, ArrowUp, CircleAlert, ChevronDown, Copy, Clock, Database, ExternalLink, FileCode, GripVertical, Link2, LayoutGrid, Pencil, Plus, Rows3, Trash2, X, Search, Settings, Activity, RefreshCw, RotateCw, Play } from "lucide-react";
 import { MultiSelectFilterDropdown } from "../MultiSelectFilterDropdown";
 import { SingleSelectFilterDropdown } from "../SingleSelectFilterDropdown";
 import { SingleSelectDropdown } from "../SingleSelectDropdown";
@@ -12,7 +15,6 @@ import { DEEPSEEK_API_PROVIDER_ID, resolveCodexApiProviderPresetId } from "../..
 import { resolveCodexModelProviderForApiKey } from "../../utils/codexModelProviderKeyConfig";
 import { normalizeApiKeyFunOfficialUrl } from "../../utils/apikeyFunLinks";
 import { getCodexSubscriptionPresentation } from "../../types/codex";
-import { resolveCodexProviderCapabilityProfile } from "../../utils/codexProviderGateway";
 import { CodexQuickConfigCard } from "./CodexQuickConfigCard";
 import {
   CodexServicePanelModal,
@@ -32,7 +34,6 @@ export function CodexModelProviderManagerView(props: CodexModelProviderManagerVi
     formatUsageDetailLabel,
     formatUsageDetailValue,
     formatUsageQuotaValue,
-    formatUsageMoney,
     apiKeyPickerProviderId,
     openProviderPelican,
     batchTestCancelling,
@@ -70,13 +71,13 @@ export function CodexModelProviderManagerView(props: CodexModelProviderManagerVi
     handleDeleteBatchTestResults,
     handleDeleteProvider,
     handleEnableProvider,
+    handleOpenInstanceConfig,
     handleProviderCustomSortDragMove,
     handleProviderCustomSortDragStart,
     handleProviderInstanceChange,
     handleProviderOauthBindingChange,
     handleProviderSortByChange,
     handleStartBatchProviderTest,
-    handleTestProvider,
     instancePickerProviderId,
     isAllBatchTestProvidersSelected,
     isAllProvidersSelected,
@@ -124,6 +125,7 @@ export function CodexModelProviderManagerView(props: CodexModelProviderManagerVi
     providerSortBy,
     providerSortDirection,
     providerUsageMap,
+    relayBalanceDisabled,
     providerUsageRefreshingAll,
     providerViewMode,
     refreshAllProviderUsage,
@@ -169,7 +171,6 @@ export function CodexModelProviderManagerView(props: CodexModelProviderManagerVi
     sponsorProviderTemplates,
     stopProviderCustomSortDragging,
     t,
-    testingProviderId,
     toggleAllVisibleBatchTestProviders,
     toggleAllVisibleBatchTestResults,
     toggleBatchTestProvider,
@@ -248,9 +249,12 @@ export function CodexModelProviderManagerView(props: CodexModelProviderManagerVi
           <SingleSelectFilterDropdown
             value={providerSortBy}
             options={[
+              ...(providerSortBy === "test_result"
+                ? [{ value: "test_result", label: t("codex.modelProviders.batchTest.resultsTitle") }]
+                : []),
               {
                 value: "name",
-                label: t("common.shared.sort.name", "按名称"),
+                label: t("common.shared.sort.name"),
               },
               {
                 value: "created_at",
@@ -265,7 +269,7 @@ export function CodexModelProviderManagerView(props: CodexModelProviderManagerVi
             icon={<ArrowDownWideNarrow size={14} />}
             onChange={handleProviderSortByChange}
           />
-          {!isProviderCustomSortActive && (
+          {!isProviderCustomSortActive && providerSortBy !== "test_result" && (
             <button
               className="sort-direction-btn"
               onClick={() =>
@@ -275,7 +279,7 @@ export function CodexModelProviderManagerView(props: CodexModelProviderManagerVi
               }
               title={t("common.shared.sort.toggleDirection", "切换排序方向")}
             >
-              {providerSortDirection === "desc" ? "⬇" : "⬆"}
+              {providerSortDirection === "desc" ? <ArrowDown size={15} /> : <ArrowUp size={15} />}
             </button>
           )}
         </div>
@@ -356,7 +360,7 @@ export function CodexModelProviderManagerView(props: CodexModelProviderManagerVi
             <button
               type="button"
               className="btn btn-secondary"
-              onClick={openBatchTestModal}
+              onClick={() => openBatchTestModal()}
               disabled={filteredProviders.every((provider) => !getSelectedProviderApiKey(provider))}
               title={t(
                 "codex.modelProviders.batchTest.entryHint",
@@ -385,23 +389,17 @@ export function CodexModelProviderManagerView(props: CodexModelProviderManagerVi
         </div>
       ) : filteredProviders.length === 0 ? (
         <div className="empty-state">
-          <h3>{t("codex.modelProviders.noMatchTitle", "没有匹配的供应商")}</h3>
+          <h3>{t("codex.modelProviders.noMatchingSavedProviders", "没有匹配的供应商")}</h3>
           <p>{t("common.shared.noMatch.desc", "请尝试调整搜索或筛选条件")}</p>
         </div>
       ) : (
         <div className={`codex-provider-grid ${providerViewMode === "compact" ? "compact" : ""}`}>
           {filteredProviders.map((provider) => {
-            const presetId = resolveCodexApiProviderPresetId(provider.baseUrl);
-            const capabilityProfile = resolveCodexProviderCapabilityProfile({
-              presetId,
-              baseUrl: provider.baseUrl,
-              wireApi: provider.wireApi,
-            });
             const primaryApiKey = getSelectedProviderApiKey(provider);
             const enabling = enablingProviderId === provider.id;
-            const testing = testingProviderId === provider.id;
             const usageState = isOpenAIOfficialUsageUrl(provider.baseUrl)
-              ? currentOpenAIUsageState(provider, primaryApiKey?.apiKey ?? '', providerUsageMap[provider.id]) : providerUsageMap[provider.id];
+              ? currentOpenAIUsageState(provider, primaryApiKey?.apiKey ?? '', providerUsageMap[provider.id])
+              : currentCustomProviderUsageState(provider, providerUsageMap[provider.id]);
             const usageSummary = usageState?.summary;
             const usagePrimaryText = usageSummary
               ? formatUsageQuotaValue(
@@ -425,9 +423,7 @@ export function CodexModelProviderManagerView(props: CodexModelProviderManagerVi
               sponsorProviderTemplates,
             );
             const selectedApiKeyLine = primaryApiKey
-              ? `${t("codex.addModal.token", "API Key")}：${maskApiKey(
-                  primaryApiKey.apiKey,
-                )}`
+              ? resolveProviderApiKeyLabel(primaryApiKey, t("codex.addModal.token", "API Key"), "")
               : `${t("codex.addModal.token", "API Key")}：${t(
                   "common.none",
                   "暂无",
@@ -447,6 +443,7 @@ export function CodexModelProviderManagerView(props: CodexModelProviderManagerVi
             const apiBaseUrlLine = `${t("codex.api.baseUrl", "Base URL")}：${
               provider.baseUrl
             }`;
+            const showBalance = canShowCodexProviderBalance(relayBalanceDisabled, provider.baseUrl, usageSummary?.mode);
             const usageMode =
               usageSummary?.mode === "new_api" ||
               usageSummary?.mode === "sub2api" ||
@@ -458,11 +455,11 @@ export function CodexModelProviderManagerView(props: CodexModelProviderManagerVi
               const item = usageSummary?.details?.find((detail) => detail.key === key);
               return item ? formatUsageDetailValue(item, usageSummary?.unit) : "-";
             };
-            const {
-              granted: totalGranted,
-              available: totalAvailable,
-              expiresAt,
-            } = resolveNewApiQuotaSnapshot(usageSummary);
+            const newApiQuota = presentNewApiQuota(
+              usageSummary,
+              t("codex.newApi.quota.unlimited", "不限量"),
+              t("dashboard.noData", "暂无数据"),
+            );
             const tokenPlanResetDetail = usageSummary?.details?.find((detail) =>
               ["intervalExpiresAt", "weeklyExpiresAt", "expiresAt"].includes(
                 detail.key,
@@ -474,23 +471,6 @@ export function CodexModelProviderManagerView(props: CodexModelProviderManagerVi
                   usageSummary?.unit,
                 )
               : "-";
-            const progressPercent =
-              usageMode === "new_api" &&
-              totalGranted != null &&
-              totalAvailable != null &&
-              totalGranted > 0
-                ? Math.max(
-                    0,
-                    Math.min(
-                      100,
-                      Math.round(
-                        (totalAvailable / totalGranted) * 100,
-                      ),
-                    ),
-                  )
-                : usageSummary?.quotaUnlimited
-                  ? 100
-                  : 0;
             return (
               <div
                 className={`codex-account-card codex-provider-card ${active ? "current" : ""} ${sponsorProvider ? "sponsor-api-account" : ""}`}
@@ -525,10 +505,7 @@ export function CodexModelProviderManagerView(props: CodexModelProviderManagerVi
                             void navigator.clipboard.writeText(primaryApiKey.apiKey);
                             setNotice({
                               tone: "success",
-                              text: t(
-                                "codex.modelProviders.apiKeyCopied",
-                                "API Key 已复制",
-                              ),
+                              text: t("common.copied"),
                             });
                           }}
                           title={t("common.copy", "复制")}
@@ -602,7 +579,7 @@ export function CodexModelProviderManagerView(props: CodexModelProviderManagerVi
                     {apiBaseUrlLine}
                   </span>
                 </div>
-                <div className="codex-quota-section">
+                {showBalance && <div className="codex-quota-section">
                   {isOpenAIOfficialUsageUrl(provider.baseUrl) ? (
                     <OpenAIOfficialUsagePanel provider={provider} apiKey={primaryApiKey?.apiKey ?? ""} sourceBinding={usageState?.sourceBinding} onRefresh={() => void refreshProviderUsage(provider, primaryApiKey)} summary={usageSummary} loading={usageState?.loading} error={usageState?.error} t={t} />
                   ) : usageMode === "deepseek" ? (
@@ -654,6 +631,14 @@ export function CodexModelProviderManagerView(props: CodexModelProviderManagerVi
                         </div>
                       </div>
                     </div>
+                  ) : provider.customUsage || usageSummary?.mode === "custom" ? (
+                    <ModelProviderUsagePanel
+                      summary={usageSummary}
+                      loading={usageState?.loading}
+                      error={usageState?.error}
+                      unavailable={usageState?.unavailable}
+                      variant="card"
+                    />
                   ) : usageMode === "sub2api" ? (
                     <div className="codex-api-key-usage-panel sub2api">
                       <div className="codex-api-key-usage-grid">
@@ -679,15 +664,7 @@ export function CodexModelProviderManagerView(props: CodexModelProviderManagerVi
                     <div className="codex-api-key-usage-panel">
                       <div
                         className="quota-item codex-api-key-quota-item new-api"
-                        title={`${t("codex.cockpitApi.balance", "额度")}：${
-                          usageSummary?.quotaUnlimited
-                            ? t("codex.newApi.quota.unlimited", "不限量")
-                            : totalAvailable != null && totalGranted != null
-                              ? `${formatUsageMoney(totalAvailable, usageSummary?.unit)} / ${formatUsageMoney(totalGranted, usageSummary?.unit)}`
-                              : totalAvailable != null
-                                ? formatUsageMoney(totalAvailable, usageSummary?.unit)
-                                : "-"
-                        }`}
+                        title={`${t("codex.cockpitApi.balance", "额度")}：${newApiQuota.text}`}
                       >
                         <div className="quota-header">
                           <Database size={14} />
@@ -695,24 +672,17 @@ export function CodexModelProviderManagerView(props: CodexModelProviderManagerVi
                             {t("codex.cockpitApi.balance", "额度")}
                           </span>
                           <span className="quota-pct high">
-                            {usageSummary?.quotaUnlimited
-                              ? t("codex.newApi.quota.unlimited", "不限量")
-                              : totalAvailable != null && totalGranted != null
-                                ? `${formatUsageMoney(totalAvailable, usageSummary?.unit)} / ${formatUsageMoney(totalGranted, usageSummary?.unit)}`
-                                : totalAvailable != null
-                                  ? formatUsageMoney(totalAvailable, usageSummary?.unit)
-                                : "-"}
+                            {newApiQuota.text}
                           </span>
                         </div>
-                        <div className="quota-bar-track">
-                          <div
-                            className="quota-bar high"
-                            style={{ width: `${progressPercent}%` }}
-                          />
-                        </div>
+                        {newApiQuota.percent != null && (
+                          <div className="quota-bar-track">
+                            <div className="quota-bar high" style={{ width: `${newApiQuota.percent}%` }} />
+                          </div>
+                        )}
                         <span className="quota-reset">
-                          {expiresAt != null && expiresAt > 0
-                            ? `${t("codex.modelProviders.usage.fields.expiresAt", "过期时间")} ${new Date(expiresAt * 1000).toLocaleDateString()}`
+                          {newApiQuota.expiresAt != null && newApiQuota.expiresAt > 0
+                            ? `${t("codex.modelProviders.usage.fields.expiresAt", "过期时间")} ${new Date(newApiQuota.expiresAt * 1000).toLocaleDateString()}`
                             : t("dashboard.noData", "暂无数据")}
                         </span>
                       </div>
@@ -722,7 +692,7 @@ export function CodexModelProviderManagerView(props: CodexModelProviderManagerVi
                       {t("codex.modelProviders.usage.noKey", "暂无可查询额度")}
                     </div>
                   )}
-                </div>
+                </div>}
                 <div className="codex-card-bottom">
                   <span className="card-date">
                     {new Date(provider.updatedAt || provider.createdAt).toLocaleString()}
@@ -742,13 +712,22 @@ export function CodexModelProviderManagerView(props: CodexModelProviderManagerVi
                   <div className="card-footer">
                     <div className="card-actions">
                       <button
+                        type="button"
+                        className="card-action-btn"
+                        onClick={() => void handleOpenInstanceConfig(targetInstanceId)}
+                        title={`${t("instances.form.codexQuickConfig.openConfig")} · ${targetInstanceName}`}
+                        aria-label={`${t("instances.form.codexQuickConfig.openConfig")} · ${targetInstanceName}`}
+                      >
+                        <FileCode size={14} />
+                      </button>
+                      <button
                         className="card-action-btn"
                         onClick={() => setProviderDetailId(provider.id)}
                         title={t("codex.modelProviders.usage.detailTitle", "服务面板")}
                       >
                         <Database size={14} />
                       </button>
-                      <button
+                      {showBalance && <button
                         className="card-action-btn"
                         disabled={!primaryApiKey || usageState?.loading}
                         onClick={() =>
@@ -761,7 +740,7 @@ export function CodexModelProviderManagerView(props: CodexModelProviderManagerVi
                           size={14}
                           className={usageState?.loading ? "loading-spinner" : undefined}
                         />
-                      </button>
+                      </button>}
                       <button
                         className="card-action-btn success"
                         disabled={!primaryApiKey || enabling || !targetInstanceReady}
@@ -789,26 +768,20 @@ export function CodexModelProviderManagerView(props: CodexModelProviderManagerVi
                           <Play size={14} />
                         )}
                       </button>
-                      {capabilityProfile.wireApi === "chat_completions" && (
-                        <button
-                          className="card-action-btn"
-                          disabled={!primaryApiKey || testing}
-                          onClick={() =>
-                            primaryApiKey &&
-                            void handleTestProvider(
-                              provider,
-                              primaryApiKey,
-                              capabilityProfile.wireApi,
-                            )
-                          }
-                          title={t("codex.localAccess.testAction", "测试")}
-                        >
-                          <Activity size={14} />
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        className="card-action-btn"
+                        disabled={!primaryApiKey}
+                        onClick={() => openBatchTestModal(provider)}
+                        title={t("codex.localAccess.testAction", "测试")}
+                      >
+                        <Activity size={14} />
+                      </button>
                       <button
                         className="card-action-btn"
-                        onClick={() => openEditModal(provider)}
+                        onClick={() => openEditModal(
+                          provider, undefined, provider.apiKeys.length > 1 ? primaryApiKey?.id : undefined,
+                        )}
                         title={t("instances.actions.edit", "编辑")}
                       >
                         <Pencil size={14} />
@@ -1306,7 +1279,12 @@ export function CodexModelProviderManagerView(props: CodexModelProviderManagerVi
                               </p>
                               <div className="codex-wakeup-execution-row-meta">
                                 <span>{formatDateTime(record.timestamp)}</span>
-                                <span>{formatDurationMs(record.durationMs)}</span>
+                                {record.firstTextMs != null && (
+                                  <span>{t("codex.modelProviders.batchTest.firstText")} {formatDurationMs(record.firstTextMs)}</span>
+                                )}
+                                {record.durationMs != null && (
+                                  <span>{t("common.codexUsage.totalDuration")} {formatDurationMs(record.durationMs)}</span>
+                                )}
                               </div>
                             </article>
                           );
@@ -1990,8 +1968,10 @@ export function CodexModelProviderManagerView(props: CodexModelProviderManagerVi
         if (!provider) return null;
         const primaryApiKey = getSelectedProviderApiKey(provider);
         const usageState = isOpenAIOfficialUsageUrl(provider.baseUrl)
-          ? currentOpenAIUsageState(provider, primaryApiKey?.apiKey ?? '', providerUsageMap[provider.id]) : providerUsageMap[provider.id];
-        const usageSummary = usageState?.summary;
+          ? currentOpenAIUsageState(provider, primaryApiKey?.apiKey ?? '', providerUsageMap[provider.id])
+          : currentCustomProviderUsageState(provider, providerUsageMap[provider.id]);
+        const showBalance = canShowCodexProviderBalance(relayBalanceDisabled, provider.baseUrl, usageState?.summary?.mode);
+        const usageSummary = showBalance ? usageState?.summary : undefined;
         const resolvedWireApi = resolveProviderWireApi(provider);
         const usageMode =
           usageSummary?.mode === "openai_official" ||
@@ -2000,7 +1980,7 @@ export function CodexModelProviderManagerView(props: CodexModelProviderManagerVi
           usageSummary?.mode === "deepseek" ||
           usageSummary?.mode === "token_plan"
             ? usageSummary.mode
-            : provider.integrationType ?? null;
+            : showBalance ? provider.integrationType ?? null : null;
         const coreDetailKeys =
           usageMode === "new_api"
             ? new Set(["mode", "totalGranted", "totalAvailable", "expiresAt"])
@@ -2199,10 +2179,10 @@ export function CodexModelProviderManagerView(props: CodexModelProviderManagerVi
               : [];
 
         const actions: CodexServicePanelActionItem[] = [
-          {
+          ...(showBalance ? [{
             key: "refresh",
             label: t("common.shared.refreshQuota", "刷新配额"),
-            variant: "secondary",
+            variant: "secondary" as const,
             icon: (
               <RefreshCw
                 size={14}
@@ -2215,7 +2195,7 @@ export function CodexModelProviderManagerView(props: CodexModelProviderManagerVi
                 void refreshProviderUsage(provider, primaryApiKey);
               }
             },
-          },
+          }] : []),
           {
             key: "edit",
             label: t("instances.actions.edit", "编辑"),
@@ -2264,10 +2244,18 @@ export function CodexModelProviderManagerView(props: CodexModelProviderManagerVi
             rawApiKey={primaryApiKey?.apiKey}
             connectionExtra={isOpenAIOfficialUsageUrl(provider.baseUrl)
               ? <OpenAIOfficialUsagePanel provider={provider} apiKey={primaryApiKey?.apiKey ?? ""} sourceBinding={usageState?.sourceBinding} onRefresh={() => void refreshProviderUsage(provider, primaryApiKey)} summary={usageSummary} loading={usageState?.loading} error={usageState?.error} detailed t={t} />
-              : <>
-                {usageState?.loading && <p className="codex-daily-usage-note" role="status">{t("common.loading")}</p>}
-                {usageState?.error && <p className="codex-daily-usage-note" role="status">{t("common.shared.quota.queryFailed")}</p>}
-              </>}
+              : showBalance && (provider.customUsage || usageSummary?.mode === "custom"
+                ? <ModelProviderUsagePanel
+                    summary={usageSummary}
+                    loading={usageState?.loading}
+                    error={usageState?.error}
+                    unavailable={usageState?.unavailable}
+                    variant="table"
+                  />
+                : <>
+                    {usageState?.loading && <p className="codex-daily-usage-note" role="status">{t("common.loading")}</p>}
+                    {usageState?.error && <p className="codex-daily-usage-note" role="status">{t("common.shared.quota.queryFailed")}</p>}
+                  </>)}
             coreMetrics={coreMetrics}
             detailMetrics={detailMetrics}
             actions={actions}

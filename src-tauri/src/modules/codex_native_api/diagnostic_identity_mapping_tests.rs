@@ -1,9 +1,209 @@
 use super::*;
 
 #[tokio::test]
+async fn responses_stateless_prompt_cache_session_is_stable_and_owner_scoped() {
+    let (mut handle, host, source, task, _dir) =
+        identity_fixture(WireApi::Responses, false, true).await;
+    host.oauth.store(true, Ordering::SeqCst);
+    let client = http_client();
+    let url = format!("http://{}/v1/responses", handle.addr);
+    let key = "pck_79dcb0e0aa44d88941ccaf14";
+    for (turn, (cache_key, session, store, bearer)) in [
+        (key, None, false, "key"),
+        (key, None, false, "key"),
+        ("pck_a42cf18527d6847ce92834ad", None, false, "key"),
+        (key, Some("explicit-session"), false, "key"),
+        (key, Some("explicit-session"), false, "key"),
+        (key, None, true, "key"),
+        (key, None, true, "key"),
+        (key, None, false, "other-caller-key"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut request = client.post(&url).bearer_auth(bearer).json(&json!({
+            "model": "m",
+            "store": store,
+            "instructions": "synthetic cacheable prefix ".repeat(2300),
+            "input": [{"role": "user", "content": format!("synthetic history {turn}")}],
+            "prompt_cache_key": cache_key,
+        }));
+        if let Some(session) = session {
+            request = request.header("session-id", session);
+        }
+        let response = request.send().await.unwrap();
+        let status = response.status();
+        let body = response.text().await.unwrap();
+        assert_eq!(status, 200, "{body}");
+    }
+    handle.set_session_identity_mapping_enabled(false);
+    let response = client.post(&url).bearer_auth("key").json(&json!({
+        "model": "m", "store": false, "input": [], "prompt_cache_key": key,
+    })).send().await.unwrap();
+    assert_eq!(response.status(), 200);
+    response.bytes().await.unwrap();
+    {
+        let all = source.seen.lock().unwrap();
+        let requests: Vec<_> = all.iter()
+            .filter(|record| record.headers["x-test-account"] == "b")
+            .collect();
+        assert_eq!(requests.len(), 9);
+        let session = |index: usize| &requests[index].headers["session-id"];
+        assert_eq!(session(0), session(1));
+        assert_ne!(session(0), session(2));
+        assert_ne!(session(0), session(3));
+        assert_eq!(session(3), session(4));
+        assert_ne!(session(5), session(6));
+        assert_ne!(session(0), session(7));
+        assert_ne!(session(0), &all[0].headers["session-id"]);
+        assert_eq!(requests[0].body["prompt_cache_key"], requests[1].body["prompt_cache_key"]);
+        assert_ne!(requests[0].headers["thread-id"], requests[1].headers["thread-id"]);
+        assert_ne!(
+            requests[0].body["client_metadata"]["session_id"],
+            requests[1].body["client_metadata"]["session_id"]
+        );
+        assert!(!requests[8].headers.contains_key("session-id"));
+        assert_eq!(requests[8].body["prompt_cache_key"], key);
+    }
+    handle.shutdown(Duration::from_secs(2)).await.unwrap();
+    task.abort();
+}
+
+#[tokio::test]
+async fn claude_compat_cache_keys_are_stable_and_account_scoped() {
+    for retry in [false, true] {
+        let (mut handle, host, source, task, _dir) =
+            identity_fixture(WireApi::Responses, false, retry).await;
+        host.oauth.store(true, Ordering::SeqCst);
+        let client = http_client();
+        let body = json!({
+            "model":"m", "max_tokens":32,
+            "messages":[{"role":"user","content":"synthetic prefix ".repeat(2300)}],
+            "metadata":{"user_id":"{\"session_id\":\"claude-metadata-session\"}"}
+        });
+        for (session, agent) in [
+            (None, None),
+            (Some("claude-metadata-session"), None),
+            (Some("claude-metadata-session"), Some("agent-b")),
+            (Some("claude-other-session"), None),
+        ] {
+            let mut request = client
+                .post(format!("http://{}/v1/messages", handle.addr))
+                .bearer_auth("key")
+                .json(&body);
+            if let Some(session) = session {
+                request = request.header("x-claude-code-session-id", session);
+            }
+            if let Some(agent) = agent {
+                request = request.header("x-claude-code-agent-id", agent);
+            }
+            let response = request.send().await.unwrap();
+            let status = response.status();
+            let text = response.text().await.unwrap();
+            assert_eq!(status, 200, "{text}");
+        }
+        host.oauth.store(false, Ordering::SeqCst);
+        let third_party = client
+            .post(format!("http://{}/v1/messages", handle.addr))
+            .bearer_auth("key")
+            .json(&body)
+            .send().await.unwrap();
+        assert_eq!(third_party.status(), 200);
+        third_party.bytes().await.unwrap();
+        let seen = source.seen.lock().unwrap().clone();
+        assert!(seen.iter().all(|record| {
+            !record.headers.contains_key("x-cockpit-claude-cache-scope")
+                && !record.headers.contains_key("x-claude-code-session-id")
+        }));
+        assert!(seen.last().unwrap().body.get("prompt_cache_key").is_none());
+        let attempts: Vec<_> = seen[..seen.len()-1].iter()
+            .filter(|record| record.headers["x-test-account"] == if retry { "b" } else { "a" })
+            .collect();
+        let keys: Vec<_> = attempts.iter()
+            .map(|record| record.body["prompt_cache_key"].as_str().unwrap())
+            .collect();
+        assert_eq!(keys.len(), 4);
+        assert_eq!(keys[0].len(), 64);
+        assert_eq!(keys[0], keys[1]);
+        assert_ne!(keys[0], keys[2]);
+        assert_ne!(keys[0], keys[3]);
+        assert_eq!(attempts[0].headers["session-id"], attempts[1].headers["session-id"]);
+        assert_eq!(attempts[0].headers["thread-id"], attempts[1].headers["thread-id"]);
+        assert_ne!(attempts[0].headers["session-id"], attempts[2].headers["session-id"]);
+        assert_ne!(attempts[0].headers["session-id"], attempts[3].headers["session-id"]);
+        if retry {
+            assert_ne!(seen[0].body["prompt_cache_key"], keys[0]);
+            assert_ne!(seen[0].headers["session-id"], attempts[0].headers["session-id"]);
+        }
+        handle.shutdown(Duration::from_secs(2)).await.unwrap();
+        task.abort();
+    }
+}
+
+#[tokio::test]
+async fn claude_session_fallback_preserves_explicit_roots_and_unscoped_requests() {
+    let (mut handle, host, source, task, _dir) =
+        identity_fixture(WireApi::Responses, false, false).await;
+    host.oauth.store(true, Ordering::SeqCst);
+    let client = http_client();
+    let base = format!("http://{}", handle.addr);
+    let payload = json!({
+        "model":"m", "max_tokens":16,
+        "messages":[{"role":"user","content":"synthetic history"}],
+        "metadata":{"user_id":"account-only-marker"}
+    });
+    for headers in [
+        vec![("x-claude-code-session-id", "claude-fixture")],
+        vec![("x-claude-code-session-id", "claude-fixture")],
+        vec![("x-claude-code-session-id", "claude-fixture"), ("thread-id", "explicit-thread")],
+        vec![("x-claude-code-session-id", "claude-other"), ("thread-id", "explicit-thread")],
+        Vec::new(),
+        Vec::new(),
+    ] {
+        let mut request = client.post(format!("{base}/v1/messages")).bearer_auth("key").json(&payload);
+        for (name, value) in headers {
+            request = request.header(name, value);
+        }
+        let response = request.send().await.unwrap();
+        assert_eq!(response.status(), 200);
+        response.bytes().await.unwrap();
+    }
+    for _ in 0..2 {
+        let response = client.post(format!("{base}/v1/responses")).bearer_auth("key")
+            .header("x-cockpit-claude-cache-scope", "untrusted")
+            .json(&json!({"model":"m","input":[]}))
+            .send().await.unwrap();
+        assert_eq!(response.status(), 200);
+        response.bytes().await.unwrap();
+    }
+    handle.set_session_identity_mapping_enabled(false);
+    let response = client.post(format!("{base}/v1/messages")).bearer_auth("key")
+        .header("x-claude-code-session-id", "claude-fixture")
+        .header("thread-id", "explicit-thread")
+        .json(&payload).send().await.unwrap();
+    assert_eq!(response.status(), 200);
+    response.bytes().await.unwrap();
+    {
+        let records = source.seen.lock().unwrap();
+        let session = |index: usize| &records[index].headers["session-id"];
+        assert_eq!(session(0), session(1));
+        assert_ne!(session(0), "claude-fixture");
+        assert_ne!(session(0), session(2));
+        assert_eq!(session(2), session(3));
+        assert_ne!(session(4), session(5));
+        assert_ne!(session(6), session(7));
+        assert_eq!(records[8].headers["thread-id"], "explicit-thread");
+        assert!(!records[8].headers.contains_key("session-id"));
+    }
+    handle.shutdown(Duration::from_secs(2)).await.unwrap();
+    task.abort();
+}
+
+#[tokio::test]
 async fn session_mapping_defaults_on_and_reuses_mapping_after_reenabling() {
     let (mut handle, host, source, task, _dir) =
         identity_fixture(WireApi::Responses, false, false).await;
+    host.oauth.store(true, Ordering::SeqCst);
     let body = json!({"model":"m","input":[],"client_metadata":{
         "session_id":"client-session","thread_id":"client-thread"
     }});
@@ -63,6 +263,7 @@ async fn disabled_session_mapping_preserves_distinct_header_flat_and_canonical_v
         },
     )
     .await;
+    host.oauth.store(true, Ordering::SeqCst);
     let canonical = json!({
         "session_id":"canonical-session","thread_id":"canonical-child",
         "parent_thread_id":"canonical-parent","turn_id":"canonical-turn",
@@ -123,18 +324,23 @@ async fn disabled_session_mapping_preserves_distinct_header_flat_and_canonical_v
 }
 
 #[tokio::test]
-async fn disabled_session_mapping_keeps_original_ids_on_responses_and_chat_retries() {
-    for wire in [WireApi::Responses, WireApi::Chat] {
+async fn session_mapping_passthrough_keeps_original_ids_on_retries() {
+    for (wire, oauth) in [
+        (WireApi::Responses, true),
+        (WireApi::Responses, false),
+        (WireApi::Chat, false),
+    ] {
         for session_header in ["session-id", "session_id"] {
             let (mut handle, host, source, task, _dir) = identity_fixture(wire, false, true).await;
-            handle.set_session_identity_mapping_enabled(false);
+            host.oauth.store(oauth, Ordering::SeqCst);
+            handle.set_session_identity_mapping_enabled(!oauth);
             let (path, body) = if wire == WireApi::Chat {
                 (
                     "chat/completions",
                     json!({"model":"m","messages":[{"role":"user","content":"hello"}]}),
                 )
             } else {
-                ("responses", json!({"model":"m","input":[]}))
+                ("responses", json!({"model":"m","input":[],"prompt_cache_key":"client-cache"}))
             };
             let response = http_client()
                 .post(format!("http://{}/v1/{path}", handle.addr))
@@ -172,6 +378,9 @@ async fn disabled_session_mapping_keeps_original_ids_on_responses_and_chat_retri
                     "passthrough must not manufacture another session header"
                 );
                 assert_eq!(record.headers["thread-id"], "client-thread");
+                if wire == WireApi::Responses {
+                    assert_eq!(record.body["prompt_cache_key"], "client-cache");
+                }
                 assert_eq!(
                     attempt.upstream_session_id.as_deref(),
                     Some("client-session")
@@ -191,10 +400,9 @@ async fn disabled_session_mapping_keeps_original_ids_on_responses_and_chat_retri
 }
 
 #[tokio::test]
-async fn disabled_session_mapping_preserves_websocket_handshake_and_message_ids() {
+async fn provider_websocket_preserves_handshake_and_message_ids_with_mapping_enabled() {
     let (mut handle, host, source, task, _dir) =
         identity_fixture(WireApi::Responses, true, false).await;
-    handle.set_session_identity_mapping_enabled(false);
     let mut request = format!("ws://{}/v1/responses", handle.addr)
         .into_client_request()
         .unwrap();

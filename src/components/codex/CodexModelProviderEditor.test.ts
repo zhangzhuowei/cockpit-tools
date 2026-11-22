@@ -4,12 +4,15 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
 import { resolveCodexModelProviderForApiKey } from '../../utils/codexModelProviderKeyConfig';
-import { buildCodexModelProviderAccountSnapshot, findCodexAccountsReferencingModelProvider } from '../../utils/codexModelProviderAccountSync';
+import { buildCodexModelProviderAccountSnapshot, findCodexAccountsReferencingModelProvider, resolveCodexModelProviderForAccount } from '../../utils/codexModelProviderAccountSync';
 import { contextWindowDraftsFromRecord, parseContextWindowDrafts } from '../../utils/codexModelContextWindows';
 import { buildProviderModelVisionCapabilities } from '../../utils/codexModelProviderVision';
-import { resolveCodexApiProviderPresetId } from '../../utils/codexProviderPresets';
+import { resolveCodexApiProviderPresetId, resolveOllamaLocalPlaceholderKey } from '../../utils/codexProviderPresets';
 import { isValidProviderApiKeyUrl } from '../../utils/codexProviderApiKeyUrl';
 import { resolveCodexProviderCapabilityProfile } from '../../utils/codexProviderGateway';
+import { isCodexApiKeyAccount } from '../../types/codex';
+import { isOpenAIOfficialUsageUrl } from '../../utils/openaiOfficialUsage';
+import { currentCustomProviderUsageState, customProviderUsageBinding, parseCustomProviderUsage } from '../../utils/codexCustomProviderUsage';
 
 const file = ts.createSourceFile('manager.tsx', readFileSync(new URL('./CodexModelProviderManager.tsx', import.meta.url), 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 function bind(name: string, state: Record<string, any>) {
@@ -35,9 +38,10 @@ function harness() {
   let failSync = false, failWrite = false;
   const state: Record<string, any> = {
     useCallback: (value: any) => value, accounts, providers: [provider], currentEditingProvider: provider,
-    resolveCodexModelProviderForApiKey, buildCodexModelProviderAccountSnapshot, findCodexAccountsReferencingModelProvider,
+    resolveCodexModelProviderForApiKey, buildCodexModelProviderAccountSnapshot, findCodexAccountsReferencingModelProvider, resolveCodexModelProviderForAccount,
     contextWindowDraftsFromRecord, parseContextWindowDrafts, buildProviderModelVisionCapabilities,
-    resolveCodexApiProviderPresetId, isValidProviderApiKeyUrl, resolveCodexProviderCapabilityProfile,
+    resolveCodexApiProviderPresetId, resolveOllamaLocalPlaceholderKey, isValidProviderApiKeyUrl, resolveCodexProviderCapabilityProfile,
+    isOpenAIOfficialUsageUrl, parseCustomProviderUsage,
     normalizeCodexModelProviderBaseUrl: (url: string) => url.trim().replace(/\/+$/, '').toLowerCase(),
     resolveProviderWireApi: (item: any) => item.wireApi ?? 'responses',
     resolveEnableModePreferenceForWireApi: () => 'direct',
@@ -74,9 +78,66 @@ function harness() {
   bind('openEditModal', state)(provider);
   return { state, calls, provider: () => provider, failSync(value: boolean) { failSync = value; }, failWrite(value: boolean) { failWrite = value; },
     openAccount(index = 0) { bind('openEditModal', state)(provider, accounts[index]); },
+    openSelectedKey(id: string) { bind('openEditModal', state)(provider, undefined, id); },
     save: () => bind('handleSaveProvider', state)(),
   };
 }
+
+test('creating a local Ollama provider supplies a stable key without adding one on later edits', async () => {
+  const h = harness();
+  h.state.currentEditingProvider = undefined;
+  h.state.form.providerId = null;
+  h.state.form.name = 'Ollama';
+  const baseUrl = 'http://127.0.0.1:11434/v1';
+  h.state.form.baseUrl = baseUrl;
+  h.state.form.wireApi = 'chat_completions';
+  await h.save();
+  assert.equal(h.state.error, null);
+  assert.equal(h.calls.creates, 1);
+  assert.equal(h.provider().apiKeys[0].apiKey, resolveOllamaLocalPlaceholderKey(baseUrl));
+  assert.equal(h.provider().wireApi, 'chat_completions');
+  bind('openEditModal', h.state)(h.provider());
+  await h.save();
+  assert.equal(h.state.error, null);
+  assert.equal(h.provider().apiKeys.length, 1);
+});
+
+test('provider editor saves custom usage settings, rejects a different origin, and clears on blank', async () => {
+  const h = harness();
+  const config = {
+    endpoint: '/user/balance', headers: { 'User-Agent': 'cc-switch/1.0' },
+    mappings: { remaining: 'balance' }, unit: 'CNY',
+  };
+  h.state.form.customUsageText = JSON.stringify(config);
+  await h.save();
+  assert.deepEqual(h.calls.patches[0].customUsage, config);
+  h.openSelectedKey('a');
+  assert.deepEqual(JSON.parse(h.state.form.customUsageText), config);
+  h.state.form.customUsageText = JSON.stringify({ ...config, endpoint: 'https://different.invalid/usage' });
+  await h.save();
+  assert.equal(h.calls.patches.length, 1);
+  assert.equal(h.state.error, 'codex.customProviderUsage.invalid');
+  h.state.form.customUsageText = '';
+  await h.save();
+  assert.equal(h.calls.patches[1].customUsage, null);
+});
+
+test('provider usage excludes results from an edited or removed custom query', () => {
+  const provider = {
+    id: 'relay', updatedAt: 1,
+    customUsage: { endpoint: '/v1/usage', mappings: { remaining: 'quota.remaining' } },
+  };
+  const custom = { sourceBinding: customProviderUsageBinding(provider), summary: { remaining: 5.25 } };
+  const automatic = { sourceBinding: undefined, summary: { remaining: 12 } };
+  assert.equal(currentCustomProviderUsageState(provider, custom), custom);
+  assert.equal(currentCustomProviderUsageState(provider, automatic), undefined);
+  assert.equal(currentCustomProviderUsageState({
+    ...provider, updatedAt: 2, customUsage: { ...provider.customUsage, endpoint: '/user/balance' },
+  }, custom), undefined);
+  const cleared = { ...provider, customUsage: undefined };
+  assert.equal(currentCustomProviderUsageState(cleared, custom), undefined);
+  assert.equal(currentCustomProviderUsageState(cleared, automatic), automatic);
+});
 
 test('account entry uses the full provider editor and scopes model changes to its current key', async () => {
   const h = harness(); h.openAccount();
@@ -93,11 +154,100 @@ test('account entry uses the full provider editor and scopes model changes to it
   assert.deepEqual(h.calls.reloadMerges, [false], "saving must not re-import stale account snapshots");
 });
 
+test('a legacy account catalog survives editing, reopening and enabling its provider key', async () => {
+  const h = harness();
+  const provider = h.provider();
+  const key = provider.apiKeys[0];
+  const account = h.state.accounts[0];
+  const visionModel = 'deepseek-v4-flash-vision-exp';
+  delete key.modelCatalog;
+  delete key.modelContextWindows;
+  provider.modelCatalog = ['deepseek-v4-pro', 'deepseek-v4-flash'];
+  Object.assign(account, {
+    api_model_catalog: [visionModel, 'gpt-image-2'],
+    api_model_context_windows: { [visionModel]: 128000 },
+    api_supports_vision: true,
+    api_model_vision_support: { [visionModel]: true },
+    api_vision_routing_model: visionModel,
+  });
+  const enables: any[][] = [];
+  const prefetched: unknown[] = [];
+  Object.assign(h.state, {
+    CODEX_API_PROVIDER_CUSTOM_ID: 'custom',
+    isCodexApiKeyAccount,
+    enablingProviderId: null,
+    setEnablingProviderId() {}, setProviderLaunchPreview() {},
+    async addCodexAccountWithApiKey(...args: any[]) { enables.push(args); return account; },
+    prefetchCodexLaunchModels(savedAccount: unknown) { prefetched.push(savedAccount); },
+    async updateCodexApiKeyBoundOAuthAccount() {}, async reloadCurrentAccount() {},
+    async reloadLocalAccessState() {}, async reloadCodexInstances() {},
+  });
+  await bind('handleEnableProvider', h.state)(provider, key, 'instance', 'Test instance');
+  assert.deepEqual(enables[0][5], [visionModel, 'gpt-image-2']);
+  assert.deepEqual(enables[0][13], { [visionModel]: 128000 });
+  assert.equal(enables[0][8], visionModel);
+  assert.deepEqual(prefetched, [account]);
+
+  h.openAccount();
+  assert.equal(h.state.form.modelCatalogText, `${visionModel}\ngpt-image-2`);
+  h.state.form.modelCatalogText += '\nrelay-extra';
+  await h.save();
+  assert.deepEqual(Array.from(h.calls.bindings[0][6]), [visionModel, 'gpt-image-2', 'relay-extra']);
+  h.openAccount();
+  assert.equal(h.state.form.modelCatalogText, `${visionModel}\ngpt-image-2\nrelay-extra`);
+});
+
+test('account catalog recovery respects an explicit empty key catalog and changed endpoint', () => {
+  const h = harness();
+  const provider = h.provider();
+  provider.modelCatalog = [];
+  provider.apiKeys[0].modelCatalog = [];
+  h.state.accounts[0].api_model_catalog = ['legacy-only'];
+  h.openAccount();
+  assert.equal(h.state.form.modelCatalogText, '');
+
+  delete provider.apiKeys[0].modelCatalog;
+  h.state.accounts[0].api_base_url = 'https://other-relay.invalid/v1';
+  h.openAccount();
+  assert.equal(h.state.form.modelCatalogText, '');
+});
+
 test('provider entry saves shared defaults while explicit key catalogs stay independent', async () => {
   const h = harness(); h.state.form.modelCatalogText = 'new-default'; await h.save();
   assert.deepEqual(Array.from(h.provider().modelCatalog), ['new-default']);
   assert.deepEqual(h.provider().apiKeys.map((key: any) => key.modelCatalog), [['model-a'], ['model-b']]);
   assert.equal(h.calls.bindings.length, 0); assert.equal(h.calls.syncs.length, 2); assert.equal(h.calls.queries, 0);
+});
+
+test('editing the selected provider key opens and saves that key’s own catalog', async () => {
+  const h = harness();
+  h.openSelectedKey('b');
+  assert.equal(h.state.editorModelKeyId, 'b');
+  assert.equal(h.state.form.modelCatalogText, 'model-b');
+  assert.equal(h.state.accountEditor, null);
+  h.state.form.modelCatalogText = 'updated-b';
+  await h.save();
+  assert.deepEqual(h.provider().modelCatalog, ['default']);
+  assert.deepEqual(h.provider().apiKeys[0].modelCatalog, ['model-a']);
+  assert.deepEqual(Array.from(h.provider().apiKeys[1].modelCatalog), ['updated-b']);
+});
+
+test('an existing third-party API key can switch to Chat Completions and retain it on reopen', async () => {
+  const h = harness();
+  h.openAccount();
+  assert.equal(h.state.form.wireApi, 'responses');
+  Object.assign(h.state.form, {
+    wireApi: 'chat_completions',
+    supportsWebsockets: false,
+    enableModePreference: 'gateway',
+  });
+  await h.save();
+
+  assert.equal(h.provider().wireApi, 'chat_completions');
+  assert.equal(h.calls.bindings[0][10], 'chat_completions');
+  h.openAccount();
+  assert.equal(h.state.form.wireApi, 'chat_completions');
+  assert.equal(h.state.form.supportsWebsockets, false);
 });
 
 test('account binding changes use the selected key and retain its Codex model-sync option', async () => {

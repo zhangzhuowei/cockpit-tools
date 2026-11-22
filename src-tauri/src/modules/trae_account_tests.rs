@@ -3,6 +3,21 @@
 use super::*;
     use crate::models::trae::TraeAccount;
 
+    #[test]
+    fn trae_work_brand_preserves_client_data_paths_and_provider_keys() {
+        for (slug, key, display, data_dir) in [
+            ("trae-solo", "trae_solo", "TraeWork", "TRAE SOLO"),
+            ("trae-solo-cn", "trae_solo_cn", "TraeWork CN", "TRAE SOLO CN"),
+        ] {
+            let platform = TraePlatformKind::parse(Some(slug)).unwrap();
+            assert_eq!(platform.provider_key(), key);
+            assert_eq!(platform.display_name(), display);
+            assert_eq!(platform.app_support_dir_name(), data_dir);
+            #[cfg(target_os = "macos")]
+            assert_eq!(platform.macos_app_name(), format!("{data_dir}.app"));
+        }
+    }
+
     fn sample_account() -> TraeAccount {
         TraeAccount {
             last_switched_at: None,
@@ -64,6 +79,37 @@ use super::*;
             status: None,
             status_reason: None,
         }
+    }
+
+    #[test]
+    fn current_lookup_reads_only_matching_trae_accounts() {
+        let mut foreign = sample_account();
+        foreign.id = "foreign".into();
+        foreign.trae_auth_raw = Some(serde_json::json!({ "platformId": "trae_solo_cn" }));
+        let mut unrelated = sample_account();
+        unrelated.id = "unrelated".into();
+        unrelated.user_id = None;
+        unrelated.email = "unrelated@example.test".into();
+        let mut chosen = sample_account();
+        chosen.id = "chosen".into();
+        chosen.email = "Match@Example.Test".into();
+        let mut legacy = chosen.summary();
+        legacy.query_identity = None;
+        let mut index = TraeAccountIndex::new();
+        index.accounts = vec![foreign.summary(), unrelated.summary(), legacy];
+        let reads = std::cell::RefCell::new(Vec::new());
+        let found = find_current_account_in_index(
+            &index,
+            TraePlatformKind::Trae,
+            chosen.user_id.as_deref(),
+            Some("match@example.test"),
+            |id| {
+                reads.borrow_mut().push(id.to_string());
+                (id == chosen.id).then(|| chosen.clone())
+            },
+        );
+        assert_eq!(found.as_ref().map(|account| account.id.as_str()), Some("chosen"));
+        assert_eq!(reads.into_inner(), vec!["chosen"]);
     }
 
     #[test]
@@ -145,6 +191,35 @@ use super::*;
             base,
             base + std::time::Duration::from_secs(1)
         ));
+    }
+
+    #[test]
+    fn trae_refresh_uses_newest_matching_instance_session_instead_of_last_profile() {
+        use std::time::{Duration, UNIX_EPOCH};
+        let dir = tempfile::tempdir().unwrap();
+        let saved = UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        let mut account = sample_account();
+        account.email = "fixture@example.invalid".into();
+        account.user_id = Some("fixture-user".into());
+        let session = |name: &str, time: u64, user: &str, access: &str, refresh: &str| {
+            let path = dir.path().join(name);
+            fs::write(&path, serde_json::json!({(TRAE_STORAGE_AUTH_KEY): {
+                "userId": user, "email":"fixture@example.invalid", "accessToken": access,
+                "refreshToken": refresh, "expiresAt": 1_800_000_000, "platformId":"trae",
+            }}).to_string()).unwrap();
+            fs::File::open(&path).unwrap().set_modified(saved + Duration::from_secs(time)).unwrap();
+            (name.to_owned(), path)
+        };
+        let newest = session("default.json", 20, "fixture-user", "newest-access", "newest-refresh");
+        let older = session("bound.json", 10, "fixture-user", "older-access", "older-refresh");
+        let mismatched = session("wrong-user.json", 30, "different-user", "different-access", "different-refresh");
+        assert!(sync_account_from_storage_candidates(&mut account, vec![newest.clone(), older.clone(), mismatched.clone()], saved));
+        assert_eq!(account.refresh_token.as_deref(), Some("newest-refresh"));
+        assert_eq!(account.access_token, "newest-access");
+
+        // The newest snapshot wins even when its tokens already match the central account.
+        assert!(!sync_account_from_storage_candidates(&mut account, vec![older, newest, mismatched], saved));
+        assert_eq!(account.refresh_token.as_deref(), Some("newest-refresh"));
     }
 
     #[test]

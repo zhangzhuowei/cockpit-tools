@@ -27,8 +27,9 @@ use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
 
 #[tokio::test]
 async fn legacy_session_header_reuses_scoped_identity_on_real_http_requests() {
-    let (mut handle, _host, source, task, _dir) =
+    let (mut handle, host, source, task, _dir) =
         identity_fixture(WireApi::Responses, false, false).await;
+    host.oauth.store(true, Ordering::SeqCst);
     for header in ["session_id", "session_id", "session-id"] {
         let response = http_client()
             .post(format!("http://{}/v1/responses", handle.addr))
@@ -71,7 +72,7 @@ struct IdentitySource {
 }
 async fn identity_http(State(source): State<Arc<IdentitySource>>, request: Request) -> Response {
     let (parts, body) = request.into_parts();
-    let bytes = to_bytes(body, 1024 * 1024).await.unwrap();
+    let bytes = to_bytes(body, 4 * 1024 * 1024).await.unwrap();
     let value: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
     let account = parts
         .headers
@@ -100,6 +101,18 @@ async fn identity_http(State(source): State<Arc<IdentitySource>>, request: Reque
         )
             .into_response();
     }
+    if value["input"].as_array().is_some_and(|items| {
+        items.iter().any(|item| {
+            item["type"] == "function_call_output" && item["output"] == "synthetic-rejected-history"
+        })
+    }) {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            [("x-request-id", "fixture-long-history-400")],
+            Json(json!({"detail":"Bad Request"})),
+        )
+            .into_response();
+    }
     if parts.uri.path().contains("images/") {
         return Json(json!({"created":1,"data":[{"b64_json":"AA=="}]})).into_response();
     }
@@ -117,6 +130,17 @@ async fn identity_http(State(source): State<Arc<IdentitySource>>, request: Reque
         .is_some_and(|tools| tools.iter().any(|tool| tool["type"] == "image_generation"))
     {
         return Json(json!({"id":format!("image-{id}"),"status":"completed","output":[{"type":"image_generation_call","result":"AA=="}],"usage":{"total_tokens":2}})).into_response();
+    }
+    if value["model"] == "gpt-6-astra" {
+        let response = json!({"id":format!("response-{id}"),"status":"completed","model":"gpt-5.5-mini","output":[]});
+        if parts.headers.contains_key("x-test-stream-response") {
+            let completed = json!({"type":"response.completed","response":response});
+            return (
+                [("content-type", "text/event-stream")],
+                format!("data: {completed}\n\n"),
+            ).into_response();
+        }
+        return Json(response).into_response();
     }
     Json(json!({"id":format!("response-{id}"),"status":"completed","output":[],"usage":{"input_tokens":1,"output_tokens":1}})).into_response()
 }
@@ -136,7 +160,10 @@ async fn identity_ws(
                     seen.push(WireRecord{path:"/v1/responses".into(),headers:headers.clone(),body_thread:body.pointer("/client_metadata/thread_id").and_then(Value::as_str).map(str::to_owned),body:body.clone()});
                     id
                 };
-                let event=json!({"type":"response.completed","response":{"id":format!("ws-{id}"),"status":"completed","output":[]}});
+                let mut event=json!({"type":"response.completed","response":{"id":format!("ws-{id}"),"status":"completed","output":[]}});
+                if body["model"] == "gpt-6-astra" {
+                    event["response"]["model"] = json!("gpt-5.5-mini");
+                }
                 if socket.send(AxumMessage::Text(event.to_string().into())).await.is_err(){break;}
             } else if matches!(message,AxumMessage::Close(_)) {break;}
         }
@@ -147,6 +174,8 @@ async fn identity_ws(
 mod installation_auxiliary_tests;
 #[path = "diagnostic_identity_mapping_tests.rs"]
 mod session_identity_mapping_tests;
+#[path = "opencode_session_http_tests.rs"]
+mod opencode_session_http_tests;
 struct IdentityHost {
     base: String,
     wire: WireApi,
@@ -156,10 +185,15 @@ struct IdentityHost {
     diagnostics: Mutex<Vec<DiagnosticContext>>,
 }
 impl Host for IdentityHost {
-    fn authorize<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<Caller, ServiceError>> {
-        Box::pin(async {
+    fn authorize<'a>(&'a self, key: &'a str) -> BoxFuture<'a, Result<Caller, ServiceError>> {
+        Box::pin(async move {
             Ok(Caller {
-                id: "identity-caller".into(),
+                id: if key == "other-caller-key" {
+                    "identity-other-caller"
+                } else {
+                    "identity-caller"
+                }
+                .into(),
                 label: "test".into(),
             })
         })
@@ -365,6 +399,69 @@ async fn captured(host: &IdentityHost, count: usize) -> Vec<DiagnosticContext> {
 }
 
 #[tokio::test]
+async fn generic_400_after_large_history_preserves_diagnostics_and_allows_a_smaller_next_turn() {
+    let (mut handle, host, source, task, _dir) =
+        identity_fixture(WireApi::Responses, false, false).await;
+    let url = format!("http://{}/v1/responses", handle.addr);
+    let marker = "synthetic-history-body";
+    let requests = [
+        (
+            "main",
+            json!([
+                {"type":"message","role":"user","content":marker.repeat(40_000)},
+                {"type":"function_call","call_id":"fixture","name":"read","arguments":"{}"},
+                {"type":"function_call_output","call_id":"fixture","output":"synthetic-rejected-history"},
+                {"type":"message","role":"user","content":"continue"},
+            ]),
+            400,
+        ),
+        ("side", json!([{"type":"message","role":"user","content":marker.repeat(60_000)}]), 200),
+        ("main", json!([{"type":"message","role":"user","content":"summarized history"}]), 200),
+    ];
+    let mut encoded_lengths = Vec::new();
+    for (thread, input, status) in requests {
+        let body = json!({"model":"m","input":input});
+        let encoded = body.to_string();
+        encoded_lengths.push(encoded.len() as u64);
+        let response = http_client()
+            .post(&url)
+            .bearer_auth("key")
+            .header("content-type", "application/json")
+            .header("session-id", thread)
+            .header("thread-id", thread)
+            .body(encoded)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status().as_u16(), status);
+        let result: Value = response.json().await.unwrap();
+        if status == 400 {
+            assert_eq!(result, json!({"detail":"Bad Request"}));
+        }
+    }
+    let recorded = captured(&host, 3).await;
+    let rejected = recorded.iter().find(|context| {
+        context.attempts.iter().any(|attempt| attempt.status == Some(400))
+    }).unwrap();
+    assert_eq!(rejected.attempts.len(), 1);
+    assert_eq!(rejected.failure_phase.as_deref(), Some("upstream"));
+    let attempt = &rejected.attempts[0];
+    assert_eq!(attempt.upstream_request_id.as_deref(), Some("fixture-long-history-400"));
+    assert_eq!(attempt.request_size.as_ref().unwrap().total_bytes, encoded_lengths[0]);
+    {
+        let sent = source.seen.lock().unwrap();
+        assert_eq!(sent.len(), 3, "generic upstream 400 must not be retried");
+        assert_eq!(sent[0].body["input"][2]["output"], "synthetic-rejected-history");
+        assert_eq!(sent[0].headers["x-test-account"], sent[2].headers["x-test-account"]);
+        assert_eq!(attempt.upstream_request_bytes, Some(sent[0].body.to_string().len() as u64));
+    }
+    assert!(rejected.payloads.is_empty());
+    assert!(!serde_json::to_string(rejected).unwrap().contains(marker));
+    handle.shutdown(Duration::from_secs(2)).await.unwrap();
+    task.abort();
+}
+
+#[tokio::test]
 async fn canonical_routing_feedback_does_not_replace_original_header_diagnostics() {
     let (mut handle, host, _, task, _dir) =
         identity_fixture(WireApi::Responses, false, false).await;
@@ -422,6 +519,7 @@ fn http_client() -> reqwest::Client {
 async fn http_identity_metadata_matches_wire_with_payload_logging_disabled_and_no_body_backfill() {
     let (mut handle, host, source, task, _dir) =
         identity_fixture(WireApi::Responses, false, false).await;
+    host.oauth.store(true, Ordering::SeqCst);
     for (index, path) in ["responses", "responses/compact"].iter().enumerate() {
         let response = http_client()
             .post(format!("http://{}/v1/{path}", handle.addr))
@@ -482,6 +580,7 @@ async fn http_identity_metadata_matches_wire_with_payload_logging_disabled_and_n
 async fn retry_identity_metadata_keeps_each_account_attempt_separate() {
     let (mut handle, host, source, task, _dir) =
         identity_fixture(WireApi::Responses, false, true).await;
+    host.oauth.store(true, Ordering::SeqCst);
     let response = http_client()
         .post(format!("http://{}/v1/responses", handle.addr))
         .bearer_auth("key")
@@ -631,9 +730,52 @@ async fn complete_socket(
 }
 
 #[tokio::test]
+async fn reported_response_model_is_recorded_separately_for_json_sse_and_websocket() {
+    let (mut handle, host, source, task, _dir) =
+        identity_fixture(WireApi::Responses, true, false).await;
+    for (model, stream, upstream_sse, expected) in [
+        ("gpt-6-astra", false, false, Some("gpt-5.5-mini")),
+        ("gpt-6-astra", true, true, Some("gpt-5.5-mini")),
+        ("gpt-6-astra", false, true, Some("gpt-5.5-mini")),
+        ("m", false, false, None),
+    ] {
+        let count = source.seen.lock().unwrap().len() + 1;
+        let mut request = http_client()
+            .post(format!("http://{}/v1/responses", handle.addr))
+            .bearer_auth("key")
+            .json(&json!({"model":model,"input":[],"stream":stream}));
+        if upstream_sse {
+            request = request.header("x-test-stream-response", "yes");
+        }
+        let response = request.send().await.unwrap();
+        assert_eq!(response.status(), 200);
+        assert!(!response.bytes().await.unwrap().is_empty());
+        let contexts = captured(&host, count).await;
+        let attempt = &contexts[count - 1].attempts[0];
+        assert_eq!(attempt.model_id, model);
+        assert_eq!(attempt.response_model.as_deref(), expected);
+        assert_eq!(source.seen.lock().unwrap()[count - 1].body["model"], model);
+    }
+
+    let mut socket = downstream_socket(&handle).await;
+    socket.send(Message::Text(
+        json!({"type":"response.create","model":"gpt-6-astra","input":[]}).to_string().into(),
+    )).await.unwrap();
+    complete_socket(&mut socket).await;
+    let contexts = captured(&host, 5).await;
+    let attempt = &contexts[4].attempts[0];
+    assert_eq!(attempt.model_id, "gpt-6-astra");
+    assert_eq!(attempt.response_model.as_deref(), Some("gpt-5.5-mini"));
+    drop(socket);
+    handle.shutdown(Duration::from_secs(2)).await.unwrap();
+    task.abort();
+}
+
+#[tokio::test]
 async fn websocket_changed_identifiers_reconnect_and_capture_actual_handshake_ids() {
     let (mut handle, host, source, task, _dir) =
         identity_fixture(WireApi::Responses, true, false).await;
+    host.oauth.store(true, Ordering::SeqCst);
     let mut socket = downstream_socket(&handle).await;
     for index in 0..2 {
         socket.send(Message::Text(json!({"type":"response.create","model":"m","previous_response_id":null,"input":[],"client_metadata":{"session_id":format!("body-session-{index}"),"thread_id":format!("body-thread-{index}")}}).to_string().into())).await.unwrap();
@@ -691,6 +833,9 @@ async fn websocket_stable_identifiers_reuse_and_record_actual_handshake_headers(
     for (context, record) in values.iter().zip(seen.iter()) {
         assert_sent(context, record, None, None);
         assert_eq!(context.attempts.last().unwrap().transport, "websocket");
+        assert_eq!(record.body_thread.as_deref(), Some("thread"));
+        assert!(!record.headers.contains_key("session-id"));
+        assert!(!record.headers.contains_key("thread-id"));
     }
     drop(seen);
     assert_eq!(

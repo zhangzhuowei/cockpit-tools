@@ -155,6 +155,27 @@ fn is_cli_launch_mode(mode: &InstanceLaunchMode) -> bool {
     matches!(mode, InstanceLaunchMode::Cli)
 }
 
+#[tauri::command]
+pub async fn claude_apply_cli_account_to_user_config(
+    app: tauri::AppHandle,
+    account_id: String,
+) -> Result<(), String> {
+    if account_id.trim().is_empty() {
+        return Err(modules::i18n::translate(
+            &modules::config::get_user_config().language,
+            "instances.quota.accountMissing",
+            &[],
+        ));
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        inject_bound_account_for_cli_instance_start(None, Some(&account_id))
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    let _ = modules::tray::update_tray_menu(&app);
+    Ok(())
+}
+
 fn default_user_data_dir_for_launch_mode(
     mode: &InstanceLaunchMode,
 ) -> Result<std::path::PathBuf, String> {
@@ -225,16 +246,17 @@ fn resolve_cli_launch_context(instance_id: &str) -> Result<ClaudeCliLaunchContex
     })
 }
 
-fn build_cli_launch_command(context: &ClaudeCliLaunchContext) -> String {
+fn build_cli_launch_command(context: &ClaudeCliLaunchContext) -> Result<String, String> {
     let env = std::collections::BTreeMap::new();
-    crate::commands::claude::build_claude_cli_command_for_context(
+    Ok(crate::commands::claude::build_claude_cli_command_for_context(
         context.working_dir.as_deref(),
         context
             .use_config_env
             .then_some(context.user_data_dir.as_str()),
         &context.extra_args,
         &env,
-    )
+        &super::cli_launch_path::resolve_claude_cli()?,
+    ))
 }
 
 fn prepare_cli_instance_config(
@@ -661,10 +683,11 @@ pub async fn claude_get_instance_launch_command(
     instance_id: String,
 ) -> Result<ClaudeInstanceLaunchInfo, String> {
     let context = resolve_cli_launch_context(&instance_id)?;
+    let launch_command = build_cli_launch_command(&context)?;
     prepare_cli_instance_config(&instance_id, &context)?;
     Ok(ClaudeInstanceLaunchInfo {
         instance_id,
-        launch_command: build_cli_launch_command(&context),
+        launch_command,
         user_data_dir: context.user_data_dir,
     })
 }
@@ -675,7 +698,7 @@ pub async fn claude_execute_instance_launch_command(
     terminal: Option<String>,
 ) -> Result<String, String> {
     let context = resolve_cli_launch_context(&instance_id)?;
+    let command = build_cli_launch_command(&context)?;
     prepare_cli_instance_config(&instance_id, &context)?;
-    let command = build_cli_launch_command(&context);
     crate::commands::claude::execute_claude_cli_command(&command, terminal)
 }

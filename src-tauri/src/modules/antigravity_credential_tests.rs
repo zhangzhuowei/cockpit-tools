@@ -1,6 +1,47 @@
 #[cfg(target_os = "macos")]
 use super::{parse_antigravity_system_credential, write_antigravity_keychain_payload};
 use super::{build_antigravity_credential_payload, write_antigravity_credential_payload};
+
+#[test]
+fn desktop_import_prefers_the_system_credential_and_uses_only_its_own_fallback() {
+    use super::read_desktop_credential;
+
+    let dir = tempfile::tempdir().unwrap();
+    let fallback = dir.path().join(super::DESKTOP_FALLBACK_FILE);
+    let token_json = |refresh| serde_json::json!({"token": {"refresh_token": refresh}}).to_string();
+    assert!(read_desktop_credential(&fallback, || Ok(None)).unwrap().is_none());
+    std::fs::write(&fallback, token_json("desktop-file")).unwrap();
+    let system = super::parse_antigravity_system_credential(&token_json("desktop-system")).unwrap();
+    assert_eq!(
+        read_desktop_credential(&fallback, || Ok(Some(system))).unwrap().unwrap().refresh_token,
+        "desktop-system"
+    );
+    assert_eq!(
+        read_desktop_credential(&fallback, || Ok(None)).unwrap().unwrap().refresh_token,
+        "desktop-file"
+    );
+    assert_eq!(
+        read_desktop_credential(&fallback, || Err("locked".into())).unwrap_err(),
+        "locked"
+    );
+}
+
+#[test]
+fn windows_credential_errors_distinguish_store_capacity_and_blob_limit() {
+    use super::{validate_windows_credential_size, windows_credential_write_error};
+    assert!(validate_windows_credential_size(2560).is_ok());
+    assert_eq!(
+        validate_windows_credential_size(2561).unwrap_err(),
+        "ANTIGRAVITY_WINDOWS_CREDENTIAL_TOO_LARGE"
+    );
+    assert_eq!(
+        windows_credential_write_error(std::io::Error::from_raw_os_error(8)),
+        "ANTIGRAVITY_WINDOWS_CREDENTIAL_STORE_CAPACITY"
+    );
+    assert!(windows_credential_write_error(std::io::Error::from_raw_os_error(1783))
+        .contains("1783"));
+    assert!(windows_credential_write_error(std::io::Error::from_raw_os_error(5)).contains("5"));
+}
 #[cfg(target_os = "macos")]
 use std::os::unix::fs::PermissionsExt;
 #[cfg(target_os = "macos")]
@@ -261,6 +302,27 @@ fn desktop_switch_syncs_only_an_initialized_agy_session() {
             0o600
         );
     }
+}
+
+#[test]
+fn explicit_cli_switch_creates_the_session_file_before_first_launch() {
+    let dir = tempfile::tempdir().unwrap();
+    let gemini = dir.path().join(".gemini");
+    let fallback = gemini.join("jetski-standalone-oauth-token");
+    let cli_session = super::cli_session_path(&gemini.join("antigravity-cli"));
+    assert!(!cli_session.exists());
+    write_antigravity_credential_payload("fixture-payload", &fallback, Some(&cli_session), |_| {
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&cli_session).unwrap(),
+        "fixture-payload"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&fallback).unwrap(),
+        "fixture-payload"
+    );
 }
 
 #[test]

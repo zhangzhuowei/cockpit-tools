@@ -56,6 +56,12 @@ fn bool_to_db_value(value: bool) -> i64 {
     }
 }
 
+fn request_logs_input_characters_select(conn: &Connection) -> Result<&'static str, String> {
+    request_logs_has_column(conn, "input_text_characters")
+        .map(|exists| if exists { "input_text_characters" } else { "NULL AS input_text_characters" })
+        .map_err(|error| error.to_string())
+}
+
 fn local_access_log_event_key(event: &CodexLocalAccessUsageEvent) -> String {
     let mut hash = 0xcbf29ce484222325u64;
     let mut feed = |value: &str| {
@@ -215,6 +221,7 @@ fn create_request_logs_table(
             latency_ms INTEGER NOT NULL DEFAULT 0,
             first_response_ms INTEGER,
             output_generation_ms INTEGER,
+            input_text_characters INTEGER,
             input_tokens INTEGER NOT NULL DEFAULT 0,
             output_tokens INTEGER NOT NULL DEFAULT 0,
             total_tokens INTEGER NOT NULL DEFAULT 0,
@@ -240,6 +247,7 @@ fn open_local_access_logs_db_once(
     let conn = Connection::open(path)?;
     conn.busy_timeout(LOCAL_ACCESS_LOGS_DB_BUSY_TIMEOUT)?;
     create_request_logs_table(&conn, include_service_tier_column)?;
+    ensure_request_connection_sources(&conn)?;
     create_overload_attempt_table(&conn)?;
     ensure_request_logs_column(&conn, "event_key", "event_key TEXT NOT NULL DEFAULT ''")?;
     ensure_request_logs_column(&conn, "request_id", "request_id TEXT NOT NULL DEFAULT ''")?;
@@ -324,6 +332,7 @@ fn open_local_access_logs_db_once(
         "output_generation_ms",
         "output_generation_ms INTEGER",
     )?;
+    ensure_request_logs_column(&conn, "input_text_characters", "input_text_characters INTEGER")?;
     ensure_request_logs_column(
         &conn,
         "input_tokens",
@@ -383,6 +392,9 @@ fn open_local_access_logs_db_once(
         r#"
         CREATE INDEX IF NOT EXISTS idx_codex_local_access_logs_timestamp
             ON request_logs(timestamp DESC);
+        CREATE INDEX IF NOT EXISTS idx_codex_local_access_logs_input_text
+            ON request_logs(timestamp, account_id, model_id, api_key_id, input_text_characters)
+            WHERE input_text_characters IS NOT NULL;
         CREATE INDEX IF NOT EXISTS idx_codex_local_access_logs_model
             ON request_logs(model_id, timestamp DESC);
         CREATE INDEX IF NOT EXISTS idx_codex_local_access_logs_model_id
@@ -888,10 +900,20 @@ fn insert_local_access_usage_event_with_identity(conn:&Connection,event:&CodexLo
     }
     ensure_request_logs_column(conn, "output_generation_ms", "output_generation_ms INTEGER")
         .map_err(|error| format!("添加输出计时列失败: {error}"))?;
-    conn.execute(
-        "UPDATE request_logs SET output_generation_ms=COALESCE(?1,output_generation_ms) WHERE event_key=?2",
-        params![event.output_generation_ms.map(|value| value.min(i64::MAX as u64) as i64),local_access_log_event_key(event)],
-    ).map_err(|error| format!("保存输出计时失败: {error}"))?;
+    let output_generation = event.output_generation_ms.map(|value| value.min(i64::MAX as u64) as i64);
+    let event_key = local_access_log_event_key(event);
+    if let Some(characters) = event.input_text_characters {
+        conn.execute(
+            "UPDATE request_logs SET output_generation_ms=COALESCE(?1,output_generation_ms),
+                input_text_characters=?2 WHERE event_key=?3",
+            params![output_generation, characters.min(i64::MAX as u64) as i64, event_key],
+        ).map_err(|error| format!("保存请求字符数与输出计时失败: {error}"))?;
+    } else {
+        conn.execute(
+            "UPDATE request_logs SET output_generation_ms=COALESCE(?1,output_generation_ms) WHERE event_key=?2",
+            params![output_generation, event_key],
+        ).map_err(|error| format!("保存输出计时失败: {error}"))?;
+    }
     ensure_request_logs_column(conn, "first_response_ms", "first_response_ms INTEGER")
         .map_err(|error| format!("添加请求首响列失败: {error}"))?;
     let first_response_ms = event
@@ -939,7 +961,11 @@ fn insert_live_local_access_usage_event(
 }
 
 fn insert_live_usage_event_in_transaction(conn:&Connection,event:&CodexLocalAccessUsageEvent,official:Option<&str>)->Result<(),String> {
+    if event.local_rejection {
+        return insert_request_rejection(conn, event).map_err(|error| error.to_string());
+    }
     insert_local_access_usage_event_with_identity(conn, event,official)?;
+    insert_request_connection_source(conn, event).map_err(|error| error.to_string())?;
     if let Some(settlement) = &event.budget_settlement {
         conn.execute("UPDATE request_logs SET settled_microusd=?1, settlement_status=?2, settled_at=?3
             WHERE event_key=?4 AND settlement_status='unrecorded'",
@@ -1189,11 +1215,12 @@ fn compute_request_log_reprice_row(
     collection: Option<&CodexLocalAccessCollection>,
     row: &RequestLogRepriceRow,
 ) -> Option<RequestLogRepriceUpdate> {
-    let pricing = resolve_effective_model_pricing(
+    let pricing = resolve_effective_model_pricing_at(
         collection,
         Some(row.model_id.as_str()),
         Some(&row.usage),
         Some(row.service_tier.as_str()),
+        row.timestamp,
     );
     let pricing = pricing.as_ref()?;
     let estimated_cost_usd = calculate_usage_cost_usd(Some(&row.usage), Some(pricing));
@@ -1701,6 +1728,8 @@ fn clear_local_access_usage_events_db() -> Result<(), String> {
     crate::modules::codex_request_summary::clear_if_present(&conn)?;
     conn.execute("DELETE FROM request_logs", [])
         .map_err(|e| format!("清空 API 服务请求日志失败: {}", e))?;
+    conn.execute("DELETE FROM request_log_rejections", [])
+        .map_err(|e| format!("清空 API 服务策略拒绝日志失败: {e}"))?;
     conn.execute_batch("COMMIT")
         .map_err(|e| format!("提交清空 API 服务请求日志失败: {}", e))?;
     REMOTE_ANALYTICS_REVISION.fetch_add(1,Ordering::AcqRel);
@@ -1720,6 +1749,8 @@ fn usage_event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CodexLocalA
         Ok(value.max(0) as u64)
     };
     let mut event = CodexLocalAccessUsageEvent {
+        local_rejection: false,
+        connection_source: request_connection_source_from_row(row),
         budget_settlement: None,
         service_tier_adaptation: row.get::<_, String>("authorization_route").ok()
             .filter(|route| route == "official")
@@ -1765,6 +1796,10 @@ fn usage_event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CodexLocalA
             .get::<_, Option<i64>>("first_response_ms")
             .ok()
             .flatten()
+            .and_then(|value| u64::try_from(value).ok()),
+        input_text_characters: row
+            .get::<_, Option<i64>>("input_text_characters")
+            .unwrap_or_default()
             .and_then(|value| u64::try_from(value).ok()),
         output_generation_ms: row
             .get::<_, Option<i64>>("output_generation_ms")
@@ -1827,6 +1862,7 @@ where F:FnMut(CodexLocalAccessUsageEvent)->Result<(),String> {
     let service_tier_evidence_select = request_logs_service_tier_evidence_select(conn)?;
     let proxy_route_select = request_logs_proxy_route_select(conn)?;
     let first_response_select = request_logs_first_response_select(conn)?;
+    let input_characters_select = request_logs_input_characters_select(conn)?;
     let output_generation_select = request_logs_output_generation_select(conn)?;
     let load_sql = format!(
         r#"
@@ -1847,7 +1883,7 @@ where F:FnMut(CodexLocalAccessUsageEvent)->Result<(),String> {
                 {reasoning_effort_select},
                 {service_tier_evidence_select},
                 {proxy_route_select},
-            {first_response_select}, {output_generation_select},
+            {first_response_select}, {output_generation_select}, {input_characters_select},
                 turn_state_length,
                 turn_state_class,
                 success,
@@ -2113,7 +2149,32 @@ fn push_session_filter(
     }
 }
 
+fn push_account_log_filter(
+    clauses: &mut Vec<String>,
+    params: &mut Vec<SqlValue>,
+    account_query: Option<String>,
+    account_name_matches: &[String],
+) -> Result<(), String> {
+    let Some(query) = normalize_log_filter(account_query) else {
+        return Ok(());
+    };
+    let like = format!("%{query}%");
+    params.extend([SqlValue::Text(like.clone()), SqlValue::Text(like)]);
+    if account_name_matches.is_empty() {
+        clauses.push("(account_id LIKE ? OR email LIKE ?)".into());
+    } else {
+        clauses.push(
+            "(account_id LIKE ? OR email LIKE ? OR account_id IN (SELECT value FROM json_each(?)))"
+                .into(),
+        );
+        let ids = serde_json::to_string(account_name_matches).map_err(|error| error.to_string())?;
+        params.push(SqlValue::Text(ids));
+    }
+    Ok(())
+}
+
 fn query_local_access_usage_events_blocking(
+    conn: &Connection,
     page: u32,
     page_size: u32,
     stats_range: Option<String>,
@@ -2121,6 +2182,7 @@ fn query_local_access_usage_events_blocking(
     end_at: Option<i64>,
     model_query: Option<String>,
     account_query: Option<String>,
+    account_name_matches: Option<Vec<String>>,
     account_id: Option<String>,
     api_key_id: Option<String>,
     api_key_query: Option<String>,
@@ -2130,6 +2192,9 @@ fn query_local_access_usage_events_blocking(
     request_kind: Option<CodexLocalAccessRequestKind>,
     success: Option<bool>,
     error_category: Option<String>,
+    min_total_tokens: Option<i64>,
+    account_ids: Option<Vec<String>>,
+    connection_source_filter: RequestConnectionSourceFilter,
 ) -> Result<CodexLocalAccessUsageEventPage, String> {
     let page_size = page_size.clamp(1, 200);
     let page = page.max(1);
@@ -2140,6 +2205,11 @@ fn query_local_access_usage_events_blocking(
             clauses.push(format!("{column} = ?"));
             params.push(SqlValue::Text(value));
         }
+    }
+
+    if let Some(ids) = account_ids.filter(|ids| !ids.is_empty()) {
+        clauses.push("account_id IN (SELECT value FROM json_each(?))".into());
+        params.push(SqlValue::Text(serde_json::to_string(&ids).map_err(|error| error.to_string())?));
     }
 
     if let Some(start_at) = start_at {
@@ -2165,15 +2235,12 @@ fn query_local_access_usage_events_blocking(
         params.push(SqlValue::Text(format!("%{}%", model_query)));
         params.push(SqlValue::Text(format!("%{}%", model_query)));
     }
-    push_like_filter(
+    push_account_log_filter(
         &mut clauses,
         &mut params,
-        "(account_id LIKE ? OR email LIKE ?)",
-        account_query.clone(),
-    );
-    if let Some(account_query) = normalize_log_filter(account_query) {
-        params.push(SqlValue::Text(format!("%{}%", account_query)));
-    }
+        account_query,
+        account_name_matches.as_deref().unwrap_or_default(),
+    )?;
     push_like_filter(
         &mut clauses,
         &mut params,
@@ -2203,6 +2270,10 @@ fn query_local_access_usage_events_blocking(
         clauses.push("success = ?".to_string());
         params.push(SqlValue::Integer(bool_to_db_value(success)));
     }
+    if let Some(minimum) = min_total_tokens {
+        clauses.push("total_tokens >= ?".into());
+        params.push(SqlValue::Integer(minimum));
+    }
     push_like_filter(
         &mut clauses,
         &mut params,
@@ -2210,16 +2281,6 @@ fn query_local_access_usage_events_blocking(
         error_category,
     );
 
-    let conn = match open_local_access_logs_db() {
-        Ok(conn) => conn,
-        Err(error) => {
-            logger::log_codex_api_warn(&format!(
-                "API 服务请求日志数据库不可用，本次查询未完成: {}",
-                error
-            ));
-            return Err(error.to_string());
-        }
-    };
     ensure_session_query_index(&conn).map_err(|e| e.to_string())?;
     let indexed = session_query_index_ready(&conn);
     if !indexed && diagnostics_table_exists(&conn).unwrap_or(false) { schedule_session_query_backfill(); }
@@ -2228,10 +2289,13 @@ fn query_local_access_usage_events_blocking(
     } else if normalize_log_filter(session_query).is_some() {
         clauses.push("0".into());
     }
+    connection_source_filter.append_sql(&mut clauses, &mut params);
     let where_sql = if clauses.is_empty() { String::new() } else { format!(" WHERE {}", clauses.join(" AND ")) };
     with_request_log_sql_budget(&conn, ACCOUNT_WINDOW_QUERY_BUDGET, || {
-    conn.execute_batch("BEGIN").map_err(|e|e.to_string())?;
-    let total_sql = format!("SELECT COUNT(*) FROM request_logs{}", where_sql);
+    let transaction = conn.unchecked_transaction().map_err(|error| error.to_string())?;
+    let conn = &transaction;
+    let audit_cte = request_logs_with_rejections_cte(conn).map_err(|error| error.to_string())?;
+    let total_sql = format!("{audit_cte}SELECT COUNT(*) FROM request_logs{where_sql}");
     let total: u64 = match conn.query_row(
         total_sql.as_str(),
         params_from_iter(params.clone()),
@@ -2279,10 +2343,12 @@ fn query_local_access_usage_events_blocking(
     let service_tier_evidence_select = request_logs_service_tier_evidence_select(&conn)?;
     let proxy_route_select = request_logs_proxy_route_select(&conn)?;
     let first_response_select = request_logs_first_response_select(&conn)?;
+    let input_characters_select = request_logs_input_characters_select(&conn)?;
     let output_generation_select = request_logs_output_generation_select(&conn)?;
     let authorization_fallback_select = request_logs_authorization_fallback_select(&conn)?;
     let list_sql = format!(
         r#"
+        {audit_cte}
         SELECT
             timestamp,
             request_id,
@@ -2291,6 +2357,8 @@ fn query_local_access_usage_events_blocking(
             api_key_id,
             api_key_label,
             client_instance_id,
+            request_connection_sources.peer_ip,
+            request_connection_sources.source_kind,
             model_id,
             requested_model,
             upstream_model,
@@ -2301,7 +2369,7 @@ fn query_local_access_usage_events_blocking(
             {service_tier_evidence_select},
             {proxy_route_select},
             {authorization_fallback_select},
-            {first_response_select}, {output_generation_select},
+            {first_response_select}, {output_generation_select}, {input_characters_select},
             turn_state_length,
             turn_state_class,
             success,
@@ -2320,7 +2388,8 @@ fn query_local_access_usage_events_blocking(
             input_usd_per_million,
             output_usd_per_million,
             cached_input_usd_per_million
-        FROM request_logs{}
+        FROM request_logs LEFT JOIN request_connection_sources
+            ON request_connection_sources.log_id = request_logs.id {}
         ORDER BY timestamp DESC, id DESC
         LIMIT ? OFFSET ?
         "#,
@@ -2375,6 +2444,7 @@ pub async fn query_local_access_usage_events(
     end_at: Option<i64>,
     model_query: Option<String>,
     account_query: Option<String>,
+    account_name_matches: Option<Vec<String>>,
     account_id: Option<String>,
     api_key_id: Option<String>,
     api_key_query: Option<String>,
@@ -2384,12 +2454,20 @@ pub async fn query_local_access_usage_events(
     request_kind: Option<CodexLocalAccessRequestKind>,
     success: Option<bool>,
     error_category: Option<String>,
+    min_total_tokens: Option<i64>,
+    account_ids: Option<Vec<String>>,
+    source_kind: Option<String>,
+    peer_ip: Option<String>,
 ) -> Result<CodexLocalAccessUsageEventPage, String> {
     let permit=report_query_slots().clone().try_acquire_owned().map_err(|_|crate::modules::background_maintenance::busy_message())?;
     ensure_runtime_loaded_without_start().await?;
     tauri::async_runtime::spawn_blocking(move || {
         let _permit=permit;
+        let conn = open_local_access_logs_db().inspect_err(|error| {
+            logger::log_codex_api_warn(&format!("API 服务请求日志数据库不可用，本次查询未完成: {error}"));
+        })?;
         query_local_access_usage_events_blocking(
+            &conn,
             page,
             page_size,
             stats_range,
@@ -2397,6 +2475,7 @@ pub async fn query_local_access_usage_events(
             end_at,
             model_query,
             account_query,
+            account_name_matches,
             account_id,
             api_key_id,
             api_key_query,
@@ -2406,6 +2485,9 @@ pub async fn query_local_access_usage_events(
             request_kind,
             success,
             error_category,
+            min_total_tokens,
+            account_ids,
+            RequestConnectionSourceFilter { kind: source_kind, peer_ip },
         )
     })
     .await
@@ -2424,8 +2506,15 @@ fn query_local_access_stats_window_blocking(
     if !REQUEST_USAGE_ROLLUP.ready(&conn) { schedule_request_rollup_backfill(); }
     let categories_ready = conn.query_row("SELECT complete FROM request_log_maintenance WHERE name='error_category'", [], |r| r.get::<_,bool>(0)).unwrap_or(false);
     if categories_ready {
-        return with_request_log_sql_budget(&conn, ACCOUNT_WINDOW_QUERY_BUDGET, || query_rollup_window(&conn,start_at,end_at));
+        return with_request_log_sql_budget(&conn, ACCOUNT_WINDOW_QUERY_BUDGET, || {
+            let tx = conn.unchecked_transaction().map_err(|error| error.to_string())?;
+            let mut window = read_rollup_window(&tx, start_at, end_at)?;
+            attach_input_text_stats(&tx, start_at, end_at, &mut window)?;
+            Ok(window)
+        });
     }
+    let transaction = conn.unchecked_transaction().map_err(|error| error.to_string())?;
+    let conn = &transaction;
     let service_tier_select = if request_logs_has_service_tier_column(&conn)
         .map_err(|e| format!("检查 API 服务日志 service_tier 列失败: {}", e))?
     {
@@ -2443,11 +2532,12 @@ fn query_local_access_stats_window_blocking(
     let service_tier_evidence_select = request_logs_service_tier_evidence_select(&conn)?;
     let proxy_route_select = request_logs_proxy_route_select(&conn)?;
     let first_response_select = request_logs_first_response_select(&conn)?;
+    let input_characters_select = request_logs_input_characters_select(&conn)?;
     let output_generation_select = request_logs_output_generation_select(&conn)?;
     let sql = format!(
         r#"SELECT timestamp, request_id, account_id, email, api_key_id, api_key_label,
                   client_instance_id, model_id, requested_model, upstream_model, gateway_mode, request_kind, {service_tier_select}, {reasoning_effort_select}, {service_tier_evidence_select}, {proxy_route_select},
-            {first_response_select}, {output_generation_select}, turn_state_length, turn_state_class, success,
+            {first_response_select}, {output_generation_select}, {input_characters_select}, turn_state_length, turn_state_class, success,
                   http_status, error_category, error_message, latency_ms, input_tokens,
                   output_tokens, total_tokens, cached_tokens, reasoning_tokens, token_breakdown_json,
                   estimated_cost_usd, model_pricing_version, input_usd_per_million,
@@ -2477,6 +2567,7 @@ fn query_local_access_stats_window_blocking(
     trend.sort_by_key(|point| point.bucket_start);
     window.trend = trend;
     window.trend_hourly = hourly_trend;
+    attach_input_text_stats(conn, start_at, end_at, &mut window)?;
     Ok(window)
 }
 
@@ -2496,6 +2587,7 @@ pub async fn query_local_access_stats_window(
 
 
 include!("codex_local_access_usage_rollup.rs");
+include!("codex_local_access_monthly_token_alert.rs");
 
 fn apply_usage_event_to_stats(
     stats: &mut CodexLocalAccessStats,
@@ -2681,6 +2773,8 @@ fn append_usage_event_with_meta(
     let usage = usage.cloned().unwrap_or_default();
     let model_id = model_id.unwrap_or_default().trim().to_string();
     let event = CodexLocalAccessUsageEvent {
+        local_rejection: false,
+        connection_source: None,
         budget_settlement: None,
         authorization_route: None,
         authorization_fallback: None,
@@ -2721,6 +2815,7 @@ fn append_usage_event_with_meta(
         latency_ms,
         first_response_ms: cached_request_first_response(request_id),
         output_generation_ms: None,
+        input_text_characters: None,
         input_tokens: usage.input_tokens,
         output_tokens: usage.output_tokens,
         total_tokens: usage.total_tokens,
@@ -3173,6 +3268,36 @@ mod official_service_tier_adaptation_tests {
 #[cfg(test)]
 mod session_filter_tests {
     use super::*;
+
+    #[test]
+    fn request_logs_account_filter_combines_matching_names_with_legacy_text_search() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE request_logs(account_id TEXT, email TEXT);
+             INSERT INTO request_logs VALUES
+               ('first', 'one@example.com'), ('second', 'two@example.com'),
+               ('team', 'provider@example.com'), ('second-copy', 'other@example.com');",
+        ).unwrap();
+        let mut clauses = Vec::new();
+        let mut params = Vec::new();
+        push_account_log_filter(
+            &mut clauses,
+            &mut params,
+            Some("provider".into()),
+            &["first".into(), "second".into()],
+        ).unwrap();
+        let query = format!(
+            "SELECT account_id FROM request_logs WHERE {} ORDER BY account_id",
+            clauses.join(" AND "),
+        );
+        let mut stmt = conn.prepare(&query).unwrap();
+        let ids: Vec<String> = stmt
+            .query_map(params_from_iter(params), |row| row.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(ids, ["first", "second", "team"]);
+    }
 
     #[test]
     fn request_logs_filter_exact_chat_or_threadless_session_before_pagination() {

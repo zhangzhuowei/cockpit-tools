@@ -11,6 +11,62 @@
     use std::thread;
     use std::time::Duration;
 
+    #[test]
+    fn token_refresh_backup_round_trips_json_and_zip() {
+        const FIXTURE_DIR: &str = "COCKPIT_TOKEN_REFRESH_BACKUP_TEST_DIR";
+        let Some(root) = std::env::var_os(FIXTURE_DIR).map(PathBuf::from) else {
+            let root = tempfile::tempdir().unwrap();
+            let (_, module) = module_path!().split_once("::").unwrap();
+            let test = format!("{module}::token_refresh_backup_round_trips_json_and_zip");
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", &test])
+                .env(FIXTURE_DIR, root.path())
+                .env("COCKPIT_TOOLS_TEST_DATA_DIR", root.path())
+                .status()
+                .unwrap();
+            assert!(status.success(), "backup fixture subprocess failed");
+            return;
+        };
+
+        let backup_dir = root.join("configured-backups");
+        crate::modules::config::patch_user_config(|config| {
+            config.backup_directory = backup_dir.to_string_lossy().into_owned();
+            Ok(())
+        })
+        .unwrap();
+        let file_name = concat!(
+            "cockpit_auto_backup_accounts_2026-11-16_19-30-00_token-refresh-",
+            "5a34bc89-b507-4631-816b-0c8584cd0945.json",
+        );
+        let content = r#"{"accounts":{"platforms":{"codex":{"exported_data":[{"id":"fixture","tokens":{"refresh_token":"rotated-fixture"}}]}}}}"#;
+        let path = super::write_managed_backup_file(file_name.into(), content.into()).unwrap();
+        assert_eq!(Path::new(&path), backup_dir.join(file_name));
+
+        let files = super::list_auto_backup_files_sync().unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].file_name, file_name);
+        assert_eq!(files[0].platforms.len(), 1);
+        assert_eq!(files[0].platforms[0].platform, "codex");
+        assert_eq!(files[0].platforms[0].account_count, 1);
+        let archive = files[0].archive_file_name.as_deref().unwrap();
+        assert_eq!(super::read_auto_backup_file(file_name.into()).unwrap(), content);
+        assert_eq!(super::read_auto_backup_file(archive.into()).unwrap(), content);
+    }
+
+    #[test]
+    fn antigravity_desktop_path_and_ide_path_patch_independently() {
+        let mut config = UserConfig::default();
+        let settings = serde_json::json!({
+            "antigravity_app_path": "/Applications/Antigravity IDE.app",
+            "antigravity_legacy_app_path": "/Applications/Antigravity.app",
+        });
+        apply_general_config_updates(&mut config, settings.as_object().unwrap()).unwrap();
+        let clear_desktop = serde_json::json!({"antigravity_legacy_app_path": ""});
+        apply_general_config_updates(&mut config, clear_desktop.as_object().unwrap()).unwrap();
+        assert!(config.antigravity_legacy_app_path.is_empty());
+        assert_eq!(config.antigravity_app_path, "/Applications/Antigravity IDE.app");
+    }
+
     struct MetadataTestDir(PathBuf);
 
     impl MetadataTestDir {
@@ -257,6 +313,75 @@
     }
 
     #[test]
+    fn tray_visibility_defaults_on_and_round_trips_without_changing_preferences() {
+        let mut legacy = serde_json::to_value(UserConfig::default()).unwrap();
+        legacy.as_object_mut().unwrap().remove("show_tray_icon");
+        let mut config: UserConfig = serde_json::from_value(legacy).unwrap();
+        assert!(config.show_tray_icon);
+
+        config.hide_dock_icon = true;
+        config.menu_bar_quota_enabled = true;
+        config.startup_minimized = true;
+        for visible in [false, true] {
+            let patch = serde_json::json!({ "show_tray_icon": visible });
+            apply_general_config_updates(&mut config, patch.as_object().unwrap()).unwrap();
+            let saved = serde_json::to_value(&config).unwrap();
+            let restored: UserConfig = serde_json::from_value(saved).unwrap();
+            assert_eq!(restored.show_tray_icon, visible);
+            assert!(restored.hide_dock_icon);
+            assert!(restored.menu_bar_quota_enabled);
+            assert_eq!(crate::should_hide_dock_icon(&restored), visible);
+            assert_eq!(crate::should_hide_startup_minimized_window(&restored, true), visible);
+        }
+    }
+
+    #[test]
+    fn menu_bar_left_click_defaults_to_quota_and_preserves_the_saved_choice() {
+        let mut legacy = serde_json::to_value(UserConfig::default()).unwrap();
+        legacy.as_object_mut().unwrap().remove("menu_bar_left_click_opens_main_window");
+        let mut config: UserConfig = serde_json::from_value(legacy).unwrap();
+        assert!(!config.menu_bar_left_click_opens_main_window);
+
+        for opens_main_window in [true, false] {
+            let patch = serde_json::json!({
+                "menu_bar_left_click_opens_main_window": opens_main_window
+            });
+            apply_general_config_updates(&mut config, patch.as_object().unwrap()).unwrap();
+            let other_patch = serde_json::json!({ "show_tray_icon": false });
+            apply_general_config_updates(&mut config, other_patch.as_object().unwrap()).unwrap();
+            let reloaded: UserConfig =
+                serde_json::from_value(serde_json::to_value(&config).unwrap()).unwrap();
+            assert_eq!(reloaded.menu_bar_left_click_opens_main_window, opens_main_window);
+        }
+    }
+
+    #[test]
+    fn menu_bar_quota_keeps_claude_cli_separate_from_desktop() {
+        let mut config = UserConfig::default();
+        for platform in ["claude_cli", "claude_manager"] {
+            let patch = serde_json::json!({ "menu_bar_quota_platform": platform });
+            apply_general_config_updates(&mut config, patch.as_object().unwrap()).unwrap();
+            let saved = serde_json::to_value(&config).unwrap();
+            let reloaded: UserConfig = serde_json::from_value(saved).unwrap();
+            assert_eq!(reloaded.menu_bar_quota_platform, platform);
+        }
+    }
+
+    #[test]
+    fn antigravity_menu_quota_metric_defaults_and_survives_unrelated_settings() {
+        let mut old = serde_json::to_value(UserConfig::default()).unwrap();
+        old.as_object_mut().unwrap().remove("menu_bar_antigravity_metric");
+        let mut config: UserConfig = serde_json::from_value(old).unwrap();
+        assert!(config.menu_bar_antigravity_metric.is_empty());
+        let patch = serde_json::json!({ "menu_bar_antigravity_metric": " gemini:weekly " });
+        apply_general_config_updates(&mut config, patch.as_object().unwrap()).unwrap();
+        let patch = serde_json::json!({ "menu_bar_quota_platform": "codex" });
+        apply_general_config_updates(&mut config, patch.as_object().unwrap()).unwrap();
+        let reloaded: UserConfig = serde_json::from_value(serde_json::to_value(config).unwrap()).unwrap();
+        assert_eq!(reloaded.menu_bar_antigravity_metric, "gemini:weekly");
+    }
+
+    #[test]
     fn general_config_patch_validates_codex_app_enhancements_atomically() {
         let mut config = UserConfig::default();
         config.language = "ja".to_string();
@@ -344,7 +469,9 @@
     #[test]
     fn general_config_patch_persists_session_sharing_switches() {
         let mut config = UserConfig::default();
+        assert!(!config.claude_share_code_sessions_on_switch);
         let updates = serde_json::json!({
+            "claude_share_code_sessions_on_switch": true,
             "codebuddy_share_sessions_on_switch": true,
             "codebuddy_cn_share_sessions_on_switch": true,
             "trae_share_sessions_on_switch": true,
@@ -360,6 +487,7 @@
         apply_general_config_updates(&mut config, &updates)
             .expect("session sharing patch should succeed");
 
+        assert!(config.claude_share_code_sessions_on_switch);
         assert!(config.codebuddy_share_sessions_on_switch);
         assert!(config.codebuddy_cn_share_sessions_on_switch);
         assert!(config.trae_share_sessions_on_switch);
@@ -397,6 +525,33 @@
             .expect_err("retired setting must not be writable");
         assert!(error.contains("codex_cli_only_allow_app_server_clients"));
         assert_eq!(serde_json::to_value(&config).expect("serialize unchanged config"), before);
+    }
+
+    #[test]
+    fn automatic_session_repair_preference_roundtrips_through_general_settings() {
+        use crate::modules::config::CodexAutomaticSessionRepair::{IndexOnly, Off, Quick};
+
+        let mut config: UserConfig = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert_eq!(config.codex_automatic_session_repair, Quick);
+        for (value, mode) in [("off", Off), ("index_only", IndexOnly), ("quick", Quick)] {
+            let updates = serde_json::json!({"codex_automatic_session_repair": value});
+            apply_general_config_updates(&mut config, updates.as_object().unwrap()).unwrap();
+            let restored: UserConfig = serde_json::from_value(serde_json::to_value(&config).unwrap()).unwrap();
+            assert_eq!(restored.codex_automatic_session_repair, mode);
+        }
+    }
+
+    #[test]
+    fn cli_auto_refresh_setting_is_opt_in_and_roundtrips() {
+        let mut config: UserConfig = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert!(!config.codex_cli_auto_refresh_on_switch);
+        for enabled in [true, false] {
+            let updates = serde_json::json!({ "codex_cli_auto_refresh_on_switch": enabled });
+            apply_general_config_updates(&mut config, updates.as_object().unwrap()).unwrap();
+            let restored: UserConfig =
+                serde_json::from_value(serde_json::to_value(&config).unwrap()).unwrap();
+            assert_eq!(restored.codex_cli_auto_refresh_on_switch, enabled);
+        }
     }
 
     #[test]

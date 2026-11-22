@@ -1,6 +1,6 @@
 use super::*;
 use serde_json::json;
-use std::{cell::Cell, fs};
+use std::{cell::Cell, fs, time::Instant};
 
 const ROOT: &str = "11111111-1111-4111-8111-111111111111";
 const LOGICAL: &str = "22222222-2222-4222-8222-222222222222";
@@ -219,6 +219,36 @@ fn history_projection_repair_missing_records_never_become_a_cache_reset() {
 }
 
 #[test]
+fn history_projection_repair_reports_duplicate_ordinals_and_preserves_affected_chains() {
+    let f = Fixture::new();
+    let mut original = records(ROOT, None, 0);
+    for kind in ["token_count", "thread_settings_applied"] {
+        original.extend(serde_json::to_vec(&json!({
+            "ordinal":3,"type":"event_msg","payload":{"type":kind}
+        })).unwrap());
+        original.push(b'\n');
+    }
+    let compressed = zstd::stream::encode_all(original.as_slice(), 0).unwrap();
+    fs::write(&f.parent, &compressed).unwrap();
+    let other = f.root.join(format!("sessions/rollout-2026-10-24T00-00-02-{OTHER}.jsonl"));
+    let other_bytes = records(OTHER, None, 0);
+    fs::write(other, &other_bytes).unwrap();
+    cache(&f.db(), OTHER, other_bytes.len() as i64 + 100, 3);
+
+    let plan = scan(&f.root, None, &|_, _| {}).unwrap();
+    assert_eq!(plan.duplicate_ordinals, [
+        (ROOT.to_owned(), ROOT.to_owned(), 3),
+        (CHILD.to_owned(), ROOT.to_owned(), 3),
+    ]);
+    assert_eq!(plan.candidate_count(), 1);
+    assert_eq!(apply(&f.root, &plan, &f.root.join("backup")).unwrap(), 1);
+    assert_eq!(fs::read(&f.parent).unwrap(), compressed);
+    assert_eq!(f.count(ROOT), 1);
+    assert_eq!(f.count(CHILD), 1);
+    assert_eq!(f.count(OTHER), 0);
+}
+
+#[test]
 fn history_projection_repair_rejects_truncated_compression_and_partial_json() {
     for compressed in [true, false] {
         let f = Fixture::new();
@@ -231,6 +261,48 @@ fn history_projection_repair_rejects_truncated_compression_and_partial_json() {
             .contains("UNSAFE_HISTORY"));
         assert_eq!(f.count(ROOT), 1);
     }
+}
+
+#[test]
+fn history_projection_repair_streams_oversized_compressed_rollout() {
+    use std::io::Write;
+
+    let f = Fixture::new();
+    let file = fs::File::create(&f.parent).unwrap();
+    let mut encoder = zstd::stream::write::Encoder::new(file, 1).unwrap();
+    let original = records(ROOT, None, 0);
+    encoder.write_all(&original).unwrap();
+    encoder.write_all(b"{\"ordinal\":3,\"payload\":{\"text\":\"").unwrap();
+    let block = [b'x'; 64 * 1024];
+    for _ in 0..1025 {
+        encoder.write_all(&block).unwrap();
+    }
+    encoder.write_all(b"\"}}\n").unwrap();
+    let mut decoded_len = original.len() + 1025 * block.len()
+        + b"{\"ordinal\":3,\"payload\":{\"text\":\"\"}}\n".len();
+    let padding = "x".repeat(32 * 1024 - 64);
+    let mut ordinal = 4;
+    while decoded_len <= 512 * 1024 * 1024 {
+        let line = format!("{{\"ordinal\":{ordinal},\"payload\":{{\"text\":\"{padding}\"}}}}\n");
+        encoder.write_all(line.as_bytes()).unwrap();
+        decoded_len += line.len();
+        ordinal += 1;
+    }
+    encoder.finish().unwrap();
+    f.db()
+        .execute(
+            "UPDATE thread_history_projection_state SET next_rollout_byte_offset=?1 WHERE thread_id=?2",
+            rusqlite::params![decoded_len as i64 + 1, ROOT],
+        )
+        .unwrap();
+
+    let plan = f.plan();
+    assert_eq!(plan.sources[ROOT].decoded_bytes, decoded_len as u64);
+    assert_eq!(plan.candidate_count(), 1);
+    assert_eq!(f.count(ROOT), 1);
+    assert_eq!(apply(&f.root, &plan, &f.root.join("large-backup")).unwrap(), 1);
+    assert_eq!(f.count(ROOT), 0);
+    assert_eq!(f.count(CHILD), 1);
 }
 
 #[test]
@@ -377,27 +449,126 @@ fn history_projection_repair_busy_client_fails_promptly_without_deleting_history
 }
 
 #[test]
-fn history_projection_repair_missing_or_duplicate_ancestors_are_not_guessed() {
-    for duplicate in [true, false] {
+fn history_projection_repair_duplicate_ancestors_are_not_guessed() {
+    let f = Fixture::new();
+    fs::write(f.parent.with_extension(""), records(ROOT, None, 0)).unwrap();
+    assert!(scan(&f.root, None, &|_, _| {})
+        .unwrap_err()
+        .contains("AMBIGUOUS_SOURCE"));
+    assert_eq!(f.count(ROOT), 1);
+}
+
+#[test]
+fn history_projection_repair_missing_ancestry_leaves_other_repairs_available() {
+    for selected in [false, true] {
         let f = Fixture::new();
-        if duplicate {
-            fs::write(f.parent.with_extension(""), records(ROOT, None, 0)).unwrap();
-        } else {
-            fs::remove_file(&f.parent).unwrap();
-        }
-        let error = scan(
-            &f.root,
-            Some(&HashSet::from([LOGICAL.to_owned()])),
-            &|_, _| {},
-        )
-        .unwrap_err();
-        assert!(error.contains(if duplicate {
-            "AMBIGUOUS_SOURCE"
-        } else {
-            "SOURCE_MISSING"
-        }));
+        let parent = fs::read(&f.parent).unwrap();
+        let child = fs::read(&f.child).unwrap();
+        fs::remove_file(&f.parent).unwrap();
+        let other = f.root.join(format!(
+            "sessions/rollout-2026-10-24T00-00-02-{OTHER}.jsonl"
+        ));
+        let other_bytes = records(OTHER, None, 0);
+        fs::write(&other, &other_bytes).unwrap();
+        cache(&f.db(), OTHER, other_bytes.len() as i64 + 100, 3);
+        Connection::open(f.root.join(STATE_DB))
+            .unwrap()
+            .execute(
+                "INSERT INTO threads VALUES (?1,?2)",
+                [OTHER, other.to_str().unwrap()],
+            )
+            .unwrap();
+        let selection = selected.then(|| HashSet::from([LOGICAL.to_owned(), OTHER.to_owned()]));
+        let plan = scan(&f.root, selection.as_ref(), &|_, _| {}).unwrap();
+        assert_eq!(plan.candidate_count(), 1);
+        assert_eq!(plan.scanned_files(), 1);
+        assert_eq!(plan.skipped_sources.len(), if selected { 1 } else { 2 });
+        assert!(plan
+            .skipped_sources
+            .iter()
+            .all(|(_, missing)| missing == ROOT));
+        assert!(plan.skipped_sources.iter().any(|(id, _)| id == CHILD));
+        // Preview does not mutate any indexes, including the repairable one.
+        assert_eq!(f.count(OTHER), 1);
+        let state = Connection::open(f.root.join(STATE_DB)).unwrap();
+        state
+            .execute(
+                "UPDATE threads SET rollout_path='moved' WHERE id=?1",
+                [LOGICAL],
+            )
+            .unwrap();
+        let backup = f.root.join("partial-backup");
+        assert_eq!(apply(&f.root, &plan, &backup).unwrap(), 1);
+        state
+            .execute(
+                "UPDATE threads SET rollout_path=?1 WHERE id=?2",
+                [f.child.to_str().unwrap(), LOGICAL],
+            )
+            .unwrap();
+        assert_eq!(f.count(OTHER), 0);
         assert_eq!(f.count(ROOT), 1);
+        assert_eq!(f.count(CHILD), 1);
+        assert_eq!(fs::read(&f.child).unwrap(), child);
+        assert_eq!(fs::read(&other).unwrap(), other_bytes);
+        let saved = Connection::open(backup.join("history-projection.sqlite")).unwrap();
+        let ids = saved
+            .prepare("SELECT thread_id FROM thread_history_projection_state")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(0))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(ids, [OTHER]);
+        // Repeated attempts preserve unresolved history, without duplicate resets.
+        let retry = scan(&f.root, selection.as_ref(), &|_, _| {}).unwrap();
+        assert_eq!(retry.candidate_count(), 0);
+        assert!(!retry.skipped_sources.is_empty());
+        assert_eq!(
+            apply(&f.root, &retry, &f.root.join("unused-backup")).unwrap(),
+            0
+        );
+        assert!(!f.root.join("unused-backup").exists());
+        // Restoring the actual source makes its dependent history repairable again.
+        fs::write(&f.parent, parent).unwrap();
+        let restored = scan(&f.root, selection.as_ref(), &|_, _| {}).unwrap();
+        assert!(restored.skipped_sources.is_empty());
+        assert_eq!(
+            apply(&f.root, &restored, &f.root.join("restored-backup")).unwrap(),
+            1
+        );
+        assert_eq!(f.count(ROOT), 0);
+        assert_eq!(f.count(CHILD), 1);
     }
+}
+
+#[test]
+fn history_projection_repair_missing_selected_source_is_reported_but_database_errors_abort() {
+    let f = Fixture::new();
+    fs::remove_file(&f.child).unwrap();
+    let selected = HashSet::from([LOGICAL.to_owned(), OTHER.to_owned()]);
+    let plan = scan(&f.root, Some(&selected), &|_, _| {}).unwrap();
+    assert_eq!(
+        plan.skipped_sources,
+        vec![
+            (LOGICAL.to_owned(), CHILD.to_owned()),
+            (OTHER.to_owned(), OTHER.to_owned())
+        ]
+    );
+    assert_eq!(plan.candidate_count(), 0);
+    assert_eq!(
+        apply(&f.root, &plan, &f.root.join("unused-backup")).unwrap(),
+        0
+    );
+    assert_eq!(f.count(ROOT), 1);
+    assert_eq!(f.count(CHILD), 1);
+    // A schema/query failure must not be mislabeled as a missing session.
+    Connection::open(f.root.join(STATE_DB))
+        .unwrap()
+        .execute_batch("DROP TABLE threads")
+        .unwrap();
+    assert!(scan(&f.root, Some(&selected), &|_, _| {})
+        .unwrap_err()
+        .contains("DATABASE"));
 }
 
 #[test]
@@ -439,12 +610,7 @@ fn history_projection_repair_source_change_before_commit_rolls_back() {
 }
 
 #[test]
-fn history_projection_repair_budget_and_profile_scope_are_enforced() {
-    let budget = Budget {
-        started: Instant::now() - Duration::from_secs(46),
-        bytes: 0,
-    };
-    assert!(budget.check().unwrap_err().contains("LIMIT"));
+fn history_projection_repair_rejects_wrong_profile_and_invalid_cursor() {
     let f = Fixture::new();
     let other = Fixture::new();
     assert!(apply(&other.root, &f.plan(), &other.root.join("backup"))
@@ -454,4 +620,42 @@ fn history_projection_repair_budget_and_profile_scope_are_enforced() {
     assert!(scan(&f.root, None, &|_, _| {})
         .unwrap_err()
         .contains("UNSAFE_HISTORY"));
+}
+
+#[test]
+fn history_projection_repair_handles_deep_chains_and_large_backups() {
+    let f = Fixture::new();
+    let mut parent = ROOT.to_owned();
+    let mut ordinal = 3;
+    let mut db = f.db();
+    let tx = db.transaction().unwrap();
+    for index in 1..=130 {
+        let id = uuid::Uuid::from_u128(index).to_string();
+        let path = f.root.join(format!("sessions/rollout-2026-10-24T00-00-00-{id}.jsonl"));
+        let bytes = records(&id, Some(json!({
+            "thread_id": parent,
+            "end_byte_offset": 1,
+            "end_ordinal_exclusive": ordinal
+        })), ordinal);
+        fs::write(path, &bytes).unwrap();
+        ordinal += 3;
+        cache(&tx, &id, bytes.len() as i64 + 1, ordinal as i64);
+        parent = id;
+    }
+    tx.execute("WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<20000)
+        INSERT INTO thread_items SELECT ?1,'turn','extra-'||x,1,10,'{}' FROM n", [ROOT]).unwrap();
+    tx.execute("UPDATE thread_items SET item_json=zeroblob(67108865) WHERE thread_id=?1 AND item_id='item'", [ROOT]).unwrap();
+    tx.commit().unwrap();
+    let plan = scan(&f.root, None, &|_, _| {}).unwrap();
+    assert_eq!(plan.candidate_count(), 131);
+    let backup = f.root.join("large-backup");
+    assert_eq!(apply(&f.root, &plan, &backup).unwrap(), 131);
+    assert_eq!(f.count(ROOT), 0);
+    let copy = Connection::open(backup.join("history-projection.sqlite")).unwrap();
+    let (rows, largest): (i64, i64) = copy.query_row(
+        "SELECT count(*), max(length(item_json)) FROM thread_items WHERE thread_id=?1",
+        [ROOT],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    ).unwrap();
+    assert_eq!((rows, largest), (20001, 67108865));
 }

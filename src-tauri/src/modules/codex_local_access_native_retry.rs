@@ -68,9 +68,6 @@ async fn native_retry_cooldown_wait(
             })
             || (plan.oauth_only && !native_is_oauth_authorization_account(&account))
             || native_xai_base_denied(&collection, key, &plan, &account)
-            || (collection.restrict_free_accounts
-                && account.plan_type.as_deref() == Some("free")
-                && (!account.is_api_key_auth() || native_is_chatgpt_plan_account(&account)))
         {
             continue;
         }
@@ -169,8 +166,7 @@ async fn native_image_retry_cooldown_wait(
     let accounts = host
         .load_routing_accounts(
             ids,
-            caller.id != NATIVE_INTERNAL_CALLER
-                && collection.image_generation_account_ids.is_empty(),
+            false,
         )
         .await?;
     let states = host
@@ -189,9 +185,6 @@ async fn native_image_retry_cooldown_wait(
                 .preferred_account_id
                 .as_ref()
                 .is_some_and(|id| id != &account.id)
-            || (collection.restrict_free_accounts
-                && is_free_plan_type(account.plan_type.as_deref())
-                && (!account.is_api_key_auth() || native_is_chatgpt_plan_account(&account)))
             || !native_quota_allows(collection, &account)
             || !native_image_source_allowed(collection, &account, &model)
             || !native_image_model_allowed(collection, key, &account, &model)

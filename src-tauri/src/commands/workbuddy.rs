@@ -321,11 +321,6 @@ pub async fn inject_workbuddy_to_vscode(
     ) {
         logger::log_warn(&format!("更新 WorkBuddy 默认实例绑定账号失败：{}", err));
     }
-    crate::modules::provider_current_state::set_current_account_id(
-        "workbuddy",
-        Some(account_id.as_str()),
-    )?;
-
     let launch_warning = match crate::commands::workbuddy_instance::workbuddy_start_instance(
         "__default__".to_string(),
     )
@@ -338,17 +333,18 @@ pub async fn inject_workbuddy_to_vscode(
                 // 保持既有行为：即使应用路径异常，认证切换仍然落盘。由于此时无法
                 // 确认官方进程已退出，不在这里执行可能较慢的会话目录合并。
                 let account_to_write = account.clone();
-                tauri::async_runtime::spawn_blocking(move || {
+                let write_result = tauri::async_runtime::spawn_blocking(move || {
                     workbuddy_account::write_account_to_default_client(&account_to_write)
                 })
                 .await
-                .map_err(|error| format!("WorkBuddy 账号切换后台任务失败: {}", error))??;
-                if err.starts_with("APP_PATH_NOT_FOUND:") || err.contains("APP_PATH_NOT_FOUND:") {
+                .map_err(|error| format!("WorkBuddy 账号切换后台任务失败: {}", error));
+                if err.starts_with("APP_PATH_NOT_FOUND:") {
                     let _ = app.emit(
                         "app:path_missing",
                         serde_json::json!({ "app": "workbuddy", "retry": { "kind": "default" } }),
                     );
                 }
+                write_result??;
                 Some(err)
             } else {
                 return Err(err);
@@ -356,6 +352,10 @@ pub async fn inject_workbuddy_to_vscode(
         }
     };
 
+    crate::modules::provider_current_state::set_current_account_id(
+        "workbuddy",
+        Some(account_id.as_str()),
+    )?;
     workbuddy_account::touch_last_used(&account_id)?;
     let _ = crate::modules::tray::update_tray_menu(&app);
 
@@ -483,34 +483,63 @@ pub async fn checkin_workbuddy(
 }
 
 #[tauri::command]
-pub fn get_workbuddy_auto_checkin_config(
+pub async fn get_workbuddy_auto_checkin_config(
 ) -> Result<crate::modules::workbuddy_auto_checkin::WorkbuddyAutoCheckinConfig, String> {
-    crate::modules::workbuddy_auto_checkin::get_config_checked()
+    tauri::async_runtime::spawn_blocking(crate::modules::workbuddy_auto_checkin::get_config_checked)
+        .await
+        .map_err(|error| format!("自动签到配置任务失败: {error}"))?
 }
 
 #[tauri::command]
-pub fn migrate_workbuddy_auto_checkin_config(
+pub async fn migrate_workbuddy_auto_checkin_config(
     legacy_config: crate::modules::workbuddy_auto_checkin::WorkbuddyAutoCheckinConfig,
 ) -> Result<crate::modules::workbuddy_auto_checkin::WorkbuddyAutoCheckinConfig, String> {
-    crate::modules::workbuddy_auto_checkin::migrate_config_if_missing(&legacy_config)
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::modules::workbuddy_auto_checkin::migrate_config_if_missing(&legacy_config)
+    })
+    .await
+    .map_err(|error| format!("自动签到配置任务失败: {error}"))?
 }
 
 #[tauri::command]
-pub fn save_workbuddy_auto_checkin_config(
+pub async fn save_workbuddy_auto_checkin_config(
     config: crate::modules::workbuddy_auto_checkin::WorkbuddyAutoCheckinConfig,
 ) -> Result<(), String> {
-    crate::modules::workbuddy_auto_checkin::save_config(&config)
+    tauri::async_runtime::spawn_blocking(move || crate::modules::workbuddy_auto_checkin::save_config(&config))
+        .await
+        .map_err(|error| format!("自动签到配置任务失败: {error}"))?
 }
 
 #[tauri::command]
-pub fn get_workbuddy_auto_checkin_logs(
-) -> Result<Vec<crate::modules::workbuddy_auto_checkin::WorkbuddyAutoCheckinLogRecord>, String> {
-    crate::modules::workbuddy_auto_checkin::get_logs_checked()
+pub async fn stage_workbuddy_auto_checkin_legacy_logs(snapshot: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::modules::workbuddy_auto_checkin::stage_legacy_webview_logs(&snapshot)
+    })
+    .await
+    .map_err(|error| format!("签到历史任务失败: {error}"))?
 }
 
 #[tauri::command]
-pub fn clear_workbuddy_auto_checkin_logs() -> Result<(), String> {
-    crate::modules::workbuddy_auto_checkin::save_logs(&[])
+pub async fn get_workbuddy_auto_checkin_logs(
+    retry: Option<bool>,
+) -> Result<
+    crate::modules::wakeup_history_store::HistoryRead<
+        crate::modules::workbuddy_auto_checkin::WorkbuddyAutoCheckinLogRecord,
+    >,
+    String,
+> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::modules::workbuddy_auto_checkin::get_logs_checked(retry.unwrap_or(false))
+    })
+    .await
+    .map_err(|error| format!("签到历史任务失败: {error}"))?
+}
+
+#[tauri::command]
+pub async fn clear_workbuddy_auto_checkin_logs() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(crate::modules::workbuddy_auto_checkin::clear_logs)
+        .await
+        .map_err(|error| format!("签到历史任务失败: {error}"))?
 }
 
 #[tauri::command]
@@ -523,4 +552,56 @@ pub async fn run_workbuddy_auto_checkin_now(
         force.unwrap_or(false),
     )
     .await
+}
+
+#[tauri::command]
+pub async fn probe_workbuddy_model(
+    account_id: String,
+    model: String,
+    keep_conversation: Option<bool>,
+) -> Result<crate::modules::workbuddy_model_probe::WorkbuddyModelProbeResult, String> {
+    let account = load_billing_account(account_id).await?;
+    crate::modules::workbuddy_model_probe::probe_model(&account, &model, keep_conversation.unwrap_or(false)).await
+}
+
+#[tauri::command]
+pub async fn fetch_workbuddy_cloud_models(
+    account_id: String,
+) -> Result<Vec<crate::modules::workbuddy_model_probe::WorkbuddyCloudModel>, String> {
+    let account = load_billing_account(account_id).await?;
+    crate::modules::workbuddy_model_probe::fetch_cloud_models(&account).await
+}
+
+async fn load_codebuddy_cn_probe_account(
+    account_id: String,
+) -> Result<crate::models::codebuddy::CodebuddyAccount, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::modules::codebuddy_cn_account::load_account(&account_id)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+    .ok_or_else(|| "WORKBUDDY_ACCOUNT_NOT_FOUND".to_string())
+}
+
+#[tauri::command]
+pub async fn probe_codebuddy_cn_model(
+    account_id: String,
+    model: String,
+    keep_conversation: Option<bool>,
+) -> Result<crate::modules::workbuddy_model_probe::WorkbuddyModelProbeResult, String> {
+    let account = load_codebuddy_cn_probe_account(account_id).await?;
+    crate::modules::workbuddy_model_probe::probe_cn_model(
+        &account,
+        &model,
+        keep_conversation.unwrap_or(false),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn fetch_codebuddy_cn_cloud_models(
+    account_id: String,
+) -> Result<Vec<crate::modules::workbuddy_model_probe::WorkbuddyCloudModel>, String> {
+    let account = load_codebuddy_cn_probe_account(account_id).await?;
+    crate::modules::workbuddy_model_probe::fetch_cn_cloud_models(&account).await
 }

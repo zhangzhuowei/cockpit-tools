@@ -101,43 +101,38 @@ where
         paths.push(path);
     }
 
-    paths.sort_by(|left, right| compare_log_paths_by_recency(left, right));
+    paths.sort_by_cached_key(|path| {
+        let modified = fs::metadata(path)
+            .and_then(|metadata| metadata.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        std::cmp::Reverse((modified, path.file_name().map(std::ffi::OsStr::to_os_string)))
+    });
     Ok(paths)
-}
-
-fn compare_log_paths_by_recency(left: &PathBuf, right: &PathBuf) -> std::cmp::Ordering {
-    let left_modified = fs::metadata(left)
-        .and_then(|metadata| metadata.modified())
-        .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-    let right_modified = fs::metadata(right)
-        .and_then(|metadata| metadata.modified())
-        .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-
-    right_modified
-        .cmp(&left_modified)
-        .then_with(|| right.file_name().cmp(&left.file_name()))
 }
 
 pub fn list_managed_log_files() -> Result<Vec<PathBuf>, String> {
     list_log_files_by_name(is_managed_log_file_name)
 }
 
-pub fn resolve_managed_log_file(file_name: Option<&str>) -> Result<PathBuf, String> {
-    let log_files = list_managed_log_files()?;
+pub fn resolve_managed_log_file<'a>(
+    log_files: &'a [PathBuf],
+    file_name: Option<&str>,
+) -> Result<&'a Path, String> {
     if log_files.is_empty() {
         return Err("未找到可用日志文件".to_string());
     }
 
     if let Some(file_name) = file_name.map(str::trim).filter(|name| !name.is_empty()) {
         return log_files
-            .into_iter()
+            .iter()
             .find(|path| path.file_name().and_then(|name| name.to_str()) == Some(file_name))
+            .map(PathBuf::as_path)
             .ok_or_else(|| format!("未找到指定日志文件: {}", file_name));
     }
 
     log_files
-        .into_iter()
-        .next()
+        .first()
+        .map(PathBuf::as_path)
         .ok_or_else(|| "未找到可用日志文件".to_string())
 }
 
@@ -148,14 +143,12 @@ pub fn get_latest_app_log_file() -> Result<PathBuf, String> {
         .ok_or_else(|| "未找到可用日志文件".to_string())
 }
 
-pub fn read_log_tail_lines(log_file: &Path, line_limit: usize) -> Result<String, String> {
+pub fn read_log_tail_lines(
+    file: &mut File,
+    file_len: u64,
+    line_limit: usize,
+) -> Result<String, String> {
     let line_limit = line_limit.max(1);
-    let mut file = File::open(log_file).map_err(|e| format!("打开日志文件失败: {}", e))?;
-    let file_len = file
-        .metadata()
-        .map_err(|e| format!("读取日志文件元数据失败: {}", e))?
-        .len();
-
     if file_len == 0 {
         return Ok(String::new());
     }
@@ -189,7 +182,8 @@ pub fn read_log_tail_lines(log_file: &Path, line_limit: usize) -> Result<String,
     file.seek(SeekFrom::Start(start_offset))
         .map_err(|e| format!("读取日志定位失败: {}", e))?;
     let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)
+    file.take(file_len - start_offset)
+        .read_to_end(&mut bytes)
         .map_err(|e| format!("读取日志内容失败: {}", e))?;
     Ok(String::from_utf8_lossy(&bytes).to_string())
 }

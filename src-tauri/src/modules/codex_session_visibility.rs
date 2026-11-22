@@ -6,8 +6,8 @@ include!("codex_session_visibility_history_repair.rs");
 #[path = "codex_local_project_recovery/mod.rs"]
 mod local_projects;
 include!("codex_session_visibility_projects.rs");
-include!("codex_session_visibility_launch_budget.rs");
 include!("codex_session_visibility_instance_discovery.rs");
+include!("codex_session_visibility_rollout_scan.rs");
 include!("codex_session_visibility_catalog.rs");
 include!("codex_session_visibility_sqlite_repair.rs");
 include!("codex_session_visibility_backup.rs");
@@ -16,5 +16,5 @@ include!("codex_session_visibility_backup.rs");
 mod tests {
     include!("codex_session_visibility_tests.rs");
     include!("codex_session_visibility_mtime_tests.rs");
-    include!("codex_session_visibility_launch_budget_tests.rs");
+    include!("codex_session_visibility_launch_tests.rs");
 }

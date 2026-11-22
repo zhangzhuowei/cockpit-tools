@@ -109,9 +109,12 @@ import {
   type CodexStatsTimeRange,
 } from "../utils/codexStatsRange";
 import {
-  persistCodexStatsRangeSelection,
-  readCodexStatsRangeSelection,
+  CODEX_LOCAL_ACCESS_STATS_RANGE_STORAGE_KEY,
+  serializeCodexStatsRangeSelection,
 } from "../utils/codexStatsRangePreference";
+import { useDurableUiSetting } from "../hooks/useDurableUiSetting";
+import { useCodexStatsRangeSelection } from "../hooks/useCodexStatsRangeSelection";
+import { previewDurableUiSetting } from "../utils/durableUiSettings";
 import { useEscClose } from "../hooks/useEscClose";
 import {
   buildPaginationPageSizeStorageKey,
@@ -129,6 +132,7 @@ import {
   formatCompactNumber,
   formatLatencyMs,
   formatQuotaPoolLabel,
+  getLocalAccessTestModelIds,
   formatRequestResultDetail as formatLocalAccessRequestResultDetail,
   normalizeAccessScope,
   normalizeCustomRoutingPriority,
@@ -225,7 +229,7 @@ interface CodexLocalAccessModalProps {
   ) => Promise<unknown> | unknown;
   onRotateApiKey: () => Promise<unknown> | unknown;
   onRestartSidecar: () => Promise<unknown> | unknown;
-  onKillPort: () => Promise<unknown> | unknown;
+  onRequestPortRecovery: () => void;
   onToggleEnabled: () => Promise<unknown> | unknown;
   onRecoverAccounts: (accountIds: string[]) => Promise<void>;
   healthActionBusy: boolean;
@@ -243,8 +247,6 @@ interface CodexLocalAccessModalProps {
 
 type CopyableField = "apiPortUrl" | "baseUrl" | "apiKey" | "modelId";
 
-const CODEX_LOCAL_ACCESS_STATS_RANGE_STORAGE_KEY =
-  "agtools.codex.local_access.stats_range.v1";
 export function CodexLocalAccessModal({
   isOpen,
   mode,
@@ -275,7 +277,7 @@ export function CodexLocalAccessModal({
   onUpdateImageGenerationAccounts,
   onRotateApiKey,
   onRestartSidecar,
-  onKillPort,
+  onRequestPortRecovery,
   onToggleEnabled,
   onRecoverAccounts,
   healthActionBusy,
@@ -335,9 +337,8 @@ export function CodexLocalAccessModal({
   const [keyVisible, setKeyVisible] = useState(false);
   const [copiedField, setCopiedField] = useState<CopyableField | null>(null);
   const [selectedModelId, setSelectedModelId] = useState("");
-  const [statsSelection, setStatsSelection] = useState(() =>
-    readCodexStatsRangeSelection(CODEX_LOCAL_ACCESS_STATS_RANGE_STORAGE_KEY),
-  );
+  const savedStatsRange = useDurableUiSetting(CODEX_LOCAL_ACCESS_STATS_RANGE_STORAGE_KEY);
+  const statsSelection = useCodexStatsRangeSelection(savedStatsRange, isOpen);
   const { key: statsRange, range: statsTimeRange } = statsSelection;
   const [filteredStatsWindow, setFilteredStatsWindow] =
     useState<CodexLocalAccessStatsWindow | null>(null);
@@ -373,6 +374,7 @@ export function CodexLocalAccessModal({
   const displayBaseUrl =
     addressKind === "lan" && state?.lanBaseUrl ? state.lanBaseUrl : baseUrl;
   const modelIds = state?.modelIds ?? [];
+  const testModelIds = useMemo(() => getLocalAccessTestModelIds(modelIds, collection), [modelIds, collection]);
   const stats = state?.stats;
   const quotaPoolLabels = useMemo(
     () => ({
@@ -502,14 +504,12 @@ export function CodexLocalAccessModal({
       resolveCodexLocalAccessInitialAccountIds(
         initialSelectedIds,
         completeLocalAccessAccounts,
-        initialRestrictFreeAccounts,
         accountsLoaded,
         collection?.pausedAccountIds?.filter((id) => collection.accountIds.includes(id)),
       ),
     [
       accountsLoaded,
       initialSelectedIds,
-      initialRestrictFreeAccounts,
       completeLocalAccessAccounts,
       collection?.pausedAccountIds,
       collection?.accountIds,
@@ -612,20 +612,15 @@ export function CodexLocalAccessModal({
   ]);
 
   useEffect(() => {
-    if (modelIds.length === 0) {
+    const options = testDialogOpen ? testModelIds : modelIds;
+    if (options.length === 0) {
       setSelectedModelId("");
       return;
     }
     setSelectedModelId((current) =>
-      modelIds.includes(current) ? current : modelIds[0],
+      options.includes(current) ? current : options[0],
     );
-  }, [modelIds]);
-
-  useEffect(() => {
-    if (isOpen) {
-      setStatsSelection(readCodexStatsRangeSelection(CODEX_LOCAL_ACCESS_STATS_RANGE_STORAGE_KEY));
-    }
-  }, [isOpen]);
+  }, [modelIds, testDialogOpen, testModelIds]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -646,15 +641,13 @@ export function CodexLocalAccessModal({
     key: Exclude<CodexStatsRangeKey, "custom">,
     range: CodexStatsTimeRange,
   ) => {
-    const selection = { key, range };
-    setStatsSelection(selection);
-    persistCodexStatsRangeSelection(CODEX_LOCAL_ACCESS_STATS_RANGE_STORAGE_KEY, selection);
+    const saved = serializeCodexStatsRangeSelection({ key, range });
+    if (saved !== null) previewDurableUiSetting(CODEX_LOCAL_ACCESS_STATS_RANGE_STORAGE_KEY, saved);
   };
 
   const handleCustomStatsRangeApply = (range: CodexStatsTimeRange) => {
-    const selection = { key: "custom" as const, range };
-    setStatsSelection(selection);
-    persistCodexStatsRangeSelection(CODEX_LOCAL_ACCESS_STATS_RANGE_STORAGE_KEY, selection);
+    const saved = serializeCodexStatsRangeSelection({ key: "custom", range });
+    if (saved !== null) previewDurableUiSetting(CODEX_LOCAL_ACCESS_STATS_RANGE_STORAGE_KEY, saved);
   };
 
   useEffect(() => {
@@ -830,6 +823,19 @@ export function CodexLocalAccessModal({
   }), [serviceMemberView, memberSearchQuery, memberFilterTypes, memberTagFilter, memberGroupFilter,
     memberView?.activeGroupId, memberView?.compareAccounts, t]);
 
+  /** 行是否已被选中：Grok 行按绑定的供应商账号 ID 判断。 */
+  const isMemberRowSelected = useCallback(
+    (account: CodexAccount) => {
+      const grokRowAccount = grokMemberRowAccountById.get(account.id);
+      if (!grokRowAccount) {
+        return codexServiceRelatedEndpointIds(account, completeLocalAccessAccounts).some((id) => selected.has(id));
+      }
+      const boundAccountId = grokMemberBindingByAccountId.get(grokRowAccount.id);
+      return Boolean(boundAccountId && selected.has(boundAccountId));
+    },
+    [grokMemberBindingByAccountId, grokMemberRowAccountById, completeLocalAccessAccounts, selected],
+  );
+
   const visibleSelectableAccounts = selectCodexLocalAccessMemberRows({
     codexAccounts: visibleAccounts,
     grokRows: grokMemberRowAccounts,
@@ -838,7 +844,7 @@ export function CodexLocalAccessModal({
     showCodexPlatform,
     showGrokPlatform,
     restrictFreeAccounts,
-    selected,
+    isSelected: isMemberRowSelected,
   });
   const memberPagination = usePagination({
     items: visibleSelectableAccounts,
@@ -862,22 +868,9 @@ export function CodexLocalAccessModal({
   const visibleEnabledAccounts = useMemo(
     () =>
       visibleSelectableAccounts.filter((account) =>
-        isCodexLocalAccessEligibleAccount(account, restrictFreeAccounts),
+        isCodexLocalAccessEligibleAccount(account),
       ),
-    [restrictFreeAccounts, visibleSelectableAccounts],
-  );
-
-  /** 行是否已被选中：Grok 行按绑定的供应商账号 ID 判断。 */
-  const isMemberRowSelected = useCallback(
-    (account: CodexAccount) => {
-      const grokRowAccount = grokMemberRowAccountById.get(account.id);
-      if (!grokRowAccount) {
-        return codexServiceRelatedEndpointIds(account, completeLocalAccessAccounts).some((id) => selected.has(id));
-      }
-      const boundAccountId = grokMemberBindingByAccountId.get(grokRowAccount.id);
-      return Boolean(boundAccountId && selected.has(boundAccountId));
-    },
-    [grokMemberBindingByAccountId, grokMemberRowAccountById, completeLocalAccessAccounts, selected],
+    [visibleSelectableAccounts],
   );
 
   const selectedVisibleCount = useMemo(
@@ -1374,7 +1367,7 @@ export function CodexLocalAccessModal({
     }
   };
 
-  const handleToggleRestrictFreeAccounts = async () => {
+  const handleToggleRestrictFreeAccounts = () => {
     if (membersInteractionDisabled) return;
     setMembersDraftDirty(true);
     setRestrictFreeAccounts((prev) => !prev);
@@ -1414,7 +1407,7 @@ export function CodexLocalAccessModal({
       setSelected((prev) => toggleCodexServiceDisplaySelection(account, completeLocalAccessAccounts, prev, false));
       return;
     }
-    if (!isCodexLocalAccessEligibleAccount(account, restrictFreeAccounts)) return;
+    if (!isCodexLocalAccessEligibleAccount(account)) return;
     const ids = await addMemberRows([account]);
     if (ids.length) { setMembersDraftDirty(true); setSelected((prev) => new Set([...prev, ...ids])); }
   };
@@ -1447,14 +1440,23 @@ export function CodexLocalAccessModal({
     try {
       // Official membership is persisted before account metadata is refreshed.
       // Never silently drop the new endpoint while its store refresh is pending.
-      if ([...selected].some((id) => id.startsWith("chatgpt_plan_") && !localAccessAccountById.has(id))) {
-        throw new Error(t("chatgptPlan.officialFlow.memberSyncPending"));
+      const selectedIds = Array.from(selected);
+      const isPersistedPausedMember = (id: string) =>
+        collection?.pausedAccountIds?.includes(id) && collection.accountIds.includes(id);
+      const missingIds = selectedIds.filter((id) =>
+        !localAccessAccountById.has(id) && !isPersistedPausedMember(id),
+      );
+      if (missingIds.length > 0) {
+        const messageKey = missingIds.some((id) => id.startsWith("chatgpt_plan_"))
+          ? "chatgptPlan.officialFlow.memberSyncPending"
+          : "codex.localAccess.noEligibleAccountsSelected";
+        throw new Error(t(messageKey));
       }
-      const filtered = Array.from(selected).filter((accountId) => {
-        if (collection?.pausedAccountIds?.includes(accountId) && collection.accountIds.includes(accountId)) return true;
+      const filtered = selectedIds.filter((accountId) => {
+        if (isPersistedPausedMember(accountId)) return true;
         const account = localAccessAccountById.get(accountId);
         if (!account) return false;
-        return isCodexLocalAccessEligibleAccount(account, restrictFreeAccounts);
+        return isCodexLocalAccessEligibleAccount(account);
       });
       const backupAccountIds = filtered.filter((accountId) => {
         const isBackup =
@@ -1482,13 +1484,11 @@ export function CodexLocalAccessModal({
         sessionAffinityTtlMs: parsedSessionAffinityTtlSeconds * 1000,
         officialAccountBindings: preparedBindings,
         imageGenerationAccountPolicies: Object.fromEntries(
-          filtered.map((accountId) => [
-            accountId,
-            resolveCodexMemberImagePolicy(
-              localAccessAccountById.get(accountId) as CodexAccount,
-              imageGenerationPolicies[accountId],
-            ),
-          ]),
+          filtered.flatMap((accountId) => {
+            const account = localAccessAccountById.get(accountId);
+            if (!account) return [];
+            return [[accountId, resolveCodexMemberImagePolicy(account, imageGenerationPolicies[accountId])]];
+          }),
         ),
       });
       if (memberSaveEpoch.current === saveEpoch) onClose();
@@ -1613,7 +1613,7 @@ export function CodexLocalAccessModal({
     const account = localAccessAccountById.get(accountId);
     if (!account) return;
     const checked = isMemberRowSelected(account);
-    if (!checked && !isCodexLocalAccessEligibleAccount(account, restrictFreeAccounts)) return;
+    if (!checked && !isCodexLocalAccessEligibleAccount(account)) return;
     const ids = checked
       ? codexServiceRelatedEndpointIds(account, completeLocalAccessAccounts).filter((id) => selected.has(id))
       : await addMemberRows([account]);
@@ -1835,15 +1835,6 @@ export function CodexLocalAccessModal({
     );
   };
 
-  const handleKillPort = async () => {
-    await runAction(
-      async () => {
-        await onKillPort();
-      },
-      t("codex.localAccess.killPortSuccessUnknown", "API 服务端口已清理"),
-    );
-  };
-
   const handleRestartSidecar = async () => {
     const confirmed = await confirmDialog(
       t(
@@ -1889,7 +1880,6 @@ export function CodexLocalAccessModal({
   };
 
   const closeTestDialog = () => {
-    if (testDialogBusy) return;
     setTestDialogOpen(false);
   };
 
@@ -1976,8 +1966,9 @@ export function CodexLocalAccessModal({
                 message.id === assistantMessage.id
                   ? {
                       ...message,
+                      imageDataUrl: payload.imageDataUrl,
                       content:
-                        message.content ||
+                        payload.imageDataUrl ? "" : message.content ||
                         t(
                           "codex.localAccess.testChatEmptyResponse",
                           "响应为空",
@@ -2276,7 +2267,7 @@ export function CodexLocalAccessModal({
                     <button
                       type="button"
                       className="btn btn-secondary btn-sm codex-local-access-inline-action"
-                      onClick={() => void handleKillPort()}
+                      onClick={onRequestPortRecovery}
                       disabled={actionBusy}
                     >
                       {portCleanupBusy ? (
@@ -2284,7 +2275,7 @@ export function CodexLocalAccessModal({
                       ) : (
                         <Wrench size={14} />
                       )}
-                      {t("codex.localAccess.killPortAction", "清理端口")}
+                      {t("codex.localAccess.portRecoveryTitle")}
                     </button>
                   </>
                 )}
@@ -2870,14 +2861,11 @@ export function CodexLocalAccessModal({
                       <input
                         type="checkbox"
                         checked={restrictFreeAccounts}
-                        onChange={() => void handleToggleRestrictFreeAccounts()}
+                        onChange={handleToggleRestrictFreeAccounts}
                         disabled={membersInteractionDisabled}
                       />
                       <span>
-                        {t(
-                          "codex.localAccess.modal.restrictFreeToggle",
-                          "限制 Free 账号使用",
-                        )}
+                        {t("codex.localAccess.modal.restrictFreeToggle")}
                       </span>
                     </label>
                     <div className="codex-local-access-session-affinity-settings">
@@ -3145,10 +3133,7 @@ export function CodexLocalAccessModal({
                         t,
                       );
                       const ineligibleReason =
-                        getCodexLocalAccessAccountIneligibleReason(
-                          account,
-                          restrictFreeAccounts,
-                        );
+                        getCodexLocalAccessAccountIneligibleReason(account);
                       const isPendingOauthUnsupported =
                         ineligibleReason === "pending_oauth";
                       const isWebSessionUnsupported =
@@ -3781,16 +3766,12 @@ export function CodexLocalAccessModal({
                   </span>
                 </h3>
                 <p>
-                  {t(
-                    "codex.localAccess.testDialogDesc",
-                    "通过本地 API 服务发起一次真实对话，验证本地服务、密钥和上游响应。",
-                  )}
+                  {t("codex.localAccess.testDialogDesc")}
                 </p>
               </div>
               <button
                 className="modal-close codex-local-access-test-dialog-close"
                 onClick={closeTestDialog}
-                disabled={testDialogBusy}
                 aria-label={t("common.close")}
               >
                 <X size={18} />
@@ -3803,9 +3784,9 @@ export function CodexLocalAccessModal({
                   <span>{t("codex.localAccess.testChatModel", "模型")}</span>
                   <SingleSelectDropdown
                     value={selectedModelId}
-                    options={modelIdOptions}
+                    options={testModelIds.map((id) => ({ value: id, label: id }))}
                     onChange={setSelectedModelId}
-                    disabled={modelIdOptions.length === 0 || testDialogBusy}
+                    disabled={testModelIds.length === 0 || testDialogBusy}
                     ariaLabel={t("codex.localAccess.testChatModel", "模型")}
                     placeholder={t(
                       "codex.localAccess.modelIdPlaceholder",
@@ -3831,10 +3812,7 @@ export function CodexLocalAccessModal({
               >
                 {testChatMessages.length === 0 ? (
                   <div className="codex-local-access-test-chat-empty">
-                    {t(
-                      "codex.localAccess.testChatEmpty",
-                      "输入一条消息后，会通过当前 API 服务发起真实对话。",
-                    )}
+                    {t("codex.localAccess.testChatEmpty")}
                   </div>
                 ) : (
                   testChatMessages.map((message) => (
@@ -3850,7 +3828,9 @@ export function CodexLocalAccessModal({
                             {message.failureTitle}
                           </strong>
                         )}
-                        <p>{message.content}</p>
+                        {message.imageDataUrl
+                          ? <img src={message.imageDataUrl} alt={t("codex.localAccess.testOutputTitle")} />
+                          : <p>{message.content}</p>}
                         {message.failureDetail && (
                           <span className="codex-local-access-test-chat-meta">
                             {message.failureDetail}
@@ -3925,7 +3905,6 @@ export function CodexLocalAccessModal({
               <button
                 className="btn btn-secondary"
                 onClick={closeTestDialog}
-                disabled={testDialogBusy}
               >
                 {t("common.close")}
               </button>

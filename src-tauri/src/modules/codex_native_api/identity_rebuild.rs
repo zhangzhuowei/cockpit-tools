@@ -5,6 +5,24 @@ use std::collections::{HashMap, HashSet};
 #[path = "identity_checkpoint.rs"]
 pub(super) mod checkpoint_store;
 
+// Checkpoints keep reusable settings, but a prior turn's forced tool choice
+// must not force another call when the current request leaves the choice open.
+pub(super) fn inherited_parameter(key: &str, mut value: Value) -> Value {
+    if key != "tool_choice" {
+        return value;
+    }
+    if value["type"] == "allowed_tools" {
+        if value["mode"] == "required" {
+            value["mode"] = Value::String("auto".into());
+        }
+        return value;
+    }
+    if value == "required" || value.is_object() {
+        return Value::String("auto".into());
+    }
+    value
+}
+
 const MAX_CHECKPOINT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_CACHE_BYTES: i64 = 64 * 1024 * 1024;
 const MAX_CHECKPOINTS: i64 = 128;
@@ -25,6 +43,9 @@ pub(crate) struct Plan {
     pub headers: HeaderMap,
     pub body: Value,
     pub base_revision: i64,
+    // A replay-only custom result merge must not replace accepted source history.
+    // This also maps every merged item's original ID to its ordered result group.
+    pub source_input: Option<Arc<Vec<Value>>>,
 }
 
 pub(super) fn initialize(connection: &Connection) -> rusqlite::Result<()> {
@@ -522,6 +543,12 @@ pub(in crate::modules::codex_native_api) fn replay_items(items: &[Value]) -> boo
 }
 
 pub(in crate::modules::codex_native_api) fn paired_tools(items: &[Value]) -> bool {
+    paired_tool_items(items)
+}
+
+pub(in crate::modules::codex_native_api) fn paired_tool_items<'a>(
+    items: impl IntoIterator<Item = &'a Value>,
+) -> bool {
     let mut pending = HashMap::new();
     let mut seen = HashSet::new();
     for item in items {
@@ -652,7 +679,7 @@ pub(super) fn complete_input_available(
     else {
         return Ok(false);
     };
-    Ok(replay_items(&transcript) && paired_tools(&transcript))
+    Ok(super::super::responses_custom_results::replayable(&transcript))
 }
 
 impl IdentityStore {
@@ -691,10 +718,20 @@ impl IdentityStore {
         headers: &HeaderMap,
         body: &mut Value,
     ) -> Result<bool, ServiceError> {
-        let Some(Value::String(text)) = body.get("input") else {
-            return Ok(false);
+        let input = match body.get("input") {
+            Some(Value::String(text)) => serde_json::json!([
+                {"type":"message","role":"user","content":[{"type":"input_text","text":text}]}
+            ]),
+            None | Some(Value::Null)
+                if body.get("previous_response_id").and_then(Value::as_str)
+                    .is_some_and(|previous| !previous.trim().is_empty()) =>
+            {
+                // The checkpoint provides all input for a continuation with no delta.
+                Value::Array(Vec::new())
+            }
+            _ => return Ok(false),
         };
-        body["input"] = serde_json::json!([{"type":"message","role":"user","content":[{"type":"input_text","text":text}]}]);
+        body["input"] = input;
         let mut probe_headers = headers.clone();
         let mut probe = body.clone();
         supplement_identities(context, &mut probe_headers, &mut probe)?;
@@ -762,7 +799,7 @@ impl IdentityStore {
         ] {
             if parameter_source.get(key).is_none() {
                 if let Some(value) = parameters.get(key) {
-                    object.insert(key.into(), value.clone());
+                    object.insert(key.into(), inherited_parameter(key, value.clone()));
                 }
             }
         }
@@ -809,6 +846,7 @@ impl IdentityStore {
         let mut missing = false;
         for (key, value) in parameters {
             if !object.contains_key(&key) {
+                let value = inherited_parameter(&key, value);
                 object.insert(key, value);
                 missing = true;
             }
@@ -1042,12 +1080,15 @@ impl IdentityStore {
         });
         drop(connection);
         context.rebuild_base_revision = Some(base_revision);
-        if !paired_tools(&transcript) {
+        let Some(replay) = super::super::responses_custom_results::replay(&transcript) else {
             return Ok(None);
-        }
+        };
+        let (mut fresh_input, source_input) = match replay {
+            std::borrow::Cow::Borrowed(_) => (transcript, None),
+            std::borrow::Cow::Owned(replay) => (replay, Some(Arc::new(transcript))),
+        };
         let mut upstream_headers = headers.clone();
         let mut upstream_body = body.clone();
-        let mut fresh_input = transcript;
         if !context.portable_body {
             for item in &mut fresh_input {
                 item.as_object_mut().unwrap().remove("id");
@@ -1094,6 +1135,7 @@ impl IdentityStore {
             headers: upstream_headers,
             body: upstream_body,
             base_revision,
+            source_input,
         }))
     }
 
@@ -1142,6 +1184,8 @@ impl IdentityStore {
                 .as_ref()
                 .map(|input| {
                     checkpoint_store::Encoded::prepare(
+                        &self.checkpoint_reader()?,
+                        &binding.caller,
                         input,
                         output,
                         generation.parameters.as_ref(),
@@ -1251,6 +1295,9 @@ impl RequestIdentity {
         self.rebuild_base_revision = Some(plan.base_revision);
         self.rebuild_new_generation = true;
         self.generation = None;
+        if let Some(input) = &plan.source_input {
+            self.rebuild_input = Some((**input).clone());
+        }
     }
     pub(crate) fn retain_binding_generation(&mut self, binding: &Binding) {
         self.session_identity_mapping_enabled = binding.session_identity_mapping_enabled;

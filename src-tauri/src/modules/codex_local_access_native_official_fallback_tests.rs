@@ -210,6 +210,7 @@ fn official_host_report(
     route: &native_contract::Route,
 ) -> native_contract::RequestReport {
     native_contract::RequestReport {
+        peer_ip: None,
         transient_rate_limit: false,
         official_access_fingerprint: Some(crate::modules::chatgpt_plan::token_fingerprint(
             "synthetic-official-access",
@@ -242,6 +243,7 @@ fn official_host_report(
         success: false,
         elapsed: Duration::from_millis(100),
         usage: None,
+        input_text_characters: None,
         error: Some("adapter_invalid_response".into()),
         error_message: Some("Synthetic local adapter failure".into()),
         credential_scope: false,

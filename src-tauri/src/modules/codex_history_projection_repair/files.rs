@@ -1,15 +1,26 @@
 use super::*;
+use crate::modules::codex_session_rollout_records::{Object, Records};
+use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
     fs,
-    io::{BufRead, BufReader, Read},
+    io::{self, Read},
     time::SystemTime,
 };
 
-const MAX_RECORD_BYTES: u64 = 64 * 1024 * 1024;
-const MAX_FILE_BYTES: u64 = 512 * 1024 * 1024;
-const MAX_CHAIN_DEPTH: usize = 128;
+#[derive(Debug)]
+pub(super) enum SourceError {
+    Missing(String),
+    DuplicateOrdinal { source_id: String, ordinal: u64 },
+    Invalid(String),
+}
+
+impl From<String> for SourceError {
+    fn from(value: String) -> Self {
+        Self::Invalid(value)
+    }
+}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(super) struct Identity {
@@ -51,9 +62,9 @@ impl Evidence {
         Ok(())
     }
 
-    pub fn recheck(&self, budget: &mut Budget) -> Result<(), String> {
+    pub fn recheck(&self) -> Result<(), String> {
         self.check_stamp()?;
-        if digest(&self.path, budget)? != self.hash {
+        if digest(&self.path)? != self.hash {
             return Err(error("CHANGED", "rollout contents changed since scan"));
         }
         self.check_stamp()
@@ -141,7 +152,7 @@ fn physical_id(path: &Path) -> Option<String> {
     file_ids(path).map(|(_, physical)| physical)
 }
 
-fn file_ids(path: &Path) -> Option<(String, String)> {
+pub(crate) fn file_ids(path: &Path) -> Option<(String, String)> {
     let name = path.file_name()?.to_str()?;
     let name = name.strip_suffix(".zst").unwrap_or(name);
     let core = name.strip_prefix("rollout-")?.strip_suffix(".jsonl")?;
@@ -157,15 +168,10 @@ fn file_ids(path: &Path) -> Option<(String, String)> {
     ))
 }
 
-pub(super) fn registry(
-    profile: &Path,
-    budget: &Budget,
-) -> Result<HashMap<String, PathBuf>, String> {
+pub(super) fn registry(profile: &Path) -> Result<HashMap<String, PathBuf>, String> {
     let mut found = HashMap::new();
     let mut directories = vec![profile.join("sessions"), profile.join("archived_sessions")];
-    let mut visited = 0;
     while let Some(directory) = directories.pop() {
-        budget.check()?;
         let metadata = match fs::symlink_metadata(&directory) {
             Ok(value) => value,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
@@ -175,11 +181,6 @@ pub(super) fn registry(
             return Err(error("UNSAFE_PATH", "symlink in rollout directories"));
         }
         for entry in fs::read_dir(&directory).map_err(|e| error("IO", e))? {
-            budget.check()?;
-            visited += 1;
-            if visited > MAX_ENTRIES {
-                return Err(error("LIMIT", "too many rollout directory entries"));
-            }
             let entry = entry.map_err(|e| error("IO", e))?;
             let kind = entry.file_type().map_err(|e| error("IO", e))?;
             if kind.is_symlink() {
@@ -211,7 +212,7 @@ pub(super) fn selected_source(
     profile: &Path,
     path: &str,
     registry: &HashMap<String, PathBuf>,
-) -> Result<String, String> {
+) -> Result<String, SourceError> {
     let path = Path::new(path);
     let expected = if path.is_absolute() {
         path.to_path_buf()
@@ -225,8 +226,18 @@ pub(super) fn selected_source(
         return Err(error(
             "UNSAFE_PATH",
             "selected rollout contains a parent traversal",
-        ));
+        )
+        .into());
     }
+    let id = physical_id(&expected).ok_or_else(|| {
+        error(
+            "UNSAFE_PATH",
+            "selected rollout has a noncanonical filename",
+        )
+    })?;
+    let source = registry
+        .get(&id)
+        .ok_or_else(|| SourceError::Missing(id.clone()))?;
     let parent = expected
         .parent()
         .ok_or_else(|| error("UNSAFE_PATH", "selected rollout has no directory"))?
@@ -242,20 +253,8 @@ pub(super) fn selected_source(
             .components()
             .any(|c| matches!(c, std::path::Component::ParentDir))
     {
-        return Err(error(
-            "UNSAFE_PATH",
-            "selected rollout is outside this profile",
-        ));
+        return Err(error("UNSAFE_PATH", "selected rollout is outside this profile").into());
     }
-    let id = physical_id(&expected).ok_or_else(|| {
-        error(
-            "UNSAFE_PATH",
-            "selected rollout has a noncanonical filename",
-        )
-    })?;
-    let source = registry
-        .get(&id)
-        .ok_or_else(|| error("SOURCE_MISSING", format!("rollout {id} is missing")))?;
     let plain = |path: &Path| {
         if path.extension().is_some_and(|e| e == "zst") {
             path.with_extension("")
@@ -267,7 +266,8 @@ pub(super) fn selected_source(
         return Err(error(
             "AMBIGUOUS_SOURCE",
             "selected rollout path does not match its indexed source",
-        ));
+        )
+        .into());
     }
     Ok(id)
 }
@@ -276,179 +276,192 @@ pub(super) fn load_chain(
     id: &str,
     registry: &HashMap<String, PathBuf>,
     sources: &mut HashMap<String, Evidence>,
-    visiting: &mut HashSet<String>,
-    budget: &mut Budget,
-) -> Result<(), String> {
-    if sources.contains_key(id) {
-        return Ok(());
-    }
-    if visiting.len() >= MAX_CHAIN_DEPTH || !visiting.insert(id.to_owned()) {
-        return Err(error(
-            "UNSAFE_HISTORY",
-            "cyclic or excessive history ancestry",
-        ));
-    }
-    let path = registry.get(id).ok_or_else(|| {
-        error(
-            "SOURCE_MISSING",
-            format!("rollout ancestor {id} is missing"),
-        )
-    })?;
-    let source = read(path, budget)?;
-    if let Some(base) = &source.base {
-        load_chain(&base.id, registry, sources, visiting, budget)?;
-        let parent = &sources[&base.id];
-        // The official store pages by ordinal; old byte cutoffs need not equal an exact line boundary.
-        if base.ordinal == 0
-            || base.bytes > parent.decoded_bytes
-            || base.ordinal > parent.next_ordinal
-        {
-            return Err(error(
-                "UNSAFE_HISTORY",
-                format!("ancestor cutoff is unavailable for {id}"),
-            ));
+) -> Result<(), SourceError> {
+    let mut chain = Vec::new();
+    let mut visiting = HashSet::new();
+    let mut current = id.to_owned();
+    while !sources.contains_key(&current) {
+        if !visiting.insert(current.clone()) {
+            return Err(error("UNSAFE_HISTORY", "cyclic history ancestry").into());
         }
+        let path = registry
+            .get(&current)
+            .ok_or_else(|| SourceError::Missing(current.clone()))?;
+        let source = read(path)?;
+        let ancestor = source.base.as_ref().map(|base| base.id.clone());
+        chain.push((current, source));
+        let Some(ancestor) = ancestor else { break };
+        current = ancestor;
     }
-    visiting.remove(id);
-    sources.insert(id.to_owned(), source);
+    while let Some((id, source)) = chain.pop() {
+        if let Some(base) = &source.base {
+            let parent = &sources[&base.id];
+            // An old byte cutoff need not match a line boundary.
+            if base.ordinal == 0
+                || base.bytes > parent.decoded_bytes
+                || base.ordinal > parent.next_ordinal
+            {
+                return Err(error(
+                    "UNSAFE_HISTORY",
+                    format!("ancestor cutoff is unavailable for {id}"),
+                )
+                .into());
+            }
+        }
+        sources.insert(id, source);
+    }
     Ok(())
 }
 
-fn read(path: &Path, budget: &mut Budget) -> Result<Evidence, String> {
-    let before = stamp(path)?;
-    if before.length > MAX_FILE_BYTES {
-        return Err(error("LIMIT", "rollout exceeds bounded recovery size"));
-    }
-    let hash = digest(path, budget)?;
-    let file = fs::File::open(path).map_err(|e| error("IO", e))?;
-    let input: Box<dyn Read> = if path.extension().is_some_and(|e| e == "zst") {
-        let mut decoder =
-            zstd::stream::read::Decoder::new(file).map_err(|e| error("UNSAFE_HISTORY", e))?;
-        decoder
-            .window_log_max(27)
-            .map_err(|e| error("UNSAFE_HISTORY", e))?;
-        Box::new(decoder)
-    } else {
-        Box::new(file)
-    };
-    let mut reader = BufReader::with_capacity(64 * 1024, input);
-    let mut line = Vec::new();
-    let mut decoded_bytes = 0_u64;
-    let mut initial_ordinal = 0;
-    let mut expected = 0;
-    let mut has_ordinals = false;
-    let mut first = true;
-    let mut base = None;
+#[derive(Deserialize)]
+struct Header {
+    #[serde(rename = "type")]
+    kind: String,
+    payload: Object<HeaderPayload>,
+    #[serde(default, deserialize_with = "present_value")]
+    ordinal: Option<Value>,
+}
+
+fn present_value<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Value>, D::Error> {
+    Value::deserialize(deserializer).map(Some)
+}
+
+#[derive(Deserialize)]
+struct HeaderPayload {
+    id: String,
+    #[serde(default)]
+    history_base: Option<Object<HistoryBase>>,
+}
+
+#[derive(Deserialize)]
+struct HistoryBase {
+    thread_id: String,
+    end_byte_offset: u64,
+    end_ordinal_exclusive: u64,
+}
+
+#[derive(Deserialize)]
+struct OrdinalRecord {
+    ordinal: u64,
+}
+
+fn next_record<T: DeserializeOwned, R: Read, F: FnMut(&[u8]) -> io::Result<()>>(
+    records: &mut Records<R, F>,
+) -> Result<Option<T>, String> {
     loop {
-        budget.check()?;
-        line.clear();
-        let count = reader
-            .by_ref()
-            .take(MAX_RECORD_BYTES + 1)
-            .read_until(b'\n', &mut line)
-            .map_err(|e| error("UNSAFE_HISTORY", e))?;
-        if count == 0 {
-            break;
-        }
-        budget.consume(count)?;
-        decoded_bytes += count as u64;
-        if count as u64 > MAX_RECORD_BYTES || decoded_bytes > MAX_FILE_BYTES {
-            return Err(error("LIMIT", "rollout exceeds bounded recovery size"));
-        }
-        if line.last() != Some(&b'\n') {
+        let Some(record) = records.next().map_err(|e| error("UNSAFE_HISTORY", e))? else {
+            return Ok(None);
+        };
+        if !record.complete {
             return Err(error(
                 "UNSAFE_HISTORY",
                 "rollout has an incomplete trailing record",
             ));
         }
-        if line.iter().all(u8::is_ascii_whitespace) {
-            continue;
-        }
-        let record: Value = serde_json::from_slice(&line)
-            .map_err(|_| error("UNSAFE_HISTORY", "rollout contains invalid JSON"))?;
-        if first {
-            if record["type"] != "session_meta" || !record["payload"].is_object() {
-                return Err(error(
-                    "UNSAFE_HISTORY",
-                    "rollout has no initial session metadata",
-                ));
-            }
-            let expected_id = file_ids(path)
-                .map(|(logical, _)| logical)
-                .ok_or_else(|| error("UNSAFE_PATH", "noncanonical rollout filename"))?;
-            let metadata_id = record["payload"]["id"]
-                .as_str()
-                .and_then(|id| uuid::Uuid::parse_str(id).ok())
-                .map(|id| id.to_string());
-            if metadata_id.as_deref() != Some(expected_id.as_str()) {
-                return Err(error(
-                    "UNSAFE_HISTORY",
-                    "rollout filename and session metadata disagree",
-                ));
-            }
-            if let Some(value) = record["payload"]
-                .get("history_base")
-                .filter(|v| !v.is_null())
-            {
-                let id = value["thread_id"]
-                    .as_str()
-                    .and_then(|id| uuid::Uuid::parse_str(id).ok())
-                    .ok_or_else(|| error("UNSAFE_HISTORY", "invalid ancestor ID"))?
-                    .to_string();
-                let bytes = value["end_byte_offset"]
-                    .as_u64()
-                    .ok_or_else(|| error("UNSAFE_HISTORY", "invalid ancestor byte cutoff"))?;
-                let ordinal = value["end_ordinal_exclusive"]
-                    .as_u64()
-                    .ok_or_else(|| error("UNSAFE_HISTORY", "invalid ancestor ordinal cutoff"))?;
-                expected = ordinal;
-                initial_ordinal = ordinal;
-                base = Some(Base { id, bytes, ordinal });
-            }
-            first = false;
-            if record.get("ordinal").is_none() {
-                continue;
-            }
-        }
-        let ordinal = record["ordinal"]
-            .as_u64()
-            .ok_or_else(|| error("UNSAFE_HISTORY", "rollout record has no ordinal"))?;
-        if ordinal != expected {
-            return Err(error(
-                "MISSING_RECORDS",
-                "rollout ordinals are not contiguous",
-            ));
-        }
-        expected = ordinal
-            .checked_add(1)
-            .ok_or_else(|| error("UNSAFE_HISTORY", "rollout ordinal overflow"))?;
-        has_ordinals = true;
-        if expected % 64 == 0 {
-            std::thread::yield_now();
+        if !record.blank {
+            return record
+                .value
+                .map(Some)
+                .map_err(|e| error("UNSAFE_HISTORY", e));
         }
     }
-    if first || !has_ordinals {
+}
+
+fn read(path: &Path) -> Result<Evidence, SourceError> {
+    let before = stamp(path)?;
+    let hash = digest(path)?;
+    let file = fs::File::open(path).map_err(|e| error("IO", e))?;
+    let input: Box<dyn Read> = if path.extension().is_some_and(|e| e == "zst") {
+        let mut decoder =
+            zstd::stream::read::Decoder::new(file).map_err(|e| error("UNSAFE_HISTORY", e))?;
+        decoder
+            // Accept the full window range supported by zstd on this target.
+            .window_log_max(if usize::BITS == 64 { 31 } else { 30 })
+            .map_err(|e| error("UNSAFE_HISTORY", e))?;
+        Box::new(decoder)
+    } else {
+        Box::new(file)
+    };
+    let mut records = Records::new(input, |_: &[u8]| {
+        std::thread::yield_now();
+        Ok(())
+    });
+    let Some(header) = next_record::<Header, _, _>(&mut records)? else {
+        return Err(error("UNSAFE_HISTORY", "rollout contains no ordinal evidence").into());
+    };
+    if header.kind != "session_meta" {
+        return Err(error("UNSAFE_HISTORY", "rollout has no initial session metadata").into());
+    }
+    let (expected_id, physical_id) = file_ids(path)
+        .ok_or_else(|| error("UNSAFE_PATH", "noncanonical rollout filename"))?;
+    let payload = header.payload.0;
+    let metadata_id = uuid::Uuid::parse_str(&payload.id)
+        .map_err(|_| error("UNSAFE_HISTORY", "invalid session metadata ID"))?;
+    if metadata_id.to_string() != expected_id {
         return Err(error(
             "UNSAFE_HISTORY",
-            "rollout contains no ordinal evidence",
-        ));
+            "rollout filename and session metadata disagree",
+        ).into());
+    }
+    let base = payload.history_base.map(|Object(value)| {
+        let id = uuid::Uuid::parse_str(&value.thread_id)
+            .map_err(|_| error("UNSAFE_HISTORY", "invalid ancestor ID"))?
+            .to_string();
+        Ok::<_, String>(Base {
+            id,
+            bytes: value.end_byte_offset,
+            ordinal: value.end_ordinal_exclusive,
+        })
+    }).transpose()?;
+    let initial_ordinal = base.as_ref().map_or(0, |base| base.ordinal);
+    let mut expected = initial_ordinal;
+    let mut ordinal = header.ordinal.map(|value| {
+        value.as_u64().ok_or_else(|| error("UNSAFE_HISTORY", "rollout record has no ordinal"))
+    }).transpose()?;
+    loop {
+        let next = match ordinal.take() {
+            Some(ordinal) => ordinal,
+            None => {
+                let Some(record) = next_record::<OrdinalRecord, _, _>(&mut records)? else {
+                    break;
+                };
+                record.ordinal
+            }
+        };
+        if next != expected {
+            if expected > initial_ordinal && next == expected - 1 {
+                return Err(SourceError::DuplicateOrdinal {
+                    source_id: physical_id,
+                    ordinal: next,
+                });
+            }
+            return Err(error("MISSING_RECORDS", "rollout ordinals are not contiguous").into());
+        }
+        expected = next
+            .checked_add(1)
+            .ok_or_else(|| error("UNSAFE_HISTORY", "rollout ordinal overflow"))?;
+    }
+    if expected == initial_ordinal {
+        return Err(error("UNSAFE_HISTORY", "rollout contains no ordinal evidence").into());
     }
     if stamp(path)? != before {
-        return Err(error("CHANGED", "rollout changed while scanning"));
+        return Err(error("CHANGED", "rollout changed while scanning").into());
     }
     Ok(Evidence {
         path: path.to_path_buf(),
         stamp: before,
         hash,
-        decoded_bytes,
+        decoded_bytes: records.position,
         initial_ordinal,
         next_ordinal: expected,
-        has_ordinals,
+        has_ordinals: true,
         base,
     })
 }
 
-fn digest(path: &Path, budget: &mut Budget) -> Result<[u8; 32], String> {
+fn digest(path: &Path) -> Result<[u8; 32], String> {
     regular_file(path)?;
     let mut reader = fs::File::open(path).map_err(|e| error("IO", e))?;
     let mut hash = Sha256::new();
@@ -458,7 +471,7 @@ fn digest(path: &Path, budget: &mut Budget) -> Result<[u8; 32], String> {
         if count == 0 {
             break;
         }
-        budget.consume(count)?;
+        std::thread::yield_now();
         hash.update(&buffer[..count]);
     }
     Ok(hash.finalize().into())

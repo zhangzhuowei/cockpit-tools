@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { MiniMaxCodeQuota } from '../components/minimax/MiniMaxCodeQuota';
 import { PlatformOverviewTabsHeader, PlatformOverviewTab } from '../components/platform/PlatformOverviewTabsHeader';
 import { MinimaxCodeInstancesContent } from './MinimaxCodeInstancesPage';
 import { useMinimaxCodeAccountStore } from '../stores/useMinimaxCodeAccountStore';
@@ -16,7 +17,6 @@ import { CodebuddySuiteAccountsSharedView, type CodebuddySuiteAccountsPlatformCo
 import { compareCurrentAccountFirst } from '../utils/currentAccountSort';
 
 const MINIMAX_CODE_FLOW_NOTICE_COLLAPSED_KEY = 'agtools.minimaxcode.flow_notice_collapsed';
-const MINIMAX_CODE_CURRENT_ACCOUNT_ID_KEY = 'agtools.minimaxcode.current_account_id';
 
 const minimaxCodePlatformConfig: CodebuddySuiteAccountsPlatformConfig<MinimaxCodeAccount> = {
   pageClassName: 'minimax-code-accounts-page',
@@ -29,11 +29,11 @@ const minimaxCodePlatformConfig: CodebuddySuiteAccountsPlatformConfig<MinimaxCod
     titleKey: 'minimaxCode.flowNotice.title',
     titleDefault: 'MiniMax Code 账号管理说明（点击展开/收起）',
     descKey: 'minimaxCode.flowNotice.desc',
-    descDefault: '切换账号会读取 MiniMax Code 本地认证存储并写入客户端 auth.json，数据仅在本地处理。',
+    descDefault: '管理 MiniMax Code 的本地登录与账号切换。',
     permissionKey: 'minimaxCode.flowNotice.permission',
-    permissionDefault: '权限范围：读取并写入 MiniMax Code 登录文件（~/.minimax/auth/auth.json），用于本机导入与账号切换。',
+    permissionDefault: '读取并写入 MiniMax Code 的官方登录文件；默认实例与多开实例使用各自的数据目录。',
     networkKey: 'minimaxCode.flowNotice.network',
-    networkDefault: '网络范围：OAuth 授权登录与 Token 刷新需联网请求 MiniMax Code 服务。不上传本地登录文件或凭证原文。',
+    networkDefault: '仅向 MiniMax 官方接口请求授权、账号、套餐和积分信息；本地登录文件不会上传。',
   },
   noAccountsKey: 'minimaxCode.noAccounts',
   noAccountsDefault: '暂无 MiniMax Code 账号',
@@ -47,9 +47,9 @@ const minimaxCodePlatformConfig: CodebuddySuiteAccountsPlatformConfig<MinimaxCod
   oauthFeatureItem1Key: 'minimaxCode.oauthFeature.oauth.item1',
   oauthFeatureItem1Default: '在浏览器完成 OAuth 后即可添加账号并用于 IDE 切换。',
   oauthFeatureItem2Key: 'minimaxCode.oauthFeature.oauth.item2',
-  oauthFeatureItem2Default: '授权完成后会自动刷新资源包配额数据。',
+  oauthFeatureItem2Default: '积分余额',
   oauthFeatureItem3Key: 'minimaxCode.oauthFeature.oauth.item3',
-  oauthFeatureItem3Default: '账号卡片将按资源包展示额度、进度和刷新/到期时间。',
+  oauthFeatureItem3Default: '购买积分 · 赠送积分',
   oauthUrlInputPlaceholderKey: 'minimaxCode.oauthUrlInputPlaceholder',
   oauthUrlInputPlaceholderDefault: '可手动输入授权地址',
   oauthWaitingKey: 'minimaxCode.oauthWaiting',
@@ -62,10 +62,9 @@ const minimaxCodePlatformConfig: CodebuddySuiteAccountsPlatformConfig<MinimaxCod
   importLocalClientDefault: '从本机 MiniMax Code 导入',
   getDisplayEmail: (account) => getMinimaxCodeAccountDisplayEmail(account),
   getPlanBadge: (account) => getMinimaxCodePlanBadge(account),
-  getUsage: (account) => ({
-    ...getMinimaxCodeUsage(account),
-    isNormal: true,
-  }),
+  getUsage: getMinimaxCodeUsage,
+  getPlanBadgeClass: () => 'free',
+  renderQuotaSection: (account, variant) => <MiniMaxCodeQuota account={account} compact={variant === 'table'} />,
   getQuotaGroups: (account, t) => getMiniMaxCodeQuotaGroups(account, t),
   hasQuotaData: (account, groups) => hasMiniMaxCodeQuotaData(account, groups),
   usagePrefix: 'minimaxCode',
@@ -82,7 +81,6 @@ export function MinimaxCodeAccountsPage() {
     platformKey: 'MiniMax Code',
     oauthLogPrefix: 'MinimaxCodeOAuth',
     flowNoticeCollapsedKey: MINIMAX_CODE_FLOW_NOTICE_COLLAPSED_KEY,
-    currentAccountIdKey: MINIMAX_CODE_CURRENT_ACCOUNT_ID_KEY,
     exportFilePrefix: 'minimax_code_accounts',
     oauthTabKeys: ['oauth'],
     store: {

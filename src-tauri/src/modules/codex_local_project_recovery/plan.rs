@@ -16,7 +16,7 @@ fn column_expr(columns: &HashSet<String>, column: &str, fallback: &str) -> Strin
     }
 }
 
-fn projects_with_limit(db: &Connection, limit: Option<usize>) -> Result<Vec<Project>, String> {
+fn read_projects(db: &Connection) -> Result<Vec<Project>, String> {
     let columns = super::table_columns(db, "projects")?;
     let roots = super::table_columns(db, "project_roots")?;
     if !["id", "name"].iter().all(|c| columns.contains(*c))
@@ -25,19 +25,15 @@ fn projects_with_limit(db: &Connection, limit: Option<usize>) -> Result<Vec<Proj
         return Err("CODEX_PROJECT_SCHEMA_UNSUPPORTED".into());
     }
     let sql = format!(
-        "SELECT id,name,{},{},{} FROM projects ORDER BY id{}",
+        "SELECT id,name,{},{},{} FROM projects ORDER BY id",
         column_expr(&columns, "metadata", "'{}'"),
         column_expr(&columns, "created_at_ms", "0"),
         column_expr(&columns, "updated_at_ms", "0"),
-        limit
-            .map(|n| format!(" LIMIT {}", n + 1))
-            .unwrap_or_default()
     );
     let mut statement = db.prepare(&sql).map_err(|e| e.to_string())?;
     let mut rows = statement.query([]).map_err(|e| e.to_string())?;
     let mut result = Vec::new();
     while let Some(row) = rows.next().map_err(|e| e.to_string())? {
-        check()?;
         let metadata: Option<String> = row.get(2).map_err(|e| e.to_string())?;
         result.push(Project {
             id: row.get(0).map_err(|e| e.to_string())?,
@@ -56,9 +52,6 @@ fn projects_with_limit(db: &Connection, limit: Option<usize>) -> Result<Vec<Proj
             roots: Vec::new(),
         });
     }
-    if limit.is_some_and(|n| result.len() > n) {
-        return Err("CODEX_PROJECT_QUICK_LIMIT".into());
-    }
     let order = if roots.contains("position") {
         "position,path"
     } else {
@@ -66,18 +59,15 @@ fn projects_with_limit(db: &Connection, limit: Option<usize>) -> Result<Vec<Proj
     };
     let mut statement = db
         .prepare(&format!(
-            "SELECT path FROM project_roots WHERE project_id=?1 ORDER BY {order}{}",
-            if limit.is_some() { " LIMIT 33" } else { "" }
+            "SELECT path FROM project_roots WHERE project_id=?1 ORDER BY {order}"
         ))
         .map_err(|e| e.to_string())?;
     for project in &mut result {
-        project.roots = statement
-            .query_map([&project.id], |r| r.get(0))
-            .map_err(|e| e.to_string())?
-            .collect::<Result<Vec<String>, _>>()
-            .map_err(|e| e.to_string())?;
-        if limit.is_some() && project.roots.len() > 32 {
-            return Err("CODEX_PROJECT_QUICK_LIMIT".into());
+        for root in statement
+            .query_map([&project.id], |row| row.get(0))
+            .map_err(|error| error.to_string())?
+        {
+            project.roots.push(root.map_err(|error| error.to_string())?);
         }
     }
     Ok(result)
@@ -94,8 +84,7 @@ fn fingerprint(projects: &[Project]) -> String {
 
 fn snapshot(home: &Path, current: &Value) -> Result<Value, String> {
     let mut candidates = Vec::new();
-    for entry in fs::read_dir(home).map_err(|e| e.to_string())?.take(512) {
-        check()?;
+    for entry in fs::read_dir(home).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
         let name = entry.file_name().to_string_lossy().into_owned();
         if name == STATE
@@ -105,14 +94,10 @@ fn snapshot(home: &Path, current: &Value) -> Result<Value, String> {
             continue;
         }
         let metadata = entry.metadata().map_err(|e| e.to_string())?;
-        if metadata.len() > MAX_STATE_BYTES {
-            continue;
-        }
         candidates.push((metadata.modified().ok(), entry.path()));
     }
     candidates.sort_by(|a, b| b.0.cmp(&a.0));
-    for (_, path) in candidates.into_iter().take(8) {
-        check()?;
+    for (_, path) in candidates {
         let Ok(bytes) = read_bytes(&path) else {
             continue;
         };
@@ -171,9 +156,18 @@ struct Thread {
     project: Option<String>,
     cwd: Option<String>,
     root: bool,
+    section: Option<String>,
 }
 
-fn threads_with_limit(db: &Connection, limit: Option<usize>) -> Result<Vec<Thread>, String> {
+fn read_threads_by_ids(db: &Connection, ids: &[&str]) -> Result<Vec<Thread>, String> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let encoded = serde_json::to_string(ids).map_err(|error| error.to_string())?;
+    read_threads(db, Some(&encoded))
+}
+
+fn read_threads(db: &Connection, selected: Option<&str>) -> Result<Vec<Thread>, String> {
     let cols = super::table_columns(db, "threads")?;
     if !["id", "cwd", "project_id", "source"]
         .iter()
@@ -183,19 +177,23 @@ fn threads_with_limit(db: &Connection, limit: Option<usize>) -> Result<Vec<Threa
         return Err("CODEX_PROJECT_SCHEMA_UNSUPPORTED".into());
     }
     let sql = format!(
-        "SELECT id,project_id,cwd,source,{},{},{} FROM threads ORDER BY id{}",
+        "SELECT id,project_id,cwd,source,{},{},{},{} FROM threads{} ORDER BY id",
         column_expr(&cols, "thread_source", "NULL"),
         column_expr(&cols, "has_user_event", "0"),
         column_expr(&cols, "first_user_message", "NULL"),
-        limit
-            .map(|n| format!(" LIMIT {}", n + 1))
-            .unwrap_or_default()
+        column_expr(&cols, "thread_section_id", "NULL"),
+        if selected.is_some() {
+            " WHERE id IN (SELECT value FROM json_each(?1))"
+        } else {
+            ""
+        },
     );
     let mut statement = db.prepare(&sql).map_err(|e| e.to_string())?;
-    let mut rows = statement.query([]).map_err(|e| e.to_string())?;
+    let mut rows = statement
+        .query(rusqlite::params_from_iter(selected))
+        .map_err(|e| e.to_string())?;
     let mut result = Vec::new();
     while let Some(row) = rows.next().map_err(|e| e.to_string())? {
-        check()?;
         let source: Option<String> = row.get(3).map_err(|e| e.to_string())?;
         let detail: Option<String> = row.get(4).map_err(|e| e.to_string())?;
         let user: Option<i64> = row.get(5).map_err(|e| e.to_string())?;
@@ -212,10 +210,8 @@ fn threads_with_limit(db: &Connection, limit: Option<usize>) -> Result<Vec<Threa
             project: row.get(1).map_err(|e| e.to_string())?,
             cwd: row.get(2).map_err(|e| e.to_string())?,
             root: !child && (user.unwrap_or(0) != 0 || first.is_some_and(|s| !s.is_empty())),
+            section: row.get(7).map_err(|e| e.to_string())?,
         });
-    }
-    if limit.is_some_and(|n| result.len() > n) {
-        return Err("CODEX_PROJECT_QUICK_LIMIT".into());
     }
     Ok(result)
 }
@@ -252,20 +248,11 @@ fn catalog_memberships(
         {
             continue;
         }
-        let limit = if quick {
-            format!(" LIMIT {}", QUICK_MAX_CATALOG_ROWS + 1)
-        } else {
-            String::new()
-        };
-        let mut statement = db.prepare(&format!("SELECT thread_id,project_id FROM local_thread_catalog WHERE host_id='local' AND project_id IS NOT NULL{limit}")).map_err(|e| e.to_string())?;
+        let mut statement = db
+            .prepare("SELECT thread_id,project_id FROM local_thread_catalog WHERE host_id='local' AND project_id IS NOT NULL")
+            .map_err(|e| e.to_string())?;
         let mut rows = statement.query([]).map_err(|e| e.to_string())?;
-        let mut count = 0;
         while let Some(row) = rows.next().map_err(|e| e.to_string())? {
-            check()?;
-            count += 1;
-            if quick && count > QUICK_MAX_CATALOG_ROWS {
-                return Err("CODEX_PROJECT_QUICK_LIMIT".into());
-            }
             memberships
                 .entry(row.get(0).map_err(|e| e.to_string())?)
                 .or_default()
@@ -333,14 +320,6 @@ fn scan_impl(
     quick: bool,
     exists: &dyn Fn(&str) -> bool,
 ) -> Result<Plan, String> {
-    check()?;
-    if quick
-        && [STATE, &format!("{STATE}.bak")]
-            .iter()
-            .any(|p| fs::metadata(home.join(p)).is_ok_and(|m| m.len() > 2_000_000))
-    {
-        return Err("CODEX_PROJECT_QUICK_LIMIT".into());
-    }
     let before_bytes = read_bytes(&home.join(STATE))?;
     let before = decode(before_bytes.as_deref())?;
     for key in ["local-projects", MAP, ASSIGN, HOSTS, MIGRATION] {
@@ -361,8 +340,8 @@ fn scan_impl(
     let primary = project_database(home)?.ok_or("CODEX_PROJECT_SCHEMA_UNSUPPORTED")?;
     let db = open(&home.join(&primary), false)?;
     db.execute_batch("BEGIN").map_err(|e| e.to_string())?;
-    let db_projects = projects_with_limit(&db, quick.then_some(QUICK_MAX_PROJECTS))?;
-    let db_threads = threads_with_limit(&db, quick.then_some(QUICK_MAX_THREADS))?;
+    let db_projects = read_projects(&db)?;
+    let db_threads = read_threads(&db, None)?;
     let catalog_memberships = catalog_memberships(home, quick)?;
     let project_fingerprint = fingerprint(&db_projects);
     let mut after = before.clone();
@@ -382,7 +361,6 @@ fn scan_impl(
     let mut allowed: BTreeMap<String, String> = BTreeMap::new();
     let mut counts = Counts::default();
     for project in &db_projects {
-        check()?;
         let roots: HashSet<_> = project.roots.iter().map(|p| path_key(p)).collect();
         let explicit: Vec<_> = mapping
             .iter()
@@ -505,7 +483,6 @@ fn scan_impl(
     let mut rows = Vec::new();
     let mut migrated = Vec::new();
     for thread in db_threads {
-        check()?;
         if !thread.root
             || selected.is_some_and(|ids| !ids.contains(&thread.id))
             || current_projectless.contains(&thread.id)
@@ -654,7 +631,6 @@ fn scan_impl(
         rows,
     }];
     for path in catalog_paths(home, quick) {
-        check()?;
         if !path.exists() {
             continue;
         }
@@ -666,23 +642,12 @@ fn scan_impl(
         {
             continue;
         }
-        let limit = if quick {
-            format!(" LIMIT {}", QUICK_MAX_CATALOG_ROWS + 1)
-        } else {
-            String::new()
-        };
         let mut statement = db
-            .prepare(&format!("SELECT thread_id,project_id,cwd FROM local_thread_catalog WHERE host_id='local'{limit}"))
+            .prepare("SELECT thread_id,project_id,cwd FROM local_thread_catalog WHERE host_id='local'")
             .map_err(|e| e.to_string())?;
         let mut query = statement.query([]).map_err(|e| e.to_string())?;
         let mut rows = Vec::new();
-        let mut count = 0;
         while let Some(row) = query.next().map_err(|e| e.to_string())? {
-            check()?;
-            count += 1;
-            if quick && count > QUICK_MAX_CATALOG_ROWS {
-                return Err("CODEX_PROJECT_QUICK_LIMIT".into());
-            }
             let id: String = row.get(0).map_err(|e| e.to_string())?;
             let Some(server) = desired.get(&id) else {
                 continue;

@@ -59,6 +59,22 @@ test('completion clears a previous error and its failed start step', () => {
   assert.equal(h.state().steps.find((step: any) => step.id === 'startClient').details.error, undefined);
 });
 
+test('successful launch retains project recovery deferral details', () => {
+  const h = harness();
+  const message = 'Quick project scan reached its limit. Largest state file: 2542520 bytes.';
+  h.send({ type: 'start' });
+  h.send({
+    step: 'writeProfile',
+    stepStatus: 'warning',
+    details: { sessionMaintenanceDeferred: true, projectRecoveryDeferredMessage: message },
+  });
+  h.send({ type: 'complete' });
+  const step = h.state().steps.find((item: any) => item.id === 'writeProfile');
+  assert.equal(h.state().status, 'completed');
+  assert.equal(step.status, 'warning');
+  assert.equal(step.details.projectRecoveryDeferredMessage, message);
+});
+
 test('retrying the same account starts clean instead of carrying failed steps forward', () => {
   const h = harness();
   h.send({ type: 'start', operation: 'switch-and-start', accountId: 'a' });
@@ -68,4 +84,36 @@ test('retrying the same account starts clean instead of carrying failed steps fo
   assert.equal(h.state().status, 'running');
   assert.equal(h.state().error, undefined);
   assert.equal(h.state().steps.find((step: any) => step.id === 'startClient').status, 'pending');
+});
+
+test('a committed switch retains its separate CLI resume warning', () => {
+  const h = harness();
+  h.send({ type: 'start', operation: 'switch-and-start' });
+  h.send({
+    step: 'startClient',
+    stepStatus: 'warning',
+    details: { launchMode: 'cli', cliResumeError: 'Profile already owns a CLI process' },
+  });
+  h.send({ type: 'complete' });
+  h.send({ step: 'startClient', stepStatus: 'completed', details: { error: null } });
+  h.send({ type: 'complete' });
+  const step = h.state().steps.find((item: any) => item.id === 'startClient');
+  assert.equal(h.state().status, 'completed');
+  assert.equal(step.status, 'warning');
+  assert.equal(step.details.cliResumeError, 'Profile already owns a CLI process');
+});
+
+test('the launch error retains the expected CLI binding for retry', () => {
+  const h = harness();
+  h.send({ type: 'start', expectedSwitchBinding: 'fixture-provider' });
+  h.send({ type: 'error', error: 'launch failed' });
+  assert.equal(h.state().expectedSwitchBinding, 'fixture-provider');
+  h.send({ type: 'start' });
+  assert.equal(h.state().expectedSwitchBinding, undefined);
+  h.send({
+    type: 'error',
+    error: 'CODEX_SWITCH_BINDING_FAILED',
+    expectedSwitchBinding: 'fixture-next',
+  });
+  assert.equal(h.state().expectedSwitchBinding, 'fixture-next');
 });

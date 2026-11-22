@@ -5,7 +5,7 @@ members = [
     "crates/cockpit-cli",
 ]
 resolver = "2"
-exclude = ["vendor/tao"]
+exclude = ["vendor/tao", "vendor/muda"]
 
 [workspace.dependencies]
 # Common dependencies with shared versions
@@ -50,9 +50,17 @@ serde_urlencoded = "0.7"
 windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Security_Cryptography"] }
 junction = "2.0"
 
-# Backport only the upstream Windows input-lock fix; see vendor/tao/COCKPIT-PATCH.md.
+# Windows upstream backports are documented in each crate's COCKPIT-PATCH.md.
 [patch.crates-io]
+muda = { path = "vendor/muda" }
 tao = { path = "vendor/tao" }
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package.cockpit-tools]
+# Keep macOS rebuilds from retaining a fresh set of .rcgu.o files (rust-lang/rust#161824).
+split-debuginfo = "packed"
 
 [profile.ci]
 inherits = "release"

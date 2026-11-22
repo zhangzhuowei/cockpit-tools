@@ -15,6 +15,7 @@ fn prepared_history() -> Prepared {
         .rewrite(&context, "a", "owner", &mut headers, &mut body)
         .unwrap();
     Prepared {
+        reasoning_ceiling_proof: None,
         preflight_attempts: Vec::new(),
         execution: crate::modules::codex_native_api::execution::Execution::from_deadline(
             Default::default(),
@@ -90,12 +91,47 @@ fn prepared_history() -> Prepared {
 }
 
 #[test]
+fn bounded_append_requires_a_complete_live_parent_and_exact_owner() {
+    let mut prepared = prepared_history();
+    prepared.source_body["input"] = json!([]);
+    prepared.source_body["generate"] = json!(false);
+    let mut history = History::default();
+    history.begin(&prepared);
+    history.observe(&prepared, &json!({"type":"response.completed","response":{
+        "id":"empty-prewarm","status":"completed","output":[]}}));
+    let body = json!({"previous_response_id":"empty-prewarm","input":[{"role":"user","content":"new history"}]});
+    assert!(history.can_seed_append(&prepared, Some("empty-prewarm"), &body));
+    assert!(!history.can_seed_append(&prepared, None, &body));
+    assert!(!history.can_seed_append(&prepared, Some("another"), &body));
+    assert!(!history.can_seed_append(&prepared, Some("empty-prewarm"), &json!({"input":[]})));
+    for mutate in [
+        (|p: &mut Prepared| p.route.account_id = "other".into()) as fn(&mut Prepared),
+        |p: &mut Prepared| p.route.owner_id = "other".into(),
+        |p: &mut Prepared| p.caller.id = "other".into(),
+        |p: &mut Prepared| { p.headers.insert("thread-id", "other".parse().unwrap()); },
+        |p: &mut Prepared| { p.headers.insert("session-id", "other".parse().unwrap()); },
+        |p: &mut Prepared| p.continuation_recovered = true,
+        |p: &mut Prepared| p.rebuild_applied = true,
+        |p: &mut Prepared| p.compact = true,
+    ] {
+        let mut changed = prepared.clone();
+        mutate(&mut changed);
+        assert!(!history.can_seed_append(&changed, Some("empty-prewarm"), &body));
+    }
+    history.checkpoint.as_mut().unwrap().complete_for_rebuild = false;
+    assert!(!history.can_seed_append(&prepared, Some("empty-prewarm"), &body));
+    history.checkpoint.as_mut().unwrap().complete_for_rebuild = true;
+    history.checkpoint.as_mut().unwrap().connection_local = true;
+    assert!(!history.can_seed_append(&prepared, Some("empty-prewarm"), &body));
+}
+
+#[test]
 fn mapped_thread_change_clears_private_tool_arguments_and_checkpoints() {
     let prepared = prepared_history();
     let mut history = History::default();
     history.begin(&prepared);
     let call = json!({"type":"function_call","call_id":"same-call","name":"private-tool","arguments":"private arguments"});
-    history.remember_call(&call);
+    history.remember_call(&call, false);
     history.observe(&prepared, &json!({"type":"response.completed","response":{"id":"response-one","status":"completed","output":[call]}}));
     assert!(history.checkpoint.is_some());
     assert!(!history.calls.is_empty());
@@ -224,7 +260,7 @@ fn conflicting_tool_history_reaches_upstream_without_cache_repair_or_rebuild_pro
         let mut prepared = prepared_history();
         let mut history = History::default();
         history.begin(&prepared);
-        history.remember_call(&json!({"type":"function_call","call_id":"cached","name":"cached_tool","arguments":"{}"}));
+        history.remember_call(&json!({"type":"function_call","call_id":"cached","name":"cached_tool","arguments":"{}"}), false);
         let first = if kind == "function_call" {
             json!({"type":kind,"call_id":"conflict","name":"tool","arguments":"{}"})
         } else {
@@ -373,7 +409,7 @@ fn repaired_completion_keeps_local_history_without_widening_cross_account_replay
         .completed_replay(&prepared, &next)
         .unwrap()
         .is_none());
-    history.remember_call(&json!({"type":"function_call","call_id":"c","name":"tool"}));
+    history.remember_call(&json!({"type":"function_call","call_id":"c","name":"tool"}), false);
     assert_eq!(history.calls["c"], call);
 }
 
@@ -507,7 +543,7 @@ fn large_completed_history_and_evicted_tool_arguments_survive_http_fallback() {
         // This cache is auxiliary: evicting its oldest call cannot remove the
         // exact arguments from the current full checkpoint.
         for index in 0..=MAX_CALLS {
-            history.remember_call(&json!({"type":"function_call","call_id":format!("aux-{index}"),"name":"tool","arguments":"{}"}));
+            history.remember_call(&json!({"type":"function_call","call_id":format!("aux-{index}"),"name":"tool","arguments":"{}"}), false);
         }
         assert!(!history.calls.contains_key("large-call"));
         assert!(history.calls.len() <= MAX_CALLS);
@@ -544,7 +580,7 @@ fn large_completed_history_and_evicted_tool_arguments_survive_http_fallback() {
 fn large_current_input_outranks_auxiliary_calls_without_truncating_arguments() {
     let call = oversized_history_call("function_call");
     let mut history = History::default();
-    history.remember_call(&json!({"type":"function_call","call_id":"large-call","name":"wrong-cache","arguments":"{}"}));
+    history.remember_call(&json!({"type":"function_call","call_id":"large-call","name":"wrong-cache","arguments":"{}"}), false);
     let result = json!({"type":"function_call_output","call_id":"large-call","output":"result"});
     let repaired = history
         .repair_tools(&[result.clone(), call.clone()])
@@ -706,4 +742,25 @@ fn canonical_member_history_keeps_grant_namespace_when_business_id_is_shared() {
     assert!(!owner.matches(&prepared));
     prepared.route.continuity_account_id = None;
     assert!(!owner.matches(&prepared));
+}
+
+#[test]
+fn cached_upstream_calls_drop_output_token_counts_but_client_calls_and_results_keep_them() {
+    let mut history = History::default();
+    let call = json!({"type":"function_call","id":"fc_lookup","call_id":"lookup","name":"lookup","arguments":"{}","internal_chat_message_metadata_passthrough":{"content_token_count":7,"turn_id":"turn"}});
+    let result = json!({"type":"function_call_output","call_id":"lookup","output":"ok","internal_chat_message_metadata_passthrough":{"content_token_count":99}});
+    history.remember_call(&call,true);
+    let repaired = history.repair_tools(&[result.clone()]).unwrap();
+    assert_eq!(repaired.len(),2);
+    assert_eq!(repaired[0]["internal_chat_message_metadata_passthrough"],json!({"turn_id":"turn"}));
+    assert_eq!(repaired[1],result);
+    history.remember_call(&call,false);
+    let client_repaired = history.repair_tools(&[result.clone()]).unwrap();
+    assert_eq!(client_repaired[0],call);
+    assert_eq!(client_repaired[1],result);
+    // An identical upstream item does not change the provenance of client input.
+    history.output.insert(0, call.clone());
+    let explicit_client = history.repair_tools(&[result.clone(), call.clone()]).unwrap();
+    assert_eq!(explicit_client[0], call);
+    assert_eq!(explicit_client[1], result);
 }

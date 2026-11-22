@@ -14,6 +14,11 @@ export interface CursorAccount {
 
   cursor_auth_raw?: unknown;
   cursor_usage_raw?: unknown;
+  sand_usage?: {
+    percent_used: number;
+    reset_at: number | null;
+    stale: boolean;
+  };
 
   status?: string | null;
   status_reason?: string | null;
@@ -141,7 +146,15 @@ function isCursorEnterpriseAccount(account: CursorAccount): boolean {
 }
 
 function resolveCursorPlanLabel(account: CursorAccount): string {
-  return account.membership_type?.trim() || account.plan_type?.trim() || 'Unknown';
+  const label = account.membership_type?.trim() || account.plan_type?.trim() || 'Unknown';
+  switch (label.toLowerCase()) {
+    case 'unified_ultra':
+      return 'X Ultra';
+    case 'super':
+      return 'Super';
+    default:
+      return label;
+  }
 }
 
 export function getCursorPlanBadge(account: CursorAccount): CursorPlanBadge {
@@ -175,6 +188,8 @@ export function getCursorPlanBadgeClass(
   const normalized = normalizeCursorMembershipType(planType);
   switch (normalized) {
     case 'ultra':
+    case 'unified_ultra':
+    case 'super':
       return 'ultra';
     case 'enterprise':
       return account && !isCursorEnterpriseAccount(account) ? 'team' : 'enterprise';
@@ -183,8 +198,6 @@ export function getCursorPlanBadgeClass(
       return 'plus';
     case 'premium':
       return 'pro';
-    case 'super':
-      return 'ultra';
     case 'pro':
     case 'free_trial':
       return 'pro';
@@ -207,6 +220,16 @@ export type CursorUsage = {
   inlineSuggestionsUsedPercent: number | null;
   chatMessagesUsedPercent: number | null;
   allowanceResetAt?: number | null;
+  allowancePeriod?: 'weekly' | 'monthly' | null;
+  unifiedBilling?: boolean;
+  credits?: {
+    balanceCents: number | null;
+    monthlyUsedCents: number | null;
+    monthlyLimitCents: number | null | undefined;
+    autoTopUpEnabled: boolean | null;
+    autoTopUpThresholdCents: number | null;
+    autoTopUpAmountCents: number | null;
+  };
   planUsedCents?: number | null;
   planLimitCents?: number | null;
   totalPercentUsed?: number | null;
@@ -227,7 +250,7 @@ export type CursorUsage = {
 
 export type CursorOnDemandSummary = {
   isTeamLimit: boolean;
-  usedCents: number;
+  usedCents: number | null;
   limitCents: number | null;
   hasFixedLimit: boolean;
   isUnlimited: boolean;
@@ -249,8 +272,8 @@ function pickNumber(obj: unknown, ...candidateKeys: string[]): number | null {
   const o = obj as Record<string, unknown>;
   for (const key of candidateKeys) {
     const val = o[key];
-    if (val !== undefined && val !== null) {
-      const n = typeof val === 'number' ? val : Number(val);
+    if (typeof val === 'number' || (typeof val === 'string' && val.trim())) {
+      const n = Number(val);
       if (Number.isFinite(n)) return n;
     }
   }
@@ -364,16 +387,15 @@ function parseCursorResetAt(value: unknown): number | null {
 }
 
 export function getCursorUsage(account: CursorAccount): CursorUsage {
-  const raw = account.cursor_usage_raw;
-  if (!raw || typeof raw !== 'object') {
-    return { inlineSuggestionsUsedPercent: null, chatMessagesUsedPercent: null };
-  }
+  const raw = account.cursor_usage_raw && typeof account.cursor_usage_raw === 'object'
+    ? account.cursor_usage_raw
+    : {};
 
+  const desktopPlan = getPath(raw, 'planUsage') ?? getPath(raw, 'plan_usage');
   const plan =
+    desktopPlan ??
     getPath(raw, 'individualUsage', 'plan') ??
-    getPath(raw, 'individual_usage', 'plan') ??
-    getPath(raw, 'planUsage') ??
-    getPath(raw, 'plan_usage');
+    getPath(raw, 'individual_usage', 'plan');
   const individualOnDemand =
     getPath(raw, 'individualUsage', 'onDemand') ??
     getPath(raw, 'individual_usage', 'onDemand');
@@ -393,15 +415,15 @@ export function getCursorUsage(account: CursorAccount): CursorUsage {
   const otherModelsPct =
     pickNumber(plan, 'otherModelsPercentUsed', 'other_models_percent_used') ?? apiPct;
   const grokBot = readGrokBotWeekly(raw);
-  const planUsed = pickNumber(plan, 'used', 'totalSpend', 'total_spend');
+  const planUsed = pickNumber(plan, 'includedSpend', 'included_spend', 'used', 'totalSpend', 'total_spend');
   const planLimit = pickNumber(plan, 'limit');
   const odUsed = pickNumber(
     onDemand,
     'used',
-    'totalSpend',
-    'total_spend',
     'individualUsed',
     'individual_used',
+    'totalSpend',
+    'total_spend',
   );
   const odLimit = pickNumber(
     onDemand,
@@ -429,7 +451,7 @@ export function getCursorUsage(account: CursorAccount): CursorUsage {
       'overallLimit',
       'overall_limit',
     );
-  const odEnabled = pickBoolean(individualOnDemand, 'enabled');
+  const odEnabled = pickBoolean(raw, 'onDemandEnabled') ?? pickBoolean(individualOnDemand, 'enabled');
   const rawObj = raw as Record<string, unknown>;
   const isUnlimited =
     rawObj.isUnlimited === true || rawObj.is_unlimited === true;
@@ -454,16 +476,40 @@ export function getCursorUsage(account: CursorAccount): CursorUsage {
     getPath(planInfo, 'includedUsageResetsAt') ?? getPath(planInfo, 'included_usage_resets_at') ??
     rawObj.includedUsageResetsAt ?? rawObj.included_usage_resets_at,
   );
-  const isWeekly = period === 'weekly' || period === 'included_usage_period_weekly' || period === 2 ||
-    (period !== 'monthly' && period !== 'included_usage_period_monthly' && period !== 1 && (
-      membership.startsWith('unified_') ||
-      pickBoolean(raw, 'unifiedIncludedUsage', 'unified_included_usage') === true ||
-      includedResetAt !== null
-    ));
+  const isMonthly = period === 'monthly' || period === 'included_usage_period_monthly' || period === 1 || period === '1';
+  const unifiedMarker = pickBoolean(raw, 'isMerged', 'is_merged', 'unifiedIncludedUsage', 'unified_included_usage');
+  const isWeekly = period === 'weekly' || period === 'included_usage_period_weekly' || period === 2 || period === '2' ||
+    (!isMonthly && (unifiedMarker === true || membership.startsWith('unified_') || includedResetAt !== null));
+  const unifiedBilling = unifiedMarker === true || isWeekly;
   const resetAt = isWeekly ? includedResetAt : parseCursorResetAt(
     rawObj.billingCycleEnd ?? rawObj.billing_cycle_end ??
     getPath(planInfo, 'billingCycleEnd') ?? getPath(planInfo, 'billing_cycle_end'),
   );
+  const allowancePeriod = isWeekly ? 'weekly' : (isMonthly || resetAt != null ? 'monthly' : null);
+
+  if (unifiedBilling) {
+    // Older web snapshots can carry a billing-cycle total alongside newer plan metadata.
+    // Only the desktop usage response supplies the shared allowance percentage.
+    const total = pickNumber(desktopPlan, 'totalPercentUsed', 'total_percent_used');
+    const credits = getPath(raw, 'credits');
+    const cap = getPath(credits, 'monthlyLimitCents');
+    return {
+      inlineSuggestionsUsedPercent: total == null ? null : Math.min(100, Math.max(0, total > 0 && total < 1 ? 1 : total)),
+      chatMessagesUsedPercent: null,
+      allowanceResetAt: resetAt,
+      allowancePeriod,
+      unifiedBilling,
+      totalPercentUsed: total,
+      credits: {
+        balanceCents: pickNumber(credits, 'balanceCents'),
+        monthlyUsedCents: pickNumber(credits, 'monthlyUsedCents'),
+        monthlyLimitCents: cap === null ? null : pickNumber(credits, 'monthlyLimitCents') ?? undefined,
+        autoTopUpEnabled: pickBoolean(credits, 'autoTopUpEnabled'),
+        autoTopUpThresholdCents: pickNumber(credits, 'autoTopUpThresholdCents'),
+        autoTopUpAmountCents: pickNumber(credits, 'autoTopUpAmountCents'),
+      },
+    };
+  }
 
   const ratioPct =
     planUsed != null && planLimit != null && planLimit > 0
@@ -481,6 +527,7 @@ export function getCursorUsage(account: CursorAccount): CursorUsage {
     inlineSuggestionsUsedPercent: usedPct,
     chatMessagesUsedPercent: null,
     allowanceResetAt: resetAt,
+    allowancePeriod,
     planUsedCents: planUsed,
     planLimitCents: planLimit,
     totalPercentUsed: totalPct,
@@ -488,8 +535,8 @@ export function getCursorUsage(account: CursorAccount): CursorUsage {
     apiPercentUsed: apiPct,
     cursorModelsPercentUsed: cursorModelsPct,
     otherModelsPercentUsed: otherModelsPct,
-    grokBotWeeklyPercentUsed: grokBot.percentUsed,
-    grokBotWeeklyResetAt: grokBot.resetAt,
+    grokBotWeeklyPercentUsed: account.sand_usage?.percent_used ?? grokBot.percentUsed,
+    grokBotWeeklyResetAt: account.sand_usage ? account.sand_usage.reset_at : grokBot.resetAt,
     onDemandUsedCents: odUsed,
     onDemandLimitCents: odLimit,
     teamOnDemandUsedCents: teamOdUsed,
@@ -506,14 +553,14 @@ export function getCursorOnDemandSummary(usage: CursorUsage): CursorOnDemandSumm
   // Team accounts must stay on one quota scope. Prefer team metrics and only
   // fall back to the normalized shared fields when the team-specific field is absent.
   const usedCents = isTeamLimit
-    ? (usage.teamOnDemandUsedCents ?? usage.onDemandUsedCents ?? 0)
-    : (usage.onDemandUsedCents ?? 0);
+    ? (usage.teamOnDemandUsedCents ?? usage.onDemandUsedCents ?? null)
+    : (usage.onDemandUsedCents ?? null);
   const limitCents = isTeamLimit
     ? (usage.teamOnDemandLimitCents ?? usage.onDemandLimitCents ?? null)
     : (usage.onDemandLimitCents ?? null);
   const hasFixedLimit = limitCents != null && limitCents > 0;
   const isUnlimited = !hasFixedLimit && usage.onDemandEnabled === true && !isTeamLimit;
-  const isDisabled = !hasFixedLimit && !isUnlimited;
+  const isDisabled = usage.onDemandEnabled === false;
 
   return {
     isTeamLimit,
@@ -567,10 +614,6 @@ export function isCursorAccountBanned(account: CursorAccount): boolean {
   const reason = (account.status_reason || '').toLowerCase();
   return status === 'banned' || status === 'forbidden' ||
     reason.includes('banned') || reason.includes('suspended') || reason.includes('disabled');
-}
-
-export function hasCursorQuotaData(account: CursorAccount): boolean {
-  return account.cursor_usage_raw != null;
 }
 
 export function hasCursorQuotaQueryError(account: CursorAccount): boolean {

@@ -2,13 +2,12 @@ import { emit } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { Page } from '../types/navigation';
 import { ALL_PLATFORM_IDS, PLATFORM_PAGE_MAP, type PlatformId } from '../types/platform';
+import { FLOATING_CARD_PLATFORM_STORAGE_KEY, previewDurableUiSetting, readDurableUiSetting } from './durableUiSettings';
 
 export const ACCOUNTS_CHANGED_EVENT = 'accounts:changed';
 export const CURRENT_ACCOUNT_CHANGED_EVENT = 'accounts:current-changed';
 /** 主窗口当前平台（侧栏/页面）变化：悬浮窗/菜单应跟随，而不是锁死 antigravity */
 export const ACTIVE_PLATFORM_FOCUS_EVENT = 'platform:active-focus';
-
-export const FLOATING_CARD_PLATFORM_STORAGE_KEY = 'agtools.floating_card.platform';
 
 export type AccountSyncEventPayload = {
   platformId: PlatformId;
@@ -48,6 +47,7 @@ const PROVIDER_PAGE_PLATFORM_MAP: Record<string, PlatformId> = {
   trae_solo_cn: 'trae_solo_cn',
   traesolocn: 'trae_solo_cn',
   workbuddy: 'workbuddy',
+  workbuddy_ai: 'workbuddy_ai',
   minimaxcode: 'minimaxcode',
 };
 
@@ -116,6 +116,7 @@ export function resolvePlatformIdFromPage(page: Page | string): PlatformId | nul
     normalized === 'api-relay' ||
     normalized === 'wakeup' ||
     normalized === 'verification' ||
+    normalized === 'antigravity-usage' ||
     normalized === '2fa' ||
     normalized === 'proxies' ||
     normalized === 'instances'
@@ -138,10 +139,8 @@ export function resolvePlatformIdFromPage(page: Page | string): PlatformId | nul
 }
 
 export function persistFloatingCardPlatform(platformId: PlatformId): void {
-  try {
-    localStorage.setItem(FLOATING_CARD_PLATFORM_STORAGE_KEY, platformId);
-  } catch {
-    // ignore
+  if (readDurableUiSetting(FLOATING_CARD_PLATFORM_STORAGE_KEY) !== platformId) {
+    previewDurableUiSetting(FLOATING_CARD_PLATFORM_STORAGE_KEY, platformId);
   }
 }
 

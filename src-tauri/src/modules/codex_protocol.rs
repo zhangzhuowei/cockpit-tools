@@ -306,6 +306,18 @@ fn managed_codex_model_ids_from_catalog(catalog: &Value) -> Vec<String> {
         .collect::<Vec<_>>();
     let uses_overrides = !overrides.is_empty();
     let models = if uses_overrides {
+        let mut overrides = overrides;
+        // An older upstream override list may predate the models shipped with this host.
+        for model in catalog["models"].as_array().into_iter().flatten() {
+            let Some(slug) = model["slug"].as_str() else { continue };
+            if super::codex_model_catalog::GPT_6_2_MODELS.contains(&slug)
+                && model["visibility"] == "list"
+                && model["use_responses_lite"] == true
+                && !overrides.iter().any(|model| model["slug"].as_str().is_some_and(|id| id.eq_ignore_ascii_case(slug)))
+            {
+                overrides.push(model);
+            }
+        }
         overrides
     } else {
         catalog.get("models").and_then(Value::as_array)
@@ -333,22 +345,9 @@ fn managed_codex_model_ids_from_catalog(catalog: &Value) -> Vec<String> {
         .map(str::to_string)
         .collect::<Vec<_>>();
 
-    // 官方推荐集把 GPT-6 家族排在最前，顺序固定为 6.1 Sol → Astra → Sol → Luna；
-    // 只移动已存在的条目，不插入目录里没有的模型。
-    for (offset, model_id) in ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"]
-        .iter()
-        .enumerate()
-    {
-        if let Some(index) = model_ids
-            .iter()
-            .position(|model| model.eq_ignore_ascii_case(model_id))
-        {
-            if index > offset {
-                let model = model_ids.remove(index);
-                model_ids.insert(offset, model);
-            }
-        }
-    }
+    model_ids.sort_by_key(|model| {
+        super::codex_model_catalog::recommended_model_rank(model).unwrap_or(usize::MAX)
+    });
 
     model_ids
 }
@@ -416,6 +415,31 @@ pub(crate) fn codex_model_uses_responses_lite(model_id: &str) -> bool {
         })
 }
 
+fn normalize_codex_model_visibility(fields: &mut Map<String, Value>) {
+    if fields.get("visibility").and_then(Value::as_str) == Some("show") {
+        fields.insert("visibility".into(), json!("list"));
+    }
+}
+
+pub(crate) fn project_public_responses_model(model: &mut Value) {
+    if let Some(fields) = model.as_object_mut() {
+        normalize_codex_model_visibility(fields);
+        fields.insert("use_responses_lite".into(), Value::Bool(false));
+        if fields.get("tool_mode").and_then(Value::as_str) == Some("code_mode_only") {
+            // A relay may reuse the official slug without its Code Mode contract.
+            fields.insert("tool_mode".into(), json!("direct"));
+        }
+    }
+}
+
+pub(crate) fn project_public_responses_catalog(catalog: &mut Value) {
+    if let Some(models) = catalog.get_mut("models").and_then(Value::as_array_mut) {
+        for model in models {
+            project_public_responses_model(model);
+        }
+    }
+}
+
 pub(crate) fn responses_lite_metadata_enabled(body: &Value) -> bool {
     body.pointer("/client_metadata/ws_request_header_x_openai_internal_codex_responses_lite")
         .is_some_and(|value| {
@@ -431,19 +455,21 @@ pub(crate) fn filter_responses_lite_tools(body: &mut Value) -> bool {
         .is_some_and(filter_responses_lite_tools_in_object)
 }
 
-fn responses_lite_tool_allowed(tool: &Value) -> bool {
-    match tool
-        .get("type")
-        .and_then(Value::as_str)
-        .map(|tool_type| tool_type.trim().to_ascii_lowercase())
-        .as_deref()
-    {
-        Some("function" | "custom" | "namespace") => true,
-        Some("tool_search") => tool
-            .get("execution")
-            .and_then(Value::as_str)
-            .is_some_and(|execution| execution.trim().eq_ignore_ascii_case("client")),
-        _ => false,
+/// Rewrite a `tool_search` declaration whose execution is missing or
+/// `server` to client execution, so the Lite filter keeps it instead of
+/// silently dropping it. Deferred MCP namespaces are only loadable through
+/// `tool_search`, so dropping it breaks them even though the namespace
+/// declarations themselves survive (see #3012). Returns (rewritten, retained).
+fn normalize_responses_lite_tool_search(tool: &mut Map<String, Value>) -> (bool, bool) {
+    match tool.get("execution") {
+        Some(Value::String(mode)) if mode.trim().eq_ignore_ascii_case("client") => (false, true),
+        Some(value) if !value.as_str().is_some_and(|mode| mode.trim().eq_ignore_ascii_case("server")) => {
+            (false, false)
+        }
+        _ => {
+            tool.insert("execution".into(), Value::String("client".into()));
+            (true, true)
+        }
     }
 }
 
@@ -452,8 +478,23 @@ fn filter_responses_lite_tool_array(value: &mut Value) -> (bool, bool) {
         return (false, false);
     };
     let before = tools.len();
-    tools.retain(responses_lite_tool_allowed);
-    (tools.len() != before, !tools.is_empty())
+    let mut rewritten = false;
+    tools.retain_mut(|tool| {
+        let Some(tool) = tool.as_object_mut() else {
+            return false;
+        };
+        let kind = tool.get("type").and_then(Value::as_str).unwrap_or("");
+        match kind.trim().to_ascii_lowercase().as_str() {
+            "function" | "custom" | "namespace" => true,
+            "tool_search" => {
+                let (changed, keep) = normalize_responses_lite_tool_search(tool);
+                rewritten |= changed;
+                keep
+            }
+            _ => false,
+        }
+    });
+    (rewritten || tools.len() != before, !tools.is_empty())
 }
 
 fn filter_responses_lite_tool_choice(choice: &mut Value) -> (bool, bool) {
@@ -475,13 +516,7 @@ fn filter_responses_lite_tool_choice(choice: &mut Value) -> (bool, bool) {
 
     match choice_type.as_deref() {
         Some("function" | "custom" | "namespace") => return (false, true),
-        Some("tool_search") => {
-            let client_executed = choice_object
-                .get("execution")
-                .and_then(Value::as_str)
-                .is_some_and(|execution| execution.trim().eq_ignore_ascii_case("client"));
-            return (false, client_executed);
-        }
+        Some("tool_search") => return normalize_responses_lite_tool_search(choice_object),
         _ => {}
     }
 
@@ -550,6 +585,114 @@ fn filter_responses_lite_tools_in_object(object: &mut Map<String, Value>) -> boo
     changed
 }
 
+/// The hosted `tool_search` tool is a Codex-client capability. Third-party
+/// Responses APIs reject the tool type itself, so every declaration of it
+/// must be removed before the request reaches such an upstream.
+fn is_client_tool_search(tool: &Value) -> bool {
+    tool.get("type")
+        .and_then(Value::as_str)
+        .is_some_and(|kind| kind.trim().eq_ignore_ascii_case("tool_search"))
+}
+
+fn strip_client_tool_search_array(value: &mut Value) -> bool {
+    let Some(tools) = value.as_array_mut() else {
+        return false;
+    };
+    let before = tools.len();
+    tools.retain(|tool| !is_client_tool_search(tool));
+    tools.len() != before
+}
+
+/// Returns (changed, keep). A choice that only selected the removed tool has
+/// no valid replacement and is dropped with it.
+fn strip_client_tool_search_choice(choice: &mut Value) -> (bool, bool) {
+    if let Some(name) = choice.as_str() {
+        return (false, !name.trim().eq_ignore_ascii_case("tool_search"));
+    }
+    let Some(object) = choice.as_object_mut() else {
+        return (false, false);
+    };
+    let kind = object
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    if kind == "tool_search" {
+        return (true, false);
+    }
+    if kind != "allowed_tools" {
+        return (false, true);
+    }
+    let mut changed = false;
+    for key in ["tools", "allowed_tools"] {
+        if let Some(value) = object.get_mut(key) {
+            changed |= strip_client_tool_search_array(value);
+        }
+    }
+    // An allow-list without any remaining tool is not a valid choice.
+    let empty = ["tools", "allowed_tools"].iter().any(|key| {
+        object
+            .get(*key)
+            .and_then(Value::as_array)
+            .is_some_and(|items| items.is_empty())
+    });
+    (changed, !empty)
+}
+
+/// Remove every client tool-search declaration from a request body. The
+/// history of a completed discovery is dropped with it: the upstream never
+/// learned about those tools, so it cannot have produced them.
+pub(crate) fn strip_client_tool_search(body: &mut Value) -> bool {
+    let mut changed = false;
+    if let Some(tools) = body.get_mut("tools") {
+        changed |= strip_client_tool_search_array(tools);
+    }
+    let remove_choice = body
+        .get_mut("tool_choice")
+        .map(|choice| {
+            let (choice_changed, keep) = strip_client_tool_search_choice(choice);
+            changed |= choice_changed;
+            !keep
+        })
+        .unwrap_or(false);
+    if remove_choice {
+        if let Some(object) = body.as_object_mut() {
+            object.remove("tool_choice");
+        }
+        changed = true;
+    }
+    if let Some(input) = body.get_mut("input").and_then(Value::as_array_mut) {
+        let before = input.len();
+        input.retain_mut(|item| {
+            let kind = item.get("type").and_then(Value::as_str).unwrap_or("");
+            if matches!(kind, "tool_search_call" | "tool_search_output") {
+                changed = true;
+                return false;
+            }
+            if kind == "additional_tools" {
+                if let Some(tools) = item.get_mut("tools") {
+                    changed |= strip_client_tool_search_array(tools);
+                }
+                if item
+                    .get("tools")
+                    .and_then(Value::as_array)
+                    .is_some_and(|tools| tools.is_empty())
+                {
+                    changed = true;
+                    return false;
+                }
+            }
+            true
+        });
+        changed |= input.len() != before;
+    }
+    if let Some(response) = body.get_mut("response").filter(|value| value.is_object()) {
+        changed |= strip_client_tool_search(response);
+    }
+    changed
+}
+
 fn build_codex_client_model(model_id: &str, index: usize) -> Value {
     let visibility = if matches!(
         model_id,
@@ -570,6 +713,9 @@ fn build_codex_client_model(model_id: &str, index: usize) -> Value {
         .as_object_mut()
         .expect("Codex client model template should be a JSON object");
     object.insert("slug".to_string(), Value::String(model_id.to_string()));
+    if let Some(priority) = super::codex_model_catalog::recommended_model_rank(model_id) {
+        object.insert("priority".into(), json!(priority));
+    }
     if model_id.trim().eq_ignore_ascii_case(CODEX_RESERVE_MODEL_ID) {
         object.insert(
             "display_name".to_string(),
@@ -636,6 +782,7 @@ fn build_codex_client_model(model_id: &str, index: usize) -> Value {
             Value::String(visibility.to_string()),
         );
     }
+    normalize_codex_model_visibility(object);
     object.insert("supported_in_api".to_string(), Value::Bool(true));
     object.insert("availability_nux".to_string(), Value::Null);
     object.insert("upgrade".to_string(), Value::Null);
@@ -739,20 +886,6 @@ fn codex_client_model_template(model_id: &str) -> (Value, bool) {
         return (model.clone(), true);
     }
 
-    // Keep Luna's client capabilities and Fast tier, but include Terra's Ultra
-    // reasoning level until the bundled official catalog includes Terra.
-    if model_id.eq_ignore_ascii_case("gpt-6.1-terra") {
-        if let Some(luna) = models.iter().find(|model| model["slug"] == "gpt-6-luna") {
-            let mut terra = luna.clone();
-            terra["slug"] = json!("gpt-6.1-terra");
-            terra["display_name"] = json!("GPT-6.1 Terra");
-            terra["description"] = json!("GPT-6.1 Terra");
-            terra["supported_reasoning_levels"] =
-                codex_client_model_template("gpt-6-sol").0["supported_reasoning_levels"].clone();
-            return (terra, true);
-        }
-    }
-
     if model_id.eq_ignore_ascii_case(CODEX_RESERVE_MODEL_ID) {
         if let Some(luna) = models
             .iter()
@@ -819,6 +952,19 @@ pub(crate) fn is_known_deepseek_model(model_id: &str) -> bool {
         "deepseek-flash" | "deepseek-v4-flash" | "deepseek-v4-pro" | "deepseek-v4-flash-vision-exp")
 }
 
+pub(crate) const DEEPSEEK_DEFAULT_REASONING_EFFORT: &str = "max";
+pub(crate) const DEEPSEEK_REASONING_EFFORTS: &[&str] = &["low", "high", "max"];
+
+pub(crate) fn normalize_deepseek_reasoning_effort(effort: &str) -> Option<&'static str> {
+    match effort.trim().to_ascii_lowercase().as_str() {
+        "none" => Some("none"),
+        "minimal" | "low" => Some("low"),
+        "medium" | "high" | "xhigh" => Some("high"),
+        "max" | "ultra" => Some("max"),
+        _ => None,
+    }
+}
+
 pub(crate) fn deepseek_model_template(model_id: &str) -> Option<Value> {
     if !is_deepseek_model(model_id) {
         return None;
@@ -834,7 +980,9 @@ pub(crate) fn deepseek_model_template(model_id: &str) -> Option<Value> {
     let catalog = CATALOG.get_or_init(|| serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/resources/deepseek_codex_models.json"))).expect("valid DeepSeek catalog"));
     let template = catalog["models"].as_array()?.iter().find(|item| item["slug"] == template_id)?;
     if is_known_deepseek_model(model_id) {
-        return Some(template.clone());
+        let mut model = template.clone();
+        model["default_reasoning_level"] = json!(DEEPSEEK_DEFAULT_REASONING_EFFORT);
+        return Some(model);
     }
     // Future models inherit only reasoning defaults, not a known model's
     // context size, image support, tools, or execution capabilities.
@@ -845,7 +993,7 @@ pub(crate) fn deepseek_model_template(model_id: &str) -> Option<Value> {
     fallback["input_modalities"] = json!(["text"]);
     fallback["supports_image_detail_original"] = json!(false);
     fallback["supported_reasoning_levels"] = template["supported_reasoning_levels"].clone();
-    fallback["default_reasoning_level"] = template["default_reasoning_level"].clone();
+    fallback["default_reasoning_level"] = json!(DEEPSEEK_DEFAULT_REASONING_EFFORT);
     Some(fallback)
 }
 
@@ -1380,6 +1528,7 @@ mod tests {
             let model = &build_codex_client_models_response(&[id.to_string()])["models"][0];
             let levels: Vec<_> = model["supported_reasoning_levels"].as_array().unwrap().iter().map(|level| level["effort"].as_str().unwrap()).collect();
             assert_eq!(levels, ["low", "high", "max"]);
+            assert_eq!(model["default_reasoning_level"], "max", "{id}");
         }
         assert!(deepseek_model_template("not-deepseek-v4-pro").is_none());
         assert!(deepseek_model_template("deepseek-").is_none());
@@ -1409,8 +1558,8 @@ mod tests {
             .or_else(|| models.first())
             .unwrap()
             .clone();
-        future["slug"] = json!("gpt-6.2-sol");
-        future["display_name"] = json!("GPT-6.2 Sol");
+        future["slug"] = json!("gpt-6.3-sol");
+        future["display_name"] = json!("GPT-6.3 Sol");
         future["context_window"] = json!(512000);
         future["max_context_window"] = json!(1024000);
         future["default_reasoning_level"] = json!("low");
@@ -1421,15 +1570,15 @@ mod tests {
         future["use_responses_lite"] = json!(true);
         catalog["models"].as_array_mut().unwrap().push(future);
         crate::modules::codex_model_catalog::with_test_catalog(catalog, || {
-            let response = build_codex_client_models_response(&["gpt-6.2-sol".into()]);
+            let response = build_codex_client_models_response(&["gpt-6.3-sol".into()]);
             let model = &response["models"][0];
-            assert_eq!(model["display_name"], "GPT-6.2 Sol");
+            assert_eq!(model["display_name"], "GPT-6.3 Sol");
             assert_eq!(model["context_window"], 512000);
             assert_eq!(model["max_context_window"], 1024000);
             assert_eq!(model["default_reasoning_level"], "low");
             assert_eq!(model["supported_reasoning_levels"][1]["effort"], "high");
-            assert!(codex_model_uses_responses_lite("gpt-6.2-sol"));
-            assert!(managed_codex_model_ids().contains(&"gpt-6.2-sol".into()));
+            assert!(codex_model_uses_responses_lite("gpt-6.3-sol"));
+            assert!(managed_codex_model_ids().contains(&"gpt-6.3-sol".into()));
         });
     }
 
@@ -1765,7 +1914,37 @@ mod tests {
         }
 
         assert!(normalize_responses_body_for_codex_with_lite(&mut body, true));
-        for pointer in ["/tools", "/tool_choice/tools", "/input/0/tools"] {
+        assert_eq!(
+            body.pointer("/tools")
+                .and_then(Value::as_array)
+                .map(|tools| {
+                    tools
+                        .iter()
+                        .filter_map(|tool| tool.get("type").and_then(Value::as_str))
+                        .collect::<Vec<_>>()
+                }),
+            Some(vec![
+                "function",
+                "custom",
+                "tool_search",
+                "tool_search",
+                "tool_search",
+                "namespace"
+            ]),
+            "unexpected tools at /tools"
+        );
+        // A `tool_search` without an execution mode, or one marked `server`,
+        // is rewritten to client execution instead of being dropped, so the
+        // deferred MCP namespaces it loads stay reachable (see #3012).
+        for pointer in ["/tools/3", "/tools/4"] {
+            assert_eq!(
+                body.pointer(&format!("{pointer}/execution"))
+                    .and_then(Value::as_str),
+                Some("client"),
+                "unexpected execution at {pointer}"
+            );
+        }
+        for pointer in ["/tool_choice/tools", "/input/0/tools"] {
             assert_eq!(
                 body.pointer(pointer)
                     .and_then(Value::as_array)
@@ -1794,6 +1973,157 @@ mod tests {
         assert_eq!(
             body.get("input").and_then(Value::as_array).map(Vec::len),
             Some(2)
+        );
+    }
+
+    #[test]
+    fn responses_lite_rewrites_tool_search_execution_to_client() {
+        let mut body = json!({
+            "model": "gpt-5.6-sol",
+            "input": [
+                {
+                    "type": "additional_tools",
+                    "tools": [
+                        {"type": "tool_search"},
+                        {"type": "tool_search", "execution": "server"}
+                    ]
+                }
+            ],
+            "tools": [
+                {"type": "tool_search"},
+                {"type": "tool_search", "execution": "server"},
+                {"type": "tool_search", "execution": "client"},
+                {"type": "tool_search", "execution": 1},
+                {"type": "tool_search", "execution": "unknown"}
+            ],
+            "tool_choice": {
+                "type": "allowed_tools",
+                "mode": "auto",
+                "tools": [
+                    {"type": "tool_search"},
+                    {"type": "tool_search", "execution": "server"}
+                ]
+            },
+            "response": {
+                "tools": [
+                    {"type": "tool_search", "execution": "server"}
+                ],
+                "tool_choice": {"type": "tool_search", "execution": "server"}
+            }
+        });
+
+        assert!(normalize_responses_body_for_codex_with_lite(
+            &mut body, true
+        ));
+
+        let tools = body
+            .pointer("/tools")
+            .and_then(Value::as_array)
+            .expect("top-level tools should survive the Lite filter");
+        assert_eq!(tools.len(), 3, "unexpected top-level tools");
+        assert!(tools.iter().all(|tool| {
+            tool.get("type").and_then(Value::as_str) == Some("tool_search")
+                && tool.get("execution").and_then(Value::as_str) == Some("client")
+        }));
+
+        for pointer in ["/tool_choice/tools", "/input/0/tools"] {
+            let tools = body
+                .pointer(pointer)
+                .and_then(Value::as_array)
+                .expect("tools should survive the Lite filter");
+            assert_eq!(tools.len(), 2, "unexpected tools at {pointer}");
+            assert!(tools
+                .iter()
+                .all(|tool| { tool.get("execution").and_then(Value::as_str) == Some("client") }));
+        }
+
+        assert_eq!(
+            body.pointer("/response/tools/0/execution")
+                .and_then(Value::as_str),
+            Some("client")
+        );
+        assert_eq!(
+            body.pointer("/response/tool_choice/type")
+                .and_then(Value::as_str),
+            Some("tool_search")
+        );
+        assert_eq!(
+            body.pointer("/response/tool_choice/execution")
+                .and_then(Value::as_str),
+            Some("client")
+        );
+    }
+
+    #[test]
+    fn client_tool_search_is_stripped_from_every_declaration_location() {
+        fn kinds(value: &Value) -> Vec<String> {
+            value
+                .get("tools")
+                .and_then(Value::as_array)
+                .map(|tools| {
+                    tools
+                        .iter()
+                        .filter_map(|tool| tool.get("type").and_then(Value::as_str))
+                        .map(str::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default()
+        }
+        let mut body = json!({
+            "model": "k3.1-pro",
+            "input": [
+                {"type": "message", "role": "user", "content": "hi"},
+                {"type": "tool_search_call", "call_id": "call_1", "arguments": "{}"},
+                {"type": "tool_search_output", "call_id": "call_1", "output": "[]"},
+                {
+                    "type": "additional_tools",
+                    "tools": [
+                        {"type": "tool_search", "execution": "client"},
+                        {"type": "function", "name": "extra"}
+                    ]
+                }
+            ],
+            "tools": [
+                {"type": "function", "name": "lookup"},
+                {"type": "tool_search", "execution": "client"},
+                {"type": "web_search"}
+            ],
+            "tool_choice": {"type": "tool_search", "execution": "client"}
+        });
+
+        assert!(strip_client_tool_search(&mut body));
+
+        assert_eq!(kinds(&body), vec!["function", "web_search"]);
+        assert!(body.get("tool_choice").is_none());
+        let input = body.get("input").and_then(Value::as_array).unwrap();
+        assert_eq!(input.len(), 2);
+        assert_eq!(input[1]["type"], "additional_tools");
+        assert_eq!(kinds(&input[1]), vec!["function"]);
+    }
+
+    #[test]
+    fn client_tool_search_strip_keeps_other_tools_and_reports_no_change() {
+        let mut body = json!({
+            "tools": [
+                {"type": "function", "name": "lookup"},
+                {"type": "custom", "name": "apply_patch"}
+            ],
+            "tool_choice": {
+                "type": "allowed_tools",
+                "mode": "auto",
+                "tools": [{"type": "function", "name": "lookup"}]
+            }
+        });
+        assert!(!strip_client_tool_search(&mut body));
+        assert_eq!(
+            body.pointer("/tools").and_then(Value::as_array).map(Vec::len),
+            Some(2)
+        );
+        assert_eq!(
+            body.pointer("/tool_choice/tools")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(1)
         );
     }
 
@@ -2281,7 +2611,12 @@ mod tests {
         assert_eq!(
             managed_codex_model_ids(),
             vec![
+                "gpt-6.2-sol",
+                "gpt-6.2-astra",
                 "gpt-6.1-sol",
+                "gpt-6.2-sol",
+                "gpt-6.2-astra",
+                "gpt-6.1-terra",
                 "gpt-6-astra",
                 "gpt-6-sol",
                 "gpt-6-luna",
@@ -2437,6 +2772,8 @@ mod tests {
         let model = &catalog["models"][0];
         assert_eq!(model["slug"], "gpt-6.1-sol");
         assert_eq!(model["display_name"], "GPT-6.1 Sol");
+        assert_eq!(model["context_window"], 500_000);
+        assert_eq!(model["auto_compact_token_limit"], 450_000);
         assert_eq!(model["context_window"], template["context_window"].as_i64().expect("template context window"));
         assert_eq!(model["max_context_window"], template["max_context_window"].as_i64().expect("template maximum context window"));
         assert_eq!(model["auto_compact_token_limit"], template["auto_compact_token_limit"].as_i64().expect("template compact limit"));
@@ -2505,8 +2842,8 @@ mod tests {
     #[test]
     fn gpt_6_sol_and_luna_preserve_official_catalog_limits_and_reasoning_levels() {
         for (slug, official_name, fallback_name, priority, supports_ultra) in [
-            ("gpt-6-sol", "GPT-6 Sol", "GPT-6 Sol", 2, true),
-            ("gpt-6-luna", "GPT-6 Luna", "GPT-6 Luna", 3, false),
+            ("gpt-6-sol", "GPT-6 Sol", "GPT-6 Sol", 5, true),
+            ("gpt-6-luna", "GPT-6 Luna", "GPT-6 Luna", 6, false),
         ] {
             let response = build_codex_client_models_response(&[slug.to_string()]);
             let model = response
@@ -2638,7 +2975,12 @@ mod tests {
             "gpt-5.6-terra",
             "gpt-5.6-luna",
             "gpt-6.1-sol",
+            "gpt-6.2-sol",
+            "gpt-6.2-astra",
             "gpt-6-astra",
+            "gpt-6.1-terra",
+            "gpt-6-sol",
+            "gpt-6-luna",
         ]
         .map(str::to_string);
         let response = build_codex_client_models_response(&model_ids);
@@ -2652,7 +2994,7 @@ mod tests {
 
         assert_eq!(
             priorities,
-            vec![Some(4), Some(7), Some(8), Some(0), Some(1)]
+            [Some(7), Some(8), Some(9), Some(0), Some(1), Some(2), Some(4), Some(3), Some(5), Some(6)]
         );
     }
 
@@ -2718,9 +3060,9 @@ mod tests {
     #[test]
     fn official_ultrafast_catalog_only_advertises_supported_models() {
         let catalog = build_codex_client_models_response(&managed_codex_model_ids());
-        for slug in ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol"] {
+        for slug in ["gpt-6.2-sol", "gpt-6.2-astra", "gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol"] {
             let model = catalog["models"].as_array().unwrap().iter().find(|model| model["slug"] == slug).unwrap();
-            let expected = matches!(slug, "gpt-6.1-sol" | "gpt-6-astra");
+            let expected = matches!(slug, "gpt-6.2-sol" | "gpt-6.2-astra" | "gpt-6.1-sol" | "gpt-6-astra");
             assert_eq!(model["service_tiers"].as_array().unwrap().iter().any(|tier| tier["id"] == "ultrafast"), expected, "{slug}");
             assert_eq!(model["additional_speed_tiers"].as_array().unwrap().iter().any(|tier| tier == "ultrafast"), expected, "{slug}");
         }

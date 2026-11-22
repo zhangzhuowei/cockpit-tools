@@ -997,21 +997,52 @@ fn probe_desktop_web_profile_with_decrypted_cookies(_profile_dir: &Path) -> Resu
     Err("当前平台不支持解密 Claude Cookies。".to_string())
 }
 
+fn stage_desktop_web_probe(profile_dir: &Path) -> Result<tempfile::TempDir, String> {
+    let staged = tempfile::Builder::new()
+        .prefix("cockpit-claude-probe-")
+        .tempdir()
+        .map_err(|error| format!("创建 Claude 探测目录失败: {error}"))?;
+    for relative in ["Local State", "Preferences", "Default/Preferences"] {
+        let source = profile_dir.join(relative);
+        if source.is_file() {
+            copy_path_overwrite(&source, &staged.path().join(relative))?;
+        }
+    }
+    for source in desktop_cookie_path_candidates(profile_dir) {
+        if !source.is_file() {
+            continue;
+        }
+        let relative = source
+            .strip_prefix(profile_dir)
+            .map_err(|error| error.to_string())?;
+        let destination = staged.path().join(relative);
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+        copy_desktop_cookie_files(&source, &destination)?;
+    }
+    Ok(staged)
+}
+
 fn probe_desktop_web_profile(profile_dir: &Path) -> Result<Value, String> {
     ensure_desktop_profile_logged_in(profile_dir)?;
-    let status_file = profile_dir.join("claude_desktop_profile_probe_status.json");
-    let export_file = desktop_auth_export_path(profile_dir);
-    let _ = remove_path_if_exists(&status_file);
-    let _ = remove_path_if_exists(&export_file);
-    let helper_pid =
-        launch_platform_desktop_auth_helper(profile_dir, &status_file, &export_file, "probe")?;
-    let result = wait_for_desktop_web_profile_export(profile_dir, Duration::from_secs(18))
-        .and_then(|export| {
-            export
-                .web_profile
-                .ok_or_else(|| "Claude 资料接口未返回数据".to_string())
-        });
-    terminate_desktop_auth_helper(Some(helper_pid));
+    let result = (|| {
+        // Chromium may refresh or replace cookies on startup. Keep its writes and
+        // the probe's status/export files away from the saved sign-in snapshot.
+        let staged = stage_desktop_web_probe(profile_dir)?;
+        let status_file = staged.path().join(CLAUDE_DESKTOP_AUTH_STATUS_FILE);
+        let export_file = desktop_auth_export_path(staged.path());
+        let helper_pid =
+            launch_platform_desktop_auth_helper(staged.path(), &status_file, &export_file, "probe")?;
+        let result = wait_for_desktop_web_profile_export(staged.path(), Duration::from_secs(18))
+            .and_then(|export| {
+                export
+                    .web_profile
+                    .ok_or_else(|| "Claude 资料接口未返回数据".to_string())
+            });
+        terminate_desktop_auth_helper(Some(helper_pid));
+        result
+    })();
     match result {
         Ok(profile)
             if desktop_web_usage_to_quota(&profile).is_some()
@@ -1683,12 +1714,191 @@ fn backup_current_desktop_profile(target_dir: &Path) -> Result<Option<PathBuf>, 
     Ok(Some(backup_dir))
 }
 
+fn desktop_identity_matches_account(account: &ClaudeAccount, profile: &Value) -> bool {
+    // These fields are from the account endpoint authenticated by the outgoing
+    // cookie. An organization UUID or cached local account name is not proof.
+    let profile = profile.get("account").unwrap_or(profile);
+    if let Some(expected) = normalized_account_uuid(account) {
+        return profile["uuid"].as_str().is_some_and(|actual| {
+            uuid::Uuid::parse_str(actual).is_ok() && actual.eq_ignore_ascii_case(&expected)
+        });
+    }
+    normalized_account_email(account)
+        .filter(|email| is_real_email(email))
+        .is_some_and(|expected| {
+            ["email", "email_address"].iter().any(|field| {
+                profile[*field]
+                    .as_str()
+                    .is_some_and(|email| email.eq_ignore_ascii_case(&expected))
+            })
+        })
+}
+
+fn restore_verified_outgoing_desktop_snapshot(
+    account: &ClaudeAccount,
+    backup: &Path,
+    snapshot: &Path,
+    identity: &Value,
+    snapshot_is_current: impl FnOnce() -> Result<bool, String>,
+) -> Result<bool, String> {
+    if account.auth_mode != ClaudeAuthMode::DesktopOAuth
+        || !desktop_identity_matches_account(account, identity)
+    {
+        return Ok(false);
+    }
+    ensure_desktop_profile_logged_in(backup)?;
+    let _guard = CLAUDE_PROFILE_RESTORE_LOCK
+        .try_lock()
+        .map_err(|_| "CLAUDE_PROFILE_RESTORE_BUSY".to_string())?;
+    if !snapshot_is_current()? {
+        return Ok(false);
+    }
+    restore_desktop_profile_transaction(
+        backup,
+        snapshot,
+        account.account_uuid.as_deref(),
+        apply_desktop_profile_snapshot,
+    )?;
+    // The new snapshot has the durable Cookies DB. A pre-existing plaintext
+    // export would otherwise be reused on a later failed Keychain read.
+    remove_path_if_exists(&desktop_auth_export_path(snapshot))?;
+    Ok(true)
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn desktop_login_snapshot_revision(profile_dir: &Path) -> Result<Vec<Option<[u8; 32]>>, String> {
+    let files = desktop_cookie_path_candidates(profile_dir)
+        .into_iter()
+        .flat_map(|path| {
+            ["", "-wal", "-journal"].map(|suffix| {
+                let mut name = path.as_os_str().to_os_string();
+                name.push(suffix);
+                PathBuf::from(name)
+            })
+        })
+        .chain(std::iter::once(desktop_auth_export_path(profile_dir)));
+    files
+        .map(|path| {
+            let mut file = match File::open(&path) {
+                Ok(file) => file,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+                Err(error) => return Err(format!("读取 Claude 登录态快照失败: {error}")),
+            };
+            let mut digest = Sha256::new();
+            std::io::copy(&mut file, &mut digest)
+                .map_err(|error| format!("读取 Claude 登录态快照失败: {error}"))?;
+            Ok(Some(digest.finalize().into()))
+        })
+        .collect()
+}
+
+#[cfg(target_os = "macos")]
+fn write_back_default_desktop_login(
+    target_dir: &Path,
+    existing_backup: Option<&Path>,
+) -> Result<(), String> {
+    let platform = "claude_desktop_account";
+    let Some(id) = crate::modules::provider_current_state::get_current_account_id(platform)? else {
+        return Ok(());
+    };
+    let Some(account) =
+        load_account(&id).filter(|account| account.auth_mode == ClaudeAuthMode::DesktopOAuth)
+    else {
+        return Ok(());
+    };
+    let Some(snapshot) = account.desktop_profile_dir.as_deref().map(Path::new) else {
+        return Ok(());
+    };
+    let new_backup;
+    let backup = if let Some(backup) = existing_backup {
+        backup
+    } else {
+        new_backup = backup_current_desktop_profile(target_dir)?;
+        let Some(backup) = new_backup.as_deref() else {
+            return Ok(());
+        };
+        backup
+    };
+    if !desktop_profile_has_valid_cookies(backup) {
+        return Ok(());
+    }
+    let outgoing = read_decrypted_desktop_cookie_export(backup)?;
+    let auth_keys = |export: &ClaudeDesktopAuthCookieExport| {
+        export
+            .cookies
+            .iter()
+            .filter(|cookie| is_desktop_session_cookie(&cookie.name))
+            .map(|cookie| {
+                (
+                    cookie.name.clone(),
+                    cookie.domain.clone(),
+                    cookie.path.clone(),
+                    cookie.value.clone(),
+                )
+            })
+            .collect::<BTreeSet<_>>()
+    };
+    let saved_revision = desktop_login_snapshot_revision(snapshot)?;
+    if read_desktop_cookie_export_for_silent_refresh(snapshot)
+        .is_ok_and(|saved| auth_keys(&saved) == auth_keys(&outgoing))
+    {
+        return Ok(());
+    }
+    let profile = tauri::async_runtime::block_on(async {
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(4))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|_| "无法建立 Claude 账号确认请求".to_string())?;
+        let mut org_headers = HeaderMap::new();
+        if let Some(org) = desktop_cookie_value(&outgoing.cookies, "lastActiveOrg") {
+            org_headers.insert(
+                "x-organization-uuid",
+                HeaderValue::from_str(&org).map_err(|_| "Claude 当前组织格式无效".to_string())?,
+            );
+        }
+        fetch_claude_web_json_with_cookies(
+            &client,
+            "https://claude.ai/api/account",
+            &outgoing.cookies,
+            org_headers,
+        )
+        .await
+        .map_err(|_| "Claude 未能确认当前登录态的账号归属".to_string())
+    })?;
+    if restore_verified_outgoing_desktop_snapshot(&account, backup, snapshot, &profile, || {
+        if crate::modules::provider_current_state::get_current_account_id(platform)?.as_deref()
+            != Some(id.as_str())
+            || load_account(&id).is_none_or(|current| {
+                current.auth_mode != ClaudeAuthMode::DesktopOAuth
+                    || current.desktop_profile_dir != account.desktop_profile_dir
+                    || normalized_account_uuid(&current) != normalized_account_uuid(&account)
+                    || normalized_account_email(&current) != normalized_account_email(&account)
+            })
+        {
+            return Ok(false);
+        }
+        Ok(desktop_login_snapshot_revision(snapshot)? == saved_revision)
+    })? {
+        logger::log_info(&format!(
+            "[Claude Switch] 已回写当前账号最新登录态到快照: account_id={id}"
+        ));
+    } else {
+        logger::log_warn(&format!(
+            "[Claude Switch] 无法确认活动账号或快照已更新，已保留切换前备份: account_id={id}"
+        ));
+    }
+    Ok(())
+}
+
 /// Chromium 独占锁定、且最能代表「Claude Desktop 是否真的退出」的文件。
 ///
 /// 只放体积很小的 SQLite / LevelDB 文件；整目录复制仍由快照流程负责。
 const CLAUDE_DESKTOP_LOCK_SENSITIVE_PATHS: &[&str] = &[
     "Network/Cookies",
     "Network/Cookies-journal",
+    "Cookies",
+    "Cookies-journal",
     "Local Storage/leveldb/LOCK",
     "Session Storage/LOCK",
 ];
@@ -2021,10 +2231,6 @@ fn sha256_file_hex(path: &Path) -> Result<String, String> {
     Ok(hex_encode(&digest))
 }
 
-fn electron_runtime_zip_path(asset: &ElectronRuntimeAsset) -> Result<PathBuf, String> {
-    Ok(electron_runtime_root_dir()?.join(asset.file_name))
-}
-
 fn verify_cached_electron_zip(asset: &ElectronRuntimeAsset, zip_path: &Path) -> bool {
     if !zip_path.exists() {
         return false;
@@ -2178,6 +2384,24 @@ fn download_electron_runtime_zip(
     Ok(())
 }
 
+fn missing_electron_runtime_file(asset: &ElectronRuntimeAsset, runtime_dir: &Path) -> Option<PathBuf> {
+    let executable = runtime_dir.join(asset.executable_relative);
+    if !executable.is_file() {
+        return Some(executable);
+    }
+    if asset.platform_key.starts_with("darwin-") {
+        // Both entries are resolved through the framework's versioned symlinks.
+        let framework = runtime_dir.join(
+            "Electron.app/Contents/Frameworks/Electron Framework.framework",
+        );
+        return ["Electron Framework", "Libraries/libffmpeg.dylib"]
+            .into_iter()
+            .map(|entry| framework.join(entry))
+            .find(|path| !path.is_file());
+    }
+    None
+}
+
 fn extract_electron_runtime_zip(
     asset: &ElectronRuntimeAsset,
     zip_path: &Path,
@@ -2206,19 +2430,19 @@ fn extract_electron_runtime_zip(
         .extract(&staging_dir)
         .map_err(|e| format!("解压 Electron runtime 失败: {}", e))?;
 
-    let executable = staging_dir.join(asset.executable_relative);
-    if !executable.exists() {
+    if let Some(missing) = missing_electron_runtime_file(asset, &staging_dir) {
         let _ = remove_path_if_exists(&staging_dir);
         return Err(format!(
-            "Electron runtime 解压后缺少可执行文件: {}",
-            executable.display()
+            "Electron runtime 解压后缺少组件: {}",
+            missing.display()
         ));
     }
 
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(&executable, fs::Permissions::from_mode(0o755));
+        let executable = staging_dir.join(asset.executable_relative);
+        let _ = fs::set_permissions(executable, fs::Permissions::from_mode(0o755));
     }
 
     if runtime_dir.exists() {
@@ -2238,9 +2462,17 @@ fn ensure_downloaded_electron_runtime(
         .map_err(|_| "Electron runtime 下载锁已损坏".to_string())?;
     emit_desktop_login_progress(progress, "resolve-runtime", Some(6.0), None, None);
     let asset = electron_runtime_asset_for_current_platform()?;
-    let runtime_dir = electron_runtime_root_dir()?.join(asset.platform_key);
+    ensure_electron_runtime_in_root(&asset, &electron_runtime_root_dir()?, progress)
+}
+
+fn ensure_electron_runtime_in_root(
+    asset: &ElectronRuntimeAsset,
+    root: &Path,
+    progress: Option<&ClaudeDesktopLoginProgressContext>,
+) -> Result<PathBuf, String> {
+    let runtime_dir = root.join(asset.platform_key);
     let executable = runtime_dir.join(asset.executable_relative);
-    if executable.exists() {
+    if missing_electron_runtime_file(asset, &runtime_dir).is_none() {
         logger::log_info(&format!(
             "[Claude Auth] 使用已缓存 Electron runtime: {}",
             executable.display()
@@ -2249,21 +2481,14 @@ fn ensure_downloaded_electron_runtime(
         return Ok(executable);
     }
 
-    let zip_path = electron_runtime_zip_path(&asset)?;
-    download_electron_runtime_zip(&asset, &zip_path, progress)?;
-    extract_electron_runtime_zip(&asset, &zip_path, &runtime_dir, progress)?;
-    let executable = runtime_dir.join(asset.executable_relative);
-    if executable.exists() {
-        logger::log_info(&format!(
-            "[Claude Auth] Electron runtime 已准备: {}",
-            executable.display()
-        ));
-        return Ok(executable);
-    }
-    Err(format!(
-        "Electron runtime 已下载但不可用: {}",
+    let zip_path = root.join(asset.file_name);
+    download_electron_runtime_zip(asset, &zip_path, progress)?;
+    extract_electron_runtime_zip(asset, &zip_path, &runtime_dir, progress)?;
+    logger::log_info(&format!(
+        "[Claude Auth] Electron runtime 已准备: {}",
         executable.display()
-    ))
+    ));
+    Ok(executable)
 }
 
 fn find_electron_executable_for_desktop_auth(

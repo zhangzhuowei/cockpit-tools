@@ -3,20 +3,19 @@
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 
 #[path = "codex_history_projection_repair/files.rs"]
 mod files;
+pub(super) use files::file_ids as rollout_file_ids;
 #[path = "codex_history_projection_repair/storage.rs"]
 mod storage;
 
 const HISTORY_DB: &str = "thread_history_1.sqlite";
 const STATE_DB: &str = "state_5.sqlite";
-const MAX_ENTRIES: usize = 100_000;
-const MAX_CANDIDATES: usize = 64;
 
 #[derive(Debug)]
 pub(crate) struct Plan {
@@ -26,6 +25,9 @@ pub(crate) struct Plan {
     sources: HashMap<String, files::Evidence>,
     selected_paths: Vec<(String, String)>,
     candidates: Vec<Checkpoint>,
+    // Requested/projected ID and missing source ID. Their existing indexes are retained.
+    pub(crate) skipped_sources: Vec<(String, String)>,
+    pub(crate) duplicate_ordinals: Vec<(String, String, u64)>,
 }
 
 impl Plan {
@@ -43,42 +45,6 @@ struct Checkpoint {
     id: String,
     offset: i64,
     ordinal: i64,
-}
-
-struct Budget {
-    started: Instant,
-    bytes: u64,
-}
-
-impl Budget {
-    fn new() -> Self {
-        Self {
-            started: Instant::now(),
-            bytes: 0,
-        }
-    }
-
-    fn check(&self) -> Result<(), String> {
-        if self.started.elapsed() > Duration::from_secs(45) {
-            return Err(error(
-                "LIMIT",
-                "history scan exceeded its time budget; select fewer sessions",
-            ));
-        }
-        Ok(())
-    }
-
-    fn consume(&mut self, bytes: usize) -> Result<(), String> {
-        self.check()?;
-        self.bytes = self.bytes.saturating_add(bytes as u64);
-        if self.bytes > 2 * 1024 * 1024 * 1024 {
-            return Err(error(
-                "LIMIT",
-                "history scan exceeded its byte budget; select fewer sessions",
-            ));
-        }
-        Ok(())
-    }
 }
 
 fn error(code: &str, detail: impl std::fmt::Display) -> String {
@@ -121,7 +87,6 @@ pub(crate) fn scan(
     selected_session_ids: Option<&HashSet<String>>,
     on_progress: &dyn Fn(usize, usize),
 ) -> Result<Plan, String> {
-    let mut budget = Budget::new();
     let profile = files::profile_root(profile)?;
     let history_path = profile.join(HISTORY_DB);
     if matches!(history_path.symlink_metadata(), Err(e) if e.kind()==std::io::ErrorKind::NotFound) {
@@ -132,64 +97,82 @@ pub(crate) fn scan(
             sources: HashMap::new(),
             selected_paths: vec![],
             candidates: vec![],
+            skipped_sources: vec![],
+            duplicate_ordinals: vec![],
         });
     }
     let db = database(&profile, HISTORY_DB, false)?;
     let schema = storage::schema(&db)?;
     let db_identity = files::identity(&history_path)?;
-    let registry = files::registry(&profile, &budget)?;
+    let registry = files::registry(&profile)?;
     let mut roots = Vec::new();
-    let mut selected_paths = Vec::new();
+    let mut selected_sources = Vec::new();
+    let mut skipped_sources = Vec::new();
     if let Some(selected) = selected_session_ids {
         let state = database(&profile, STATE_DB, false)?;
         let mut selected = selected.iter().collect::<Vec<_>>();
         selected.sort();
         for id in selected {
-            budget.check()?;
-            let path: String = state
+            let path: Option<String> = state
                 .query_row(
                     "SELECT rollout_path FROM threads WHERE id=?1",
                     [id],
                     |row| row.get(0),
                 )
-                .map_err(|_| {
-                    error(
-                        "SOURCE_MISSING",
-                        format!("selected session {id} has no rollout path"),
-                    )
-                })?;
-            let physical = files::selected_source(&profile, &path, &registry)?;
-            roots.push(physical);
-            selected_paths.push((id.to_owned(), path));
+                .optional()
+                .map_err(|e| error("DATABASE", e))?;
+            let Some(path) = path else {
+                skipped_sources.push((id.clone(), id.clone()));
+                continue;
+            };
+            let physical = match files::selected_source(&profile, &path, &registry) {
+                Ok(id) => id,
+                Err(files::SourceError::Missing(missing)) => {
+                    skipped_sources.push((id.clone(), missing));
+                    continue;
+                }
+                Err(files::SourceError::DuplicateOrdinal { source_id, ordinal }) => {
+                    return Err(error("DUPLICATE_ORDINAL", format!("{source_id}: {ordinal}")));
+                }
+                Err(files::SourceError::Invalid(error)) => return Err(error),
+            };
+            roots.push(physical.clone());
+            selected_sources.push((id.to_owned(), path, physical));
         }
     } else {
-        let mut stmt = db.prepare("SELECT thread_id FROM thread_history_projection_state ORDER BY thread_id LIMIT 100001").map_err(|e| error("DATABASE", e))?;
+        let mut stmt = db.prepare("SELECT thread_id FROM thread_history_projection_state ORDER BY thread_id").map_err(|e| error("DATABASE", e))?;
         roots = stmt
             .query_map([], |row| row.get(0))
             .map_err(|e| error("DATABASE", e))?
             .collect::<rusqlite::Result<Vec<String>>>()
             .map_err(|e| error("DATABASE", e))?;
     }
-    if roots.len() > MAX_ENTRIES {
-        return Err(error("LIMIT", "too many projected sessions"));
-    }
     roots.sort();
     roots.dedup();
     let mut sources = HashMap::new();
+    let mut duplicate_ordinals = Vec::new();
     for (index, id) in roots.iter().enumerate() {
-        files::load_chain(
-            id,
-            &registry,
-            &mut sources,
-            &mut HashSet::new(),
-            &mut budget,
-        )?;
+        match files::load_chain(id, &registry, &mut sources) {
+            Ok(()) => {}
+            Err(files::SourceError::Missing(missing)) => {
+                skipped_sources.push((id.clone(), missing));
+            }
+            Err(files::SourceError::DuplicateOrdinal { source_id, ordinal }) => {
+                duplicate_ordinals.push((id.clone(), source_id, ordinal));
+            }
+            Err(files::SourceError::Invalid(error)) => return Err(error),
+        }
         on_progress(index + 1, roots.len());
         std::thread::yield_now();
     }
+    // Only repairable chains participate in the transaction's selection checks.
+    let selected_paths = selected_sources
+        .into_iter()
+        .filter(|(_, _, physical)| sources.contains_key(physical))
+        .map(|(id, path, _)| (id, path))
+        .collect();
     let mut candidates = Vec::new();
     for (id, source) in &sources {
-        budget.check()?;
         let Some(saved) = checkpoint(&db, id)? else {
             continue;
         };
@@ -214,12 +197,6 @@ pub(crate) fn scan(
         candidates.push(saved);
     }
     candidates.sort_by(|a, b| a.id.cmp(&b.id));
-    if candidates.len() > MAX_CANDIDATES {
-        return Err(error(
-            "LIMIT",
-            "too many damaged projections; select fewer sessions",
-        ));
-    }
     Ok(Plan {
         profile,
         schema,
@@ -227,10 +204,12 @@ pub(crate) fn scan(
         sources,
         selected_paths,
         candidates,
+        skipped_sources,
+        duplicate_ordinals,
     })
 }
 
-/// Persist a typed, bounded backup before atomically invalidating only proven stale projections.
+/// Persist a verified, typed backup before atomically invalidating only proven stale projections.
 pub(crate) fn apply(profile: &Path, plan: &Plan, backup_dir: &Path) -> Result<usize, String> {
     apply_with_checkpoints(profile, plan, backup_dir, &|| {})
 }
@@ -248,9 +227,8 @@ fn apply_with_checkpoints(
     if plan.candidates.is_empty() {
         return Ok(0);
     }
-    let mut budget = Budget::new();
     for source in plan.sources.values() {
-        source.recheck(&mut budget)?;
+        source.recheck()?;
     }
     validate_selection(plan)?;
     if files::identity(&plan.profile.join(HISTORY_DB))? != plan.db_identity {
@@ -260,16 +238,13 @@ fn apply_with_checkpoints(
     if storage::schema(&db)? != plan.schema {
         return Err(error("CHANGED", "history database schema changed"));
     }
-    let snapshots = {
+    let saved_rows = {
         let tx = db
             .transaction_with_behavior(TransactionBehavior::Deferred)
             .map_err(|e| error("DATABASE", e))?;
         validate_cursors(&tx, plan)?;
-        let rows = storage::capture(&tx, &plan.schema, &plan.candidates, &mut budget)?;
-        tx.commit().map_err(|e| error("DATABASE", e))?;
-        rows
+        storage::backup(backup_dir, plan, tx)?
     };
-    storage::backup(backup_dir, plan, &snapshots, &mut budget)?;
     checkpoint();
     // Expensive decompression and hashing finished before acquiring the write transaction.
     for source in plan.sources.values() {
@@ -283,12 +258,11 @@ fn apply_with_checkpoints(
         return Err(error("CHANGED", "history database schema changed"));
     }
     validate_cursors(&tx, plan)?;
-    if storage::capture(&tx, &plan.schema, &plan.candidates, &mut budget)? != snapshots {
+    if storage::fingerprint(&tx, &plan.schema, Some(&plan.candidates))? != saved_rows {
         return Err(error("CHANGED", "derived history changed after backup"));
     }
     for candidate in &plan.candidates {
         for table in storage::TABLES {
-            budget.check()?;
             tx.execute(
                 &format!("DELETE FROM {table} WHERE thread_id=?1"),
                 [&candidate.id],
@@ -306,7 +280,6 @@ fn apply_with_checkpoints(
             "history database was replaced during repair",
         ));
     }
-    budget.check()?;
     tx.commit().map_err(|e| error("DATABASE", e))?;
     Ok(plan.candidates.len())
 }

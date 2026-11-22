@@ -1,11 +1,15 @@
+import { hydrateDurableUiSettings } from '../utils/durableUiSettings';
 import {
   ChangeEvent,
-  MouseEvent as ReactMouseEvent,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from 'react';
+import { arrayMove } from '@dnd-kit/sortable';
+import { SortableLayoutItem, SortableLayoutList } from './SortableLayoutList';
+import { SingleSelectDropdown } from './SingleSelectDropdown';
 import { useTranslation } from 'react-i18next';
 import {
   Check,
@@ -40,7 +44,7 @@ import {
   makePlatformEntryId,
   usePlatformLayoutStore,
 } from '../stores/usePlatformLayoutStore';
-import { CLASSIC_SIDEBAR_ENTRY_LIMIT, ORIGINAL_SIDEBAR_ENTRY_LIMIT, useSideNavLayoutStore } from '../stores/useSideNavLayoutStore';
+import { SIDEBAR_ENTRY_LIMITS, useSideNavLayoutStore } from '../stores/useSideNavLayoutStore';
 import { getPlatformLabel, renderPlatformIcon } from '../utils/platformMeta';
 import { useEscClose } from '../hooks/useEscClose';
 import { scrollElementIntoView } from '../utils/reducedMotion';
@@ -49,7 +53,8 @@ import {
   retryPlatformLayoutPersistence,
 } from '../utils/uiPreferences';
 import {
-  PLATFORM_LAYOUT_ICON_STORAGE_KEY,
+  PLATFORM_LAYOUT_ICONS_CHANGED_EVENT,
+  readPlatformLayoutCustomIcons,
   persistPlatformLayoutCustomIcons,
 } from '../utils/platformLayoutIconStorage';
 
@@ -113,7 +118,7 @@ function loadCustomIcons(): PlatformLayoutCustomIcon[] {
     return [];
   }
   try {
-    const raw = localStorage.getItem(PLATFORM_LAYOUT_ICON_STORAGE_KEY);
+    const raw = readPlatformLayoutCustomIcons();
     if (!raw) {
       return [];
     }
@@ -362,11 +367,9 @@ export function PlatformLayoutModal({
   onClose,
 }: PlatformLayoutModalProps) {
   const { t } = useTranslation();
-  useEscClose(open, onClose);
-  const sideNavLayoutMode = useSideNavLayoutStore((state) => state.mode);
-  const sidebarSelectionLimit = sideNavLayoutMode === 'classic'
-    ? CLASSIC_SIDEBAR_ENTRY_LIMIT
-    : ORIGINAL_SIDEBAR_ENTRY_LIMIT;
+  const sidebarEntryLimit = useSideNavLayoutStore((state) => SIDEBAR_ENTRY_LIMITS[state.mode]);
+  const [sorting, setSorting] = useState(false);
+  useEscClose(open && !sorting, onClose);
   const {
     orderedEntryIds,
     hiddenEntryIds,
@@ -390,11 +393,6 @@ export function PlatformLayoutModal({
     resetPlatformLayout,
   } = usePlatformLayoutStore();
   const apiRelayEntryEnabled = useSponsorStore((state) => Boolean(state.state.sponsorModule));
-
-  const [draggingId, setDraggingId] = useState<LayoutEntryId | null>(null);
-  const [dropTargetId, setDropTargetId] = useState<LayoutEntryId | null>(null);
-  const [draggingChild, setDraggingChild] = useState<{ groupId: string; platformId: PlatformId } | null>(null);
-  const [dropChildTarget, setDropChildTarget] = useState<{ groupId: string; platformId: PlatformId } | null>(null);
 
   const [customIcons, setCustomIcons] = useState<PlatformLayoutCustomIcon[]>(() => loadCustomIcons());
   const [customIconStorageFailed, setCustomIconStorageFailed] = useState(false);
@@ -450,6 +448,11 @@ export function PlatformLayoutModal({
   const [childDraftIconCustomDataUrl, setChildDraftIconCustomDataUrl] = useState('');
   const [childDraftSetDefault, setChildDraftSetDefault] = useState(false);
   const [childDraftError, setChildDraftError] = useState('');
+  const [confirmAction, setConfirmAction] = useState<
+    | { kind: 'reset' }
+    | { kind: 'deleteGroup'; groupId: string; groupName: string }
+    | null
+  >(null);
 
   const hiddenSet = useMemo(() => new Set(hiddenEntryIds), [hiddenEntryIds]);
   const sidebarSet = useMemo(() => new Set(sidebarEntryIds), [sidebarEntryIds]);
@@ -556,16 +559,33 @@ export function PlatformLayoutModal({
     return map;
   }, [platformGroups]);
 
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
+  const iconSaveSequence = useRef(0);
+  const changeCustomIcons = useCallback(async (
+    edit: (previous: PlatformLayoutCustomIcon[]) => PlatformLayoutCustomIcon[],
+  ) => {
+    const sequence = ++iconSaveSequence.current;
+    let saved = false;
+    try {
+      await hydrateDurableUiSettings();
+      const previous = loadCustomIcons();
+      const next = edit(previous);
+      saved = next === previous || await persistPlatformLayoutCustomIcons(next);
+    } catch (error) {
+      console.warn('[Platform layout] Could not load custom icons:', error);
     }
-    setCustomIconStorageFailed(
-      !persistPlatformLayoutCustomIcons(localStorage, customIcons),
-    );
-  }, [customIcons]);
+    if (sequence === iconSaveSequence.current) setCustomIconStorageFailed(!saved);
+    return saved;
+  }, []);
 
   useEffect(() => {
+    const reload = () => setCustomIcons(loadCustomIcons());
+    window.addEventListener(PLATFORM_LAYOUT_ICONS_CHANGED_EVENT, reload);
+    reload();
+    return () => window.removeEventListener(PLATFORM_LAYOUT_ICONS_CHANGED_EVENT, reload);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
     const used = new Set<string>();
     for (const group of platformGroups) {
       if (group.iconKind === 'custom' && group.iconCustomDataUrl?.trim()) {
@@ -582,7 +602,7 @@ export function PlatformLayoutModal({
       return;
     }
 
-    setCustomIcons((prev) => {
+    void changeCustomIcons((prev) => {
       const next = [...prev];
       let changed = false;
       for (const dataUrl of used) {
@@ -599,19 +619,7 @@ export function PlatformLayoutModal({
       }
       return changed ? next : prev;
     });
-  }, [platformGroups]);
-
-  useEffect(() => {
-    if (!open || (!draggingId && !draggingChild)) return;
-    const handleMouseUp = () => {
-      setDraggingId(null);
-      setDropTargetId(null);
-      setDraggingChild(null);
-      setDropChildTarget(null);
-    };
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => window.removeEventListener('mouseup', handleMouseUp);
-  }, [open, draggingId, draggingChild]);
+  }, [open, platformGroups, changeCustomIcons]);
 
   useEffect(() => {
     if (!open) {
@@ -624,10 +632,7 @@ export function PlatformLayoutModal({
       setPendingAddChildIds([]);
       setGroupDraftError('');
       setChildDraftError('');
-      setDraggingId(null);
-      setDropTargetId(null);
-      setDraggingChild(null);
-      setDropChildTarget(null);
+      setSorting(false);
       setHandledRequestedEditGroupId(null);
     }
   }, [open]);
@@ -647,7 +652,7 @@ export function PlatformLayoutModal({
     if (!cleaned) {
       return;
     }
-    setCustomIcons((prev) => {
+    void changeCustomIcons((prev) => {
       if (prev.some((item) => item.dataUrl === cleaned)) {
         return prev;
       }
@@ -703,7 +708,7 @@ export function PlatformLayoutModal({
     }
   };
 
-  const removeCustomIcon = (iconId: string) => {
+  const removeCustomIcon = async (iconId: string) => {
     const icon = customIcons.find((item) => item.id === iconId);
     if (!icon) {
       return;
@@ -716,7 +721,7 @@ export function PlatformLayoutModal({
       return;
     }
 
-    setCustomIcons((prev) => prev.filter((item) => item.id !== iconId));
+    if (!await changeCustomIcons(prev => prev.filter(item => item.id !== iconId))) return;
     clearCustomIconUsage(icon.dataUrl);
 
     if (groupDraftIconKind === 'custom' && groupDraftIconCustomDataUrl === icon.dataUrl) {
@@ -729,75 +734,12 @@ export function PlatformLayoutModal({
     }
   };
 
-  const stopDragging = () => {
-    setDraggingId(null);
-    setDropTargetId(null);
-  };
-
-  const stopChildDragging = () => {
-    setDraggingChild(null);
-    setDropChildTarget(null);
-  };
-
   const commitLayoutEntryOrder = (nextIds: LayoutEntryId[]) => {
     const nextApiRelayOrder = nextIds.indexOf(API_RELAY_LAYOUT_ENTRY_ID);
     setLayoutEntryOrder(
       nextIds.filter(isPlatformLayoutEntryId),
       nextApiRelayOrder >= 0 ? nextApiRelayOrder : apiRelayEntryOrder,
     );
-  };
-
-  const handleDragStart = (event: ReactMouseEvent, id: LayoutEntryId) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    event.stopPropagation();
-    setDraggingId(id);
-    setDropTargetId(null);
-  };
-
-  const handleDragMove = (targetId: LayoutEntryId) => {
-    if (!draggingId) return;
-    if (draggingId === targetId) {
-      setDropTargetId(null);
-      return;
-    }
-    setDropTargetId(targetId);
-    const fromIndex = layoutEntryOrderIds.indexOf(draggingId);
-    const toIndex = layoutEntryOrderIds.indexOf(targetId);
-    if (fromIndex < 0 || toIndex < 0) return;
-    const nextIds = [...layoutEntryOrderIds];
-    const [moved] = nextIds.splice(fromIndex, 1);
-    nextIds.splice(toIndex, 0, moved);
-    commitLayoutEntryOrder(nextIds);
-  };
-
-  const handleChildDragStart = (event: ReactMouseEvent, groupId: string, platformId: PlatformId) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    event.stopPropagation();
-    setDraggingChild({ groupId, platformId });
-    setDropChildTarget(null);
-  };
-
-  const handleChildDragMove = (groupId: string, targetPlatformId: PlatformId) => {
-    if (!draggingChild) return;
-    if (draggingChild.groupId !== groupId) {
-      setDropChildTarget(null);
-      return;
-    }
-    if (draggingChild.platformId === targetPlatformId) {
-      setDropChildTarget(null);
-      return;
-    }
-
-    const group = platformGroups.find((item) => item.id === groupId);
-    if (!group) return;
-    const fromIndex = group.platformIds.indexOf(draggingChild.platformId);
-    const toIndex = group.platformIds.indexOf(targetPlatformId);
-    if (fromIndex < 0 || toIndex < 0) return;
-
-    setDropChildTarget({ groupId, platformId: targetPlatformId });
-    reorderGroupPlatforms(groupId, fromIndex, toIndex);
   };
 
   const toggleGroupExpanded = (groupId: string) => {
@@ -814,32 +756,43 @@ export function PlatformLayoutModal({
     setExpandedGroupIds(allGroupIds);
   };
 
-  const isSidebarEntrySelected = (entry: LayoutEntryItem) =>
-    entry.type === 'api-relay'
-      ? apiRelaySidebarVisible
-      : sidebarSet.has(entry.id as PlatformLayoutEntryId);
+  const sidebarCandidates = entries.flatMap((entry) => [
+    entry.id,
+    ...(entry.group ? entry.platformIds.map(makePlatformEntryId) : []),
+  ]);
+  const isSidebarEntrySelected = (id: LayoutEntryItem['id']) =>
+    id === API_RELAY_LAYOUT_ENTRY_ID ? apiRelaySidebarVisible : sidebarSet.has(id);
 
   const isDashboardEntryVisible = (entry: LayoutEntryItem) =>
     entry.type === 'api-relay' ? apiRelayDashboardVisible : !entry.hidden;
 
+  const sidebarSelectedCount = sidebarCandidates.filter(isSidebarEntrySelected).length;
+  const sidebarFull = sidebarSelectedCount >= sidebarEntryLimit;
+  const sidebarBulkEnabled = sidebarFull
+    || (entries.length > 0 && entries.every(({ id }) => isSidebarEntrySelected(id)));
+
+  const setSidebarSelection = (entry: LayoutEntryItem, enabled: boolean) => {
+    if (entry.type === 'api-relay') {
+      setApiRelaySidebarVisible(enabled);
+    } else {
+      setSidebarEntry(entry.id as PlatformLayoutEntryId, enabled);
+    }
+  };
+
   const handleBulkSidebar = (enabled: boolean) => {
-    entries.forEach((entry) => {
-      if (entry.type === 'api-relay') {
-        setApiRelaySidebarVisible(false);
-        return;
-      }
-      setSidebarEntry(entry.id as PlatformLayoutEntryId, false);
-    });
-    if (!enabled) {
+    if (enabled) {
+      const availableSlots = Math.max(0, sidebarEntryLimit - sidebarSelectedCount);
+      entries.filter(({ id }) => !isSidebarEntrySelected(id)).slice(0, availableSlots)
+        .forEach((entry) => setSidebarSelection(entry, true));
       return;
     }
-    const targetEntries = entries.slice(0, sidebarSelectionLimit);
-    targetEntries.forEach((entry) => {
-      if (entry.type === 'api-relay') {
-        setApiRelaySidebarVisible(true);
-        return;
+
+    sidebarCandidates.filter(isSidebarEntrySelected).forEach((id) => {
+      if (id === API_RELAY_LAYOUT_ENTRY_ID) {
+        setApiRelaySidebarVisible(false);
+      } else {
+        setSidebarEntry(id, false);
       }
-      setSidebarEntry(entry.id as PlatformLayoutEntryId, true);
     });
   };
 
@@ -857,14 +810,6 @@ export function PlatformLayoutModal({
     MENU_VISIBLE_PLATFORM_IDS.forEach((platformId) => setTrayPlatform(platformId, enabled));
   };
 
-  const sidebarVisibleEntries = useMemo(
-    () => entries,
-    [entries],
-  );
-  const sidebarSelectedCount = entries.filter(isSidebarEntrySelected).length;
-  const sidebarBulkTargetCount = Math.min(sidebarSelectionLimit, sidebarVisibleEntries.length);
-  const sidebarBulkEnabled = sidebarBulkTargetCount > 0
-    && sidebarVisibleEntries.slice(0, sidebarBulkTargetCount).every(isSidebarEntrySelected);
   const dashboardBulkEnabled = entries.length > 0
     && entries.every(isDashboardEntryVisible);
   const trayBulkEnabled = MENU_VISIBLE_PLATFORM_IDS.every((platformId) => traySet.has(platformId));
@@ -1018,8 +963,23 @@ export function PlatformLayoutModal({
     if (!editingGroupId) {
       return;
     }
-    removePlatformGroup(editingGroupId);
-    closeGroupEditor();
+    const existingGroup = platformGroups.find((item) => item.id === editingGroupId);
+    setConfirmAction({
+      kind: 'deleteGroup',
+      groupId: editingGroupId,
+      groupName: existingGroup?.name || groupDraftName.trim() || editingGroupId,
+    });
+  };
+
+  const handleConfirmAction = () => {
+    if (!confirmAction) return;
+    if (confirmAction.kind === 'reset') {
+      resetPlatformLayout();
+    } else if (confirmAction.kind === 'deleteGroup') {
+      removePlatformGroup(confirmAction.groupId);
+      closeGroupEditor();
+    }
+    setConfirmAction(null);
   };
 
   const handleSaveChild = () => {
@@ -1173,37 +1133,26 @@ export function PlatformLayoutModal({
           )}
           <div className="platform-layout-summary">
             <span>
-              {t('platformLayout.sidebarSelected', {
-                count: sidebarSelectedCount,
-                max: sidebarSelectionLimit,
-                defaultValue: '侧边栏已选择 {{count}}/{{max}}',
-              })}
+              {t('platformLayout.sidebarSelected', { count: sidebarSelectedCount, max: sidebarEntryLimit })}
             </span>
             <div className="platform-layout-summary-actions">
               <button className="btn btn-secondary" onClick={openCreateGroupEditor}>
                 <Plus size={14} />
                 <span>{t('platformLayout.addGroup', '新建分组')}</span>
               </button>
-              <button className="btn btn-secondary" onClick={resetPlatformLayout}>
+              <button className="btn btn-secondary" onClick={() => setConfirmAction({ kind: 'reset' })}>
                 {t('platformLayout.reset', '恢复默认')}
               </button>
             </div>
           </div>
 
           <div className="platform-layout-tip">
-            {t(
-              'platformLayout.tipWithGroups',
-              '拖拽可排序；最多选择 {{max}} 个入口显示在侧边栏。分组子级不参与侧边栏/仪表盘开关，仅用于菜单栏与默认平台切换。',
-              { max: sidebarSelectionLimit },
-            )}
+            {t('platformLayout.tipWithGroups', { max: sidebarEntryLimit })}
           </div>
 
           {customIconStorageFailed && (
             <div className="platform-layout-group-error" role="alert">
-              {t(
-                'platformLayout.customIconStorageFailed',
-                '自定义图标无法保存，本地存储空间可能已满。删除不再使用的自定义图标后重试。',
-              )}
+              {t('platformLayout.customIconStorageFailed')}
             </div>
           )}
 
@@ -1220,7 +1169,7 @@ export function PlatformLayoutModal({
             </div>
             <div className="platform-layout-bulk-header-right">
               {/* 与行内控制区列顺序保持一致：启用 → 侧边栏 → 仪表盘 → 菜单栏 */}
-              <div className="platform-layout-bulk-cell platform-layout-bulk-enable">
+              <div className="platform-layout-bulk-cell">
                 <label className="platform-layout-bulk-toggle" title={t('platformLayout.disabledHint', '禁用后该平台的所有自动活动将停止')}>
                   <input
                     type="checkbox"
@@ -1229,14 +1178,6 @@ export function PlatformLayoutModal({
                   />
                   <span>{t('platformLayout.enabledToggle', '启用')}</span>
                 </label>
-                <div className="platform-layout-bulk-enable-actions">
-                  <button type="button" className="btn btn-link" onClick={() => handleBulkEnable(true)}>
-                    {t('platformLayout.enableAll', '全启')}
-                  </button>
-                  <button type="button" className="btn btn-link" onClick={() => handleBulkEnable(false)}>
-                    {t('platformLayout.disableAll', '全禁')}
-                  </button>
-                </div>
               </div>
               <div className="platform-layout-bulk-cell">
                 <label className="platform-layout-bulk-toggle">
@@ -1272,22 +1213,20 @@ export function PlatformLayoutModal({
             </div>
           </div>
 
-          <div
-            className={`platform-layout-list ${draggingId || draggingChild ? 'is-sorting' : ''}`}
-            onMouseUp={() => {
-              stopDragging();
-              stopChildDragging();
-            }}
-            onMouseLeave={() => {
-              stopDragging();
-              stopChildDragging();
+          <SortableLayoutList
+            items={entries.map(({ id }) => id)}
+            className="platform-layout-list"
+            onSortingChange={setSorting}
+            onReorder={(activeId, overId) => {
+              const from = layoutEntryOrderIds.findIndex((id) => id === activeId);
+              const to = layoutEntryOrderIds.findIndex((id) => id === overId);
+              if (from >= 0 && to >= 0) commitLayoutEntryOrder(arrayMove(layoutEntryOrderIds, from, to));
             }}
           >
             {entries.map((entry) => {
               const isApiRelayEntry = entry.type === 'api-relay';
-              const selected = isSidebarEntrySelected(entry);
-              const sidebarFull = sidebarSelectedCount >= sidebarSelectionLimit;
-              const sidebarDisabled = !selected && sidebarFull;
+              const selected = isSidebarEntrySelected(entry.id);
+              const sidebarDisabled = sidebarFull && !selected;
               const isGroup = entry.type === 'group' && !!entry.group;
               const groupId = entry.id;
               const groupExpanded = isGroup && expandedGroupIds.includes(groupId);
@@ -1309,21 +1248,19 @@ export function PlatformLayoutModal({
                 'platform-layout-row',
                 isApiRelayEntry ? 'is-api-relay-entry' : '',
                 entry.hidden ? 'is-hidden' : '',
-                draggingId === entry.id ? 'is-dragging' : '',
-                draggingId && draggingId !== entry.id ? 'is-drop-candidate' : '',
-                draggingId && draggingId !== entry.id && dropTargetId === entry.id ? 'is-drop-target' : '',
               ]
                 .join(' ')
                 .trim();
 
               return (
-                <div
+                <SortableLayoutItem
                   key={entry.id}
+                  id={entry.id}
                   className={`platform-layout-entry ${entry.type === 'group' ? 'is-group-entry' : ''}`}
                 >
+                  {(handle) => <>
                   <div
                     className={rowClass}
-                    onMouseEnter={() => handleDragMove(entry.id)}
                     onClick={() => {
                       if (entry.group) {
                         toggleGroupExpanded(groupId);
@@ -1334,7 +1271,8 @@ export function PlatformLayoutModal({
                       <button
                         type="button"
                         className="platform-layout-drag-trigger"
-                        onMouseDown={(event) => handleDragStart(event, entry.id)}
+                        {...handle}
+                        onClick={(event) => event.stopPropagation()}
                         aria-label={t('platformLayout.dragHandleLabel', '拖拽排序')}
                       >
                         <GripVertical size={16} className="drag-handle" />
@@ -1399,6 +1337,12 @@ export function PlatformLayoutModal({
 
                     <div className="platform-layout-controls-grid" onClick={(event) => event.stopPropagation()}>
                       {/* 启用排在最前：它是影响面最大的动作（会停止一切后台活动） */}
+                      {isApiRelayEntry && (
+                        <span className="platform-layout-toggle platform-layout-enable-placeholder" aria-hidden="true">
+                          <span className="platform-layout-checkbox-placeholder" />
+                          <span>{t('platformLayout.enabledToggle', '启用')}</span>
+                        </span>
+                      )}
                       {entry.type === 'platform' && (
                         <label
                           className={`platform-layout-toggle ${disabledSet.has(entry.id) ? 'is-disabled' : ''}`}
@@ -1437,18 +1381,12 @@ export function PlatformLayoutModal({
                         </label>
                       )}
 
-                      <label className={`platform-layout-toggle ${sidebarDisabled ? 'is-disabled' : ''}`}>
+                      <label className={`platform-layout-toggle${sidebarDisabled ? ' is-disabled' : ''}`}>
                         <input
                           type="checkbox"
                           checked={selected}
                           disabled={sidebarDisabled}
-                          onChange={(event) => {
-                            if (isApiRelayEntry) {
-                              setApiRelaySidebarVisible(event.target.checked);
-                              return;
-                            }
-                            setSidebarEntry(entry.id as PlatformLayoutEntryId, event.target.checked);
-                          }}
+                          onChange={(event) => setSidebarSelection(entry, event.target.checked)}
                         />
                         <span>{t('platformLayout.sidebarToggle', '侧边栏显示')}</span>
                       </label>
@@ -1579,7 +1517,21 @@ export function PlatformLayoutModal({
                         )}
                       </div>
 
+                      <SortableLayoutList
+                        items={entry.platformIds}
+                        className="platform-layout-child-sortables"
+                        onSortingChange={setSorting}
+                        onReorder={(activeId, overId) => {
+                          const group = entry.group!;
+                          const from = group.platformIds.findIndex((id) => id === activeId);
+                          const to = group.platformIds.findIndex((id) => id === overId);
+                          if (from >= 0 && to >= 0) reorderGroupPlatforms(group.id, from, to);
+                        }}
+                      >
                       {entry.platformIds.map((platformId) => {
+                        const childEntryId = makePlatformEntryId(platformId);
+                        const childSidebarSelected = sidebarSet.has(childEntryId);
+                        const childSidebarDisabled = !childSidebarSelected && sidebarFull;
                         const isDefault = entry.group?.defaultPlatformId === platformId;
                         const childIcon = resolveGroupChildIcon(entry.group!, platformId);
                         const childName = resolveGroupChildName(
@@ -1587,33 +1539,19 @@ export function PlatformLayoutModal({
                           platformId,
                           getPlatformLabel(platformId, t),
                         );
-                        const draggingChildInCurrentGroup = draggingChild?.groupId === entry.group?.id;
-                        const isDraggingChildRow =
-                          draggingChildInCurrentGroup && draggingChild?.platformId === platformId;
-                        const isChildDropCandidate =
-                          draggingChildInCurrentGroup && draggingChild?.platformId !== platformId;
-                        const isChildDropTarget =
-                          dropChildTarget?.groupId === entry.group?.id && dropChildTarget?.platformId === platformId;
-                        const childRowClass = [
-                          'platform-layout-child-row',
-                          isDraggingChildRow ? 'is-dragging' : '',
-                          isChildDropCandidate ? 'is-drop-candidate' : '',
-                          isChildDropTarget ? 'is-drop-target' : '',
-                        ]
-                          .join(' ')
-                          .trim();
-
                         return (
-                          <div
-                            className={childRowClass}
-                            key={`${entry.id}:${platformId}`}
-                            onMouseEnter={() => handleChildDragMove(entry.group!.id, platformId)}
+                          <SortableLayoutItem
+                            className="platform-layout-child-row"
+                            key={platformId}
+                            id={platformId}
                           >
+                            {(childHandle) => <>
                             <div className="platform-layout-child-main">
                               <button
                                 type="button"
                                 className="platform-layout-child-drag-trigger"
-                                onMouseDown={(event) => handleChildDragStart(event, entry.group!.id, platformId)}
+                                {...childHandle}
+                                onClick={(event) => event.stopPropagation()}
                                 aria-label={t('platformLayout.dragHandleLabel', '拖拽排序')}
                               >
                                 <GripVertical size={14} className="drag-handle" />
@@ -1651,6 +1589,15 @@ export function PlatformLayoutModal({
                                   }
                                 />
                                 <span>{t('platformLayout.enabledToggle', '启用')}</span>
+                              </label>
+                              <label className={`platform-layout-toggle ${childSidebarDisabled ? 'is-disabled' : ''}`}>
+                                <input
+                                  type="checkbox"
+                                  checked={childSidebarSelected}
+                                  disabled={childSidebarDisabled}
+                                  onChange={(event) => setSidebarEntry(childEntryId, event.target.checked)}
+                                />
+                                <span>{t('platformLayout.sidebarToggle', '侧边栏显示')}</span>
                               </label>
                               <label className="platform-layout-toggle">
                                 <input
@@ -1696,15 +1643,18 @@ export function PlatformLayoutModal({
                                 <Trash2 size={13} />
                               </button>
                             </div>
-                          </div>
+                            </>}
+                          </SortableLayoutItem>
                         );
                       })}
+                      </SortableLayoutList>
                     </div>
                   )}
-                </div>
+                  </>}
+                </SortableLayoutItem>
               );
             })}
-          </div>
+          </SortableLayoutList>
         </div>
 
         {groupEditorOpen && (
@@ -1787,20 +1737,20 @@ export function PlatformLayoutModal({
                   </div>
                 </div>
 
-                <label className="platform-layout-group-field">
+                <div className="platform-layout-group-field">
                   <span>{t('platformLayout.groupDefault', '默认平台')}</span>
-                  <select
+                  <SingleSelectDropdown
                     value={groupDraftDefaultPlatformId}
-                    onChange={(event) => setGroupDraftDefaultPlatformId(event.target.value as PlatformId)}
+                    options={groupDraftPlatformIds.map((platformId) => ({
+                      value: platformId,
+                      label: getPlatformLabel(platformId, t),
+                    }))}
+                    onChange={(nextValue) => setGroupDraftDefaultPlatformId(nextValue as PlatformId)}
                     disabled={groupDraftPlatformIds.length === 0}
-                  >
-                    {groupDraftPlatformIds.map((platformId) => (
-                      <option key={`group-default-${platformId}`} value={platformId}>
-                        {getPlatformLabel(platformId, t)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    ariaLabel={t('platformLayout.groupDefault', '默认平台')}
+                    menuMaxHeight={240}
+                  />
+                </div>
               </div>
 
               {groupDraftError && <div className="platform-layout-group-error">{groupDraftError}</div>}
@@ -1909,6 +1859,47 @@ export function PlatformLayoutModal({
                   </button>
                   <button type="button" className="btn btn-primary" onClick={handleSaveChild}>
                     {t('common.save', '保存')}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {confirmAction && (
+          <div className="platform-layout-group-editor-overlay">
+            <div className="platform-layout-group-editor-modal platform-layout-confirm-modal" onClick={(event) => event.stopPropagation()}>
+              <div className="platform-layout-group-editor-header">
+                <span>
+                  {confirmAction.kind === 'reset'
+                    ? t('platformLayout.reset', '恢复默认')
+                    : t('platformLayout.deleteGroup', '删除分组')}
+                </span>
+                <button
+                  type="button"
+                  className="platform-layout-group-editor-close"
+                  onClick={() => setConfirmAction(null)}
+                  aria-label={t('common.close', '关闭')}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <p className="platform-layout-confirm-desc">
+                {confirmAction.kind === 'reset'
+                  ? t('platformLayout.confirmResetDesc', '恢复默认将清空自定义分组与排序设置，确定继续吗？')
+                  : t('platformLayout.confirmDeleteGroupDesc', '确定删除分组「{{name}}」？组内平台将恢复为独立显示。', {
+                      name: confirmAction.groupName,
+                    })}
+              </p>
+              <div className="platform-layout-group-editor-actions">
+                <div className="platform-layout-group-editor-actions-right">
+                  <button type="button" className="btn btn-secondary" onClick={() => setConfirmAction(null)}>
+                    {t('common.cancel', '取消')}
+                  </button>
+                  <button type="button" className="btn btn-danger" onClick={handleConfirmAction}>
+                    {confirmAction.kind === 'reset'
+                      ? t('platformLayout.reset', '恢复默认')
+                      : t('platformLayout.deleteGroup', '删除分组')}
                   </button>
                 </div>
               </div>

@@ -35,40 +35,6 @@ pub(crate) fn powershell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
 
-#[cfg(target_os = "windows")]
-fn resolve_claude_cli_command() -> String {
-    use std::os::windows::process::CommandExt;
-
-    if let Some(user_profile) = std::env::var_os("USERPROFILE") {
-        let candidate = Path::new(&user_profile)
-            .join(".local")
-            .join("bin")
-            .join("claude.exe");
-        if candidate.exists() {
-            return format!("& {}", powershell_quote(&candidate.to_string_lossy()));
-        }
-    }
-
-    if let Ok(output) = Command::new("where")
-        .arg("claude")
-        .creation_flags(0x08000000)
-        .stdin(std::process::Stdio::null())
-        .output()
-    {
-        if output.status.success() {
-            if let Some(path) = String::from_utf8_lossy(&output.stdout)
-                .lines()
-                .map(str::trim)
-                .find(|line| !line.is_empty())
-            {
-                return format!("& {}", powershell_quote(path));
-            }
-        }
-    }
-
-    "claude".to_string()
-}
-
 #[cfg(target_os = "macos")]
 fn escape_applescript(value: &str) -> String {
     value
@@ -94,6 +60,7 @@ pub(crate) fn build_claude_cli_command_for_context(
     config_dir: Option<&str>,
     extra_args: &str,
     env: &BTreeMap<String, String>,
+    binary: &Path,
 ) -> String {
     let parsed_args = crate::modules::process::parse_extra_args(extra_args);
 
@@ -113,7 +80,7 @@ pub(crate) fn build_claude_cli_command_for_context(
             command_parts.push(format!("$env:{}={}", key, powershell_quote(value)));
         }
 
-        let mut command = resolve_claude_cli_command();
+        let mut command = format!("& {}", powershell_quote(&binary.to_string_lossy()));
         for arg in parsed_args {
             let trimmed = arg.trim();
             if !trimmed.is_empty() {
@@ -145,7 +112,7 @@ pub(crate) fn build_claude_cli_command_for_context(
             command.push_str(&env_parts.join(" "));
             command.push(' ');
         }
-        command.push_str("claude");
+        command.push_str(&posix_shell_quote(&binary.to_string_lossy()));
         for arg in parsed_args {
             let trimmed = arg.trim();
             if !trimmed.is_empty() {
@@ -171,6 +138,7 @@ fn build_claude_cli_command(
         None,
         "",
         env,
+        &super::cli_launch_path::resolve_claude_cli()?,
     ))
 }
 
@@ -361,8 +329,8 @@ fn prepare_claude_cli_launch(
         );
     }
     let normalized_working_dir = normalize_cli_working_dir(working_dir)?;
-    claude_account::inject_to_claude_config(account_id, None)?;
     let command = build_claude_cli_command(&normalized_working_dir, &BTreeMap::new())?;
+    claude_account::inject_to_claude_config(account_id, None)?;
     crate::modules::provider_current_state::set_current_account_id(
         "claude_code_account",
         Some(account_id),
@@ -371,8 +339,10 @@ fn prepare_claude_cli_launch(
 }
 
 #[tauri::command]
-pub fn list_claude_accounts() -> Result<Vec<ClaudeAccount>, String> {
-    claude_account::list_accounts_checked()
+pub async fn list_claude_accounts() -> Result<Vec<ClaudeAccount>, String> {
+    tauri::async_runtime::spawn_blocking(claude_account::list_accounts_checked)
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -647,12 +617,21 @@ pub async fn refresh_claude_quota(
 
     let account = claude_account::refresh_account_quota(&account_id).await?;
     let _ = crate::modules::tray::update_tray_menu(&app);
-    logger::log_info(&format!(
-        "[Claude Command] 刷新完成: account_id={}, email={}, elapsed={}ms",
-        account.id,
-        account.email,
-        started_at.elapsed().as_millis()
-    ));
+    if let Some(error) = &account.quota_error {
+        logger::log_warn(&format!(
+            "[Claude Command] 刷新失败: account_id={}, code={}, elapsed={}ms",
+            account.id,
+            error.code.as_deref().unwrap_or("unknown"),
+            started_at.elapsed().as_millis()
+        ));
+    } else {
+        logger::log_info(&format!(
+            "[Claude Command] 刷新完成: account_id={}, email={}, elapsed={}ms",
+            account.id,
+            account.email,
+            started_at.elapsed().as_millis()
+        ));
+    }
     Ok(account)
 }
 
@@ -661,7 +640,10 @@ pub async fn refresh_all_claude_quotas(app: AppHandle) -> Result<i32, String> {
     let started_at = Instant::now();
     logger::log_info("[Claude Command] 批量刷新开始");
     let results = claude_account::refresh_all_quotas().await?;
-    let success_count = results.iter().filter(|(_, item)| item.is_ok()).count();
+    let success_count = results
+        .iter()
+        .filter(|(_, item)| item.as_ref().is_ok_and(|account| account.quota_error.is_none()))
+        .count();
     let failed_count = results.len().saturating_sub(success_count);
     let _ = crate::modules::tray::update_tray_menu(&app);
     logger::log_info(&format!(
@@ -807,7 +789,19 @@ fn switch_claude_account_impl(account_id: String) -> Result<String, String> {
 
     let account = claude_account::load_account(&account_id)
         .ok_or_else(|| format!("Claude account not found: {}", account_id))?;
-    claude_account::inject_to_claude(&account_id)?;
+    #[cfg(target_os = "macos")]
+    let _desktop_switch = if matches!(
+        account.auth_mode,
+        ClaudeAuthMode::DesktopOAuth | ClaudeAuthMode::DesktopGateway
+    ) {
+        // Keep the live profile, verified write-back and recorded active
+        // account in the same switch while ownership is checked over HTTP.
+        static DESKTOP_SWITCH: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        Some(DESKTOP_SWITCH.lock().map_err(|_| "无法获取 Claude Desktop 切换锁")?)
+    } else {
+        None
+    };
+    let sync_warning = claude_account::inject_to_claude(&account_id)?;
     claude_account::touch_last_used(&account_id)?;
     let current_platform = if matches!(
         account.auth_mode,
@@ -836,5 +830,8 @@ fn switch_claude_account_impl(account_id: String) -> Result<String, String> {
         ClaudeAuthMode::ApiKey => format!("Claude Code API Key 已应用: {}", account.email),
         _ => format!("切换完成: {}", account.email),
     };
-    Ok(message)
+    Ok(match sync_warning {
+        Some(warning) => format!("{message}（{warning}）"),
+        None => message,
+    })
 }

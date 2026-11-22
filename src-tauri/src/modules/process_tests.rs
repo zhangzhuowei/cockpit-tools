@@ -1,5 +1,211 @@
 // Process 模块测试：平台路径、Codex 启动参数和进程清理行为。
 // 保持测试模块位于原作用域，super 引用和 cfg 条件不变。
+#[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
+#[test]
+fn detached_unix_launch_reaps_child_without_waiting_for_it_to_exit() {
+    let pid = spawn_detached_unix(Command::new("/bin/sleep").arg("30")).unwrap() as i32;
+    assert_eq!(unsafe { libc::kill(pid, libc::SIGTERM) }, 0);
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        if unsafe { libc::kill(pid, 0) } == -1 {
+            assert_eq!(std::io::Error::last_os_error().raw_os_error(), Some(libc::ESRCH));
+            break;
+        }
+        assert!(Instant::now() < deadline, "child remains in process table");
+        thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn workbuddy_scoped_close_rechecks_after_taskkill_failure() {
+    use std::cell::{Cell, RefCell};
+
+    let target_dir = normalize_path_for_compare("workbuddy/target/app");
+    let other_dir = normalize_path_for_compare("workbuddy/other/app");
+    let old_pid = 1460;
+    let replacement_pid = 1461;
+    let other_pid = 1462;
+
+    for (replacement, remains_running) in [(false, false), (true, false), (true, true)] {
+        let scans = Cell::new(0);
+        let stop_calls = RefCell::new(Vec::new());
+        let collect_entries = || {
+            let scan = scans.get();
+            scans.set(scan + 1);
+            let mut entries = vec![(other_pid, Some(other_dir.clone()))];
+            if scan == 0 {
+                entries.push((old_pid, None));
+            } else if replacement && (scan == 1 || remains_running) {
+                entries.push((replacement_pid, Some(target_dir.clone())));
+            }
+            entries
+        };
+        let result = close_managed_instances_common(
+            "WorkBuddy Close",
+            "Closing WorkBuddy instances",
+            "No target directory",
+            "WorkBuddy is not running",
+            "WorkBuddy",
+            "WorkBuddy is still running",
+            std::slice::from_ref(&target_dir),
+            20,
+            |pids, timeout| {
+                stop_calls.borrow_mut().push((pids.to_vec(), timeout));
+                if pids == [old_pid] || remains_running {
+                    return Err("taskkill failed with status exit code: 255".to_string());
+                }
+                Ok(())
+            },
+            collect_entries,
+            |entries, targets| select_main_pids_by_target_dirs(entries, targets, Some(&target_dir)),
+            |targets| filter_entries_by_target_dirs(collect_entries(), targets, Some(&target_dir)),
+            None,
+            None,
+            None,
+        );
+
+        let mut expected_stops = vec![(vec![old_pid], 20)];
+        if replacement {
+            expected_stops.push((vec![replacement_pid], 6));
+        }
+        assert_eq!(stop_calls.into_inner(), expected_stops);
+        if remains_running {
+            assert!(result.unwrap_err().contains(&replacement_pid.to_string()));
+        } else {
+            result.unwrap();
+        }
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+#[test]
+fn antigravity_desktop_path_uses_its_bundle_metadata_and_never_launches_the_ide() {
+    let root = tempfile::tempdir().unwrap();
+    let desktop = root.path().join("Renamed Desktop.app");
+    let ide = root.path().join("Antigravity IDE.app");
+    for (bundle, id, binary) in [
+        (&desktop, "com.google.antigravity", "Antigravity"),
+        (&ide, "com.google.antigravity-ide", "Electron"),
+    ] {
+        let contents = bundle.join("Contents");
+        std::fs::create_dir_all(contents.join("MacOS")).unwrap();
+        let metadata = plist::Dictionary::from_iter([
+            ("CFBundleIdentifier", plist::Value::String(id.into())),
+            ("CFBundleExecutable", plist::Value::String(binary.into())),
+        ]);
+        plist::Value::Dictionary(metadata).to_file_xml(contents.join("Info.plist")).unwrap();
+        std::fs::write(contents.join("MacOS").join(binary), "fixture").unwrap();
+    }
+    let desktop_exe = desktop.join("Contents/MacOS/Antigravity");
+    let ide_exe = ide.join("Contents/MacOS/Electron");
+    assert_eq!(resolve_macos_antigravity_custom_path(&desktop, true), Some(desktop_exe));
+    assert_eq!(resolve_macos_antigravity_custom_path(&ide_exe, false), Some(ide_exe.clone()));
+    assert!(resolve_macos_antigravity_custom_path(&desktop, false).is_none());
+    assert!(resolve_macos_antigravity_custom_path(&ide, true).is_none());
+    std::fs::remove_file(ide_exe).unwrap();
+    assert!(resolve_macos_antigravity_custom_path(&ide, false).is_none());
+}
+
+#[cfg(all(test, target_os = "macos"))]
+#[test]
+fn vscode_macos_path_accepts_current_and_legacy_executable_names() {
+    let root = tempfile::tempdir().unwrap();
+    let bundle = root.path().join("Visual Studio Code.app");
+    let executable_dir = bundle.join("Contents/MacOS");
+    std::fs::create_dir_all(&executable_dir).unwrap();
+    let old = executable_dir.join("Electron");
+    let current = executable_dir.join("Code");
+
+    std::fs::write(&old, "fixture").unwrap();
+    assert_eq!(resolve_macos_vscode_executable(bundle.to_str().unwrap()), Some(old.clone()));
+    std::fs::remove_file(&old).unwrap();
+    std::fs::write(&current, "fixture").unwrap();
+    assert_eq!(resolve_macos_vscode_executable(bundle.to_str().unwrap()), Some(current.clone()));
+    assert_eq!(resolve_macos_vscode_executable(old.to_str().unwrap()), Some(current));
+}
+
+#[cfg(test)]
+#[test]
+#[cfg(target_os = "macos")]
+fn vscode_cold_detection_uses_real_bundle_executables_and_supports_insiders() {
+    let temp = tempfile::tempdir().unwrap();
+    let system = temp.path().join("Applications");
+    let user = temp.path().join("User/Applications");
+    let stable = system.join("Visual Studio Code.app");
+    let user_stable = user.join("Visual Studio Code.app");
+    let insiders = user.join("Visual Studio Code - Insiders.app");
+    let write_bundle = |bundle: &Path, executable: &str| {
+        let contents = bundle.join("Contents");
+        let binary = contents.join("MacOS").join(executable);
+        std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
+        let metadata = plist::Dictionary::from_iter([(
+            "CFBundleExecutable",
+            plist::Value::String(executable.into()),
+        )]);
+        plist::Value::Dictionary(metadata)
+            .to_file_xml(contents.join("Info.plist"))
+            .unwrap();
+        std::fs::write(&binary, "fixture").unwrap();
+        binary
+    };
+    let detect = || detect_vscode_macos_application(&system, Some(&user));
+    let insiders_bin = write_bundle(&insiders, "Code - Insiders");
+    assert_eq!(detect(), Some(insiders_bin.clone()));
+    let command = format!("{} --reuse-window", insiders_bin.display());
+    assert_eq!(vscode_macos_running_executable(&command), Some(insiders_bin.clone()));
+    assert!(vscode_macos_running_executable(&format!("{command} --type=renderer")).is_none());
+    assert!(vscode_macos_running_executable(&format!("sh {command}")).is_none());
+    assert!(crate::modules::vscode_paths::vscode_launch_path_is_insiders(
+        &insiders_bin.to_string_lossy()
+    ));
+    let user_code = write_bundle(&user_stable, "Electron");
+    assert_eq!(detect(), Some(user_code.clone()));
+    let system_code = write_bundle(&stable, "Code");
+    assert_eq!(detect(), Some(system_code.clone()));
+    assert_eq!(resolve_vscode_macos_bundle_executable(&stable), Some(system_code.clone()));
+    std::fs::remove_file(&system_code).unwrap();
+    assert!(resolve_vscode_macos_bundle_executable(&stable).is_none());
+    assert_eq!(detect(), Some(user_code));
+}
+
+#[cfg(test)]
+#[test]
+fn linux_running_status_excludes_exited_children_but_keeps_stopped_processes() {
+    use sysinfo::ProcessStatus;
+
+    assert!(!linux_process_status_is_running(ProcessStatus::Zombie));
+    assert!(!linux_process_status_is_running(ProcessStatus::Dead));
+    assert!(linux_process_status_is_running(ProcessStatus::Run));
+    assert!(linux_process_status_is_running(ProcessStatus::Stop));
+}
+
+#[cfg(all(test, target_os = "linux"))]
+#[test]
+fn linux_close_accepts_an_unreaped_exited_child() {
+    let mut child = Command::new("sh").args(["-c", "exit 0"]).spawn().unwrap();
+    let pid = child.id();
+    let path = format!("/proc/{pid}/stat");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let zombie = loop {
+        let stat = std::fs::read_to_string(&path).unwrap_or_default();
+        if stat.rsplit_once(") ").is_some_and(|(_, status)| status.starts_with("Z ")) {
+            break true;
+        }
+        if std::time::Instant::now() >= deadline {
+            break false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    };
+    let exited = !is_pid_running(pid);
+    let closed = close_pids(&[pid], 0);
+    child.wait().unwrap();
+    assert!(zombie);
+    assert!(exited);
+    assert!(closed.is_ok());
+}
+
 #[cfg(test)]
 mod codex_native_probe_policy_tests {
     use super::{complete_native_codex_entries_or_probe, fresh_codex_entries_or_probe};
@@ -32,13 +238,72 @@ mod codex_native_probe_policy_tests {
 
     #[test]
     fn stopping_requires_fresh_identity_and_never_treats_probe_failure_as_exit() {
-        let error = fresh_codex_entries_or_probe(vec![(20, None)], false, || None).unwrap_err();
-        assert_eq!(error, "CODEX_PROCESS_PROBE_FAILED");
+        let error = fresh_codex_entries_or_probe(vec![(20, None)], false, || {
+            Err("PowerShell timed out".into())
+        }).unwrap_err();
+        assert_eq!(error, "CODEX_PROCESS_PROBE_FAILED: PowerShell timed out");
         let result = fresh_codex_entries_or_probe(Vec::new(), true, || {
             panic!("confirmed absence needs no fallback")
         })
         .unwrap();
         assert!(result.is_empty());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn incomplete_cim_rows_are_skipped_only_after_the_pid_disappears() {
+        use super::{codex_process_probe_script, powershell_output_with_timeout};
+        use std::time::Duration;
+
+        let executable = r"C:\Program Files\OpenAI\ChatGPT.exe";
+        let probe = codex_process_probe_script(executable);
+        let fixture = r#"
+function Get-CimInstance {
+    param([string]$ClassName, [string]$Filter)
+    $incomplete = [PSCustomObject]@{
+        ProcessId = 2
+        ParentProcessId = 1
+        ExecutablePath = if ($missingPath) { $null } else { $executable }
+        CommandLine = $null
+    }
+    if ($Filter -eq 'ProcessId=2') {
+        if ($state -eq 'failed') { throw 'CIM lookup failed' }
+        if ($state -eq 'running') { $incomplete }
+        return
+    }
+    $incomplete
+    [PSCustomObject]@{
+        ProcessId = 3
+        ParentProcessId = 1
+        ExecutablePath = $executable
+        CommandLine = ('"' + $executable + '" --user-data-dir="C:\测试 路径"')
+    }
+}
+"#;
+        for (missing_path, state) in [
+            (true, "gone"),
+            (false, "gone"),
+            (true, "running"),
+            (false, "running"),
+            (false, "failed"),
+        ] {
+            let missing_path = if missing_path { "$true" } else { "$false" };
+            let script = format!(
+                "$executable='{executable}'; $missingPath={missing_path}; $state='{state}';\n{fixture}\n{probe}"
+            );
+            let result = powershell_output_with_timeout(
+                &["-NoProfile", "-NonInteractive", "-Command", &script],
+                Duration::from_secs(5),
+            )
+            .unwrap();
+            assert_eq!(result.status.success(), state == "gone", "{state}");
+            if state == "gone" {
+                assert_eq!(
+                    String::from_utf8(result.stdout).unwrap(),
+                    format!(r#"3|1|"{executable}" --user-data-dir="C:\测试 路径""#)
+                );
+            }
+        }
     }
 }
 
@@ -465,22 +730,99 @@ mod managed_sidecar_port_cleanup_tests {
 
 #[cfg(all(test, target_os = "macos"))]
 mod qoder_macos_process_tests {
-    use super::is_qoder_macos_main_process_command_line;
+    use super::{
+        normalize_path_for_compare, qoder_macos_launch_profile, qoder_macos_process_profile,
+        resolve_pid_from_entries_by_user_data_dir, same_qoder_profile_path,
+    };
+    use std::path::Path;
 
     #[test]
     fn matches_current_and_legacy_qoder_main_processes() {
-        assert!(is_qoder_macos_main_process_command_line(
-            "/Applications/Qoder IDE.app/Contents/MacOS/Qoder"
-        ));
-        assert!(is_qoder_macos_main_process_command_line(
-            "/Applications/Qoder.app/Contents/MacOS/Qoder"
-        ));
-        assert!(!is_qoder_macos_main_process_command_line(
-            "/Applications/Qoder IDE.app/Contents/Frameworks/Qoder Helper.app/Contents/MacOS/Qoder Helper --type=gpu-process --user-data-dir=/tmp/qoder"
-        ));
-        assert!(!is_qoder_macos_main_process_command_line(
-            "/Applications/Qoder IDE.app/Contents/Frameworks/Electron Framework.framework/Helpers/chrome_crashpad_handler"
-        ));
+        let current = "/Applications/Qoder IDE.app/Contents/MacOS/Qoder";
+        let legacy = "/Applications/Qoder.app/Contents/MacOS/Qoder";
+        assert_eq!(qoder_macos_process_profile(current, current), Some(None));
+        assert_eq!(qoder_macos_process_profile(legacy, legacy), Some(None));
+        assert_eq!(qoder_macos_process_profile(legacy, current), None);
+        let helper = "/Applications/Qoder IDE.app/Contents/Frameworks/Qoder Helper.app/Contents/MacOS/Qoder Helper --type=gpu-process --user-data-dir=/tmp/qoder";
+        assert_eq!(qoder_macos_process_profile(helper, current), None);
+        let renderer = format!("{current} --type=renderer --user-data-dir=/tmp/qoder");
+        assert_eq!(qoder_macos_process_profile(&renderer, current), None);
+    }
+
+    #[test]
+    fn qoder_macos_profiles_remain_distinct_with_spaces_and_helper_words() {
+        let executable = "/Applications/İ Qoder Sandbox.app/Contents/MacOS/Electron";
+        let first = "/tmp/Qoder Profiles/audio testing";
+        let second = "/tmp/Qoder Profiles/plugin sandbox";
+        let entries = [first, second]
+            .into_iter()
+            .enumerate()
+            .map(|(index, profile)| {
+                let cmdline = format!("{executable} --user-data-dir {profile} --new-window");
+                let dir = qoder_macos_process_profile(&cmdline, executable).unwrap();
+                (100 + index as u32, dir)
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            resolve_pid_from_entries_by_user_data_dir(None, first, false, &entries),
+            Some(100)
+        );
+        assert_eq!(
+            resolve_pid_from_entries_by_user_data_dir(None, second, false, &entries),
+            Some(101)
+        );
+        let positional = format!("{executable} -- --user-data-dir=/tmp/qoder");
+        assert_eq!(
+            qoder_macos_process_profile(&positional, executable),
+            Some(None)
+        );
+    }
+
+    #[test]
+    fn qoder_macos_long_profiles_fit_the_socket_and_keep_their_instance_identity() {
+        use std::os::unix::net::UnixListener;
+
+        let short = Path::new("/tmp/qoder-standard-profile");
+        assert_eq!(qoder_macos_launch_profile(short).unwrap(), short);
+
+        let temp = tempfile::tempdir().unwrap();
+        let first = temp.path().join(format!("{} A", "资料".repeat(16)));
+        let second = temp.path().join(format!("{} B", "资料".repeat(16)));
+        let mut entries = Vec::new();
+        let mut listeners = Vec::new();
+        let mut aliases = Vec::new();
+        let executable = "/Applications/Qoder IDE.app/Contents/MacOS/Qoder";
+
+        for (index, profile) in [&first, &second].into_iter().enumerate() {
+            let alias = qoder_macos_launch_profile(profile).unwrap();
+            assert_eq!(qoder_macos_launch_profile(profile).unwrap(), alias);
+            assert!(same_qoder_profile_path(&alias, profile));
+            let socket = alias.join("1.10-main.sock");
+            assert!(UnixListener::bind(profile.join("1.10-main.sock")).is_err());
+            listeners.push(UnixListener::bind(&socket).unwrap());
+            assert!(profile.join("1.10-main.sock").exists());
+            let command = format!("{executable} --user-data-dir {} --new-window", alias.display());
+            let profile_arg = qoder_macos_process_profile(&command, executable).unwrap();
+            entries.push((100 + index as u32, profile_arg));
+            aliases.push(alias);
+        }
+        assert_ne!(aliases[0], aliases[1]);
+        for (index, profile) in [&first, &second].into_iter().enumerate() {
+            assert_eq!(
+                resolve_pid_from_entries_by_user_data_dir(
+                    None,
+                    &normalize_path_for_compare(&profile.to_string_lossy()),
+                    false,
+                    &entries,
+                ),
+                Some(100 + index as u32)
+            );
+        }
+        drop(listeners);
+        for alias in aliases {
+            std::fs::remove_file(alias).unwrap();
+        }
     }
 }
 
@@ -634,13 +976,12 @@ mod codex_linux_layout_tests {
         linux_codex_discovery_paths, select_codex_direct_app_server_descendants,
         CodexProcessTreeEntry,
     };
-    use std::ffi::OsString;
     use std::path::{Path, PathBuf};
 
     #[test]
     fn discovery_includes_official_linux_package_and_path_launchers() {
         let home = Path::new("/home/demo");
-        let path = OsString::from("/custom/bin:/usr/bin");
+        let path = std::env::join_paths(["/custom/bin", "/usr/bin"]).unwrap();
         let candidates = linux_codex_discovery_paths(Some(home), Some(path.as_os_str()));
         assert!(candidates.contains(&PathBuf::from("/usr/bin/chatgpt")));
         assert!(candidates.contains(&PathBuf::from("/usr/lib/chatgpt/ChatGPT")));
@@ -780,6 +1121,24 @@ mod codex_path_migration_tests {
             score_windows_candidate(Path::new("C:/Tools/ChatGPT.exe"), &exe_names, &keywords,)
                 .is_some()
         );
+    }
+
+    #[test]
+    fn scan_rejects_claude_cowork_service_inside_store_package() {
+        let exe_names = HashSet::from(["claude.exe".to_string()]);
+        let keywords = vec!["claude".to_string()];
+        assert!(score_windows_candidate(
+            Path::new("C:/Program Files/WindowsApps/Claude_2.2553.1.0/app/resources/cowork-svc.exe"),
+            &exe_names,
+            &keywords,
+        )
+        .is_none());
+        assert!(score_windows_candidate(
+            Path::new("C:/Program Files/WindowsApps/Claude_2.2553.1.0/app/Claude.exe"),
+            &exe_names,
+            &keywords,
+        )
+        .is_some());
     }
 
     #[test]
@@ -1343,7 +1702,8 @@ mod managed_proxy_env_tests {
                 "example.test",
                 &[],
                 "existing.test",
-                "upper.test"
+                "upper.test",
+                false,
             )
             .is_empty());
         }
@@ -1353,9 +1713,24 @@ mod managed_proxy_env_tests {
             "",
             &[" ".into()],
             "",
-            ""
+            "",
+            false,
         )
         .is_empty());
+    }
+
+    #[test]
+    fn macos_codex_system_proxy_launch_adds_local_bypass_without_proxy_environment() {
+        let pairs = build_managed_proxy_env_pairs(
+            false, "", "", &[], "existing.test", "", true,
+        );
+        assert_eq!(pairs.len(), 2);
+        for name in ["NO_PROXY", "no_proxy"] {
+            let bypass = &pairs.iter().find(|(key, _)| *key == name).unwrap().1;
+            for entry in ["localhost", "127.0.0.1", "::1", "existing.test"] {
+                assert!(bypass.split(',').any(|value| value.trim() == entry));
+            }
+        }
     }
 
     #[test]
@@ -1373,6 +1748,7 @@ mod managed_proxy_env_tests {
                 &inherited,
                 "lower.test",
                 "upper.test",
+                false,
             );
             assert_eq!(pairs.len(), if managed { 8 } else { 2 });
             let bypass = &pairs.iter().find(|(key, _)| *key == "NO_PROXY").unwrap().1;

@@ -46,6 +46,15 @@ impl QuotaCloudCodeContext {
             is_gcp_tos: token.is_gcp_tos.unwrap_or(false),
         }
     }
+
+    fn after_project_discovery(&self, metadata: &ProjectMetadataResult) -> Self {
+        Self {
+            preferred_project_id: valid_cloud_code_project_id(metadata.project_id.as_deref())
+                .map(str::to_owned)
+                .or_else(|| self.preferred_project_id.clone()),
+            is_gcp_tos: metadata.is_gcp_tos.unwrap_or(self.is_gcp_tos),
+        }
+    }
 }
 
 fn valid_cloud_code_project_id(project_id: Option<&str>) -> Option<&str> {
@@ -516,6 +525,11 @@ pub struct QuotaFetchError {
     pub validation_url: Option<String>,
 }
 
+pub(crate) fn is_explicit_quota_denial(reason: Option<&str>, validation_url: Option<&str>) -> bool {
+    matches!(reason, Some("VALIDATION_REQUIRED" | "SUBSCRIPTION_REQUIRED"))
+        || validation_url.is_some_and(|url| !url.trim().is_empty())
+}
+
 pub fn format_google_validation_url(raw_url: &str, email: &str) -> String {
     let email = email.trim();
     if raw_url.trim().is_empty() || email.is_empty() {
@@ -649,6 +663,18 @@ struct LoadProjectResponse {
     paid_tier: Option<Tier>,
     #[serde(rename = "allowedTiers")]
     allowed_tiers: Option<Vec<AllowedTier>>,
+}
+
+impl LoadProjectResponse {
+    fn current_gcp_tos(&self) -> Option<bool> {
+        let current = self.current_tier.as_ref()?;
+        current.uses_gcp_tos.or_else(|| {
+            let id = current.id.as_deref()?;
+            self.allowed_tiers.as_ref()?.iter().find_map(|tier| {
+                (tier.id.as_deref() == Some(id)).then_some(tier.uses_gcp_tos).flatten()
+            })
+        })
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -991,19 +1017,8 @@ async fn fetch_project_metadata_on_host(
                                     subscription_tier =
                                         paid_tier_id.clone().or(current_tier_id.clone());
 
-                                    // 从 currentTier / allowedTiers 中解析 usesGcpTos（严格遵循 Google 返回的真实字段）
-                                    let detected_gcp_tos = data
-                                        .current_tier
-                                        .as_ref()
-                                        .and_then(|t| t.uses_gcp_tos)
-                                        .or_else(|| {
-                                            data.allowed_tiers.as_ref().and_then(|tiers| {
-                                                tiers
-                                                    .iter()
-                                                    .find(|t| t.is_default.unwrap_or(false))
-                                                    .and_then(|t| t.uses_gcp_tos)
-                                            })
-                                        });
+                                    // The default allowed tier is an onboarding option, not the active tier.
+                                    let detected_gcp_tos = data.current_gcp_tos();
                                     if detected_gcp_tos.is_some() {
                                         resolved_is_gcp_tos = detected_gcp_tos;
                                     }
@@ -1266,38 +1281,29 @@ fn build_quota_data_from_response(
     project_id: Option<String>,
 ) -> QuotaData {
     let mut quota_data = QuotaData::new();
-    let is_free_tier = subscription_tier
-        .as_deref()
-        .map(str::to_lowercase)
-        .map(|s| s.contains("free") || (!s.contains("pro") && !s.contains("ultra")))
-        .unwrap_or(false);
-    quota_data.quota_summary_stale = if is_free_tier {
-        false
-    } else {
-        !quota_summary
-            .as_ref()
-            .and_then(|summary| summary.get("groups"))
-            .and_then(Value::as_array)
-            .is_some_and(|groups| {
-                groups.iter().all(|group| {
-                    group
-                        .get("buckets")
-                        .and_then(Value::as_array)
-                        .is_some_and(|buckets| {
-                            buckets.iter().all(|bucket| {
-                                bucket
-                                    .get("bucketId")
-                                    .and_then(Value::as_str)
-                                    .is_some_and(|id| !id.is_empty())
-                                    && bucket
-                                        .get("remainingFraction")
-                                        .and_then(Value::as_f64)
-                                        .is_some()
-                            })
+    quota_data.quota_summary_stale = !quota_summary
+        .as_ref()
+        .and_then(|summary| summary.get("groups"))
+        .and_then(Value::as_array)
+        .is_some_and(|groups| {
+            groups.iter().all(|group| {
+                group
+                    .get("buckets")
+                    .and_then(Value::as_array)
+                    .is_some_and(|buckets| {
+                        buckets.iter().all(|bucket| {
+                            bucket
+                                .get("bucketId")
+                                .and_then(Value::as_str)
+                                .is_some_and(|id| !id.is_empty())
+                                && bucket
+                                    .get("remainingFraction")
+                                    .and_then(Value::as_f64)
+                                    .is_some()
                         })
-                })
+                    })
             })
-    };
+        });
     if !quota_data.quota_summary_stale {
         quota_data.quota_summary_updated_at = Some(quota_data.last_updated);
     }
@@ -1342,9 +1348,13 @@ fn build_quota_data_from_response(
                             .map(|s| s.to_string());
 
                         if let (Some(id), Some(fraction)) = (bucket_id, remaining_fraction) {
-                            let percentage = (fraction * 100.0) as i32;
-                            let reset_str = reset_time.unwrap_or_default();
-                            quota_data.add_model(id, display_name, percentage, reset_str);
+                            quota_data.models.push(crate::models::quota::ModelQuota {
+                                name: id,
+                                display_name,
+                                percentage: (fraction * 100.0) as i32,
+                                reset_time: reset_time.unwrap_or_default(),
+                                summary_exhausted: Some(fraction == 0.0),
+                            });
                         }
                     }
                 }
@@ -1366,11 +1376,12 @@ enum ModelsFetchOutcome {
 }
 
 /// retrieveUserQuotaSummary 的结果：value 为成功拿到的 summary；
-/// validation_error 仅在接口要求账号验证时保留，作为本次查询的 error 返回给上层。
+/// errors 为各候选域名返回的非成功响应，其中哪一个算作本次查询的 error，
+/// 由 finish_quota_fetch 结合模型接口的结果决定。
 #[derive(Debug, Default)]
 struct QuotaSummaryFetch {
     value: Option<serde_json::Value>,
-    validation_error: Option<QuotaFetchError>,
+    errors: Vec<QuotaFetchError>,
 }
 
 fn is_validation_required_error(error: &QuotaFetchError) -> bool {
@@ -1500,7 +1511,7 @@ async fn fetch_user_quota_summary_json(
     payload: &serde_json::Value,
     user_agent: &str,
 ) -> QuotaSummaryFetch {
-    let mut validation_error: Option<QuotaFetchError> = None;
+    let mut errors: Vec<QuotaFetchError> = Vec::new();
     for (host_index, base_url) in base_urls.iter().enumerate() {
         let summary_url = format!("{}/v1internal:retrieveUserQuotaSummary", base_url);
         crate::modules::logger::log_info(&format!(
@@ -1533,7 +1544,7 @@ async fn fetch_user_quota_summary_json(
                                 Ok(val) => {
                                     return QuotaSummaryFetch {
                                         value: Some(val),
-                                        validation_error: None,
+                                        errors: Vec::new(),
                                     };
                                 }
                                 Err(_) => {
@@ -1555,17 +1566,17 @@ async fn fetch_user_quota_summary_json(
                         "[Quota] retrieveUserQuotaSummary 请求未成功: {}, body: {}",
                         status, err_text
                     ));
-                    let parsed =
-                        parse_google_api_error_with_email(status.as_u16(), &err_text, Some(email));
-                    if is_validation_required_error(&parsed) {
-                        validation_error = Some(parsed);
-                    }
+                    errors.push(parse_google_api_error_with_email(
+                        status.as_u16(),
+                        &err_text,
+                        Some(email),
+                    ));
                     if status == reqwest::StatusCode::UNAUTHORIZED
                         || status == reqwest::StatusCode::FORBIDDEN
                     {
                         return QuotaSummaryFetch {
                             value: None,
-                            validation_error,
+                            errors,
                         };
                     }
                 }
@@ -1586,26 +1597,30 @@ async fn fetch_user_quota_summary_json(
     }
     QuotaSummaryFetch {
         value: None,
-        validation_error,
+        errors,
     }
 }
 
-fn is_summary_bucket(name: &str) -> bool {
-    matches!(
-        name,
-        "3p-5h"
-            | "claude:5h"
-            | "3p-weekly"
-            | "claude:weekly"
-            | "gemini-5h"
-            | "gemini:5h"
-            | "gemini-weekly"
-            | "gemini:weekly"
-            | "gemini-argon-wtu-weekly"
-            | "argon:weekly"
-            | "gemini-argon-5h"
-            | "argon:5h"
-    ) || (name.starts_with("gemini-argon-") && (name.ends_with("-weekly") || name.ends_with("-5h")))
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SummaryBucketFamily {
+    Claude,
+    Gemini,
+    Argon,
+    Carbon,
+}
+
+pub(super) fn summary_bucket_family(name: &str) -> Option<SummaryBucketFamily> {
+    use SummaryBucketFamily::*;
+    match name {
+        "3p-5h" | "claude:5h" | "3p-weekly" | "claude:weekly" => Some(Claude),
+        "gemini-5h" | "gemini:5h" | "gemini-weekly" | "gemini:weekly" => Some(Gemini),
+        "argon:weekly" | "argon:5h" => Some(Argon),
+        "carbon:weekly" | "gemini-carbon-wtu-weekly" => Some(Carbon),
+        name if name.starts_with("gemini-argon-")
+            && (name.ends_with("-weekly") || name.ends_with("-5h")) => Some(Argon),
+        "carbon:weekly" | "gemini-carbon-wtu-weekly" => Some(Carbon),
+        _ => None,
+    }
 }
 
 /// Merge only real quota windows from this account's last successful summary.
@@ -1626,7 +1641,7 @@ pub(crate) fn preserve_failed_quota_summary(quota: &mut QuotaData, previous: Opt
     for model in previous
         .models
         .iter()
-        .filter(|model| is_summary_bucket(&model.name))
+        .filter(|model| summary_bucket_family(&model.name).is_some())
     {
         if !quota
             .models
@@ -1639,7 +1654,7 @@ pub(crate) fn preserve_failed_quota_summary(quota: &mut QuotaData, previous: Opt
     if quota
         .models
         .iter()
-        .any(|model| is_summary_bucket(&model.name))
+        .any(|model| summary_bucket_family(&model.name).is_some())
     {
         quota.quota_summary_updated_at = previous
             .quota_summary_updated_at
@@ -1663,8 +1678,53 @@ pub async fn fetch_quota_for_token(
     fetch_quota_with_project_metadata(&token.access_token, email, skip_cache, &ctx).await
 }
 
+/// 额度请求的去向：候选域名和请求体里的 project，都由 QuotaCloudCodeContext 决定。
+#[derive(Debug, PartialEq)]
+struct QuotaRequestTarget {
+    base_urls: Vec<String>,
+    payload: serde_json::Value,
+}
+
+impl QuotaRequestTarget {
+    fn from_context(ctx: &QuotaCloudCodeContext) -> Self {
+        Self {
+            base_urls: cloud_code_candidate_urls(ctx),
+            payload: quota_request_payload(ctx),
+        }
+    }
+}
+
+async fn fetch_models_and_summary(
+    client: &reqwest::Client,
+    access_token: &str,
+    email: &str,
+    target: &QuotaRequestTarget,
+    user_agent: &str,
+) -> (ModelsFetchOutcome, QuotaSummaryFetch) {
+    tokio::join!(
+        fetch_available_models_json(
+            client,
+            access_token,
+            email,
+            &target.base_urls,
+            &target.payload,
+            user_agent,
+        ),
+        fetch_user_quota_summary_json(
+            client,
+            access_token,
+            email,
+            &target.base_urls,
+            &target.payload,
+            user_agent,
+        ),
+    )
+}
+
 /// 同时返回 loadCodeAssist 元数据和额度结果：额度接口失败时，调用方仍能保存元数据里的 project 信息。
 /// 缓存未命中时，元数据、模型额度、额度汇总三个请求并发发出，缩短 GCP TOS 账号的刷新耗时。
+/// 并发请求按本地记录的 project / GCP ToS 选域名；loadCodeAssist 发现的结果与本地记录不一致时
+/// 不用缓存，并按发现的结果重发模型额度和额度汇总。
 async fn fetch_quota_with_project_metadata(
     access_token: &str,
     email: &str,
@@ -1676,14 +1736,14 @@ async fn fetch_quota_with_project_metadata(
 ) {
     let client = create_client();
     let cloud_code_user_agent = build_cloud_code_user_agent();
-    let payload = quota_request_payload(ctx);
-    let base_urls = cloud_code_candidate_urls(ctx);
+    let target = QuotaRequestTarget::from_context(ctx);
     let cache_project_id = ctx
         .preferred_project_id
         .as_deref()
         .map(str::trim)
         .filter(|id| !id.is_empty() && *id != "aicode-consumers")
         .map(str::to_string);
+    let mut discovered_meta: Option<ProjectMetadataResult> = None;
 
     if !skip_cache {
         if let Some(record) = read_api_cache("authorized", email) {
@@ -1696,37 +1756,42 @@ async fn fetch_quota_with_project_metadata(
                 && is_api_cache_valid(&record)
                 && record.project_id == cache_project_id
             {
-                crate::modules::logger::log_info(&format!(
-                    "[QuotaApiCache] Using api cache for {} (age: {}s)",
-                    email,
-                    api_cache_age_secs(&record),
-                ));
                 if let Ok(quota_response) =
                     serde_json::from_value::<QuotaResponse>(record.payload.clone())
                 {
                     let meta = fetch_project_metadata_with_context(access_token, email, ctx).await;
-                    let quota_summary = record.payload.get("quota_summary").cloned();
-                    let mut quota_data = build_quota_data_from_response(
-                        quota_response,
-                        meta.subscription_tier.clone(),
-                        meta.credits.clone(),
-                        quota_summary,
-                        meta.is_gcp_tos,
-                        valid_cloud_code_project_id(meta.project_id.as_deref())
-                            .map(ToOwned::to_owned),
-                    );
-                    // A cache hit is not a new successful query.
-                    quota_data.last_updated = record.updated_at / 1000;
-                    if quota_data.quota_summary_updated_at.is_some() {
-                        quota_data.quota_summary_updated_at = Some(record.updated_at / 1000);
+                    if QuotaRequestTarget::from_context(&ctx.after_project_discovery(&meta))
+                        == target
+                    {
+                        crate::modules::logger::log_info(&format!(
+                            "[QuotaApiCache] Using api cache for {} (age: {}s)",
+                            email,
+                            api_cache_age_secs(&record),
+                        ));
+                        let quota_summary = record.payload.get("quota_summary").cloned();
+                        let mut quota_data = build_quota_data_from_response(
+                            quota_response,
+                            meta.subscription_tier.clone(),
+                            meta.credits.clone(),
+                            quota_summary,
+                            meta.is_gcp_tos,
+                            valid_cloud_code_project_id(meta.project_id.as_deref())
+                                .map(ToOwned::to_owned),
+                        );
+                        // A cache hit is not a new successful query.
+                        quota_data.last_updated = record.updated_at / 1000;
+                        if quota_data.quota_summary_updated_at.is_some() {
+                            quota_data.quota_summary_updated_at = Some(record.updated_at / 1000);
+                        }
+                        return (
+                            meta,
+                            Ok(QuotaFetchResult {
+                                quota: quota_data,
+                                error: None,
+                            }),
+                        );
                     }
-                    return (
-                        meta,
-                        Ok(QuotaFetchResult {
-                            quota: quota_data,
-                            error: None,
-                        }),
-                    );
+                    discovered_meta = Some(meta);
                 }
             } else {
                 crate::modules::logger::log_info(&format!(
@@ -1738,27 +1803,44 @@ async fn fetch_quota_with_project_metadata(
         }
     }
 
-    let (meta, models_outcome, summary_fetch) = tokio::join!(
-        fetch_project_metadata_with_context(access_token, email, ctx),
-        fetch_available_models_json(
-            &client,
-            access_token,
-            email,
-            &base_urls,
-            &payload,
-            &cloud_code_user_agent,
-        ),
-        fetch_user_quota_summary_json(
-            &client,
-            access_token,
-            email,
-            &base_urls,
-            &payload,
-            &cloud_code_user_agent,
-        ),
-    );
+    let (meta, fetched) = match discovered_meta {
+        Some(meta) => (meta, None),
+        None => {
+            let (meta, fetched) = tokio::join!(
+                fetch_project_metadata_with_context(access_token, email, ctx),
+                fetch_models_and_summary(
+                    &client,
+                    access_token,
+                    email,
+                    &target,
+                    &cloud_code_user_agent,
+                ),
+            );
+            (meta, Some(fetched))
+        }
+    };
 
-    let result = finish_quota_fetch(email, ctx, &meta, models_outcome, summary_fetch);
+    let resolved_ctx = ctx.after_project_discovery(&meta);
+    let resolved_target = QuotaRequestTarget::from_context(&resolved_ctx);
+    let (models_outcome, summary_fetch) = match fetched {
+        Some(fetched) if resolved_target == target => fetched,
+        _ => {
+            crate::modules::logger::log_info(&format!(
+                "[Quota] loadCodeAssist 发现的 project/路由与本地记录不一致，按发现的结果请求额度: account={}",
+                email
+            ));
+            fetch_models_and_summary(
+                &client,
+                access_token,
+                email,
+                &resolved_target,
+                &cloud_code_user_agent,
+            )
+            .await
+        }
+    };
+
+    let result = finish_quota_fetch(email, &resolved_ctx, &meta, models_outcome, summary_fetch);
     (meta, result)
 }
 
@@ -1779,58 +1861,91 @@ fn finish_quota_fetch(
         .map(|id| id.trim().to_string())
         .filter(|id| !id.is_empty() && id != "aicode-consumers");
 
-    match models_outcome {
+    let (mut payload_value, models_error) = match models_outcome {
+        ModelsFetchOutcome::Failed(err) => return Err(err),
+        ModelsFetchOutcome::Ok(value) => (value, None),
         ModelsFetchOutcome::Forbidden(error) => {
-            crate::modules::logger::log_warn(&format!(
-                "账号无权限 (403 Forbidden), 标记为 forbidden 状态: {}",
-                email
-            ));
-            let mut q = QuotaData::new();
-            q.is_forbidden = true;
-            q.subscription_tier = meta.subscription_tier.clone();
-            q.is_gcp_tos = meta.is_gcp_tos;
-            q.project_id = resolved_project_id;
-            Ok(QuotaFetchResult {
-                quota: q,
-                error: Some(error),
-            })
-        }
-        ModelsFetchOutcome::Failed(err) => Err(err),
-        ModelsFetchOutcome::Ok(mut payload_value) => {
-            if let Some(val) = summary_fetch.value.clone() {
-                if let Some(obj) = payload_value.as_object_mut() {
-                    obj.insert("quota_summary".to_string(), val);
-                    crate::modules::logger::log_info(
-                        "[Quota] 成功将 quota_summary 合并到 payload_value",
-                    );
-                }
+            if is_explicit_quota_denial(error.reason.as_deref(), error.validation_url.as_deref()) {
+                crate::modules::logger::log_warn(&format!(
+                    "账号无权限 (403 Forbidden), 标记为 forbidden 状态: {}",
+                    email
+                ));
+                let mut quota = QuotaData::new();
+                quota.is_forbidden = true;
+                quota.subscription_tier = meta.subscription_tier.clone();
+                quota.credits = meta.credits.clone();
+                quota.is_gcp_tos = meta.is_gcp_tos;
+                quota.project_id = resolved_project_id;
+                return Ok(QuotaFetchResult {
+                    quota,
+                    error: Some(error),
+                });
             }
-
-            write_api_cache(
-                "authorized",
-                "desktop",
-                email,
-                effective_project_id,
-                payload_value.clone(),
+            crate::modules::logger::log_warn(
+                "[Quota] fetchAvailableModels 返回 403，继续检查配额摘要",
             );
+            (json!({"models": {}}), Some(error))
+        }
+    };
 
-            let quota_response: QuotaResponse = serde_json::from_value(payload_value)
-                .map_err(|e| AppError::Unknown(format!("API 响应解析失败: {}", e)))?;
-            let quota_data = build_quota_data_from_response(
-                quota_response,
-                meta.subscription_tier.clone(),
-                meta.credits.clone(),
-                summary_fetch.value,
-                meta.is_gcp_tos,
-                resolved_project_id,
-            );
+    // 模型接口 403 但原因不明确时，汇总接口只有明确的拒绝（需验证 / 需订阅）才算数；
+    // 模型接口正常时沿用较宽的“需要验证账号”判断。
+    let QuotaSummaryFetch {
+        value: quota_summary,
+        errors: summary_errors,
+    } = summary_fetch;
+    let quota_summary_error = summary_errors
+        .into_iter()
+        .filter(|error| {
+            if models_error.is_some() {
+                is_explicit_quota_denial(error.reason.as_deref(), error.validation_url.as_deref())
+            } else {
+                is_validation_required_error(error)
+            }
+        })
+        .last();
 
-            Ok(QuotaFetchResult {
-                quota: quota_data,
-                error: summary_fetch.validation_error,
-            })
+    if let Some(val) = quota_summary.clone() {
+        if let Some(obj) = payload_value.as_object_mut() {
+            obj.insert("quota_summary".to_string(), val);
+            crate::modules::logger::log_info("[Quota] 成功将 quota_summary 合并到 payload_value");
         }
     }
+
+    if models_error.is_none() && quota_summary_error.is_none() {
+        write_api_cache(
+            "authorized",
+            "desktop",
+            email,
+            effective_project_id,
+            payload_value.clone(),
+        );
+    }
+
+    let quota_response: QuotaResponse = serde_json::from_value(payload_value)
+        .map_err(|e| AppError::Unknown(format!("API 响应解析失败: {}", e)))?;
+    let mut quota_data = build_quota_data_from_response(
+        quota_response,
+        meta.subscription_tier.clone(),
+        meta.credits.clone(),
+        quota_summary,
+        meta.is_gcp_tos,
+        resolved_project_id,
+    );
+
+    if models_error.is_some() {
+        quota_data.is_forbidden = quota_summary_error.is_some();
+        if quota_data.models.is_empty() {
+            quota_data.quota_summary_stale = true;
+            quota_data.quota_summary_updated_at = None;
+        }
+    }
+
+    Ok(QuotaFetchResult {
+        error: quota_summary_error
+            .or_else(|| models_error.filter(|_| quota_data.models.is_empty())),
+        quota: quota_data,
+    })
 }
 
 #[cfg(test)]

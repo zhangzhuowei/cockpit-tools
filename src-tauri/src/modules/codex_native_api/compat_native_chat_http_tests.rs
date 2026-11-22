@@ -22,6 +22,60 @@ struct HostFixture {
 }
 
 #[tokio::test]
+async fn responses_chat_stream_accepts_prefixed_model_with_mislabeled_chat_chunks() {
+    let app = Router::new().route(
+        "/v1/chat/completions",
+        post(|Json(body): Json<Value>| async move {
+            assert_eq!(body["model"], "global:gpt-6.1-sol");
+            assert_eq!(body["stream"], true);
+            let frames = [
+                json!({"delta":{},"finish_reason":null,"index":0}),
+                json!({"delta":{"content":"OK"},"finish_reason":null,"index":0}),
+                json!({"delta":{"role":"assistant"},"finish_reason":"stop","index":0}),
+            ];
+            let mut stream = String::new();
+            for choice in frames {
+                let frame = json!({
+                    "id":"fixture", "created":1791900305, "model":"gpt-6.1-sol",
+                    "object":"response", "choices":[choice],
+                    "usage":{"prompt_tokens":18,"completion_tokens":5,"total_tokens":23}
+                });
+                stream.push_str(&format!("data: {frame}\n\n"));
+            }
+            stream.push_str("data: [DONE]\n\n");
+            ([("content-type", "text/event-stream")], stream)
+        }),
+    );
+    let mut fixture = Fixture::new(app, WireApi::Chat).await;
+    let response = client()
+        .post(fixture.url("/v1/responses"))
+        .bearer_auth("key")
+        .json(&json!({"model":"global:gpt-6.1-sol","input":"Say OK","stream":true}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body = response.text().await.unwrap();
+    let events: Vec<Value> = body
+        .lines()
+        .filter_map(|line| line.strip_prefix("data: "))
+        .filter(|data| *data != "[DONE]")
+        .map(|data| serde_json::from_str(data).unwrap())
+        .collect();
+    assert!(events.iter().any(|event| {
+        event["type"] == "response.output_text.delta" && event["delta"] == "OK"
+    }), "{body}");
+    let completed = events
+        .iter()
+        .find(|event| event["type"] == "response.completed")
+        .expect("Responses stream must complete");
+    assert_eq!(completed["response"]["output"][0]["content"][0]["text"], "OK");
+    assert_eq!(completed["response"]["usage"]["input_tokens"], 18);
+    assert_eq!(completed["response"]["usage"]["output_tokens"], 5);
+    fixture.shutdown().await;
+}
+
+#[tokio::test]
 async fn parity22_http_responses_chat_restores_namespaced_custom_and_keeps_native_custom() {
     for streaming in [false, true] {
         let seen = Arc::new(Mutex::new(Value::Null));
@@ -557,4 +611,57 @@ async fn cancelling_native_compat_stream_records_cancellation_and_received_usage
     let reports = fixture.host.reports.lock().unwrap();
     assert_eq!(reports[0].status, 499);
     assert_eq!(reports[0].usage.as_ref().unwrap()["output_tokens"], 3);
+}
+
+#[tokio::test]
+async fn chat_client_tool_search_roundtrips_in_json_and_streams() {
+    for streaming in [false,true] {
+        let seen=Arc::new(Mutex::new(Value::Null));let capture=seen.clone();
+        let app=Router::new().route("/v1/chat/completions",post(move |Json(body):Json<Value>| {
+            let capture=capture.clone();async move {
+                *capture.lock().unwrap()=body.clone();
+                let name=body["tools"][0]["function"]["name"].as_str().unwrap();
+                let call=json!({"index":0,"id":"search-call","type":"function","function":{"name":name,"arguments":"{\"query\":\"files\"}"}});
+                if body["stream"]==true {
+                    let chunk=json!({"id":"r-search","choices":[{"index":0,"delta":{"tool_calls":[call]},"finish_reason":"tool_calls"}]});
+                    Response::builder().header("content-type","text/event-stream").body(Body::from(format!("data: {chunk}\n\ndata: [DONE]\n\n"))).unwrap()
+                } else {Response::builder().header("content-type","application/json").body(Body::from(json!({"id":"r-search","choices":[{"index":0,"message":{"role":"assistant","tool_calls":[call]},"finish_reason":"tool_calls"}]}).to_string())).unwrap()}
+            }
+        }));
+        let mut fixture=Fixture::new(app,WireApi::Chat).await;
+        let response=client().post(fixture.url("/v1/responses")).bearer_auth("key")
+            .json(&json!({"model":"m","stream":streaming,"input":"find tools","tools":[{"type":"tool_search","execution":"client"}]})).send().await.unwrap();
+        assert_eq!(response.status(),200);
+        let canonical=if streaming {
+            let text=response.text().await.unwrap();
+            text.lines().filter_map(|line|line.strip_prefix("data: ")).filter_map(|line|serde_json::from_str::<Value>(line).ok()).find(|event|event["type"]=="response.completed").unwrap_or_else(||panic!("{text}"))["response"].clone()
+        }else{response.json::<Value>().await.unwrap()};
+        assert_eq!(canonical["output"][0]["type"],"tool_search_call");
+        assert_eq!(canonical["output"][0]["execution"],"client");
+        assert_eq!(canonical["output"][0]["arguments"]["query"],"files");
+        assert_eq!(seen.lock().unwrap()["tools"][0]["type"],"function");
+        fixture.shutdown().await;
+    }
+}
+
+#[tokio::test]
+async fn chat_remote_compaction_v2_produces_a_reusable_capsule_and_expands_it_on_replay() {
+    let seen=Arc::new(Mutex::new(Vec::<Value>::new()));let capture=seen.clone();
+    let app=Router::new().route("/v1/chat/completions",post(move |Json(body):Json<Value>| {
+        let capture=capture.clone();async move {
+            capture.lock().unwrap().push(body);
+            Json(json!({"id":"compact-result","choices":[{"index":0,"message":{"role":"assistant","content":"Retain the project goal."},"finish_reason":"stop"}]}))
+        }
+    }));
+    let mut fixture=Fixture::new(app,WireApi::Chat).await;
+    let response=client().post(fixture.url("/v1/responses/compact")).bearer_auth("key")
+        .json(&json!({"model":"m","input":[{"type":"message","role":"user","content":"project goal"},{"type":"compaction_trigger"}]})).send().await.unwrap();
+    assert_eq!(response.status(),200);
+    let capsule=response.json::<Value>().await.unwrap()["output"][0].clone();
+    assert_eq!(capsule["type"],"compaction");
+    let response=client().post(fixture.url("/v1/responses")).bearer_auth("key")
+        .json(&json!({"model":"m","input":[capsule,{"type":"message","role":"user","content":"continue"}]})).send().await.unwrap();
+    assert_eq!(response.status(),200);
+    assert!(seen.lock().unwrap()[1]["messages"].to_string().contains("Retain the project goal."));
+    fixture.shutdown().await;
 }

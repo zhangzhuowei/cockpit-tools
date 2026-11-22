@@ -9,6 +9,24 @@ const USAGE_WRITER_BATCH_TIME: Duration = Duration::from_millis(25);
 static USAGE_WRITER_FAILED: AtomicBool = AtomicBool::new(false);
 static USAGE_IN_FLIGHT: std::sync::LazyLock<Arc<Semaphore>> =
     std::sync::LazyLock::new(|| Arc::new(Semaphore::new(USAGE_WRITER_CAPACITY)));
+
+fn notify_account_window_usage_committed() {
+    static PENDING: AtomicBool = AtomicBool::new(false);
+    let Some(app) = crate::get_app_handle().cloned() else {
+        return;
+    };
+    if PENDING.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        // Allow a newer commit to schedule its own notification before emitting.
+        PENDING.store(false, Ordering::Release);
+        let _ = app.emit("codex-local-access-usage-committed", ());
+        schedule_monthly_token_alert_check();
+    });
+}
+
 struct UsageCallerPermit {
     _storage: OwnedSemaphorePermit,
     _key: Option<Arc<dyn Send + Sync>>,
@@ -95,12 +113,18 @@ fn usage_log_admission() -> Result<(), native_contract::ServiceError> {
 
 async fn queue_local_access_usage_event(event: CodexLocalAccessUsageEvent) -> Result<(), String> {
     let result = async {
+        let epoch = REQUEST_LOG_WRITE_EPOCH.load(Ordering::Acquire);
+        if event.local_rejection
+            && event.timestamp <= REQUEST_LOG_RECORDS_CLEARED_BEFORE.load(Ordering::Acquire)
+        {
+            return Ok(());
+        }
         let bytes = usage_log_encoded_bytes(&event)?;
         let sender = usage_log_sender().ok_or("usage writer unavailable")?;
         let write = UsageLogWrite {
             event,
             bytes,
-            epoch: REQUEST_LOG_WRITE_EPOCH.load(Ordering::Acquire),
+            epoch,
             official: None,
         };
         tokio::time::timeout(Duration::from_secs(2), sender.send(write))
@@ -111,7 +135,7 @@ async fn queue_local_access_usage_event(event: CodexLocalAccessUsageEvent) -> Re
     }
     .await;
     if let Err(error) = &result {
-        logger::log_codex_api_warn(&format!("请求日志未入队，内存用量已保留: {error}"));
+        logger::log_codex_api_warn(&format!("请求日志未入队: {error}"));
     }
     result
 }
@@ -195,7 +219,7 @@ fn run_usage_log_writer(mut receiver: tokio::sync::mpsc::Receiver<UsageLogWrite>
             }
         }
         let budget_expired = AtomicBool::new(false);
-        let result = (|| -> Result<Option<usize>, String> {
+        let result = (|| -> Result<Option<(usize, bool)>, String> {
             let Ok(_guard) = local_access_logs_db_write_lock().try_lock() else {
                 return Ok(None);
             };
@@ -206,17 +230,26 @@ fn run_usage_log_writer(mut receiver: tokio::sync::mpsc::Receiver<UsageLogWrite>
                     .map_err(|e| e.to_string())?;
                 conn = Some(opened);
             }
-            write_usage_log_batch_limited(
+            let epoch = REQUEST_LOG_WRITE_EPOCH.load(Ordering::Acquire);
+            let count = write_usage_log_batch_limited(
                 conn.as_ref().unwrap(),
                 &batch,
-                REQUEST_LOG_WRITE_EPOCH.load(Ordering::Acquire),
+                epoch,
                 row_limit,
                 &budget_expired,
-            )
-            .map(Some)
+            )?;
+            let has_account_usage = batch[..count].iter().any(|write| {
+                write.epoch == epoch
+                    && !write.event.local_rejection
+                    && !write.event.account_id.is_empty()
+            });
+            Ok(Some((count, has_account_usage)))
         })();
         match result {
-            Ok(Some(count)) => {
+            Ok(Some((count, has_account_usage))) => {
+                if has_account_usage {
+                    notify_account_window_usage_committed();
+                }
                 if USAGE_WRITER_FAILED.swap(false, Ordering::AcqRel) {
                     logger::log_codex_api_info("请求日志写入已恢复");
                 }

@@ -7,6 +7,7 @@ const REMOTE_MODEL_FIELDS: &[&str] = &[
     "default_reasoning_level",
     "context_window",
     "max_context_window",
+    "effective_context_window_percent",
     "auto_compact_token_limit",
     "input_modalities",
     "supports_reasoning_summaries",
@@ -46,7 +47,7 @@ fn remote_client_model_catalog(
         .api_keys
         .iter()
         .find(|entry| entry.key.trim() == key.trim());
-    native_apply_profile_catalog_tool_capabilities(
+    native_apply_profile_catalog_capabilities(
         &mut catalog,
         collection,
         resolved_key,
@@ -151,6 +152,9 @@ fn project_remote_model_catalog(
         }
         models.sort_by_key(|model| model["priority"].as_i64().unwrap_or(i64::MAX));
     }
+    // The remote interface speaks public Responses regardless of the relay's
+    // upstream. Local model templates cannot advertise the relay's internals.
+    codex_protocol::project_public_responses_catalog(&mut catalog);
     Some(catalog)
 }
 

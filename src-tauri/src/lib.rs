@@ -16,6 +16,44 @@ pub fn try_run_codex_package_launcher() -> Option<i32> {
     modules::process::codex_package_launcher::try_run()
 }
 
+pub fn try_run_codebuddy_cli() -> Option<i32> {
+    use modules::codebuddy_cli::{run_from_terminal, RUN_ARG};
+    let mut args = std::env::args_os().skip(1);
+    if args.next().as_deref() != Some(std::ffi::OsStr::new(RUN_ARG)) {
+        return None;
+    }
+    let result = match args.next().and_then(|arg| arg.into_string().ok()) {
+        Some(encoded) => run_from_terminal(&encoded),
+        None => Err("launchFailed".into()),
+    };
+    Some(result.unwrap_or_else(|error| modules::codebuddy_cli::report_terminal_error("en", &error)))
+}
+
+pub fn try_run_codex_cli_resume() -> Option<i32> {
+    use commands::codex_instance::cli_resume::{run_from_terminal, RUN_ARG};
+    let mut args = std::env::args_os().skip(1);
+    if args.next().as_deref() != Some(std::ffi::OsStr::new(RUN_ARG)) {
+        return None;
+    }
+    let instance = args.next().and_then(|arg| arg.into_string().ok());
+    let data_dir = args.next();
+    let codex_home = args.next();
+    let result = match (instance, data_dir, codex_home, args.next()) {
+        (Some(instance), Some(data_dir), Some(codex_home), None) => {
+            // Login shells can have a different Cockpit profile or CODEX_HOME.
+            // This runs before Cockpit initializes any config or worker threads.
+            std::env::set_var("COCKPIT_TOOLS_DATA_DIR", data_dir);
+            std::env::set_var("CODEX_HOME", &codex_home);
+            run_from_terminal(&instance, std::path::Path::new(&codex_home))
+        }
+        _ => Err("缺少要续跑的 Codex 实例或目录".into()),
+    };
+    Some(result.unwrap_or_else(|error| {
+        eprintln!("Codex session resume: {error}");
+        1
+    }))
+}
+
 use modules::config::CloseWindowBehavior;
 use modules::logger;
 use std::sync::OnceLock;
@@ -38,11 +76,37 @@ pub fn get_app_handle() -> Option<&'static tauri::AppHandle> {
 #[cfg(test)]
 mod tests {
     use super::{
+        configure_main_window_decorations,
         has_enabled_periodic_account_refresh, should_hide_startup_minimized_window,
         should_preserve_main_window_for_background_refresh,
         should_preserve_main_window_for_menu_bar_refresh,
     };
     use crate::modules::config::UserConfig;
+
+    #[test]
+    fn linux_main_window_uses_client_decorations_for_startup_and_recreation() {
+        let mut config = tauri::Config::default();
+        config.app.windows = vec![
+            tauri::utils::config::WindowConfig {
+                label: "main".into(),
+                decorations: true,
+                resizable: true,
+                ..Default::default()
+            },
+            tauri::utils::config::WindowConfig {
+                label: "other".into(),
+                decorations: true,
+                ..Default::default()
+            },
+        ];
+        configure_main_window_decorations(&mut config, false);
+        assert!(config.app.windows[0].decorations);
+        configure_main_window_decorations(&mut config, true);
+        let recreated = config.app.windows[0].clone();
+        assert!(!recreated.decorations);
+        assert!(recreated.resizable);
+        assert!(config.app.windows[1].decorations);
+    }
 
     #[test]
     fn startup_minimized_does_not_hide_when_disabled() {
@@ -139,6 +203,16 @@ mod tests {
     }
 
     #[test]
+    fn native_antigravity_refresh_does_not_require_a_windows_webview() {
+        let mut config = UserConfig::default();
+        disable_all_periodic_refresh(&mut config);
+        config.auto_refresh_minutes = 10;
+        assert!(!should_preserve_main_window_for_background_refresh(
+            false, true, false, &config
+        ));
+    }
+
+    #[test]
     fn periodic_refresh_does_not_change_non_windows_close_behavior() {
         let config = UserConfig::default();
         assert!(!should_preserve_main_window_for_background_refresh(
@@ -198,7 +272,11 @@ fn should_hide_startup_minimized_window(
     config: &modules::config::UserConfig,
     is_macos: bool,
 ) -> bool {
-    config.startup_minimized && is_macos && config.hide_dock_icon
+    config.startup_minimized && is_macos && should_hide_dock_icon(config)
+}
+
+fn should_hide_dock_icon(config: &modules::config::UserConfig) -> bool {
+    config.show_tray_icon && config.hide_dock_icon
 }
 
 fn should_preserve_main_window_for_menu_bar_refresh(
@@ -210,7 +288,6 @@ fn should_preserve_main_window_for_menu_bar_refresh(
 
 fn has_enabled_periodic_account_refresh(config: &modules::config::UserConfig) -> bool {
     [
-        config.auto_refresh_minutes,
         config.codex_auto_refresh_minutes,
         config.zed_auto_refresh_minutes,
         config.ghcp_auto_refresh_minutes,
@@ -271,20 +348,21 @@ fn apply_startup_minimized(app: &tauri::AppHandle) {
 #[cfg(target_os = "macos")]
 fn apply_macos_activation_policy(app: &tauri::AppHandle) {
     let config = modules::config::get_user_config();
-    let (policy, dock_visible, policy_label) = if config.hide_dock_icon {
+    if let Err(err) = set_macos_dock_policy(app, should_hide_dock_icon(&config)) {
+        logger::log_warn(&format!("[Window] 应用 macOS Dock 图标策略失败: {}", err));
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn set_macos_dock_policy(app: &tauri::AppHandle, hide_dock_icon: bool) -> tauri::Result<()> {
+    let (policy, dock_visible, policy_label) = if hide_dock_icon {
         (ActivationPolicy::Accessory, false, "hidden")
     } else {
         (ActivationPolicy::Regular, true, "visible")
     };
 
-    if let Err(err) = app.set_activation_policy(policy) {
-        logger::log_warn(&format!("[Window] 设置 macOS 激活策略失败: {}", err));
-        return;
-    }
-
-    if let Err(err) = app.set_dock_visibility(dock_visible) {
-        logger::log_warn(&format!("[Window] 设置 macOS Dock 可见性失败: {}", err));
-    }
+    app.set_activation_policy(policy)?;
+    app.set_dock_visibility(dock_visible)?;
 
     if dock_visible {
         let _ = app.show();
@@ -294,6 +372,23 @@ fn apply_macos_activation_policy(app: &tauri::AppHandle) {
     }
 
     info!("[Window] 已应用 macOS Dock 图标策略: {}", policy_label);
+    Ok(())
+}
+
+fn apply_tray_visibility(app: &tauri::AppHandle, visible: bool) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    if !visible {
+        set_macos_dock_policy(app, false).map_err(|err| err.to_string())?;
+    }
+    modules::tray::set_tray_visibility(app, visible)?;
+    #[cfg(target_os = "macos")]
+    if visible {
+        let config = modules::config::get_user_config();
+        if should_hide_dock_icon(&config) {
+            set_macos_dock_policy(app, true).map_err(|err| err.to_string())?;
+        }
+    }
+    Ok(())
 }
 
 fn handle_zcode_oauth_deep_links(args: &[String]) -> bool {
@@ -325,6 +420,14 @@ fn summarize_deep_link_args(args: &[String]) -> Vec<String> {
         .collect()
 }
 
+fn configure_main_window_decorations(config: &mut tauri::Config, is_linux: bool) {
+    if is_linux {
+        if let Some(main) = config.app.windows.iter_mut().find(|window| window.label == "main") {
+            main.decorations = false;
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     if let Some(code) = modules::codex_continuity_worker::try_run() {
@@ -345,6 +448,9 @@ pub fn run() {
         }
     }
 
+    // Tauri and the tray's window recreation both read this configuration.
+    let mut context = tauri::generate_context!();
+    configure_main_window_decorations(context.config_mut(), cfg!(target_os = "linux"));
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
@@ -394,6 +500,7 @@ pub fn run() {
 
             // 存储全局 AppHandle
             let _ = APP_HANDLE.set(app.handle().clone());
+            modules::codex_quota_history::start_maintenance();
 
             if let Err(err) = modules::app_lifecycle::install_system_shutdown_listener() {
                 logger::log_warn(&format!("[Lifecycle] 安装系统关机监听失败: {}", err));
@@ -402,6 +509,29 @@ pub fn run() {
             // 启动时清理 WebKit LocalStorage WAL，防止无限膨胀
             std::thread::spawn(|| {
                 modules::webkit_cache_maintenance::checkpoint_webkit_localstorage();
+                modules::workbuddy_auto_checkin::schedule_log_migration();
+                modules::trae_auto_checkin::schedule_log_migration();
+                modules::minimax_code_auto_checkin::schedule_log_migration();
+                for result in [
+                    modules::wakeup_history::schedule_migration(),
+                    modules::account_groups_store::schedule_legacy_groups(),
+                    modules::account::schedule_index_migration(),
+                    modules::codex_account::schedule_codex_index_migration(),
+                    modules::instance_store::schedule_legacy_registries(),
+                    modules::provider_index_maintenance::schedule_all(),
+                    modules::cursor_account::schedule_index_migration(),
+                    modules::provider_current_state::schedule_migration(),
+                    modules::wakeup_verification::schedule_migration(),
+                    modules::codex_wakeup::schedule_history_migration(),
+                    modules::antigravity_switch_history::schedule_migration(),
+                ] {
+                    if let Err(error) = result {
+                        logger::log_warn(&format!("[LocalHistory] 无法启动历史迁移: {error}"));
+                    }
+                }
+                modules::kiro_account::schedule_identity_maintenance();
+                modules::windsurf_account::schedule_identity_maintenance();
+                modules::trae_account::schedule_identity_maintenance();
             });
 
             // 当前主线不再使用 platform-packages；启动时回收旧版本遗留的孤儿 adapter。
@@ -421,6 +551,7 @@ pub fn run() {
 
             // 一次性迁移：历史版本可能被自动开启的「模型管理」统一关闭，之后由用户自己决定。
             std::thread::spawn(|| {
+                modules::config::persist_codex_native_predictions_default();
                 // Recover interrupted explicit imports before other model maintenance
                 // can touch the same profiles. None of this gates the main window.
                 modules::codex_account::recover_pending_model_config_imports_for_known_profiles();
@@ -477,6 +608,9 @@ pub fn run() {
             });
 
             tauri::async_runtime::spawn(modules::codex_proxy_catalog::auto_refresh_loop());
+            tauri::async_runtime::spawn(commands::account::auto_refresh::run(app.handle().clone()));
+            modules::codex_reset_automation::schedule_migration();
+            tauri::async_runtime::spawn(modules::codex_subscription_refresh::run());
             tauri::async_runtime::spawn(modules::codex_proxy_desktop_router::restore_on_startup());
 
             // 启动 WebSocket 服务（使用 Tauri 的 async runtime）
@@ -486,16 +620,15 @@ pub fn run() {
 
             // 启动网页查询服务（网络服务配置中的独立模块）
             tauri::async_runtime::spawn(async {
-                modules::web_report::start_server().await;
+                if let Err(error) = modules::web_report::apply_server_config().await {
+                    logger::log_warn(&format!("[WebReport] {error}"));
+                }
             });
 
             tauri::async_runtime::spawn(modules::codex_model_catalog::initialize());
             tauri::async_runtime::spawn(async {
                 modules::codex_local_access::restore_local_access_gateway().await;
             });
-
-            // 实例级网关（provider gateway / 绑定 OAuth 本地网关）启动自愈：宿主重启后按已持久化的
-            // profile 绑定与 sidecar 目录重建，避免 Codex 实例指向一个已经不存在的本地端口。
             tauri::async_runtime::spawn(async {
                 modules::codex_local_access::restore_instance_gateways_on_startup().await;
             });
@@ -650,32 +783,26 @@ pub fn run() {
                 });
             }
 
-            // 创建骨架托盘（无账号文件 I/O，秒出）
-            if let Err(e) = modules::tray::create_tray_skeleton(app.handle()) {
-                logger::log_error(&format!("[Tray] 创建骨架托盘失败: {}", e));
-            }
-
-            #[cfg(target_os = "macos")]
-            {
-                let tray_app_handle = app.handle().clone();
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_millis(800));
-                    if let Err(err) = modules::tray::apply_tray_icon_style(&tray_app_handle) {
-                        logger::log_warn(&format!(
-                            "[Tray] macOS 启动后重应用菜单栏图标样式失败: {}",
-                            err
-                        ));
-                    }
-                });
-            }
-
-            // 后台线程加载完整托盘菜单（含账号数据）
-            let tray_app_handle = app.handle().clone();
-            std::thread::spawn(move || {
-                if let Err(e) = modules::tray::update_tray_menu(&tray_app_handle) {
-                    logger::log_error(&format!("[Tray] 后台更新托盘菜单失败: {}", e));
+            if modules::config::get_user_config().show_tray_icon {
+                // 创建骨架托盘（无账号文件 I/O，秒出）
+                if let Err(err) = modules::tray::set_tray_visibility(app.handle(), true) {
+                    logger::log_error(&format!("[Tray] 创建骨架托盘失败: {}", err));
                 }
-            });
+
+                #[cfg(target_os = "macos")]
+                {
+                    let tray_app_handle = app.handle().clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(800));
+                        if let Err(err) = modules::tray::apply_tray_icon_style(&tray_app_handle) {
+                            logger::log_warn(&format!(
+                                "[Tray] macOS 启动后重应用菜单栏图标样式失败: {}",
+                                err
+                            ));
+                        }
+                    });
+                }
+            }
 
             if let Err(err) =
                 modules::floating_card_window::show_floating_card_window_on_startup(&app.handle())
@@ -720,6 +847,12 @@ pub fn run() {
                 match config.close_behavior {
                     CloseWindowBehavior::Minimize => {
                         api.prevent_close();
+                        if !config.show_tray_icon {
+                            if let Err(err) = window.minimize() {
+                                logger::log_warn(&format!("[Window] 最小化主窗口失败: {}", err));
+                            }
+                            return;
+                        }
                         let preserve_for_menu_bar =
                             should_preserve_main_window_for_menu_bar_refresh(
                                 cfg!(target_os = "macos"),
@@ -781,7 +914,7 @@ pub fn run() {
                     }
                     CloseWindowBehavior::Ask => {
                         api.prevent_close();
-                        let _ = window.emit("window:close_requested", ());
+                        let _ = window.emit("window:close_requested", config.show_tray_icon);
                         info!("[Window] 等待用户选择关闭行为");
                     }
                 }
@@ -824,12 +957,19 @@ pub fn run() {
             commands::account::refresh_all_quotas,
             commands::account::refresh_current_quota,
             commands::account::switch_account,
+            commands::account::antigravity_launch_current,
+            commands::account::cli_launch::get_antigravity_client_launch_path,
+            commands::account::cli_launch::switch_antigravity_cli,
+            commands::account::cli_launch::launch_antigravity_cli,
+            commands::account::cli_launch::antigravity_cli_launch_command,
             commands::account::load_antigravity_switch_history,
             commands::account::clear_antigravity_switch_history,
             commands::account::update_account_tags,
             commands::account::update_account_notes,
             commands::account::update_account_note,
             commands::account::fetch_account_note_mail_url,
+            commands::account::load_account_group_snapshot,
+            commands::account::seed_account_groups,
             commands::account::load_account_groups,
             commands::account::save_account_groups,
             commands::account::load_platform_account_groups,
@@ -854,6 +994,7 @@ pub fn run() {
             commands::data_transfer::data_transfer_get_instance_store,
             commands::data_transfer::data_transfer_replace_instance_store,
             commands::provider_current::get_provider_current_account_id,
+            commands::provider_current::get_trae_current_accounts,
             // Claude Commands
             commands::claude::list_claude_accounts,
             commands::claude::delete_claude_account,
@@ -885,6 +1026,7 @@ pub fn run() {
             commands::claude::claude_execute_cli_launch_command,
             commands::claude::claude_launch_cli,
             commands::claude::switch_claude_account,
+            commands::claude_instance::claude_apply_cli_account_to_user_config,
             // Claude Instance Commands
             commands::claude_instance::claude_get_instance_defaults,
             commands::claude_instance::claude_list_instances,
@@ -899,6 +1041,8 @@ pub fn run() {
             commands::claude_instance::claude_execute_instance_launch_command,
             // System Commands
             commands::system::open_data_folder,
+            commands::system::get_data_directory_settings,
+            commands::system::set_data_directory,
             commands::system::open_local_path,
             commands::system::windows_elevated_close_processes,
             commands::system::save_text_file,
@@ -910,6 +1054,19 @@ pub fn run() {
             commands::system::read_auto_backup_file,
             commands::system::copy_auto_backup_file,
             commands::system::list_auto_backup_files,
+            commands::system::find_mfa_recovery_records,
+            commands::system::read_mfa_vault,
+            commands::system::create_mfa_recovery_checkpoint,
+            commands::system::verify_mfa_recovery_checkpoint,
+            commands::system::restore_mfa_recovery_checkpoint,
+            commands::system::read_legacy_webkit_vault,
+            commands::system::import_mfa_vault_batch,
+            commands::system::change_mfa_vault,
+            commands::system::load_apikey_fun_vault,
+            commands::system::write_apikey_fun_vault,
+            commands::system::schedule_apikey_fun_recovery_checkpoint,
+            commands::system::restore_apikey_fun_vault,
+            commands::system::export_legacy_apikey_fun_vault,
             commands::system::delete_auto_backup_file,
             commands::system::cleanup_auto_backup_files,
             commands::system::open_auto_backup_dir,
@@ -946,6 +1103,9 @@ pub fn run() {
             commands::system::save_refresh_interval_config,
             commands::system::save_tray_platform_layout,
             commands::system::set_app_path,
+            commands::cli_launch_path::inspect_cli_launch_path,
+            commands::cli_launch_path::save_cli_launch_path,
+            commands::system::launch_opencode_current,
             commands::system::validate_codex_app_path,
             commands::system::set_claude_app_scan_roots,
             commands::system::set_trae_app_scan_roots,
@@ -979,17 +1139,20 @@ pub fn run() {
             commands::system::mark_user_memory_dismissed,
             commands::system::save_user_memory_list,
             commands::system::load_ui_preferences,
+            commands::system::migrate_ui_preference_values,
+            commands::system::update_ui_preference,
             commands::system::save_ui_preferences,
             // Logs Commands
             commands::logs::logs_get_snapshot,
             commands::logs::logs_open_log_directory,
             // Wakeup Commands
             commands::wakeup::wakeup_ensure_runtime_ready,
-            commands::wakeup::wakeup_set_official_ls_version_mode,
             commands::wakeup::trigger_wakeup,
             commands::wakeup::fetch_available_models,
             commands::wakeup::wakeup_validate_crontab,
             commands::wakeup::wakeup_sync_state,
+            commands::wakeup::wakeup_load_state,
+            commands::wakeup::wakeup_initialize_state,
             commands::wakeup::wakeup_run_enabled_tasks,
             commands::wakeup::wakeup_load_history,
             commands::wakeup::wakeup_add_history,
@@ -1014,6 +1177,7 @@ pub fn run() {
             commands::update::update_log,
             commands::update::get_update_runtime_info,
             commands::update::install_linux_update,
+            commands::update::relaunch_after_update,
             // Announcement Commands
             commands::announcement::announcement_get_state,
             commands::announcement::announcement_mark_as_read,
@@ -1038,10 +1202,15 @@ pub fn run() {
             // Codex Commands
             commands::codex::list_codex_accounts,
             commands::codex::get_current_codex_account,
+            commands::codex::get_codex_profile_lifetime_tokens,
             commands::codex::get_codex_config_toml_path,
             commands::codex::get_codex_storage_paths,
             commands::codex::open_codex_config_toml,
             commands::codex::get_codex_quick_config,
+            commands::codex::get_codex_model_instructions,
+            commands::codex::set_codex_model_instructions,
+            commands::codex::get_codex_subagent_defaults,
+            commands::codex::set_codex_subagent_defaults,
             commands::codex::save_codex_context_management,
             commands::codex::save_codex_quick_config,
             commands::codex::save_codex_model_catalog,
@@ -1084,10 +1253,21 @@ pub fn run() {
             commands::codex::confirm_codex_batch_import,
             commands::codex::refresh_codex_quota,
             modules::codex_quota_sync::set_codex_quota_sync_disabled_emails,
+            modules::codex_quota_history::get_codex_quota_history,
+            modules::platform_quota_history::get_platform_quota_history,
+            modules::codex_quota_history::management::codex_quota_history_settings,
+            modules::codex_quota_history::management::set_codex_quota_history_settings,
+            modules::codex_quota_history::management::codex_quota_history_stats,
+            modules::codex_quota_history::management::codex_quota_history_cleanup_preview,
+            modules::codex_quota_history::management::codex_quota_history_cleanup,
+            modules::codex_quota_recovery::codex_quota_recovery_enabled,
+            modules::codex_quota_recovery::codex_quota_recovery_set_token,
             modules::codex_device_restrictions::codex_list_device_restrictions,
             modules::codex_device_restrictions::codex_allow_device_restriction_retry,
             commands::codex::refresh_codex_quotas_batch,
             commands::codex::get_codex_reset_credits,
+            commands::codex::get_codex_reset_credit_history,
+            commands::codex::get_codex_reset_usage_history,
             commands::codex::consume_codex_reset_credit,
             commands::codex::refresh_codex_subscription_info,
             commands::codex::refresh_all_codex_quotas,
@@ -1152,6 +1332,8 @@ pub fn run() {
             commands::codex_proxy_engine::codex_proxy_activity_set_enabled,
             commands::codex_proxy_engine::codex_proxy_activity_clear,
             commands::codex_client_proxy::codex_proxy_target_get,
+            commands::codex_client_proxy::codex_proxy_direct_hosts_get,
+            commands::codex_client_proxy::codex_proxy_direct_hosts_save,
             commands::codex_unified_proxy::codex_unified_proxy_get,
             commands::codex_unified_proxy::codex_unified_proxy_preview,
             commands::codex_unified_proxy::codex_unified_proxy_apply,
@@ -1170,9 +1352,12 @@ pub fn run() {
             commands::codex::create_pending_codex_oauth_account,
             commands::codex::fetch_codex_account_note_mail_url,
             commands::codex::codex_wakeup_get_cli_status,
+            #[cfg(any(unix, windows))]
+            modules::codex_cli_daemon::codex_restart_cli_daemon,
             commands::codex::codex_wakeup_update_runtime_config,
             commands::codex::codex_wakeup_get_overview,
             commands::codex::codex_wakeup_get_state,
+            commands::codex::codex_wakeup_get_pool_accounts,
             commands::codex::codex_wakeup_save_state,
             commands::codex::codex_wakeup_load_history,
             commands::codex::codex_wakeup_clear_history,
@@ -1192,6 +1377,7 @@ pub fn run() {
             commands::codex::codex_cancel_model_provider_chat_test,
             commands::codex::codex_list_model_provider_models,
             commands::codex::get_codex_model_reasoning_efforts,
+            commands::codex::get_codex_base_catalog_source,
             commands::codex::preview_codex_model_config_import,
             commands::codex::import_codex_model_config,
             commands::codex::export_codex_model_config,
@@ -1199,6 +1385,10 @@ pub fn run() {
             commands::codex::codex_discover_remote_service,
             commands::codex::codex_query_remote_key_data,
             commands::codex::codex_local_access_get_state,
+            commands::codex::codex_local_access_refresh_model_data,
+            commands::codex::codex_local_access_preview_claude_code_settings,
+            commands::codex::codex_local_access_apply_claude_code_settings,
+            commands::codex::codex_local_access_restore_claude_code_settings,
             commands::codex::codex_local_access_get_overload_status,
             commands::codex::codex_local_access_update_overload_retry,
             commands::codex::codex_local_access_query_overload_counts,
@@ -1220,16 +1410,20 @@ pub fn run() {
             commands::codex::codex_local_access_update_bound_oauth_account,
             commands::codex::codex_local_access_clear_stats,
             commands::codex::codex_local_access_query_stats,
+            commands::codex::codex_local_access_monthly_token_alert,
             commands::codex::codex_local_access_query_account_window_stats,
             commands::codex::codex_local_access_query_request_logs,
             commands::codex::codex_account_proxy_recent_requests,
             commands::codex::codex_local_access_prepare_restart,
+            commands::codex::codex_local_access_resume_after_failed_update,
             commands::codex::codex_local_access_restart_sidecar,
             commands::codex::codex_local_access_kill_port,
+            commands::codex::codex_local_access_change_random_port,
             commands::codex::codex_local_access_update_port,
             commands::codex::codex_local_access_update_routing_strategy,
             commands::codex::codex_local_access_update_custom_routing,
             commands::codex::codex_local_access_update_account_model_rules,
+            commands::codex::codex_local_access_update_account_quota_floor,
             commands::codex::codex_local_access_update_model_rules,
             commands::codex::codex_local_access_update_model_pricings,
             commands::codex::codex_local_access_reprice_request_logs,
@@ -1245,6 +1439,9 @@ pub fn run() {
             commands::codex::codex_local_access_update_access_scope,
             commands::codex::codex_local_access_update_client_base_url_host,
             commands::codex::codex_local_access_create_api_key,
+            commands::codex::codex_local_access_save_account_pool,
+            commands::codex::codex_local_access_delete_account_pool,
+            commands::codex::codex_local_access_detach_api_key_from_pool,
             commands::codex::codex_local_access_update_api_key,
             commands::codex::codex_local_access_set_api_key_account_priority,
             commands::codex::codex_local_access_rotate_named_api_key,
@@ -1332,11 +1529,21 @@ pub fn run() {
             commands::codebuddy::update_codebuddy_account_tags,
             commands::codebuddy::get_codebuddy_accounts_index_path,
             commands::codebuddy::inject_codebuddy_to_vscode,
+            commands::codebuddy_cli::codebuddy_cli_available,
+            commands::codebuddy_cli::codebuddy_cli_working_dir,
+            commands::codebuddy_cli::codebuddy_cli_list_instances,
+            commands::codebuddy_cli::codebuddy_cli_save_instance,
+            commands::codebuddy_cli::codebuddy_cli_remove_instance,
+            commands::codebuddy_cli::codebuddy_cli_launch,
+            commands::codebuddy_cli::codebuddy_cli_launch_command,
             commands::codebuddy_session::codebuddy_list_sessions,
+            commands::codebuddy_session::codebuddy_list_session_overview,
+            commands::codebuddy_session::workbuddy_rebind_workspace,
             commands::ssh_server::list_ssh_servers,
             commands::ssh_server::upsert_ssh_server,
             commands::ssh_server::delete_ssh_server,
-            commands::ssh_server::select_ssh_server,
+            commands::ssh_server::select_ssh_servers,
+            commands::ssh_server::set_ssh_server_selected,
             commands::ssh_server::test_ssh_server_connection,
             commands::ssh_server::sync_current_codex_account_to_ssh_server,
             // CodeBuddy CN Commands
@@ -1357,6 +1564,20 @@ pub fn run() {
             commands::codebuddy_cn::inject_codebuddy_cn_to_vscode,
             commands::codebuddy_cn::sync_codebuddy_cn_to_workbuddy,
             // WorkBuddy Commands
+            commands::workbuddy_ai::list_workbuddy_ai_accounts,
+            commands::workbuddy_ai::delete_workbuddy_ai_accounts,
+            commands::workbuddy_ai::import_workbuddy_ai_from_json,
+            commands::workbuddy_ai::import_workbuddy_ai_from_local,
+            commands::workbuddy_ai::export_workbuddy_ai_accounts,
+            commands::workbuddy_ai::workbuddy_ai_oauth_login_start,
+            commands::workbuddy_ai::workbuddy_ai_oauth_login_complete,
+            commands::workbuddy_ai::workbuddy_ai_oauth_login_cancel,
+            commands::workbuddy_ai::add_workbuddy_ai_account_with_token,
+            commands::workbuddy_ai::refresh_workbuddy_ai_token,
+            commands::workbuddy_ai::refresh_all_workbuddy_ai_tokens,
+            commands::workbuddy_ai::update_workbuddy_ai_account_tags,
+            commands::workbuddy_ai::switch_workbuddy_ai_account,
+            commands::workbuddy_ai::workbuddy_ai_launch_current,
             commands::workbuddy::list_workbuddy_accounts,
             commands::workbuddy::get_workbuddy_credit_packages,
             commands::workbuddy::get_workbuddy_recent_credit_usage,
@@ -1386,8 +1607,13 @@ pub fn run() {
             commands::workbuddy::migrate_workbuddy_auto_checkin_config,
             commands::workbuddy::save_workbuddy_auto_checkin_config,
             commands::workbuddy::get_workbuddy_auto_checkin_logs,
+            commands::workbuddy::stage_workbuddy_auto_checkin_legacy_logs,
             commands::workbuddy::clear_workbuddy_auto_checkin_logs,
             commands::workbuddy::run_workbuddy_auto_checkin_now,
+            commands::workbuddy::probe_workbuddy_model,
+            commands::workbuddy::fetch_workbuddy_cloud_models,
+            commands::workbuddy::probe_codebuddy_cn_model,
+            commands::workbuddy::fetch_codebuddy_cn_cloud_models,
             // MiniMax Code Commands
             commands::minimax_code::list_minimax_code_accounts,
             commands::minimax_code::delete_minimax_code_account,
@@ -1408,6 +1634,7 @@ pub fn run() {
             commands::minimax_code::get_checkin_status_minimax_code,
             commands::minimax_code::checkin_minimax_code,
             commands::minimax_code::get_minimax_code_auto_checkin_config,
+            commands::minimax_code::migrate_minimax_code_auto_checkin_config,
             commands::minimax_code::save_minimax_code_auto_checkin_config,
             commands::minimax_code::get_minimax_code_auto_checkin_logs,
             commands::minimax_code::clear_minimax_code_auto_checkin_logs,
@@ -1439,6 +1666,7 @@ pub fn run() {
             commands::codebuddy_instance::codebuddy_update_instance,
             commands::codebuddy_instance::codebuddy_delete_instance,
             commands::codebuddy_instance::codebuddy_start_instance,
+            commands::codebuddy_instance::codebuddy_launch_current,
             commands::codebuddy_instance::codebuddy_stop_instance,
             commands::codebuddy_instance::codebuddy_open_instance_window,
             commands::codebuddy_instance::codebuddy_close_all_instances,
@@ -1449,6 +1677,7 @@ pub fn run() {
             commands::codebuddy_cn_instance::codebuddy_cn_update_instance,
             commands::codebuddy_cn_instance::codebuddy_cn_delete_instance,
             commands::codebuddy_cn_instance::codebuddy_cn_start_instance,
+            commands::codebuddy_cn_instance::codebuddy_cn_launch_current,
             commands::codebuddy_cn_instance::codebuddy_cn_stop_instance,
             commands::codebuddy_cn_instance::codebuddy_cn_open_instance_window,
             commands::codebuddy_cn_instance::codebuddy_cn_close_all_instances,
@@ -1495,6 +1724,7 @@ pub fn run() {
             commands::zcode::delete_zcode_account,
             commands::zcode::delete_zcode_accounts,
             commands::zcode::import_zcode_from_json,
+            commands::zcode::import_zcode_from_file,
             commands::zcode::import_zcode_from_local,
             commands::zcode::import_zcode_api_key,
             commands::zcode::export_zcode_accounts,
@@ -1506,6 +1736,7 @@ pub fn run() {
             commands::zcode::refresh_zcode_account,
             commands::zcode::refresh_all_zcode_accounts,
             commands::zcode::inject_zcode_account,
+            commands::zcode::zcode_launch_current,
             commands::zcode::update_zcode_account_tags,
             commands::zcode::get_zcode_current_account_id,
             commands::zcode::get_zcode_accounts_index_path,
@@ -1550,6 +1781,7 @@ pub fn run() {
             commands::trae::get_trae_checkin_status,
             commands::trae::claim_trae_checkin,
             commands::trae::get_trae_auto_checkin_config,
+            commands::trae::migrate_trae_auto_checkin_config,
             commands::trae::save_trae_auto_checkin_config,
             commands::trae::get_trae_auto_checkin_logs,
             commands::trae::clear_trae_auto_checkin_logs,
@@ -1561,6 +1793,7 @@ pub fn run() {
             commands::trae_instance::trae_update_instance,
             commands::trae_instance::trae_delete_instance,
             commands::trae_instance::trae_start_instance,
+            commands::trae_instance::trae_launch_current,
             commands::trae_instance::trae_stop_instance,
             commands::trae_instance::trae_open_instance_window,
             commands::trae_instance::trae_close_all_instances,
@@ -1573,6 +1806,7 @@ pub fn run() {
             commands::cursor::export_cursor_accounts,
             commands::cursor::refresh_cursor_token,
             commands::cursor::refresh_all_cursor_tokens,
+            commands::cursor::retry_cursor_failed_quotas,
             commands::cursor::add_cursor_account_with_token,
             commands::cursor::update_cursor_account_tags,
             commands::cursor::get_cursor_accounts_index_path,
@@ -1629,6 +1863,7 @@ pub fn run() {
             commands::cursor_instance::cursor_update_instance,
             commands::cursor_instance::cursor_delete_instance,
             commands::cursor_instance::cursor_start_instance,
+            commands::cursor_instance::cursor_launch_current,
             commands::cursor_instance::cursor_stop_instance,
             commands::cursor_instance::cursor_open_instance_window,
             commands::cursor_instance::cursor_close_all_instances,
@@ -1682,8 +1917,11 @@ pub fn run() {
             commands::codex_instance::codex_import_sessions,
             commands::codex_instance::codex_open_session_location,
             commands::codex_instance::codex_open_session_rollout,
+            commands::codex_instance::codex_get_session_resume_settings,
+            commands::codex_instance::codex_save_session_resume_settings,
             commands::codex_instance::codex_create_instance,
             commands::codex_instance::codex_update_instance,
+            commands::codex_instance::profile_switch::codex_switch_instance_account,
             commands::codex_instance::codex_delete_instance,
             commands::codex_instance::codex_start_instance,
             commands::codex_instance::codex_cancel_instance_start,
@@ -1703,6 +1941,8 @@ pub fn run() {
             commands::instance::update_instance,
             commands::instance::delete_instance,
             commands::instance::start_instance,
+            commands::instance::initialization::antigravity_ide_needs_initialization,
+            commands::instance::initialization::initialize_antigravity_ide,
             commands::instance::stop_instance,
             commands::instance::open_instance_window,
             commands::instance::close_all_instances,
@@ -1715,12 +1955,24 @@ pub fn run() {
             commands::antigravity_legacy_instance::antigravity_legacy_stop_instance,
             commands::antigravity_legacy_instance::antigravity_legacy_open_instance_window,
             commands::antigravity_legacy_instance::antigravity_legacy_close_all_instances,
+            commands::antigravity_token_usage::antigravity_query_token_usage,
+            commands::antigravity_token_usage::antigravity_sync_token_usage,
+            commands::antigravity_token_usage::antigravity_get_conversation_token_detail,
+            commands::antigravity_token_usage::antigravity_get_token_usage_settings,
+            commands::antigravity_token_usage::antigravity_set_token_usage_data_dir,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application");
 
     app.run(|app_handle, event| {
         match &event {
+            RunEvent::WindowEvent {
+                label,
+                event: WindowEvent::Destroyed,
+                ..
+            } if label == "main" => {
+                modules::floating_card_window::resume_requested_main_window_restore(app_handle);
+            }
             RunEvent::ExitRequested { api, .. } => {
                 if modules::floating_card_window::should_keep_alive_after_main_window_destroyed()
                     && !modules::app_lifecycle::is_shutdown_started()
@@ -1749,6 +2001,9 @@ pub fn run() {
                         }
                     }
                     if first_shutdown {
+                        if let Some(main) = app_handle.get_webview_window("main") {
+                            modules::main_window_state::capture_and_save_main_window(&main);
+                        }
                         commands::codex_instance::restore_mixed_model_profiles_for_app_exit();
                     }
                     modules::codex_app_injection::stop_all();

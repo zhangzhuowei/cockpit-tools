@@ -445,22 +445,6 @@ fn local_projects_preserve_project_order_ids_and_default_process_context_on_all_
 }
 
 #[test]
-fn local_projects_budget_expires_before_mutation_and_existing_data_stays_available() {
-    let f = Fixture::new();
-    let before = f.state();
-    let result = super::super::with_launch_visibility_budget(std::time::Duration::ZERO, || {
-        scan(f.home(), None)
-    });
-    assert!(result
-        .unwrap_err()
-        .contains("CODEX_SESSION_VISIBILITY_TIMEOUT"));
-    assert_eq!(f.state(), before);
-    assert!(f.project("chat").is_none());
-    f.apply(&f.scan());
-    assert!(!f.scan().changed());
-}
-
-#[test]
 fn quick_projects_use_current_metadata_only_and_keep_precise_backups() {
     let f = Fixture::new();
     f.catalog();
@@ -489,19 +473,16 @@ fn quick_projects_use_current_metadata_only_and_keep_precise_backups() {
 }
 
 #[test]
-fn quick_projects_limits_defer_before_mutation_and_deep_still_repairs_every_thread() {
+fn quick_projects_repair_all_threads_in_large_history() {
     let f = Fixture::new();
     f.db().execute_batch("WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<2100)
         INSERT INTO threads SELECT 'many-'||x,cwd,source,thread_source,NULL,has_user_event,first_user_message,archived,model_provider,updated_at FROM n JOIN threads ON id='chat'").unwrap();
     let before = f.state();
-    assert!(scan_for_repair(f.home(), None, true)
-        .unwrap_err()
-        .contains("CODEX_PROJECT_QUICK_LIMIT"));
+    let plan = scan_for_repair(f.home(), None, true).unwrap().unwrap();
+    assert_eq!(plan.counts.assignments, 2102);
     assert_eq!(f.state(), before);
     assert!(f.project("chat").is_none());
-    let full = scan_for_repair(f.home(), None, false).unwrap().unwrap();
-    assert_eq!(full.counts.assignments, 2102);
-    f.apply(&full);
+    f.apply(&plan);
     assert_eq!(f.project("many-2100").as_deref(), Some("server"));
 }
 
@@ -534,6 +515,7 @@ fn integrated_repair(
             data_dir: f.home().to_path_buf(),
             last_pid: None,
         }],
+        false,
     )
 }
 
@@ -554,6 +536,7 @@ fn quick_visibility_directly_repairs_projects_and_unified_launch_uses_the_same_p
         "project-integration",
         "Project integration",
         f.home(),
+        false,
     )
     .unwrap();
     assert!(
@@ -571,25 +554,65 @@ fn quick_visibility_directly_repairs_projects_and_unified_launch_uses_the_same_p
 }
 
 #[test]
-fn quick_visibility_preserves_large_current_state_and_full_repairs_it() {
+fn quick_visibility_repairs_large_current_state_without_losing_account_archives() {
     use super::super::CodexSessionVisibilityRepairMode as Mode;
     let f = Fixture::new();
     let mut state = f.state();
     state["large-cache"] = json!("x".repeat(2_000_000));
     f.set(&state);
     let quick = integrated_repair(&f, Mode::Quick, false).unwrap();
-    assert!(quick.local_project_recovery_deferred);
-    assert_eq!(f.state(), state);
-    assert!(f.project("chat").is_none());
+    assert!(!quick.local_project_recovery_deferred, "{}", quick.message);
+    assert_eq!(quick.local_project_recovery.unwrap().assignments, 2);
+    assert_eq!(f.state()["large-cache"], state["large-cache"]);
+    assert_eq!(f.project("chat").as_deref(), Some("server"));
     let full = integrated_repair(&f, Mode::Deep, false).unwrap();
     assert!(!full.local_project_recovery_deferred);
-    assert_eq!(full.local_project_recovery.unwrap().assignments, 2);
+    assert_eq!(full.local_project_recovery.unwrap().assignments, 0);
     assert_eq!(f.state()["large-cache"], state["large-cache"]);
     assert_eq!(f.project("chat").as_deref(), Some("server"));
 }
 
 #[test]
+fn project_only_preview_and_repair_preserve_provider_and_history() {
+    use super::super::CodexSessionVisibilityRepairMode as Mode;
+    let f = Fixture::new();
+    f.catalog();
+    let mut state = f.state();
+    state["large-cache"] = json!("x".repeat(2_542_520));
+    f.set(&state);
+    let history = f.home().join("thread_history_1.sqlite");
+    fs::write(&history, b"unusable derived history index").unwrap();
+    let preview = integrated_repair(&f, Mode::Projects, true).unwrap();
+    assert_eq!(preview.local_project_recovery.unwrap().assignments, 2);
+    assert!(f.project("chat").is_none());
+    assert_eq!(f.state(), state);
+
+    let repaired = integrated_repair(&f, Mode::Projects, false).unwrap();
+    assert_eq!(repaired.local_project_recovery.unwrap().assignments, 2);
+    assert_eq!(repaired.mutated_instance_count, 1);
+    assert!(repaired.history_projection_count.is_none());
+    assert_eq!(f.project("chat").as_deref(), Some("server"));
+    assert_eq!(f.state()["large-cache"], state["large-cache"]);
+    assert_eq!(fs::read(history).unwrap(), b"unusable derived history index");
+    let provider: String = f.db().query_row(
+        "SELECT model_provider FROM threads WHERE id='chat'", [], |row| row.get(0),
+    ).unwrap();
+    assert_eq!(provider, "original");
+    let repeated = integrated_repair(&f, Mode::Projects, false).unwrap();
+    assert_eq!(repeated.mutated_instance_count, 0);
+}
+
+#[test]
 fn full_visibility_includes_snapshot_and_chat_index_repair_in_one_existing_mode() {
+    check_full_visibility_history_preflight(false);
+}
+
+#[test]
+fn full_visibility_previews_duplicate_ordinals_but_stops_before_any_write() {
+    check_full_visibility_history_preflight(true);
+}
+
+fn check_full_visibility_history_preflight(duplicate_ordinal: bool) {
     use super::super::CodexSessionVisibilityRepairMode as Mode;
     let f = Fixture::new();
     let id = "11111111-1111-4111-8111-111111111111";
@@ -600,15 +623,26 @@ fn full_visibility_includes_snapshot_and_chat_index_repair_in_one_existing_mode(
         .execute_batch("ALTER TABLE threads ADD COLUMN rollout_path TEXT")
         .unwrap();
     fs::create_dir(f.home().join("sessions")).unwrap();
-    let rollout = f
+    let mut rollout = f
         .home()
         .join(format!("sessions/rollout-2026-10-29T00-00-00-{id}.jsonl"));
-    let contents = format!(
+    let mut contents = format!(
         "{}\n{}\n",
         json!({"ordinal":0,"type":"session_meta","payload":{"id":id,"model_provider":"original","cwd":f.root,"source":"cli"}}),
         json!({"ordinal":1,"type":"event_msg","payload":{"type":"user_message","message":"Keep history"}})
     );
-    fs::write(&rollout, &contents).unwrap();
+    let rollout_bytes = if duplicate_ordinal {
+        for kind in ["token_count", "thread_settings_applied"] {
+            contents.push_str(&format!(
+                "{}\n", json!({"ordinal":2,"type":"event_msg","payload":{"type":kind}})
+            ));
+        }
+        rollout.set_extension("jsonl.zst");
+        zstd::stream::encode_all(contents.as_bytes(), 0).unwrap()
+    } else {
+        contents.as_bytes().to_vec()
+    };
+    fs::write(&rollout, &rollout_bytes).unwrap();
     f.db()
         .execute(
             "UPDATE threads SET rollout_path=?1 WHERE id=?2",
@@ -633,6 +667,21 @@ fn full_visibility_includes_snapshot_and_chat_index_repair_in_one_existing_mode(
     )
     .unwrap();
     let preview = integrated_repair(&f, Mode::Deep, true).unwrap();
+    if duplicate_ordinal {
+        assert_eq!(preview.history_projection_count, Some(0));
+        let warning = preview.history_repair_warning.unwrap();
+        assert!(warning.contains(id), "{warning}");
+        let original_state = fs::read(f.home().join(STATE)).unwrap();
+        let error = integrated_repair(&f, Mode::Deep, false).unwrap_err();
+        assert_eq!(error, warning);
+        assert_eq!(fs::read(f.home().join(STATE)).unwrap(), original_state);
+        assert_eq!(fs::read(&rollout).unwrap(), rollout_bytes);
+        assert!(f.project(id).is_none());
+        assert_eq!(history.query_row(
+            "SELECT COUNT(*) FROM thread_history_projection_state", [], |r| r.get::<_, i64>(0),
+        ).unwrap(), 1);
+        return;
+    }
     assert_eq!(preview.history_projection_count, Some(1));
     assert!(f.project(id).is_none());
     let full = integrated_repair(&f, Mode::Deep, false).unwrap();

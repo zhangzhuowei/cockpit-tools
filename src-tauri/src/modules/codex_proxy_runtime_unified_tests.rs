@@ -186,6 +186,36 @@ async fn wait_closed(proxy: &str) {
 
 #[tokio::test]
 async fn concurrent_consumers_share_entry_engine_and_binding_switch_preserves_old_streams() {
+    const SCENARIO_PROOF: &str = "COCKPIT_TEST_PROXY_UNIFIED_RUNTIME_SCENARIO";
+    let proof = match std::env::var_os(SCENARIO_PROOF) {
+        Some(path) => PathBuf::from(path),
+        None => {
+            // The runtime and test environment are process-global.
+            let temp = tempfile::tempdir().unwrap();
+            let proof = temp.path().join("verified");
+            let (_, module) = module_path!().split_once("::").unwrap();
+            let name = format!(
+                "{module}::concurrent_consumers_share_entry_engine_and_binding_switch_preserves_old_streams"
+            );
+            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+            command
+                .env(SCENARIO_PROOF, &proof)
+                .args(["--exact", &name, "--nocapture"]);
+            let result = crate::modules::process_timeout::output_with_timeout(
+                &mut command,
+                Duration::from_secs(30),
+            )
+            .unwrap();
+            assert!(
+                result.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&result.stdout),
+                String::from_utf8_lossy(&result.stderr)
+            );
+            assert_eq!(fs::read_to_string(proof).unwrap(), "verified");
+            return;
+        }
+    };
     let fixture = LaunchFixture::new("single-runtime");
     let starts = install_fake_engine(&fixture);
     let mut account = eligible_account("single-runtime");
@@ -204,9 +234,10 @@ async fn concurrent_consumers_share_entry_engine_and_binding_switch_preserves_ol
             ensure(&account.id),
         );
         let entry = first.unwrap().unwrap();
-        for url in [sidecar, second, desktop] {
+        for url in [sidecar, second] {
             assert_eq!(url.unwrap(), Some(entry.clone()));
         }
+        assert_eq!(desktop.unwrap(), url::Url::parse(&entry).unwrap().port());
         assert_eq!(
             fs::read_to_string(&starts).unwrap(),
             "old1\n",
@@ -317,6 +348,7 @@ async fn concurrent_consumers_share_entry_engine_and_binding_switch_preserves_ol
     })
     .await
     .expect("single-engine lifecycle completes within a bounded deadline");
+    fs::write(proof, "verified").unwrap();
 }
 
 #[tokio::test]
@@ -349,7 +381,10 @@ async fn direct_proxy_manifest_requires_preparation_and_all_consumers_share_nati
                 .unwrap(),
             Some(entry.clone())
         );
-        assert_eq!(ensure(&account.id).await.unwrap(), Some(entry.clone()));
+        assert_eq!(
+            ensure(&account.id).await.unwrap(),
+            url::Url::parse(&entry).unwrap().port()
+        );
         assert_eq!(
             codex_proxy_runtime::prepared_sidecar_url(&account).unwrap(),
             Some(entry.clone())
@@ -429,9 +464,6 @@ async fn concurrent_entries_keep_both_port_records_and_slow_storage_does_not_blo
         ("entry-concurrent-first", first.unwrap()),
         ("entry-concurrent-second", second.unwrap()),
     ] {
-        assert_eq!(
-            registry.recorded(id),
-            url::Url::parse(&entry).unwrap().port()
-        );
+        assert_eq!(registry.recorded(id), Some(entry));
     }
 }

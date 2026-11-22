@@ -1,13 +1,20 @@
+import { useActiveGroupTab } from "../hooks/useActiveGroupTab";
+import { useDurableUiBooleanSetting, useDurableUiSetting } from "../hooks/useDurableUiSetting";
+import { previewDurableUiSetting } from "../utils/durableUiSettings";
+import { useAccountsOverviewFilterState } from "../hooks/useAccountsOverviewFilterState";
+import { useAccountFormLoad } from "../hooks/useAccountFormLoad";
+import { loadSavedMfaRecords, subscribeMfaVault, upsertSavedMfaRecord } from "../services/mfaRecoveryService";
+import { CODEX_RESET_CREDIT_DETAILS_REQUEST, getPendingCodexResetCreditDetails, clearPendingCodexResetCreditDetails } from '../utils/codexResetCreditNavigation';
 import { prepareCodexServiceJoins } from "../utils/codexServiceJoin";
 import { chatGptPlanErrorKey, listChatGptPlanAccounts } from "../services/chatgptPlanService";
 import { implicitCodexServiceAccountIds } from "../utils/chatgptPlanOverview";
 import { canChooseCodexServiceAuthorization } from "../utils/codexAccountServiceNavigation";
 import { resolveCodexAccountDisplayName } from "../utils/codexAccountDisplayName";
-import { listenSafely as listen } from "../utils/tauriEventListener";
+import { subscribeCodexLocalAccessStateUpdates } from "../utils/codexLocalAccessStateUpdates";
 import { refreshCodexQuotaWithFeedback } from "../utils/codexQuotaRefreshFeedback";
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Download, Copy, Check, Eye, EyeOff, FileText, FolderOpen } from "lucide-react";
-import { useCodexAccountStore } from "../stores/useCodexAccountStore";
+import { readCodexAccountForEditing, useCodexAccountStore } from "../stores/useCodexAccountStore";
 import { useCodexInstanceStore } from "../stores/useCodexInstanceStore";
 import * as codexService from "../services/codexService";
 import { codexResetCreditDetails } from "../services/codexResetCreditService";
@@ -16,7 +23,7 @@ import * as codexLocalAccessService from "../services/codexLocalAccessService";
 import { maskJsonPreviewContent } from "../components/ExportJsonModal";
 import { useModalErrorState } from "../components/ModalErrorMessage";
 import { type CodexAccountGroup, assignAccountsToCodexGroup, getCodexAccountGroups, invalidateCodexGroupCache } from "../services/codexAccountGroupService";
-import { formatCodexResetTime, formatCodexResetTimeAbsolute, isCodexOpaqueAccessTokenOnlyAccount, type CodexBatchDeleteJobStatus, type CodexResetCredit, type CodexResetCreditsSnapshot } from "../types/codex";
+import { formatCodexResetTime, formatCodexResetTimeAbsolute, isCodexAgentIdentityAccount, isCodexApiKeyAccount, isCodexChatgptPlanAccount, isCodexOpaqueAccessTokenOnlyAccount, isCodexPendingOAuthAccount, isCodexWebSessionAccount, type CodexBatchDeleteJobStatus, type CodexResetCredit, type CodexResetCreditsSnapshot } from "../types/codex";
 import { buildCodexAccountPresentation } from "../presentation/platformAccountPresentation";
 import { readCodexImportSyncApiService, writeCodexImportSyncApiService } from "../utils/codexImportPreferences";
 import { CODEX_OPEN_ADD_ACCOUNT_EVENT, takePendingCodexOpenAddAccountRequest, type CodexOAuthBindingRetryDetail, type CodexOpenAddAccountDetail } from "../utils/codexAddAccountRequest";
@@ -27,24 +34,24 @@ import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import type { CodexTab } from "../components/CodexOverviewTabsHeader";
 import { type CodexWakeupTestOpenRequest } from "../components/codex/CodexWakeupContent";
 import { useProviderAccountsPage } from "../hooks/useProviderAccountsPage";
-import { getActiveGroupTab, setActiveGroupTab } from "../services/platformGroupService";
+import { setActiveGroupTab } from "../services/platformGroupService";
 import { usePlatformRuntimeSupport } from "../hooks/usePlatformRuntimeSupport";
-import { useEscClose } from "../hooks/useEscClose";
 import { useMfaCountdown } from "../hooks/useMfaCountdown";
 import { useLaunchTerminalOptions } from "../hooks/useLaunchTerminalOptions";
 import { useRememberMfaQuery } from "../hooks/useRememberMfaQuery";
 import type { SingleSelectFilterOption } from "../components/SingleSelectFilterDropdown";
 import type { CodexAccount } from "../types/codex";
-import type { CodexLocalAccessAddressKind, CodexLocalAccessState } from "../types/codexLocalAccess";
+import type { CodexLocalAccessState } from "../types/codexLocalAccess";
 import { CODEX_API_SERVICE_BIND_ID, type InstanceDefaults } from "../types/instance";
 import { emitAccountsChanged } from "../utils/accountSyncEvents";
-import { readCodexCustomSortActive } from "../utils/codexAccountOverview";
+import { CODEX_CUSTOM_SORT_ACTIVE_KEY } from "../utils/codexAccountOverview";
 import { useSponsorStore } from "../stores/useSponsorStore";
 import { buildCodexExportContent, buildCodexExportFileNameBase, hasCodexExportAgentIdentity, hasCodexExportSensitiveNotes, type CodexExportFormat } from "../utils/codexExportFormats";
-import { readAccountsOverviewFilterField, readAccountsOverviewFilterPersistenceEnabled, readAccountsOverviewFilterStringArray, removeAccountsOverviewFilterField, writeAccountsOverviewFilterField } from "../utils/accountsOverviewFilterPersistence";
-import { getMfaOtpToken, loadSavedMfaRecords, parseMfaCredentialInput, upsertSavedMfaRecord, type MfaRecord } from "../utils/mfaVault";
+import { readAccountsOverviewFilterPersistenceEnabled, readAccountsOverviewFilterStringArray, resolveAccountSortMode } from "../utils/accountsOverviewFilterPersistence";
+import { getMfaOtpToken, parseMfaCredentialInput, type MfaRecord } from "../utils/mfaVault";
 import { findFirstMailVerificationCode } from "../utils/mailVerificationCode";
-import { ACTIVE_GROUP_ID_FIELD, buildCodexAccountNoteForm, buildExportFileName, CODEX_BATCH_IMPORT_SESSION_STORAGE_KEY, CODEX_FILTER_PERSISTENCE_SCOPE, CODEX_HIDE_RELAY_QUOTA_LEGACY_KEY, CODEX_LOCAL_ACCESS_EXPANDED_KEY, CODEX_OVERVIEW_LAYOUT_MODE_KEY, EMPTY_CODEX_ACCOUNT_NOTE_FORM, EXPIRY_FILTER_FIELD, FILTER_TYPES_FIELD, getCodexAccountNoteTitle, getDirectoryPath, GROUP_FILTER_FIELD, hasCodexAccountNoteDetails, hasCodexAccountNoteFormDetails, isHttpLikeUrl, joinFilePath, normalizeCodexOverviewLayoutMode, normalizeHttpBaseUrl, readStoredLocalAccessAddressKind, SEARCH_QUERY_FIELD, shouldAutoHideBatchDeleteJob, type CodexAccountNoteFieldErrors, type CodexAccountNoteFormState, type CodexAccountNoteMailPreviewSnapshot, type CodexAccountNoteMailPreviewState, type CodexBatchImportFilter, type CodexCliLaunchModalState, type CodexOverviewGeneralConfig, type CodexOverviewLayoutMode } from "./codexAccountsControllerModel";
+import { buildCodexAccountNoteForm, buildExportFileName, CODEX_BATCH_IMPORT_SESSION_STORAGE_KEY, CODEX_FILTER_PERSISTENCE_SCOPE, CODEX_HIDE_RELAY_QUOTA_LEGACY_KEY, CODEX_LOCAL_ACCESS_ADDRESS_KIND_KEY, CODEX_LOCAL_ACCESS_EXPANDED_KEY, CODEX_OVERVIEW_LAYOUT_MODE_KEY, EMPTY_CODEX_ACCOUNT_NOTE_FORM, FILTER_TYPES_FIELD, getCodexAccountNoteTitle, getDirectoryPath, GROUP_FILTER_FIELD, hasCodexAccountNoteDetails, hasCodexAccountNoteFormDetails, isHttpLikeUrl, joinFilePath, normalizeCodexOverviewLayoutMode, normalizeHttpBaseUrl, normalizeLocalAccessAddressKind, persistLocalAccessAddressKind, SEARCH_QUERY_FIELD, shouldAutoHideBatchDeleteJob, type CodexAccountNoteFieldErrors, type CodexAccountNoteFormState, type CodexAccountNoteMailPreviewSnapshot, type CodexAccountNoteMailPreviewState, type CodexBatchImportFilter, type CodexCliLaunchModalState, type CodexOverviewGeneralConfig, type CodexOverviewLayoutMode } from "./codexAccountsControllerModel";
+import { matchesCodexBatchImportQuota } from "../utils/codexBatchImportQueue";
 
 /** 封装 useCodexAccountsPageController 的 useCodexAccountsBaseController 业务域状态与动作。 */
 export function useCodexAccountsBaseController() {
@@ -59,7 +66,7 @@ export function useCodexAccountsBaseController() {
       useState<CodexWakeupTestOpenRequest | null>(null);
     const fullQuotaWakeupOpenSignalRef = useRef(0);
     const untaggedKey = "__untagged__";
-    const [filterTypes, setFilterTypes] = useState<string[]>(() =>
+    const [filterTypes, setFilterTypes] = useAccountsOverviewFilterState<string[]>(CODEX_FILTER_PERSISTENCE_SCOPE, FILTER_TYPES_FIELD, () =>
       readAccountsOverviewFilterPersistenceEnabled(CODEX_FILTER_PERSISTENCE_SCOPE)
         ? readAccountsOverviewFilterStringArray(
             CODEX_FILTER_PERSISTENCE_SCOPE,
@@ -99,7 +106,7 @@ export function useCodexAccountsBaseController() {
 
     // ─── Codex 账号分组 ────────────────────────────────────────────
     const [codexGroups, setCodexGroups] = useState<CodexAccountGroup[]>([]);
-    const [groupFilter, setGroupFilter] = useState<string[]>(() =>
+    const [groupFilter, setGroupFilter] = useAccountsOverviewFilterState<string[]>(CODEX_FILTER_PERSISTENCE_SCOPE, GROUP_FILTER_FIELD, () =>
       readAccountsOverviewFilterPersistenceEnabled(CODEX_FILTER_PERSISTENCE_SCOPE)
         ? readAccountsOverviewFilterStringArray(
             CODEX_FILTER_PERSISTENCE_SCOPE,
@@ -107,11 +114,9 @@ export function useCodexAccountsBaseController() {
           )
         : [],
     );
-    const [activeGroupId, setActiveGroupIdState] = useState<string | null>(() => {
-      return getActiveGroupTab("codex");
-    });
+    const [codexGroupsReady, setCodexGroupsReady] = useState(false);
+    const activeGroupId = useActiveGroupTab("codex", codexGroupsReady ? codexGroups : undefined);
     const setActiveGroupId = useCallback((groupId: string | null) => {
-      setActiveGroupIdState(groupId);
       setActiveGroupTab("codex", groupId);
     }, []);
     const [showCodexGroupModal, setShowCodexGroupModal] = useState(false);
@@ -186,7 +191,6 @@ export function useCodexAccountsBaseController() {
       string | null
     >(null);
     const [localAccessRefreshing, setLocalAccessRefreshing] = useState(false);
-    const [localAccessPortKilling, setLocalAccessPortKilling] = useState(false);
     const [localAccessSidecarRestarting, setLocalAccessSidecarRestarting] =
       useState(false);
     const [showLocalAccessHideConfirm, setShowLocalAccessHideConfirm] =
@@ -197,23 +201,17 @@ export function useCodexAccountsBaseController() {
       "baseUrl" | "apiKey" | null
     >(null);
     const [localAccessKeyVisible, setLocalAccessKeyVisible] = useState(false);
-    const [localAccessAddressKind, setLocalAccessAddressKind] =
-      useState<CodexLocalAccessAddressKind>(() =>
-        readStoredLocalAccessAddressKind(),
-      );
+    const localAccessAddressKind = normalizeLocalAccessAddressKind(
+      useDurableUiSetting(CODEX_LOCAL_ACCESS_ADDRESS_KIND_KEY),
+    );
+    const setLocalAccessAddressKind = persistLocalAccessAddressKind;
     const [localAccessEntryVisible, setLocalAccessEntryVisible] = useState(true);
     const [localAccessLaunchCurrent, setLocalAccessLaunchCurrent] =
       useState(false);
     const [showLocalAccessQuotaStatsModal, setShowLocalAccessQuotaStatsModal] =
       useState(false);
     const [localAccessDetailsExpanded, setLocalAccessDetailsExpanded] =
-      useState<boolean>(() => {
-        try {
-          return localStorage.getItem(CODEX_LOCAL_ACCESS_EXPANDED_KEY) === "1";
-        } catch {
-          return false;
-        }
-      });
+      useDurableUiBooleanSetting(CODEX_LOCAL_ACCESS_EXPANDED_KEY);
     const ensureLocalAccessEntryVisible = useCallback(async () => {
       if (localAccessEntryVisible) return;
       await invoke("set_codex_local_access_entry_visible", { enabled: true });
@@ -244,7 +242,6 @@ export function useCodexAccountsBaseController() {
       [ensureLocalAccessEntryVisible],
     );
 
-    const [codexGroupsReady, setCodexGroupsReady] = useState(false);
     const reloadCodexGroups = useCallback(async () => {
       // 分组文件也可能被导入流程直接改写，这里始终以磁盘为准。
       invalidateCodexGroupCache();
@@ -332,28 +329,11 @@ export function useCodexAccountsBaseController() {
         const next = prev.filter((id) => validIds.has(id));
         return next.length === prev.length ? prev : next;
       });
-      if (activeGroupId && !validIds.has(activeGroupId)) {
-        setActiveGroupId(null);
-      }
-    }, [activeGroupId, codexGroups, codexGroupsReady, setActiveGroupId]);
+    }, [codexGroups, codexGroupsReady]);
 
-    const [overviewLayoutMode, setOverviewLayoutMode] =
-      useState<CodexOverviewLayoutMode>(() => {
-        try {
-          const saved = normalizeCodexOverviewLayoutMode(
-            localStorage.getItem(CODEX_OVERVIEW_LAYOUT_MODE_KEY),
-          );
-          if (saved) return saved;
-          const legacy = normalizeCodexOverviewLayoutMode(
-            localStorage.getItem("agtools.codex.accounts_view_mode"),
-          );
-          if (legacy === "list" || legacy === "grid") return legacy;
-        } catch {
-          // ignore persistence failures
-        }
-        return "grid";
-      });
-    const [hideRelayQuota, setHideRelayQuota] = useState(false);
+    const overviewLayoutMode =
+      normalizeCodexOverviewLayoutMode(useDurableUiSetting(CODEX_OVERVIEW_LAYOUT_MODE_KEY)) ?? "grid";
+    const [hideRelayQuota, setHideRelayQuota] = useState(true);
     const store = useCodexAccountStore();
     const codexInstanceStore = useCodexInstanceStore();
     const [cliLaunchingAccountId, setCliLaunchingAccountId] = useState<
@@ -368,7 +348,6 @@ export function useCodexAccountsBaseController() {
       setCliLaunchModal(null);
       setCliLaunchingAccountId(null);
     }, []);
-    useEscClose(Boolean(cliLaunchModal), closeCliLaunchModal);
     const [cockpitApiPanelAccountId, setCockpitApiPanelAccountId] = useState<
       string | null
     >(null);
@@ -382,6 +361,7 @@ export function useCodexAccountsBaseController() {
       reauthorizeAccountId?: string;
       message: string;
     } | null>(null);
+    const [accountNotePausedForReauth, setAccountNotePausedForReauth] = useState(false);
     const [editingAccountNoteId, setEditingAccountNoteId] = useState<
       string | null
     >(null);
@@ -407,6 +387,7 @@ export function useCodexAccountsBaseController() {
     const [savingPendingOAuthAccount, setSavingPendingOAuthAccount] =
       useState(false);
     const [savedMfaRecords, setSavedMfaRecords] = useState<MfaRecord[]>([]);
+    useEffect(() => subscribeMfaVault(() => setSavedMfaRecords(loadSavedMfaRecords())), []);
     const [accountNoteMfaPickerOpen, setAccountNoteMfaPickerOpen] =
       useState(false);
     const [accountNoteMailPreview, setAccountNoteMailPreview] =
@@ -474,17 +455,7 @@ export function useCodexAccountsBaseController() {
         exportAccounts: codexService.exportCodexAccounts,
       },
       getDisplayEmail: (account): string => resolveCodexAccountDisplayName(account, page.t("common.apiKeyAccount")),
-      initialSearchQuery: readAccountsOverviewFilterPersistenceEnabled(
-        CODEX_FILTER_PERSISTENCE_SCOPE,
-      )
-        ? readAccountsOverviewFilterField(
-            CODEX_FILTER_PERSISTENCE_SCOPE,
-            SEARCH_QUERY_FIELD,
-            "",
-          )
-        : "",
-      // Prefer custom sort whenever the dedicated flag is set (#1123).
-      defaultSortBy: readCodexCustomSortActive() ? "custom" : undefined,
+      searchPersistenceField: SEARCH_QUERY_FIELD,
       onExternalImportCompleted: handleExternalImportedAccounts,
       disableEnterConfirmDelete: true,
     });
@@ -498,9 +469,7 @@ export function useCodexAccountsBaseController() {
       setViewMode,
       searchQuery,
       setSearchQuery,
-      filterPersistenceEnabled,
-      filterPersistenceScope,
-      sortBy,
+      sortBy: rememberedSortBy,
       setSortBy,
       sortDirection,
       setSortDirection,
@@ -564,6 +533,9 @@ export function useCodexAccountsBaseController() {
       normalizeTag,
       saveJsonFile,
     } = page;
+    const sortBy = resolveAccountSortMode(
+      rememberedSortBy, useDurableUiSetting(CODEX_CUSTOM_SORT_ACTIVE_KEY), "created_at",
+    );
     const [isAllFilteredSelected, setIsAllFilteredSelected] = useState(false);
 
     /** Clear every overview filter so the table matches the full account total. */
@@ -644,6 +616,7 @@ export function useCodexAccountsBaseController() {
     >([]);
     const [batchImportFilter, setBatchImportFilter] =
       useState<CodexBatchImportFilter>("all");
+    const [batchImportMinimumQuota, setBatchImportMinimumQuota] = useState(0);
     const [batchImportBusy, setBatchImportBusy] = useState(false);
     const [batchImportError, setBatchImportError] = useState<string | null>(null);
     const [batchImportResult, setBatchImportResult] =
@@ -805,6 +778,7 @@ export function useCodexAccountsBaseController() {
       setBatchImportPreview(null);
       setBatchImportSelectedIds([]);
       setBatchImportFilter("all");
+      setBatchImportMinimumQuota(0);
       setBatchImportBusy(false);
       setBatchImportError(null);
       setBatchImportResult(null);
@@ -895,20 +869,25 @@ export function useCodexAccountsBaseController() {
       };
     }, [batchImportPreview]);
 
+    const batchImportQuotaFilteredItems = useMemo(
+      () => (batchImportPreview?.items ?? []).filter((item) =>
+        matchesCodexBatchImportQuota(item, batchImportMinimumQuota),
+      ),
+      [batchImportPreview, batchImportMinimumQuota],
+    );
     const batchImportVisibleItems = useMemo(() => {
-      const items = batchImportPreview?.items ?? [];
       return batchImportFilter === "ready"
-        ? items.filter(
+        ? batchImportQuotaFilteredItems.filter(
             (item) => item.status === "ready" || item.status === "existing",
           )
-        : items;
-    }, [batchImportFilter, batchImportPreview]);
+        : batchImportQuotaFilteredItems;
+    }, [batchImportFilter, batchImportQuotaFilteredItems]);
     const batchImportSelectableIds = useMemo(
       () =>
-        (batchImportPreview?.items ?? [])
+        batchImportQuotaFilteredItems
           .filter((item) => item.selectable && item.status !== "invalid")
           .map((item) => item.itemId),
-      [batchImportPreview],
+      [batchImportQuotaFilteredItems],
     );
     const batchImportSelectableIdSet = useMemo(
       () => new Set(batchImportSelectableIds),
@@ -945,6 +924,7 @@ export function useCodexAccountsBaseController() {
         tab: string,
         targetAccount?: CodexAccount | null,
         options?: {
+          fromAccountNote?: boolean;
           retrySwitchAfterOAuth?: boolean;
           retrySwitchLaunchAfterSwitch?: boolean;
           retryInstanceLaunchAfterOAuth?: boolean;
@@ -952,6 +932,7 @@ export function useCodexAccountsBaseController() {
           retryOAuthBinding?: CodexOAuthBindingRetryDetail;
         },
       ) => {
+        setAccountNotePausedForReauth(options?.fromAccountNote ?? false);
         setReauthTargetAccount(targetAccount ?? null);
         setReauthRetrySwitchAccountId(
           targetAccount && options?.retrySwitchAfterOAuth
@@ -1073,73 +1054,6 @@ export function useCodexAccountsBaseController() {
       setPendingOAuthFieldErrors({});
       setPendingOAuthNoteModalOpen(false);
     }, [showAddModal]);
-
-    useEffect(() => {
-      if (!filterPersistenceEnabled) {
-        removeAccountsOverviewFilterField(
-          filterPersistenceScope,
-          SEARCH_QUERY_FIELD,
-        );
-        return;
-      }
-      writeAccountsOverviewFilterField(
-        filterPersistenceScope,
-        SEARCH_QUERY_FIELD,
-        searchQuery,
-      );
-    }, [filterPersistenceEnabled, filterPersistenceScope, searchQuery]);
-
-    useEffect(() => {
-      if (!filterPersistenceEnabled) {
-        removeAccountsOverviewFilterField(
-          filterPersistenceScope,
-          FILTER_TYPES_FIELD,
-        );
-        return;
-      }
-      writeAccountsOverviewFilterField(
-        filterPersistenceScope,
-        FILTER_TYPES_FIELD,
-        filterTypes,
-      );
-    }, [filterPersistenceEnabled, filterPersistenceScope, filterTypes]);
-
-    useEffect(() => {
-      removeAccountsOverviewFilterField(
-        filterPersistenceScope,
-        EXPIRY_FILTER_FIELD,
-      );
-    }, [filterPersistenceScope]);
-
-    useEffect(() => {
-      if (!filterPersistenceEnabled) {
-        removeAccountsOverviewFilterField(
-          filterPersistenceScope,
-          GROUP_FILTER_FIELD,
-        );
-        return;
-      }
-      writeAccountsOverviewFilterField(
-        filterPersistenceScope,
-        GROUP_FILTER_FIELD,
-        groupFilter,
-      );
-    }, [filterPersistenceEnabled, filterPersistenceScope, groupFilter]);
-
-    useEffect(() => {
-      if (!filterPersistenceEnabled) {
-        removeAccountsOverviewFilterField(
-          filterPersistenceScope,
-          ACTIVE_GROUP_ID_FIELD,
-        );
-        return;
-      }
-      writeAccountsOverviewFilterField(
-        filterPersistenceScope,
-        ACTIVE_GROUP_ID_FIELD,
-        activeGroupId,
-      );
-    }, [activeGroupId, filterPersistenceEnabled, filterPersistenceScope]);
 
     const reloadLocalAccessState = useCallback(async () => {
       const requestSeq = ++localAccessStateRequestSeqRef.current;
@@ -1274,17 +1188,6 @@ export function useCodexAccountsBaseController() {
     }, [reloadLocalAccessLaunchCurrent]);
 
     useEffect(() => {
-      try {
-        localStorage.setItem(
-          CODEX_LOCAL_ACCESS_EXPANDED_KEY,
-          localAccessDetailsExpanded ? "1" : "0",
-        );
-      } catch {
-        // ignore persistence failures
-      }
-    }, [localAccessDetailsExpanded]);
-
-    useEffect(() => {
       const handleConfigUpdated = () => {
         void reloadLocalAccessEntryVisibility();
         void reloadHideRelayQuota();
@@ -1300,41 +1203,13 @@ export function useCodexAccountsBaseController() {
       reloadLocalAccessLaunchCurrent,
     ]);
 
-    useEffect(() => {
-      const handleLocalAccessUpdated = () => {
-        void reloadLocalAccessState();
-        void reloadLocalAccessLaunchCurrent();
-      };
-      window.addEventListener(
-        "codex-local-access-state-updated",
-        handleLocalAccessUpdated,
-      );
-      return () => {
-        window.removeEventListener(
-          "codex-local-access-state-updated",
-          handleLocalAccessUpdated,
-        );
-      };
-    }, [reloadLocalAccessLaunchCurrent, reloadLocalAccessState]);
-
-    useEffect(() => {
-      let disposed = false;
-      let unlisten: (() => void) | null = null;
-      void listen("codex-local-access-state-updated", () => {
-        void reloadLocalAccessState();
-        void reloadLocalAccessLaunchCurrent();
-      }).then((dispose) => {
-        if (disposed) {
-          dispose();
-          return;
-        }
-        unlisten = dispose;
-      });
-      return () => {
-        disposed = true;
-        unlisten?.();
-      };
-    }, [reloadLocalAccessLaunchCurrent, reloadLocalAccessState]);
+    useEffect(
+      () => subscribeCodexLocalAccessStateUpdates(() => Promise.all([
+        reloadLocalAccessState(),
+        reloadLocalAccessLaunchCurrent(),
+      ])),
+      [reloadLocalAccessLaunchCurrent, reloadLocalAccessState],
+    );
 
     useEffect(() => {
       if (!localAccessEntryVisible) {
@@ -1836,17 +1711,9 @@ export function useCodexAccountsBaseController() {
       handleToggleExportJsonHidden,
     ]);
 
-    useEffect(() => {
-      try {
-        localStorage.setItem(CODEX_OVERVIEW_LAYOUT_MODE_KEY, overviewLayoutMode);
-      } catch {
-        // ignore persistence failures
-      }
-    }, [overviewLayoutMode]);
-
     const handleChangeOverviewLayoutMode = useCallback(
       (mode: CodexOverviewLayoutMode) => {
-        setOverviewLayoutMode(mode);
+        previewDurableUiSetting(CODEX_OVERVIEW_LAYOUT_MODE_KEY, mode);
         if (mode === "list" || mode === "grid") {
           setViewMode(mode);
         }
@@ -2158,6 +2025,20 @@ export function useCodexAccountsBaseController() {
       [loadResetCreditConfirmSnapshot, setResetCreditConfirmError],
     );
 
+    useEffect(() => {
+      const openRequestedDetails = () => {
+        const id = getPendingCodexResetCreditDetails();
+        const account = id ? accounts.find(account => account.id === id) : undefined;
+        if (!account) return;
+        clearPendingCodexResetCreditDetails();
+        setActiveTab('overview');
+        openResetCreditConfirmModal(account);
+      };
+      openRequestedDetails();
+      window.addEventListener(CODEX_RESET_CREDIT_DETAILS_REQUEST, openRequestedDetails);
+      return () => window.removeEventListener(CODEX_RESET_CREDIT_DETAILS_REQUEST, openRequestedDetails);
+    }, [accounts, openResetCreditConfirmModal]);
+
     const closeResetCreditConfirmModal = useCallback(() => {
       if (resettingResetCreditAccountId) return;
       resetCreditConfirmRequestSeqRef.current += 1;
@@ -2239,7 +2120,7 @@ export function useCodexAccountsBaseController() {
         accounts.find((account) => account.id === editingAccountNoteId) || null,
       [accounts, editingAccountNoteId],
     );
-    const activeAccountNoteMode = editingAccountNoteAccount
+    const activeAccountNoteMode = editingAccountNoteId
       ? "account"
       : pendingOAuthNoteModalOpen
         ? "pendingOAuth"
@@ -2270,6 +2151,17 @@ export function useCodexAccountsBaseController() {
       editingAccountNoteAccount &&
       isCodexOpaqueAccessTokenOnlyAccount(editingAccountNoteAccount),
     );
+
+    const reauthorizeAccountNoteEmail =
+      editingAccountNoteAccount &&
+      !isCodexApiKeyAccount(editingAccountNoteAccount) &&
+      !isCodexChatgptPlanAccount(editingAccountNoteAccount) &&
+      !isCodexAgentIdentityAccount(editingAccountNoteAccount) &&
+      !isCodexWebSessionAccount(editingAccountNoteAccount) &&
+      !isCodexPendingOAuthAccount(editingAccountNoteAccount) &&
+      !activeAccountUsesPersonalAccessToken
+        ? () => openCodexAddModal("oauth", editingAccountNoteAccount, { fromAccountNote: true })
+        : null;
 
     const refreshSavedMfaRecords = useCallback(() => {
       setSavedMfaRecords(loadSavedMfaRecords());
@@ -2396,10 +2288,15 @@ export function useCodexAccountsBaseController() {
       [activeAccountNoteMode, resetAccountNoteMailPreview, setAccountNoteError],
     );
 
+    const { status: accountNoteReadStatus, start: loadAccountNote, reset: resetAccountNoteRead, retry: retryAccountNoteRead } = useAccountFormLoad();
     const openAccountNoteModal = useCallback(
-      (account: CodexAccount) => {
-        setEditingAccountNoteId(account.id);
-        setEditingAccountNoteForm(buildCodexAccountNoteForm(account));
+      (snapshot: CodexAccount) => {
+        setAccountNotePausedForReauth(false);
+        if (accountNotePausedForReauth && editingAccountNoteId === snapshot.id) {
+          return;
+        }
+        setEditingAccountNoteId(snapshot.id);
+        setEditingAccountNoteForm(EMPTY_CODEX_ACCOUNT_NOTE_FORM);
         setPendingOAuthNoteModalOpen(false);
         setAccountNoteFieldErrors({});
         setAccountNoteSecretVisible(true);
@@ -2409,17 +2306,27 @@ export function useCodexAccountsBaseController() {
         resetAccountNoteMailPreview();
         refreshSavedMfaRecords();
         setAccountNoteError(null);
-        void fetchAccountNoteMailPreviewForUrl(account.mail_url ?? "");
+        loadAccountNote(() => readCodexAccountForEditing(snapshot), account => {
+          setEditingAccountNoteForm(buildCodexAccountNoteForm(account));
+          void fetchAccountNoteMailPreviewForUrl(account.mail_url ?? "");
+        }, error => setAccountNoteError(error ? t('messages.actionFailed', {
+          action: t('codex.accountNote.short'), error: String(error),
+        }) : null));
       },
       [
+        accountNotePausedForReauth,
+        editingAccountNoteId,
         fetchAccountNoteMailPreviewForUrl,
+        loadAccountNote,
         refreshSavedMfaRecords,
         resetAccountNoteMailPreview,
         setAccountNoteError,
+        t,
       ],
     );
 
     const openPendingOAuthNoteModal = useCallback(() => {
+      resetAccountNoteRead();
       setPendingOAuthNoteModalOpen(true);
       setEditingAccountNoteId(null);
       setAccountNoteFieldErrors({});
@@ -2436,11 +2343,14 @@ export function useCodexAccountsBaseController() {
       pendingOAuthNoteForm.mailUrl,
       refreshSavedMfaRecords,
       resetAccountNoteMailPreview,
+      resetAccountNoteRead,
       setAccountNoteError,
     ]);
 
     const closeAccountNoteModal = useCallback(() => {
       if (savingAccountNote || savingPendingOAuthAccount) return;
+      setAccountNotePausedForReauth(false);
+      resetAccountNoteRead();
       rememberActiveAccountNoteMfaQuery();
       setEditingAccountNoteId(null);
       setEditingAccountNoteForm(EMPTY_CODEX_ACCOUNT_NOTE_FORM);
@@ -2454,6 +2364,7 @@ export function useCodexAccountsBaseController() {
       setAccountNoteError(null);
     }, [
       resetAccountNoteMailPreview,
+      resetAccountNoteRead,
       rememberActiveAccountNoteMfaQuery,
       savingAccountNote,
       savingPendingOAuthAccount,
@@ -2461,7 +2372,7 @@ export function useCodexAccountsBaseController() {
     ]);
 
     const handleSubmitAccountNote = useCallback(async () => {
-      if (!activeAccountNoteMode || activeAccountNoteSaving) return;
+      if (!activeAccountNoteMode || activeAccountNoteSaving || accountNoteReadStatus !== 'ready') return;
       setSavingAccountNote(true);
       setAccountNoteError(null);
       setAccountNoteFieldErrors({});
@@ -2494,16 +2405,14 @@ export function useCodexAccountsBaseController() {
 
         if (normalizedTwoFactorSecret) {
           rememberActiveAccountNoteMfaQuery();
-          setSavedMfaRecords(
-            upsertSavedMfaRecord({
-              secret: normalizedTwoFactorSecret,
-              accountName:
-                activeAccountNoteDisplayName ||
-                parsedTwoFactorSecret?.accountName ||
-                null,
-              remark: activeAccountNoteForm.note,
-            }),
-          );
+          void upsertSavedMfaRecord({
+            secret: normalizedTwoFactorSecret,
+            accountName:
+              activeAccountNoteDisplayName ||
+              parsedTwoFactorSecret?.accountName ||
+              null,
+            remark: activeAccountNoteForm.note,
+          }).then(setSavedMfaRecords);
         }
 
         if (activeAccountNoteMode === "pendingOAuth") {
@@ -2541,6 +2450,7 @@ export function useCodexAccountsBaseController() {
         setSavingAccountNote(false);
       }
     }, [
+      accountNoteReadStatus,
       activeAccountNoteDisplayName,
       activeAccountNoteForm,
       activeAccountNoteMode,
@@ -2632,6 +2542,8 @@ export function useCodexAccountsBaseController() {
     accountNoteCopiedKey,
     accountNoteError,
     accountNoteErrorScrollKey,
+    accountNoteReadStatus,
+    retryAccountNoteRead,
     accountNoteFieldErrors,
     accountNoteMailPreview,
     accountNoteMailPreviewError,
@@ -2642,6 +2554,8 @@ export function useCodexAccountsBaseController() {
     accounts,
     activeAccountNoteDisplayName,
     activeAccountNoteEmail,
+    accountNotePausedForReauth,
+    reauthorizeAccountNoteEmail,
     activeAccountNoteForm,
     activeAccountNoteMode,
     activeAccountNoteOtpToken,
@@ -2668,6 +2582,7 @@ export function useCodexAccountsBaseController() {
     batchImportCounts,
     batchImportError,
     batchImportFilePaths,
+    batchImportMinimumQuota,
     batchImportOpen,
     batchImportPreview,
     batchImportProgress,
@@ -2791,7 +2706,6 @@ export function useCodexAccountsBaseController() {
     localAccessKeyVisible,
     localAccessLaunchCurrent,
     localAccessModalMode,
-    localAccessPortKilling,
     localAccessRefreshing,
     localAccessSaving,
     localAccessSidecarRestarting,
@@ -2870,6 +2784,7 @@ export function useCodexAccountsBaseController() {
     setBatchImportError,
     setBatchImportFilePaths,
     setBatchImportFilter,
+    setBatchImportMinimumQuota,
     setBatchImportOpen,
     setBatchImportPreview,
     setBatchImportProgress,
@@ -2904,7 +2819,6 @@ export function useCodexAccountsBaseController() {
     setLocalAccessKeyVisible,
     setLocalAccessLaunchCurrent,
     setLocalAccessModalMode,
-    setLocalAccessPortKilling,
     setLocalAccessRefreshing,
     setLocalAccessSaving,
     setLocalAccessSidecarRestarting,

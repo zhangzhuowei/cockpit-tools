@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { LOCAL_HISTORY_TIMEOUT, useLocalHistory, type LocalHistoryRead } from '../hooks/useLocalHistory';
 import { confirm as confirmDialog } from '@tauri-apps/plugin-dialog';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { ChevronLeft, Plus, Pencil, Trash2, Power, X } from 'lucide-react';
+import { Plus, Pencil, Trash2, Power, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { SingleSelectDropdown } from '../components/SingleSelectDropdown';
+import { getAntigravityTierBadge } from '../utils/account';
 import { useAccountStore } from '../stores/useAccountStore';
 import { Page } from '../types/navigation';
 import { MultiSelectFilterDropdown, type MultiSelectFilterOption } from '../components/MultiSelectFilterDropdown';
@@ -31,21 +34,22 @@ import {
   maskSensitiveValue,
   PRIVACY_MODE_CHANGED_EVENT,
 } from '../utils/privacy';
-import {
-  loadWakeupOfficialLsVersionMode,
-  saveWakeupOfficialLsVersionMode,
-  WAKEUP_OFFICIAL_LS_VERSION_CHANGED_EVENT,
-  type WakeupOfficialLsVersionMode,
-} from '../utils/wakeupOfficialLsVersion';
+import { formatWakeupRuntimeError } from '../utils/wakeupRuntimeError';
 import { ModalErrorMessage, useModalErrorState } from '../components/ModalErrorMessage';
 import { useEscClose } from '../hooks/useEscClose';
 import { OverviewTabsHeader } from '../components/OverviewTabsHeader';
 import { useAntigravityRuntimeTarget } from '../hooks/useAntigravityRuntimeTarget';
+import {
+  loadAntigravityWakeupState,
+  saveAntigravityWakeupState,
+  WAKEUP_TASKS_UPDATED,
+  type AntigravityWakeupState,
+  type RepeatMode,
+  type ScheduleConfig,
+  type WakeupTask,
+  type WakeupTransportMode,
+} from '../services/antigravityWakeupStateService';
 
-const TASKS_STORAGE_KEY = 'agtools.wakeup.tasks';
-const WAKEUP_ENABLED_KEY = 'agtools.wakeup.enabled';
-const WAKEUP_FORCE_DISABLE_MIGRATION_KEY = 'agtools.wakeup.migration.force_disable_0_8_14';
-const LEGACY_SCHEDULE_KEY = 'agtools.wakeup.schedule';
 const MAX_HISTORY_ITEMS = 100;
 const WAKEUP_ERROR_JSON_PREFIX = 'AG_WAKEUP_ERROR_JSON:';
 const APP_PATH_NOT_FOUND_PREFIX = 'APP_PATH_NOT_FOUND:';
@@ -77,7 +81,6 @@ type Translator = (key: string, options?: Record<string, unknown>) => string;
 const getReadableModelLabel = (id: string) => getAntigravityModelDisplayName(id);
 
 type TriggerMode = 'scheduled' | 'crontab' | 'quota_reset' | 'startup';
-type RepeatMode = 'daily' | 'weekly' | 'interval';
 
 type TriggerSource = 'scheduled' | 'crontab' | 'quota_reset' | 'startup';
 type HistoryTriggerSource = TriggerSource | 'manual';
@@ -90,38 +93,6 @@ interface WakeupPageProps {
 }
 
 type AvailableModel = AntigravityModelOption;
-
-interface ScheduleConfig {
-  repeatMode: RepeatMode;
-  dailyTimes: string[];
-  weeklyDays: number[];
-  weeklyTimes: string[];
-  intervalHours: number;
-  intervalStartTime: string;
-  intervalEndTime: string;
-  selectedModels: string[];
-  selectedAccounts: string[];
-  crontab?: string;
-  wakeOnReset?: boolean;
-  customPrompt?: string;
-  maxOutputTokens?: number;
-  timeWindowEnabled?: boolean;
-  timeWindowStart?: string;
-  timeWindowEnd?: string;
-  fallbackTimes?: string[];
-  startupDelayMinutes?: number;
-}
-
-interface WakeupTask {
-  id: string;
-  name: string;
-  enabled: boolean;
-  createdAt: number;
-  lastRunAt?: number;
-  schedule: ScheduleConfig;
-  execution_mode?: 'auto' | 'confirm';
-  confirm_timeout_minutes?: number;
-}
 
 interface WakeupGeneralConfig {
   language?: string;
@@ -199,6 +170,7 @@ interface WakeupInvokeResult {
 interface WakeupTaskResultPayload {
   taskId: string;
   lastRunAt: number;
+  persisted?: boolean;
   records: WakeupHistoryRecord[];
 }
 
@@ -250,53 +222,14 @@ const normalizeSchedule = (schedule: ScheduleConfig): ScheduleConfig => {
 
 const normalizeTask = (task: WakeupTask): WakeupTask => ({
   ...task,
+  execution_mode: task.executionMode ?? task.execution_mode ?? task.schedule.executionMode,
+  confirm_timeout_minutes:
+    task.confirmTimeoutMinutes ?? task.confirm_timeout_minutes ?? task.schedule.confirmTimeoutMinutes,
   schedule: normalizeSchedule({ ...DEFAULT_SCHEDULE, ...task.schedule }),
 });
 
-const parseTasks = (raw: string | null): WakeupTask[] => {
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw) as WakeupTask[];
-    return parsed.map((task) => normalizeTask(task));
-  } catch {
-    return [];
-  }
-};
-
-const loadTasks = (defaultTaskName: string): WakeupTask[] => {
-  const rawTasks = localStorage.getItem(TASKS_STORAGE_KEY);
-  if (rawTasks) return parseTasks(rawTasks);
-
-  const legacyRaw = localStorage.getItem(LEGACY_SCHEDULE_KEY);
-  if (!legacyRaw) return [];
-  try {
-    const legacySchedule = JSON.parse(legacyRaw) as Partial<ScheduleConfig> & { enabled?: boolean };
-    const task: WakeupTask = {
-      id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
-      name: defaultTaskName,
-      enabled: legacySchedule.enabled ?? false,
-      createdAt: Date.now(),
-      schedule: normalizeSchedule({ ...DEFAULT_SCHEDULE, ...legacySchedule }),
-    };
-    return [task];
-  } catch {
-    return [];
-  }
-};
-
-const loadHistory = async (): Promise<WakeupHistoryRecord[]> => {
-  try {
-    const records = await invoke<WakeupHistoryRecord[]>('wakeup_load_history');
-    if (!Array.isArray(records)) return [];
-    return records
-      .filter((item) => item && typeof item.timestamp === 'number')
-      .sort((a, b) => b.timestamp - a.timestamp)
-      .slice(0, MAX_HISTORY_ITEMS);
-  } catch (error) {
-    console.error('加载唤醒历史失败:', error);
-    return [];
-  }
-};
+const loadHistory = (retry: boolean): Promise<LocalHistoryRead<WakeupHistoryRecord>> =>
+  invoke('wakeup_load_history', { retry });
 
 const formatErrorMessage = (error: unknown) => {
   if (error instanceof Error) return error.message;
@@ -357,8 +290,7 @@ const parseTimeToMinutes = (value: string | undefined, fallbackMinutes: number) 
   return hour * 60 + minute;
 };
 
-const calculateNextRuns = (config: ScheduleConfig, count: number) => {
-  const now = new Date();
+const calculateNextRuns = (config: ScheduleConfig, count: number, now = new Date()) => {
   const results: Date[] = [];
 
   if (config.repeatMode === 'daily' && config.dailyTimes?.length) {
@@ -592,11 +524,11 @@ const isCrontabMatch = (parsed: ParsedCrontab, date: Date): boolean => {
   return dayOfMonthMatch || dayOfWeekMatch;
 };
 
-const calculateCrontabNextRuns = (crontab: string, count: number) => {
+const calculateCrontabNextRuns = (crontab: string, count: number, now = new Date()) => {
   try {
     const parsed = parseCrontabExpression(crontab);
     const results: Date[] = [];
-    const candidate = new Date();
+    const candidate = new Date(now);
     candidate.setSeconds(0, 0);
     candidate.setMinutes(candidate.getMinutes() + 1);
 
@@ -663,26 +595,47 @@ const getTriggerMode = (task: WakeupTask): TriggerMode => {
   return 'scheduled';
 };
 
+const buildWakeupTaskQueue = (tasks: WakeupTask[], now = new Date()) =>
+  tasks.map((task) => {
+    const mode = getTriggerMode(task);
+    const nextRun = mode === 'scheduled'
+      ? calculateNextRuns(task.schedule, 1, now)[0]
+      : mode === 'crontab' && task.schedule.crontab
+        ? calculateCrontabNextRuns(task.schedule.crontab, 1, now)[0]
+        : undefined;
+    return { task, mode, nextRun };
+  }).sort((left, right) =>
+    Number(right.task.enabled) - Number(left.task.enabled)
+    || (left.nextRun?.getTime() ?? Number.MAX_SAFE_INTEGER) - (right.nextRun?.getTime() ?? Number.MAX_SAFE_INTEGER),
+  );
+
 export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
   const { t, i18n } = useTranslation();
   const antigravityRuntimeTarget = useAntigravityRuntimeTarget();
   const { accounts, currentAccountsByTarget, fetchAccounts, fetchCurrentAccount } = useAccountStore();
   const currentAccount = currentAccountsByTarget[antigravityRuntimeTarget] ?? null;
   const locale = i18n.language || 'zh-CN';
-  const [tasks, setTasks] = useState<WakeupTask[]>(() => loadTasks(t('wakeup.defaultTaskName')));
-  const [wakeupEnabled, setWakeupEnabled] = useState(() => {
-    if (localStorage.getItem(WAKEUP_FORCE_DISABLE_MIGRATION_KEY) !== '1') {
-      localStorage.setItem(WAKEUP_ENABLED_KEY, 'false');
-      localStorage.setItem(WAKEUP_FORCE_DISABLE_MIGRATION_KEY, '1');
-      return false;
-    }
-    const raw = localStorage.getItem(WAKEUP_ENABLED_KEY);
-    return raw ? raw === 'true' : false;
-  });
+  const [tasks, setTasks] = useState<WakeupTask[]>([]);
+  const [wakeupEnabled, setWakeupEnabled] = useState(false);
+  const [rulesLoading, setRulesLoading] = useState(true);
+  const [savingTask, setSavingTask] = useState(false);
+  const rulesRef = useRef<AntigravityWakeupState | null>(null);
+  const rulesQueue = useRef<Promise<void>>(Promise.resolve());
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [notice, setNotice] = useState<{ text: string; tone?: NoticeTone } | null>(null);
-  const [historyRecords, setHistoryRecords] = useState<WakeupHistoryRecord[]>([]);
+  const {
+    records: committedHistory, loading: historyLoading, error: historyReadError,
+    migrationPending: historyMigrating, refresh: refreshHistory, cleared: clearVisibleHistory,
+  } = useLocalHistory(loadHistory);
+  const [unsavedHistory, setUnsavedHistory] = useState<WakeupHistoryRecord[]>([]);
+  const [historyClearError, setHistoryClearError] = useState<string | null>(null);
+  const historyRecords = useMemo(() => {
+    if (unsavedHistory.length === 0) return committedHistory;
+    const savedIds = new Set(committedHistory.map(record => record.id));
+    return [...unsavedHistory.filter(record => !savedIds.has(record.id)), ...committedHistory]
+      .sort((a, b) => b.timestamp - a.timestamp).slice(0, MAX_HISTORY_ITEMS);
+  }, [committedHistory, unsavedHistory]);
   const [testing, setTesting] = useState(false);
   const [showTestModal, setShowTestModal] = useState(false);
   const {
@@ -710,6 +663,7 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
   const [formIntervalStart, setFormIntervalStart] = useState('07:00');
   const [formIntervalEnd, setFormIntervalEnd] = useState('22:00');
   const [formSelectedModels, setFormSelectedModels] = useState<string[]>([]);
+  const [formTransportMode, setFormTransportMode] = useState<WakeupTransportMode>('language_server');
   const [formSelectedAccounts, setFormSelectedAccounts] = useState<string[]>([]);
   const [formCustomPrompt, setFormCustomPrompt] = useState('');
   const [formMaxOutputTokens, setFormMaxOutputTokens] = useState(0);
@@ -728,6 +682,7 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
     clear: clearFormError,
   } = useModalErrorState('');
   const [formTimeWindowEnabled, setFormTimeWindowEnabled] = useState(false);
+  const [formWeeklyResetOnly, setFormWeeklyResetOnly] = useState(false);
   const [formTimeWindowStart, setFormTimeWindowStart] = useState('09:00');
   const [formTimeWindowEnd, setFormTimeWindowEnd] = useState('18:00');
   const [formFallbackTimes, setFormFallbackTimes] = useState<string[]>(['07:00']);
@@ -735,6 +690,7 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
   const [customWeeklyTime, setCustomWeeklyTime] = useState('');
   const [customFallbackTime, setCustomFallbackTime] = useState('');
   const [testSelectedModels, setTestSelectedModels] = useState<string[]>([]);
+  const [testTransportMode, setTestTransportMode] = useState<WakeupTransportMode>('language_server');
   const [testSelectedAccounts, setTestSelectedAccounts] = useState<string[]>([]);
   const [testCustomPrompt, setTestCustomPrompt] = useState('');
   const [testMaxOutputTokens, setTestMaxOutputTokens] = useState(0);
@@ -747,11 +703,50 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
   const [formTypeFilter, setFormTypeFilter] = useState<AccountFilterType[]>([]);
   const [formTagFilter, setFormTagFilter] = useState<string[]>([]);
   const [formGroupFilter, setFormGroupFilter] = useState<string[]>([]);
-  const [officialLsVersionMode, setOfficialLsVersionMode] = useState<WakeupOfficialLsVersionMode>(
-    () => loadWakeupOfficialLsVersionMode(),
-  );
 
   const tasksRef = useRef(tasks);
+
+  const applyRules = useCallback((loaded: AntigravityWakeupState) => {
+    const current = rulesRef.current;
+    if (current && loaded.rulesRevision < current.rulesRevision) return;
+    const currentRuns = current && loaded.rulesRevision === current.rulesRevision
+      ? new Map(current.tasks.map((task) => [task.id, task.lastRunAt]))
+      : new Map<string, number | undefined>();
+    const tasks = loaded.tasks.map((task) => {
+      const lastRunAt = currentRuns.get(task.id);
+      return normalizeTask(lastRunAt && lastRunAt > (task.lastRunAt ?? 0) ? { ...task, lastRunAt } : task);
+    });
+    rulesRef.current = { ...loaded, tasks };
+    tasksRef.current = tasks;
+    setTasks(tasks);
+    setWakeupEnabled(loaded.enabled);
+  }, []);
+
+  const updateRules = useCallback((
+    change: (current: AntigravityWakeupState) => AntigravityWakeupState,
+  ): Promise<void> => {
+    const write = rulesQueue.current.then(async () => {
+      const current = rulesRef.current ?? await loadAntigravityWakeupState();
+      const next = change(current);
+      if (next === current) return;
+      // Emit only canonical camelCase fields. Older WebView data is accepted
+      // by the native initializer through serde aliases.
+      const tasks = next.tasks.map(({ execution_mode, confirm_timeout_minutes, ...task }) => ({
+        ...task,
+        executionMode: execution_mode ?? task.executionMode,
+        confirmTimeoutMinutes: confirm_timeout_minutes ?? task.confirmTimeoutMinutes,
+      }));
+      applyRules(await saveAntigravityWakeupState(
+        next.enabled, tasks, current.rulesRevision,
+      ));
+    });
+    rulesQueue.current = write.catch(() => {});
+    return write;
+  }, [applyRules]);
+
+  const reportRulesSaveError = useCallback((error: unknown) => {
+    setNotice({ text: t('wakeup.notice.stateSaveFailed', { error: formatErrorMessage(error) }), tone: 'error' });
+  }, [t]);
   const wakeupEnabledRef = useRef(wakeupEnabled);
   const activeTestRunTokenRef = useRef(0);
   const activeTestScopeIdRef = useRef<string | null>(null);
@@ -998,14 +993,6 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
     (value?: string | null) => maskSensitiveValue(value, privacyModeEnabled),
     [privacyModeEnabled],
   );
-  const handleOfficialLsVersionModeChange = useCallback((value: string) => {
-    const nextMode =
-      value === 'lt_1_21_6'
-        ? 'lt_1_21_6'
-        : 'gte_1_21_6';
-    setOfficialLsVersionMode(nextMode);
-    saveWakeupOfficialLsVersionMode(nextMode);
-  }, []);
 
   useEffect(() => {
     tasksRef.current = tasks;
@@ -1023,33 +1010,6 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
     fetchAccounts();
     fetchCurrentAccount(antigravityRuntimeTarget);
   }, [antigravityRuntimeTarget, fetchAccounts, fetchCurrentAccount]);
-
-  useEffect(() => {
-    const syncMode = () => {
-      setOfficialLsVersionMode(loadWakeupOfficialLsVersionMode());
-    };
-    const handleModeChanged = (event: Event) => {
-      const detail = (event as CustomEvent<WakeupOfficialLsVersionMode>).detail;
-      if (detail === 'lt_1_21_6' || detail === 'gte_1_21_6') {
-        setOfficialLsVersionMode(detail);
-        return;
-      }
-      syncMode();
-    };
-
-    window.addEventListener(
-      WAKEUP_OFFICIAL_LS_VERSION_CHANGED_EVENT,
-      handleModeChanged as EventListener,
-    );
-    window.addEventListener('focus', syncMode);
-    return () => {
-      window.removeEventListener(
-        WAKEUP_OFFICIAL_LS_VERSION_CHANGED_EVENT,
-        handleModeChanged as EventListener,
-      );
-      window.removeEventListener('focus', syncMode);
-    };
-  }, []);
 
   useEffect(() => {
     if (!showModal && !showTestModal) return;
@@ -1072,31 +1032,25 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
   }, [showModal, showTestModal]);
 
   useEffect(() => {
-    localStorage.setItem(TASKS_STORAGE_KEY, JSON.stringify(tasks));
-    // 触发事件通知设置页面
-    window.dispatchEvent(new Event('wakeup-tasks-updated'));
-  }, [tasks]);
-
-  useEffect(() => {
-    localStorage.setItem(WAKEUP_ENABLED_KEY, String(wakeupEnabled));
-  }, [wakeupEnabled]);
-
-  // 唤醒历史现在由后端存储，组件加载时异步加载
-  useEffect(() => {
-    loadHistory().then(setHistoryRecords);
-  }, []);
-
-  useEffect(() => {
-    invoke('set_wakeup_override', { enabled: wakeupEnabled }).catch((error) => {
-      console.error('唤醒互斥通知失败:', error);
-    });
-  }, [wakeupEnabled]);
-
-  useEffect(() => {
-    invoke('wakeup_set_official_ls_version_mode', { mode: officialLsVersionMode }).catch((error) => {
-      console.error('同步官方 LS 版本模式失败:', error);
-    });
-  }, [officialLsVersionMode]);
+    let disposed = false;
+    const reload = () => {
+      void loadAntigravityWakeupState().then((loaded) => {
+        if (!disposed) applyRules(loaded);
+      }).catch((error) => {
+        if (!disposed) {
+          setNotice({ text: t('wakeup.notice.stateLoadFailed', { error: formatErrorMessage(error) }), tone: 'error' });
+        }
+      }).finally(() => {
+        if (!disposed) setRulesLoading(false);
+      });
+    };
+    reload();
+    window.addEventListener(WAKEUP_TASKS_UPDATED, reload);
+    return () => {
+      disposed = true;
+      window.removeEventListener(WAKEUP_TASKS_UPDATED, reload);
+    };
+  }, [applyRules, t]);
 
   useEffect(() => {
     const validGroupIds = new Set(accountGroups.map((group) => group.id));
@@ -1131,23 +1085,20 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
   }, []);
 
   useEffect(() => {
-    invoke('wakeup_sync_state', {
-      enabled: wakeupEnabled,
-      tasks,
-      officialLsVersionMode,
-    }).catch((error) => {
-      console.error('[WakeupTasks] 同步唤醒任务状态失败:', error);
-    });
-  }, [officialLsVersionMode, tasks, wakeupEnabled]);
-
-  useEffect(() => {
     const handleTaskResult = (event: Event) => {
       const custom = event as CustomEvent<WakeupTaskResultPayload>;
       if (!custom.detail) return;
-      const { taskId, lastRunAt, records } = custom.detail;
-      setTasks((prev) => prev.map((task) => (task.id === taskId ? { ...task, lastRunAt } : task)));
+      const { taskId, lastRunAt, records, persisted } = custom.detail;
+      if (persisted !== false && rulesRef.current) {
+        applyRules({
+          ...rulesRef.current,
+          tasks: rulesRef.current.tasks.map((task) =>
+            task.id === taskId ? { ...task, lastRunAt } : task
+          ),
+        });
+      }
       if (records?.length) {
-        loadHistory().then(setHistoryRecords);
+        refreshHistory();
       }
     };
 
@@ -1155,7 +1106,7 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
     return () => {
       window.removeEventListener('wakeup-task-result', handleTaskResult as EventListener);
     };
-  }, []);
+  }, [applyRules, refreshHistory]);
 
   useEffect(() => {
     const loadModels = async () => {
@@ -1224,9 +1175,12 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
     });
 
     if (changed) {
-      setTasks(nextTasks);
+      void updateRules((current) => current.tasks === tasks
+        ? { ...current, tasks: nextTasks }
+        : current
+      ).catch(reportRulesSaveError);
     }
-  }, [tasks, accountEmails, filteredModels]);
+  }, [tasks, accountEmails, filteredModels, updateRules, reportRulesSaveError]);
 
   useEffect(() => {
     if (filteredModels.length === 0) {
@@ -1268,7 +1222,7 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
 
   function appendHistoryRecords(records: WakeupHistoryRecord[]) {
     if (records.length === 0) return;
-    setHistoryRecords((prev) => {
+    setUnsavedHistory((prev) => {
       const next = [...records, ...prev];
       next.sort((a, b) => b.timestamp - a.timestamp);
       return next.slice(0, MAX_HISTORY_ITEMS);
@@ -1276,11 +1230,13 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
   }
 
   const clearHistoryRecords = async () => {
+    setHistoryClearError(null);
     try {
       await invoke('wakeup_clear_history');
-      setHistoryRecords([]);
+      setUnsavedHistory([]);
+      clearVisibleHistory();
     } catch (error) {
-      console.error('清空唤醒历史失败:', error);
+      setHistoryClearError(String(error));
     }
   };
 
@@ -1312,35 +1268,6 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
     }
   };
 
-  const ensureWakeupRuntimeReady = async (options?: { reportToTestModal?: boolean }): Promise<boolean> => {
-    try {
-      await invoke('wakeup_ensure_runtime_ready', { officialLsVersionMode });
-      return true;
-    } catch (error) {
-      const message = formatErrorMessage(error);
-      if (isAntigravityPathMissingError(message)) {
-        window.dispatchEvent(
-          new CustomEvent('app-path-missing', {
-            detail: { app: 'antigravity', retry: { kind: 'default' } },
-          }),
-        );
-        const pathErrorText = t('appPath.modal.desc', { app: 'Antigravity IDE' });
-        if (options?.reportToTestModal) {
-          reportTestModalError(pathErrorText);
-        } else {
-          setNotice({ text: pathErrorText, tone: 'warning' });
-        }
-        return false;
-      }
-      if (options?.reportToTestModal) {
-        reportTestModalError(message);
-      } else {
-        setNotice({ text: message, tone: 'error' });
-      }
-      return false;
-    }
-  };
-
   const buildWakeupDebugText = (payload: WakeupStructuredErrorPayload, record: WakeupHistoryRecord) => {
     const lines: string[] = [];
     if (payload.trajectoryId) lines.push(`Trajectory ID: ${payload.trajectoryId}`);
@@ -1361,7 +1288,7 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
     const payload = parseWakeupStructuredError(rawMessage);
     const plainText = getWakeupErrorDisplayText(rawMessage);
     if (!payload || record.success) {
-      return plainText;
+      return record.success ? plainText : formatWakeupRuntimeError(plainText, t);
     }
 
     const kind = payload.kind || 'generic';
@@ -1435,7 +1362,7 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
   };
 
   const runImmediateTest = async () => {
-    if (testing) return;
+    if (activeTestScopeIdRef.current) return;
     clearTestModalError();
     const models = testSelectedModels;
     if (models.length === 0) {
@@ -1445,11 +1372,6 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
     const selectedAccounts = resolveAccounts(testSelectedAccounts);
     if (selectedAccounts.length === 0) {
       reportTestModalError(t('wakeup.notice.testMissingAccount'));
-      return;
-    }
-
-    const runtimeReady = await ensureWakeupRuntimeReady({ reportToTestModal: true });
-    if (!runtimeReady) {
       return;
     }
 
@@ -1483,7 +1405,7 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
             prompt: trimmedPrompt,
             maxOutputTokens: resolvedMaxTokens,
             cancelScopeId,
-            officialLsVersionMode,
+            transportMode: testTransportMode,
           }),
         });
       });
@@ -1530,11 +1452,7 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
           if (activeTestRunTokenRef.current !== runToken) {
             return;
           }
-          const latest = await loadHistory();
-          if (activeTestRunTokenRef.current !== runToken) {
-            return;
-          }
-          setHistoryRecords(latest);
+          refreshHistory();
         } catch (error) {
           console.error('写入唤醒历史失败:', error);
           if (activeTestRunTokenRef.current !== runToken) {
@@ -1547,7 +1465,13 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
         return;
       }
       if (failed.length > 0) {
-        reportTestModalError(t('wakeup.notice.testFailed', { count: failed.length }));
+        const reason = formatErrorMessage(failed[0].reason);
+        const runtimeError = isAntigravityPathMissingError(reason)
+          ? t('appPath.modal.desc', { app: 'Antigravity IDE' })
+          : formatWakeupRuntimeError(reason, t);
+        reportTestModalError(
+          runtimeError !== reason ? runtimeError : t('wakeup.notice.testFailed', { count: failed.length }),
+        );
       } else {
         clearTestModalError();
         setShowTestModal(false);
@@ -1574,7 +1498,7 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
       return `${t('wakeup.triggerSource.startup')} +${schedule.startupDelayMinutes}${t('settings.general.minutes')}`;
     }
     if (schedule.wakeOnReset) {
-      return t('wakeup.format.quotaReset');
+      return t(schedule.weeklyResetOnly ? 'wakeup.form.weeklyQuotaResetOnly' : 'wakeup.format.quotaReset');
     }
     if (schedule.crontab) {
       return t('wakeup.format.crontab', { expr: schedule.crontab });
@@ -1601,8 +1525,7 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
     });
   };
 
-  const getNextRunLabel = (task: WakeupTask) => {
-    const mode = getTriggerMode(task);
+  const getNextRunLabel = (task: WakeupTask, mode: TriggerMode, nextRun: Date | undefined) => {
     if (mode === 'startup') {
       const delayMinutes = normalizeStartupDelayMinutes(task.schedule.startupDelayMinutes) ?? 0;
       if (delayMinutes <= 0) {
@@ -1610,23 +1533,12 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
       }
       return `${t('wakeup.triggerSource.startup')} +${delayMinutes}${t('settings.general.minutes')}`;
     }
-    if (mode === 'quota_reset') return t('wakeup.format.none');
-    if (mode === 'crontab') {
-      const nextRuns = calculateCrontabNextRuns(task.schedule.crontab || '', 1);
-      if (!task.schedule.crontab) return t('wakeup.format.none');
-      if (nextRuns.length === 0) return t('wakeup.format.invalidCrontab');
-      return formatRunTime(nextRuns[0], locale, t);
-    }
-    const nextRuns = calculateNextRuns(task.schedule, 1);
-    if (!nextRuns.length) return t('wakeup.format.none');
-    return formatRunTime(nextRuns[0], locale, t);
+    if (nextRun) return formatRunTime(nextRun, locale, t);
+    return t(mode === 'crontab' ? 'wakeup.format.invalidCrontab' : 'wakeup.format.none');
   };
 
-  const openCreateModal = async () => {
-    // 先检查路径是否已配置
-    const runtimeReady = await ensureWakeupRuntimeReady();
-    if (!runtimeReady) return;
-
+  const openCreateModal = () => {
+    setFormTransportMode('language_server');
     setEditingTaskId(null);
     setFormName(t('wakeup.newTaskName'));
     setFormEnabled(true);
@@ -1653,6 +1565,7 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
     setFormExecutionMode('auto');
     setFormConfirmTimeoutMinutes(5);
     setFormTimeWindowEnabled(false);
+    setFormWeeklyResetOnly(false);
     setFormTimeWindowStart('09:00');
     setFormTimeWindowEnd('18:00');
     setFormFallbackTimes(['07:00']);
@@ -1667,6 +1580,7 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
     const schedule = normalizeSchedule({ ...DEFAULT_SCHEDULE, ...task.schedule });
     const triggerMode = getTriggerMode(task);
 
+    setFormTransportMode(schedule.transportMode ?? 'language_server');
     setEditingTaskId(task.id);
     setFormName(task.name);
     setFormEnabled(task.enabled);
@@ -1696,6 +1610,7 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
     setFormStartupDelayMode(startupDelayMinutes > 0 ? 'delayed' : 'immediate');
     setFormStartupDelayMinutes(String(startupDelayMinutes > 0 ? startupDelayMinutes : 1));
     setFormTimeWindowEnabled(Boolean(schedule.timeWindowEnabled));
+    setFormWeeklyResetOnly(Boolean(schedule.weeklyResetOnly));
     setFormTimeWindowStart(schedule.timeWindowStart || '09:00');
     setFormTimeWindowEnd(schedule.timeWindowEnd || '18:00');
     setFormFallbackTimes(schedule.fallbackTimes?.length ? [...schedule.fallbackTimes] : ['07:00']);
@@ -2003,6 +1918,8 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
   };
 
   const handleSaveTask = async () => {
+    if (savingTask) return;
+    clearFormError();
     const name = formName.trim();
     if (!name) {
       reportFormError(t('wakeup.notice.nameRequired'));
@@ -2083,9 +2000,11 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
       intervalStartTime: formIntervalStart,
       intervalEndTime: formIntervalEnd,
       selectedModels: formSelectedModels,
+      transportMode: formTransportMode,
       selectedAccounts: formSelectedAccounts,
       crontab: formTriggerMode === 'crontab' ? formCrontab.trim() : undefined,
       wakeOnReset: formTriggerMode === 'quota_reset',
+      weeklyResetOnly: formTriggerMode === 'quota_reset' && formWeeklyResetOnly ? true : undefined,
       startupDelayMinutes,
       customPrompt: formCustomPrompt.trim() || undefined,
       maxOutputTokens: normalizeMaxOutputTokens(formMaxOutputTokens, 0),
@@ -2120,13 +2039,20 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
       confirm_timeout_minutes: formExecutionMode === 'confirm' ? formConfirmTimeoutMinutes : 5,
     };
 
-    setTasks((prev) => {
-      const exists = prev.some((task) => task.id === baseTask.id);
-      if (exists) {
-        return prev.map((task) => (task.id === baseTask.id ? baseTask : task));
-      }
-      return [baseTask, ...prev];
-    });
+    setSavingTask(true);
+    try {
+      await updateRules((current) => ({
+        ...current,
+        tasks: current.tasks.some((task) => task.id === baseTask.id)
+          ? current.tasks.map((task) => task.id === baseTask.id ? baseTask : task)
+          : [baseTask, ...current.tasks],
+      }));
+    } catch (error) {
+      reportFormError(t('wakeup.notice.stateSaveFailed', { error: formatErrorMessage(error) }));
+      return;
+    } finally {
+      setSavingTask(false);
+    }
 
     // 如果启用了配额重置模式，确保刷新间隔满足最小要求
     if (formEnabled && formTriggerMode === 'quota_reset') {
@@ -2137,11 +2063,38 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
     setNotice({ text: t('wakeup.notice.taskSaved', { name }), tone: 'success' });
   };
 
-  const openTestModal = async () => {
-    // 先检查路径是否已配置
-    const runtimeReady = await ensureWakeupRuntimeReady();
-    if (!runtimeReady) return;
+  const renderWakeupTransport = (
+    mode: WakeupTransportMode,
+    setMode: (mode: WakeupTransportMode) => void,
+    disabled: boolean,
+  ) => (
+    <div className="wakeup-form-group">
+      <label>{t('wakeup.form.transportMode')}</label>
+      <div className="wakeup-toggle-group" role="group" aria-label={t('wakeup.form.transportMode')}>
+        <button
+          type="button"
+          className={`btn btn-secondary ${mode === 'language_server' ? 'is-active' : ''}`}
+          aria-pressed={mode === 'language_server'}
+          disabled={disabled}
+          onClick={() => setMode('language_server')}
+        >
+          {t('wakeup.form.transportLanguageServer')}
+        </button>
+        <button
+          type="button"
+          className={`btn btn-secondary ${mode === 'clientless' ? 'is-active' : ''}`}
+          aria-pressed={mode === 'clientless'}
+          disabled={disabled}
+          onClick={() => setMode('clientless')}
+        >
+          {t('wakeup.form.transportClientless')}
+        </button>
+      </div>
+    </div>
+  );
 
+  const openTestModal = () => {
+    setTestTransportMode('language_server');
     setTestAccountSearchQuery('');
     setTestTypeFilter([]);
     setTestTagFilter([]);
@@ -2150,6 +2103,8 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
   };
 
   const openHistoryModal = () => {
+    setHistoryClearError(null);
+    refreshHistory();
     setShowHistoryModal(true);
   };
 
@@ -2158,26 +2113,27 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
     if (!task) return;
     const confirmed = await confirmDialog(t('wakeup.dialogs.deleteConfirm', { name: task.name }));
     if (!confirmed) return;
-    setTasks((prev) => prev.filter((item) => item.id !== taskId));
+    void updateRules((current) => ({
+      ...current,
+      tasks: current.tasks.filter((item) => item.id !== taskId),
+    })).catch(reportRulesSaveError);
   };
 
   const handleToggleTask = (taskId: string) => {
-    setTasks((prev) =>
-      prev.map((task) =>
-        task.id === taskId ? { ...task, enabled: !task.enabled } : task
-      )
-    );
+    void updateRules((current) => ({
+      ...current,
+      tasks: current.tasks.map((task) => task.id === taskId ? { ...task, enabled: !task.enabled } : task),
+    })).catch(reportRulesSaveError);
   };
 
   const handleToggleWakeup = async (event?: React.MouseEvent) => {
     event?.preventDefault();
-    if (!wakeupEnabled) {
-      setWakeupEnabled(true);
-      setNotice({ text: t('wakeup.notice.featureOn') });
-      return;
+    try {
+      await updateRules((current) => ({ ...current, enabled: !current.enabled }));
+      setNotice({ text: t(rulesRef.current?.enabled ? 'wakeup.notice.featureOn' : 'wakeup.notice.featureOff') });
+    } catch (error) {
+      reportRulesSaveError(error);
     }
-    setWakeupEnabled(false);
-    setNotice({ text: t('wakeup.notice.featureOff') });
   };
 
   const previewSchedule = useMemo(() => {
@@ -2260,7 +2216,7 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
             {t('wakeup.runTest')}
           </button>
           <button className="btn btn-secondary" onClick={openHistoryModal}>
-            {historyRecords.length > 0
+            {historyRecords.length > 0 && !historyMigrating && !historyReadError
               ? t('wakeup.historyCount', { count: historyRecords.length })
               : t('wakeup.history')}
           </button>
@@ -2281,7 +2237,9 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
         </div>
       )}
 
-      {tasks.length === 0 ? (
+      {rulesLoading && tasks.length === 0 ? (
+        <p className="wakeup-hint" role="status">{t('common.loading')}</p>
+      ) : tasks.length === 0 ? (
         <div className="empty-state">
           <div className="icon">
             <Power size={40} />
@@ -2294,7 +2252,7 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
         </div>
       ) : (
         <div className="wakeup-task-grid">
-          {tasks.map((task) => {
+          {buildWakeupTaskQueue(tasks).map(({ task, mode, nextRun }) => {
             const modelLabels = task.schedule.selectedModels.map(
               (id) => modelById.get(id)?.displayName || getReadableModelLabel(id)
             );
@@ -2360,7 +2318,7 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
                   <span>
                     {t('wakeup.taskCard.lastRun', { time: formatDateTime(task.lastRunAt, locale, t) })}
                   </span>
-                  <span>{t('wakeup.taskCard.nextRun', { time: getNextRunLabel(task) })}</span>
+                  <span>{t('wakeup.taskCard.nextRun', { time: getNextRunLabel(task, mode, nextRun) })}</span>
                 </div>
               </div>
             );
@@ -2375,7 +2333,6 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
             onClick={(event) => event.stopPropagation()}
           >
             <div className="modal-header">
-              <button className="btn btn-secondary icon-only" onClick={closeTestModal} title={t('common.back', '返回')} aria-label={t('common.back', '返回')}><ChevronLeft size={14} /></button>
               <h2>{t('wakeup.dialogs.testTitle')}</h2>
               <button
                 className="modal-close"
@@ -2386,17 +2343,10 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
               </button>
             </div>
             <div className="modal-body">
-              <div className="wakeup-form-group">
-                <label>{t('wakeup.form.antigravityVersion', 'Antigravity IDE Version')}</label>
-                <select
-                  className="wakeup-input wakeup-select"
-                  value={officialLsVersionMode}
-                  onChange={(event) => handleOfficialLsVersionModeChange(event.target.value)}
-                >
-                  <option value="gte_1_21_6">&gt;=1.21.6</option>
-                  <option value="lt_1_21_6">&lt;1.21.6</option>
-                </select>
-              </div>
+              {renderWakeupTransport(testTransportMode, (mode) => {
+                clearTestModalError();
+                setTestTransportMode(mode);
+              }, testing)}
               <div className="wakeup-form-group">
                 <label>{t('wakeup.test.modelsLabel')}</label>
                 <div className="wakeup-chip-list">
@@ -2496,6 +2446,7 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
                       filteredTestAccounts.map((account) => {
                         const maskedEmail = maskAccountText(account.email);
                         const isSelected = testSelectedAccountSet.has(account.email);
+                        const planBadge = getAntigravityTierBadge(account.quota);
                         return (
                           <label
                             key={account.id}
@@ -2515,6 +2466,11 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
                             <span className="verification-account-item-email" title={maskedEmail}>
                               {maskedEmail}
                             </span>
+                            {planBadge && (
+                              <span className={`tier-badge ${planBadge.className}`}>
+                                {planBadge.label}
+                              </span>
+                            )}
                           </label>
                         );
                       })
@@ -2573,7 +2529,6 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
             onClick={(event) => event.stopPropagation()}
           >
             <div className="modal-header">
-              <button className="btn btn-secondary icon-only" onClick={() => setShowHistoryModal(false)} title={t('common.back', '返回')} aria-label={t('common.back', '返回')}><ChevronLeft size={14} /></button>
               <h2>{t('wakeup.dialogs.historyTitle')}</h2>
               <button
                 className="modal-close"
@@ -2584,8 +2539,23 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
               </button>
             </div>
             <div className="modal-body">
+              {historyMigrating && <p className="wakeup-hint" role="status">{t('common.historyRestoring')}</p>}
+              {historyLoading && !historyMigrating && historyRecords.length === 0 && (
+                <p className="wakeup-hint" role="status">{t('common.loading')}</p>
+              )}
+              {historyReadError && (
+                <div role="alert">
+                  <p className="wakeup-hint">{historyReadError === LOCAL_HISTORY_TIMEOUT
+                    ? t('common.dataQueryBusy') : historyReadError}</p>
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => refreshHistory(true)}>
+                    {t('common.retry')}
+                  </button>
+                </div>
+              )}
+              {historyClearError && <p className="wakeup-hint" role="alert">{historyClearError}</p>}
               {historyRecords.length === 0 ? (
-                <p className="wakeup-hint">{t('wakeup.historyEmpty')}</p>
+                !historyLoading && !historyMigrating && !historyReadError
+                  && <p className="wakeup-hint">{t('wakeup.historyEmpty')}</p>
               ) : (
                 <ul className="wakeup-history-list">
                   {historyRecords.map((record) => (
@@ -2647,7 +2617,6 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
         <div className="modal-overlay">
           <div className="modal modal-lg wakeup-modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
-              <button className="btn btn-secondary icon-only" onClick={() => setShowModal(false)} title={t('common.back', '返回')} aria-label={t('common.back', '返回')}><ChevronLeft size={14} /></button>
               <h2>{editingTaskId ? t('wakeup.dialogs.taskTitleEdit') : t('wakeup.dialogs.taskTitleNew')}</h2>
               <button
                 className="modal-close"
@@ -2658,17 +2627,10 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
               </button>
             </div>
             <div className="modal-body">
-              <div className="wakeup-form-group">
-                <label>{t('wakeup.form.antigravityVersion', 'Antigravity IDE Version')}</label>
-                <select
-                  className="wakeup-input wakeup-select"
-                  value={officialLsVersionMode}
-                  onChange={(event) => handleOfficialLsVersionModeChange(event.target.value)}
-                >
-                  <option value="gte_1_21_6">&gt;=1.21.6</option>
-                  <option value="lt_1_21_6">&lt;1.21.6</option>
-                </select>
-              </div>
+              {renderWakeupTransport(formTransportMode, (mode) => {
+                clearFormError();
+                setFormTransportMode(mode);
+              }, savingTask)}
               <div className="wakeup-form-group">
                 <label>{t('wakeup.form.taskName')}</label>
                 <input
@@ -2833,6 +2795,7 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
                       filteredFormAccounts.map((account) => {
                         const maskedEmail = maskAccountText(account.email);
                         const isSelected = formSelectedAccountSet.has(account.email);
+                        const planBadge = getAntigravityTierBadge(account.quota);
                         return (
                           <label
                             key={account.id}
@@ -2852,6 +2815,11 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
                             <span className="verification-account-item-email" title={maskedEmail}>
                               {maskedEmail}
                             </span>
+                            {planBadge && (
+                              <span className={`tier-badge ${planBadge.className}`}>
+                                {planBadge.label}
+                              </span>
+                            )}
                           </label>
                         );
                       })
@@ -2888,15 +2856,17 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
                 <div className="wakeup-mode-panel">
                   <div className="wakeup-form-group">
                     <label>{t('wakeup.form.repeatMode')}</label>
-                    <select
-                      className="wakeup-input wakeup-select"
+                    <SingleSelectDropdown
+                      className="wakeup-select-dropdown"
                       value={formRepeatMode}
-                      onChange={(event) => setFormRepeatMode(event.target.value as RepeatMode)}
-                    >
-                      <option value="daily">{t('wakeup.form.repeatDaily')}</option>
-                      <option value="weekly">{t('wakeup.form.repeatWeekly')}</option>
-                      <option value="interval">{t('wakeup.form.repeatInterval')}</option>
-                    </select>
+                      options={[
+                        { value: 'daily', label: t('wakeup.form.repeatDaily') },
+                        { value: 'weekly', label: t('wakeup.form.repeatWeekly') },
+                        { value: 'interval', label: t('wakeup.form.repeatInterval') },
+                      ]}
+                      ariaLabel={t('wakeup.form.repeatMode')}
+                      onChange={(value) => setFormRepeatMode(value as RepeatMode)}
+                    />
                   </div>
 
                   {formRepeatMode === 'daily' && (
@@ -3124,6 +3094,21 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
                 <div className="wakeup-mode-panel">
                   <div className="wakeup-form-group">
                     <div className="wakeup-form-row">
+                      <label htmlFor="wakeup-weekly-reset-only">{t('wakeup.form.weeklyQuotaResetOnly')}</label>
+                      <label className="wakeup-switch">
+                        <input
+                          id="wakeup-weekly-reset-only"
+                          type="checkbox"
+                          checked={formWeeklyResetOnly}
+                          onChange={(event) => setFormWeeklyResetOnly(event.target.checked)}
+                        />
+                        <span className="wakeup-slider" />
+                      </label>
+                    </div>
+                    <p className="wakeup-hint">{t('wakeup.form.weeklyQuotaResetHint')}</p>
+                  </div>
+                  <div className="wakeup-form-group">
+                    <div className="wakeup-form-row">
                       <label>{t('wakeup.form.timeWindowEnabled')}</label>
                       <label className="wakeup-switch">
                         <input
@@ -3257,16 +3242,16 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
 
               <div className="wakeup-form-group">
                 <label>{t('wakeup.form.executionMode', '执行模式')}</label>
-                <select
-                  className="wakeup-select"
+                <SingleSelectDropdown
+                  className="wakeup-select-dropdown"
                   value={formExecutionMode}
-                  onChange={(event) =>
-                    setFormExecutionMode(event.target.value as 'auto' | 'confirm')
-                  }
-                >
-                  <option value="auto">{t('wakeup.form.executionModeAuto', '直接执行')}</option>
-                  <option value="confirm">{t('wakeup.form.executionModeConfirm', '需要确认')}</option>
-                </select>
+                  options={[
+                    { value: 'auto', label: t('wakeup.form.executionModeAuto', '直接执行') },
+                    { value: 'confirm', label: t('wakeup.form.executionModeConfirm', '需要确认') },
+                  ]}
+                  ariaLabel={t('wakeup.form.executionMode', '执行模式')}
+                  onChange={(value) => setFormExecutionMode(value as 'auto' | 'confirm')}
+                />
               </div>
 
               {formExecutionMode === 'confirm' && (
@@ -3294,14 +3279,14 @@ export function WakeupTasksPage({ onNavigate }: WakeupPageProps) {
                 position="bottom"
                 scrollKey={formErrorScrollKey}
               />
-              <div className="modal-actions">
-                <button className="btn btn-secondary" onClick={() => setShowModal(false)}>
-                  {t('common.cancel')}
-                </button>
-                <button className="btn btn-primary" onClick={handleSaveTask}>
-                  {t('wakeup.form.saveTask')}
-                </button>
-              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setShowModal(false)}>
+                {t('common.cancel')}
+              </button>
+              <button className="btn btn-primary" onClick={handleSaveTask} disabled={savingTask}>
+                {savingTask ? t('common.saving') : t('wakeup.form.saveTask')}
+              </button>
             </div>
           </div>
         </div>

@@ -1,0 +1,143 @@
+#[test]
+fn keepalive_leaves_default_profile_refresh_chain_to_the_official_client() {
+    let profile = tempfile::tempdir().unwrap();
+    let profile_dir = profile.path();
+    let tokens = |refresh_token| {
+        make_codex_tokens(
+            "demo@example.com",
+            "acc-current",
+            "org-current",
+            refresh_token,
+            refresh_token,
+        )
+    };
+    assert!(!super::default_profile_uses_keepalive_token(profile_dir, "rt-current"));
+
+    write_oauth_auth_file(profile_dir, &tokens("rt-current"), "acc-current");
+    let path = profile_dir.join("auth.json");
+    let original = fs::read(&path).unwrap();
+    assert!(super::default_profile_uses_keepalive_token(profile_dir, "rt-current"));
+    assert!(!super::default_profile_uses_keepalive_token(profile_dir, "rt-unrelated"));
+    assert_eq!(fs::read(&path).unwrap(), original);
+
+    write_oauth_auth_file(profile_dir, &tokens("rt-renewed"), "acc-current");
+    assert!(!super::default_profile_uses_keepalive_token(profile_dir, "rt-current"));
+    assert!(super::default_profile_uses_keepalive_token(profile_dir, "rt-renewed"));
+
+    fs::write(
+        profile_dir.join("config.toml"),
+        "cli_auth_credentials_store = 'ephemeral'\n",
+    )
+    .unwrap();
+    assert!(!super::default_profile_uses_keepalive_token(profile_dir, "rt-renewed"));
+}
+
+#[test]
+fn account_switch_roundtrip_preserves_official_rotation_while_stored_access_is_valid() {
+    let _lock = crate::modules::test_support::env_lock()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let env = TestEnvGuard::new("codex-switch-preserves-official-rotation");
+    let outgoing = seed_oauth_account(make_codex_tokens(
+        "demo@example.com", "acc-current", "org-current", "stored", "rt-stored",
+    ));
+    let incoming = upsert_account(make_codex_tokens(
+        "second@example.com", "acc-second", "org-second", "second", "rt-second",
+    )).unwrap();
+    let mut rotated = make_codex_tokens(
+        "demo@example.com", "acc-current", "org-current", "official", "rt-official",
+    );
+    rotated.access_token = make_jwt(serde_json::json!({
+        "exp": 4_102_448_400i64,
+        "https://api.openai.com/auth": {
+            "chatgpt_account_id": "acc-current", "organization_id": "org-current"
+        }
+    }));
+    let profile = env.codex_home();
+    let mut auth = build_oauth_auth_file(&rotated, "acc-current");
+    auth.last_refresh = Some(serde_json::json!(chrono::Utc::now().timestamp()));
+    fs::write(profile.join("auth.json"), serde_json::to_vec(&auth).unwrap()).unwrap();
+    assert!(!super::managed_account_tokens_need_refresh(&outgoing));
+
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    runtime.block_on(super::switch_account_managed(&incoming.id)).unwrap();
+    let saved = load_account(&outgoing.id).unwrap();
+    assert_eq!(saved.tokens.refresh_token, rotated.refresh_token);
+    assert_eq!(saved.token_generation, outgoing.token_generation + 1);
+    assert_eq!(super::read_official_oauth_tokens(&profile).unwrap().access_token, incoming.tokens.access_token);
+
+    runtime.block_on(super::switch_account_managed(&outgoing.id)).unwrap();
+    let restored = super::read_official_oauth_tokens(&profile).unwrap();
+    assert_eq!(restored.access_token, rotated.access_token);
+    assert_eq!(restored.refresh_token, rotated.refresh_token);
+}
+
+#[test]
+fn live_authority_sync_finds_default_auth_with_electron_process_entries() {
+    let _lock = crate::modules::test_support::env_lock()
+        .lock()
+        .unwrap_or_else(|err| err.into_inner());
+    let env = TestEnvGuard::new("codex-live-authority-electron-profile");
+    let mut account = seed_oauth_account(make_codex_tokens(
+        "demo@example.com",
+        "acc-current",
+        "org-current",
+        "stored",
+        "rt-stored",
+    ));
+    let generation = account.token_generation;
+    let electron_dir = env.home_dir.join("AppData/Roaming/Codex/web/Codex");
+    fs::create_dir_all(&electron_dir).unwrap();
+    let entries = [(123, Some(electron_dir.to_string_lossy().into_owned()))];
+
+    let official_tokens = |email, expires| {
+        let mut tokens = make_codex_tokens(
+            email,
+            "acc-current",
+            "org-current",
+            "official",
+            "rt-official",
+        );
+        tokens.access_token = make_jwt(serde_json::json!({
+            "exp": expires,
+            "https://api.openai.com/auth": { "chatgpt_account_id": "acc-current" }
+        }));
+        tokens
+    };
+    for (email, expires) in [
+        ("other@example.com", 4_102_448_400i64),
+        ("demo@example.com", 4_102_441_200),
+    ] {
+        write_oauth_auth_file(
+            &env.codex_home(),
+            &official_tokens(email, expires),
+            "acc-current",
+        );
+        assert!(
+            !super::sync_account_from_live_authority_sources_with_entries(&mut account, &entries)
+                .unwrap()
+        );
+        let unchanged = load_account(&account.id).unwrap();
+        assert_eq!(unchanged.token_generation, generation);
+        assert_eq!(unchanged.tokens.refresh_token, account.tokens.refresh_token);
+    }
+
+    let fresh = official_tokens("demo@example.com", 4_102_448_400);
+    write_oauth_auth_file(&env.codex_home(), &fresh, "acc-current");
+    let auth_path = env.codex_home().join("auth.json");
+    let auth_before = fs::read(&auth_path).unwrap();
+    assert!(
+        !super::sync_account_from_live_authority_sources_with_entries(&mut account, &[]).unwrap()
+    );
+    assert!(
+        super::sync_account_from_live_authority_sources_with_entries(&mut account, &entries)
+            .unwrap()
+    );
+
+    let persisted = load_account(&account.id).unwrap();
+    assert_eq!(account.tokens.access_token, fresh.access_token);
+    assert_eq!(persisted.tokens.access_token, fresh.access_token);
+    assert_eq!(persisted.tokens.refresh_token, fresh.refresh_token);
+    assert_eq!(persisted.token_generation, generation + 1);
+    assert_eq!(fs::read(auth_path).unwrap(), auth_before);
+}

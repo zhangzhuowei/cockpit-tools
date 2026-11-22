@@ -4,19 +4,55 @@ import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
 import { deferred, settlePromises } from '../../tests/helpers/reactHookHarness';
+import { parseWindowsOperationError } from '../utils/windowsOperationError.ts';
+import { isSameHttpBaseUrl, normalizeHttpBaseUrl, OPENAI_OFFICIAL_PRESET_ID } from './codexAccountsControllerModel.ts';
+import { CODEX_API_PROVIDER_CUSTOM_ID, DEEPSEEK_API_PROVIDER_ID, codexApiProviderPresetVisionSupport, findCodexApiProviderPresetById, isCockpitApiProviderBaseUrl } from '../utils/codexProviderPresets.ts';
+import { resolveCodexProviderCapabilityProfile } from '../utils/codexProviderGateway.ts';
+import { findCodexModelProviderById } from '../services/codexModelProviderService.ts';
 
 // Run the controller's actual transition handlers and effect predicates. The
 // unrelated account/provider UI is excluded; IPC completion order is explicit.
 const source = readFileSync(new URL('./useCodexAccountsOAuthController.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+
+test('new channels keep an entered name for sponsor and built-in templates', () => {
+  const start = source.indexOf('    const buildApiProviderPayload =');
+  const end = source.indexOf('    const resolveManagedProviderIdForAccount =', start);
+  assert.ok(start >= 0 && end > start);
+  const build = vm.runInNewContext(ts.transpileModule(
+    `${source.slice(start, end)}\nbuildApiProviderPayload;`,
+    { compilerOptions: { target: ts.ScriptTarget.ES2022 } },
+  ).outputText, {
+    useCallback: (callback: unknown) => callback,
+    isSameHttpBaseUrl, normalizeHttpBaseUrl, OPENAI_OFFICIAL_PRESET_ID,
+    CODEX_API_PROVIDER_CUSTOM_ID, DEEPSEEK_API_PROVIDER_ID,
+    codexApiProviderPresetVisionSupport, findCodexApiProviderPresetById,
+    isCockpitApiProviderBaseUrl, resolveCodexProviderCapabilityProfile,
+    managedProviders: [], findCodexModelProviderById,
+    sponsorApiProviderTemplates: [{ id: 'relay-template', name: 'Relay', modelCatalog: ['fixture'] }],
+  });
+  const deepseek = findCodexApiProviderPresetById(DEEPSEEK_API_PROVIDER_ID)!;
+  for (const [url, id, defaultName] of [
+    ['https://relay.example.invalid/v1', 'relay-template', 'Relay'],
+    [deepseek.baseUrls[0], deepseek.id, deepseek.name],
+  ]) {
+    const named = build(url, id, '', '  My channel  ');
+    assert.equal(named.apiProviderId, id);
+    assert.equal(named.apiProviderName, 'My channel');
+    assert.equal(named.accountName, 'My channel');
+    assert.equal(build(url, id, '', ' ').accountName, defaultName);
+  }
+});
+
 function harness(overrides: Record<string, unknown> = {}) {
   const starts: { args: unknown[]; task: ReturnType<typeof deferred<any>> }[] = [];
+  const deviceStarts: ReturnType<typeof deferred<any>>[] = [];
   const cancellations: { id: string; task: ReturnType<typeof deferred<void>> }[] = [];
   const c: Record<string, any> = {
     oauthProxyEnabled: false, oauthProxyReady: false, oauthProxyInput: '', oauthProxyUsesAccountExit: false,
     oauthProxyExitLabel: null, oauthProxyFieldError: null, oauthPrepareError: null, oauthTimeoutInfo: null,
     oauthCallbackError: null, deviceAuthInfo: null, deviceAuthError: null, deviceAuthStarting: false,
     oauthMethod: 'browser', oauthUrl: 'old-url', oauthSessionRevision: 0, oauthPortInUse: null,
-    oauthCallbackInput: '', oauthCallbackSubmitting: false, oauthTokenExchangeRetryVisible: false,
+    oauthCallbackInput: '', oauthCallbackSubmitting: false, oauthRetryAction: null,
     oauthProxyDefaultAccountId: null, oauthUrlCopied: false, reauthProxyDefault: false,
     reauthTargetAccountId: '', showAddModal: true, addTab: 'oauth',
     oauthAttemptSeqRef: { current: 1 }, oauthActiveRef: { current: true }, oauthLoginIdRef: { current: 'old' },
@@ -24,27 +60,39 @@ function harness(overrides: Record<string, unknown> = {}) {
     oauthProxyChangeSequence: { current: 0 }, oauthProxyChanging: { current: false },
     oauthStartTask: { current: null }, oauthCancelTask: { current: null }, oauthCancelLoginId: { current: null },
     t: (key: string) => key, oauthLog() {}, useCallback: (callback: unknown) => callback,
+    console: { error() {} },
+    parseWindowsOperationError: (error: unknown) => parseWindowsOperationError(error, { platform: 'Win32' }),
     useEffect: (effect: () => void) => { c.effect = effect; },
     oauthStartProxyArgs: (choice: any) => ({ proxyUrl: choice.enabled ? choice.input : null, reauthAccountId: null }),
     oauthProxyUseAfterStart: () => null,
-    handleOauthPrepareError: () => { c.oauthActiveRef.current = false; c.oauthPrepareError = 'startFailed'; },
     codexService: {
       cancelCodexOAuthLogin(id: string) { const task = deferred<void>(); cancellations.push({ id, task }); return task.promise; },
       startCodexOAuthLogin(...args: unknown[]) { const task = deferred<any>(); starts.push({ args, task }); return task.promise; },
+      startCodexDeviceAuth() { const task = deferred<any>(); deviceStarts.push(task); return task.promise; },
     },
     ...overrides,
   };
   for (const field of ['oauthProxyReady', 'oauthProxyEnabled', 'oauthProxyFieldError', 'oauthProxyInput',
     'oauthProxyUsesAccountExit', 'oauthProxyExitLabel', 'oauthUrl', 'oauthPrepareError', 'oauthTimeoutInfo',
     'oauthCallbackError', 'deviceAuthInfo', 'deviceAuthError', 'deviceAuthStarting', 'oauthMethod',
-    'oauthPortInUse', 'oauthCallbackInput', 'oauthCallbackSubmitting', 'oauthTokenExchangeRetryVisible',
-    'oauthSessionRevision', 'oauthUrlCopied', 'deviceCodeCopied', 'oauthProxyDefaultAccountId']) {
+    'oauthPortInUse', 'oauthCallbackInput', 'oauthCallbackSubmitting', 'oauthRetryAction',
+    'oauthSessionRevision', 'oauthUrlCopied', 'deviceCodeCopied', 'oauthProxyDefaultAccountId',
+    'addStatus', 'addMessage']) {
     c[`set${field[0].toUpperCase()}${field.slice(1)}`] = (next: any) => { c[field] = typeof next === 'function' ? next(c[field]) : next; };
   }
   vm.createContext(c);
   const evaluate = (text: string) => vm.runInContext(ts.transpileModule(text, {
     compilerOptions: { target: ts.ScriptTarget.ES2022 },
   }).outputText, c);
+  const errorStart = source.indexOf('    const describeOauthProxyError =');
+  const errorEnd = source.indexOf('    const resolveCompletedOauthAccount =', errorStart);
+  evaluate(source.slice(errorStart, errorEnd) + '\nglobalThis.prepareFailure = handleOauthPrepareError;');
+  const completeErrorStart = source.indexOf('    const completeOauthError =');
+  const completeErrorEnd = source.indexOf('    const isOauthTimeoutState', completeErrorStart);
+  evaluate(source.slice(completeErrorStart, completeErrorEnd) + '\nglobalThis.completeFailure = completeOauthError;');
+  const retryStart = source.indexOf('    const handleRetryOauthAfterTimeout =');
+  const retryEnd = source.indexOf('    const handleOpenOauthUrl =', retryStart);
+  evaluate(source.slice(retryStart, retryEnd) + '\nglobalThis.refreshAuthorization = handleRetryOauthAfterTimeout;');
   const start = source.indexOf('    const cancelOauthSession =');
   const end = source.indexOf('    useEffect(() => {\n      if (!reauthProxyDefault)', start);
   assert.ok(start > 0 && end > start);
@@ -54,8 +102,130 @@ function harness(overrides: Record<string, unknown> = {}) {
   evaluate(source.slice(autoStart, closeStart)); const auto = c.effect as () => void;
   const closeEnd = source.indexOf('    useEffect(\n      () => () => {', closeStart);
   evaluate(source.slice(closeStart, closeEnd)); const close = c.effect as () => void;
-  return { state: c, starts, cancellations, auto, close };
+  const deviceStart = source.indexOf('    const handleStartDeviceAuth =');
+  const deviceEnd = source.indexOf('    const handleCopyDeviceCode =', deviceStart);
+  evaluate(source.slice(deviceStart, deviceEnd) + '\nglobalThis.device = handleStartDeviceAuth; globalThis.browser = handleSwitchBrowserOAuth;');
+  return { state: c, starts, deviceStarts, cancellations, auto, close };
 }
+
+test('returning to browser waits for a stale device session to be cancelled', async () => {
+  const h = harness({ oauthLoginIdRef: { current: null }, oauthActiveRef: { current: false } });
+  const device = h.state.device();
+  await settlePromises();
+  const browser = h.state.browser();
+  await settlePromises();
+  assert.equal(h.starts.length, 0);
+  h.deviceStarts[0].resolve({ loginId: 'stale-device', userCode: 'fixture' });
+  await settlePromises();
+  assert.equal(h.cancellations[0].id, 'stale-device');
+  assert.equal(h.state.deviceAuthInfo, null);
+  assert.equal(h.starts.length, 0);
+  h.cancellations[0].task.resolve();
+  await Promise.all([device, browser]);
+  assert.equal(h.starts.length, 1);
+  h.starts[0].task.resolve({ loginId: 'browser', authUrl: 'browser-url' });
+  await settlePromises();
+  assert.equal(h.state.oauthLoginIdRef.current, 'browser');
+});
+
+test('closing during device authorization cleans up a late code response', async () => {
+  const h = harness({ oauthLoginIdRef: { current: null }, oauthActiveRef: { current: false } });
+  const device = h.state.device();
+  await settlePromises();
+  h.state.showAddModal = false;
+  h.state.showAddModalRef.current = false;
+  h.close();
+  h.deviceStarts[0].resolve({ loginId: 'stale-device', userCode: 'fixture' });
+  await settlePromises();
+  assert.equal(h.cancellations[0].id, 'stale-device');
+  h.cancellations[0].task.resolve();
+  await device;
+  assert.equal(h.state.deviceAuthInfo, null);
+  assert.equal(h.state.deviceAuthStarting, false);
+  assert.equal(h.state.oauthLoginIdRef.current, null);
+});
+
+test('a stale device start error cannot block the newer browser request', async () => {
+  const h = harness({ oauthLoginIdRef: { current: null }, oauthActiveRef: { current: false } });
+  const device = h.state.device();
+  await settlePromises();
+  const browser = h.state.browser();
+  h.deviceStarts[0].reject(new Error('temporary device endpoint error'));
+  await Promise.all([device, browser]);
+  assert.equal(h.state.deviceAuthError, null);
+  assert.equal(h.starts.length, 1);
+  h.starts[0].task.resolve({ loginId: 'browser', authUrl: 'browser-url' });
+  await settlePromises();
+  assert.equal(h.state.oauthLoginIdRef.current, 'browser');
+});
+
+test('device authorization waits for an in-flight browser start and uses the new login ID', async () => {
+  const h = harness({ oauthUrl: '', oauthLoginIdRef: { current: null }, oauthActiveRef: { current: false } });
+  h.auto();
+  assert.equal(h.starts.length, 1);
+  const device = h.state.device();
+  await settlePromises();
+  assert.equal(h.deviceStarts.length, 0);
+  h.starts[0].task.resolve({ loginId: 'stale-browser', authUrl: 'old-url' });
+  await settlePromises();
+  assert.equal(h.cancellations[0].id, 'stale-browser');
+  h.cancellations[0].task.resolve();
+  await settlePromises();
+  assert.equal(h.deviceStarts.length, 1);
+  h.deviceStarts[0].resolve({ loginId: 'device', userCode: 'fixture' });
+  await device;
+  assert.equal(h.state.oauthLoginIdRef.current, 'device');
+  assert.equal(h.state.deviceAuthInfo.userCode, 'fixture');
+  assert.equal(h.state.oauthUrl, null);
+});
+
+test('Windows callback permission denial points to device auth when that method is available', () => {
+  const error = '无法绑定端口 1457: 以一种访问权限不允许的方式做了一个访问套接字的尝试。 (os error 10013)';
+  const h = harness({ oauthPortInUse: 1455 });
+  h.state.prepareFailure(error);
+  assert.equal(h.state.oauthPortInUse, null);
+  assert.equal(h.state.oauthPrepareError, `common.windowsOperation.portDeniedDescription common.shared.oauth.deviceAuthFootnote ${error}`);
+
+  h.state.oauthProxyEnabled = true;
+  h.state.prepareFailure(error);
+  assert.equal(h.state.oauthPrepareError, `common.windowsOperation.portDeniedDescription ${error}`);
+});
+
+test('an authorization for a different account can refresh the link inside the same dialog', async () => {
+  const h = harness({ reauthTargetAccountId: 'target-account', oauthCallbackInput: 'used-callback' });
+  h.state.completeFailure('CODEX_OAUTH_RESTART_REQUIRED: signed in to a different account', true, true);
+  assert.equal(h.state.addStatus, 'error');
+  assert.match(h.state.addMessage, /signed in to a different account/);
+  assert.doesNotMatch(h.state.addMessage, /CODEX_OAUTH_RESTART_REQUIRED/);
+  assert.equal(h.state.oauthRetryAction, 'restart');
+  assert.equal(h.state.oauthCallbackError, null);
+
+  await h.state.refreshAuthorization();
+  assert.equal(h.state.addStatus, 'idle');
+  assert.equal(h.state.addMessage, '');
+  assert.equal(h.state.oauthCallbackInput, '');
+  assert.equal(h.starts.length, 1);
+  h.starts[0].task.resolve({ loginId: 'new-login', authUrl: 'new-url' });
+  await settlePromises();
+  assert.equal(h.state.oauthUrl, 'new-url');
+  assert.equal(h.state.oauthLoginIdRef.current, 'new-login');
+  assert.equal(h.state.reauthTargetAccountId, 'target-account');
+});
+
+test('a malformed manual callback stays at the field and a missing session requires a new link', () => {
+  const h = harness();
+  h.state.completeFailure('invalid callback URL', false, true);
+  assert.equal(h.state.oauthCallbackError, 'invalid callback URL');
+  assert.equal(h.state.addStatus, 'idle');
+  assert.equal(h.state.oauthRetryAction, null);
+
+  h.state.completeFailure('CODEX_OAUTH_RESTART_REQUIRED: no OAuth session', false, true);
+  assert.equal(h.state.oauthCallbackError, null);
+  assert.equal(h.state.oauthRetryAction, 'restart');
+
+  h.state.completeFailure('temporary connection error', true);
+  assert.equal(h.state.oauthRetryAction, 'exchange');
+});
 
 test('enabling proxy blocks automatic direct starts until cancellation and explicit setup finish', async () => {
   const h = harness(); const switching = h.state.toggle(true);
@@ -141,5 +311,5 @@ test('editing repeatedly then starting during cancellation uses only the latest 
 test('start failure does not cause a retry loop when the pending-task guard clears', async () => {
   const h = harness({ oauthUrl: null, oauthActiveRef: { current: false }, oauthLoginIdRef: { current: null } });
   h.auto(); h.starts[0].task.reject(new Error('start failed')); await settlePromises();
-  h.auto(); assert.equal(h.starts.length, 1); assert.equal(h.state.oauthPrepareError, 'startFailed');
+  h.auto(); assert.equal(h.starts.length, 1); assert.equal(h.state.oauthPrepareError, 'common.shared.oauth.failed: start failed');
 });

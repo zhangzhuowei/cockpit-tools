@@ -6,6 +6,9 @@ test('lifecycle and proxy failures remain distinct from authorization errors', (
   assert.equal(codexLaunchErrorKey('CODEX_SWITCH_BINDING_FAILED'), 'codex.launchErrors.bindingFailed');
   assert.equal(codexLaunchErrorKey(new Error('CODEX_PROCESS_SCAN_FAILED')), 'codex.launchErrors.processScanFailed');
   assert.equal(codexLaunchErrorKey('PROXY_ENTRY_PORT_UNAVAILABLE'), 'codex.launchErrors.proxyEntryFailed');
+  assert.equal(codexLaunchErrorKey('CODEX_PROXY_DOTENV_UNAVAILABLE'), 'codex.launchErrors.proxyEnvUnavailable');
+  assert.equal(codexLaunchErrorKey('CODEX_PROXY_DOTENV_CHANGED'), 'codex.launchErrors.proxyEnvChanged');
+  assert.equal(codexLaunchErrorKey('CODEX_PROXY_DOTENV_STOP_FAILED'), 'codex.launchErrors.proxyEnvStopFailed');
   assert.equal(codexLaunchErrorKey('CODEX_SWITCH_AUTH_REQUIRED:{}'), null);
   assert.equal(codexLaunchErrorKey('unknown error or private diagnostic data'), null);
 });
@@ -21,13 +24,8 @@ test('client proxy setup failures explain the route problem instead of requestin
   assert.equal(codexLaunchErrorKey('toString'), null);
 });
 
-test('bounded session checks keep contextual diagnostics out of both launch dialogs', () => {
-  assert.equal(codexLaunchErrorKey('CODEX_SESSION_VISIBILITY_TIMEOUT'), 'codex.launchErrors.sessionCheckTimeout');
-  assert.equal(codexLaunchErrorKey(new Error('Session repair (default / private-path): CODEX_SESSION_VISIBILITY_TIMEOUT: sqlite')), 'codex.launchErrors.sessionCheckTimeout');
-  assert.equal(codexLaunchErrorKey('Session repair: CODEX_SESSION_VISIBILITY_ROLLOUT_LINE_TOO_LARGE: private-path'), 'codex.launchErrors.sessionFileTooLarge');
-  assert.equal(codexLaunchErrorKey('CODEX_SESSION_VISIBILITY_ROLLBACK_FAILED: CODEX_SESSION_VISIBILITY_TIMEOUT; backup: private-path'), 'codex.launchErrors.sessionRestoreFailed');
-  assert.equal(codexLaunchErrorKey('CODEX_SESSION_VISIBILITY_TIMEOUT_OTHER'), null);
-  assert.equal(codexLaunchErrorKey('CODEX_SESSION_VISIBILITY_ROLLOUT_LINE_TOO_LARGE_OTHER'), null);
+test('session rollback failure keeps contextual diagnostics out of the launch dialog', () => {
+  assert.equal(codexLaunchErrorKey('Session repair: CODEX_SESSION_VISIBILITY_ROLLBACK_FAILED: disk error'), 'codex.launchErrors.sessionRestoreFailed');
 });
 
 test('maps account overview access_token progress to shared launch fields', () => {

@@ -141,27 +141,19 @@ pub async fn inject_minimax_code_to_client(
         .ok_or_else(|| format!("账号不存在: {account_id}"))?;
     let email = account.email.clone();
 
-    // Switch first and publish the new current account only on success: a failed
-    // switch must not leave the app pointing at an account the client is not using.
-    let result = tauri::async_runtime::spawn_blocking(move || {
-        crate::modules::minimax_code_account::switch_and_launch(&account)
-    })
-    .await
-    .map_err(|e| format!("MiniMax Code 切号后台任务失败: {e}"))??;
-
-    minimax_code_account::touch_last_used(&account_id)?;
-    crate::modules::provider_current_state::set_current_account_id(
-        "minimaxcode",
-        Some(account_id.as_str()),
-    )?;
+    if let Err(error) = super::minimax_code_instance::switch_default_account_and_start(account_id.clone()).await {
+        if error == "APP_PATH_NOT_FOUND:minimaxcode" {
+            let _ = app.emit("app:path_missing", serde_json::json!({
+                "app": "minimaxcode", "retry": { "kind": "switchAccount", "accountId": account_id }
+            }));
+        }
+        return Err(error);
+    }
     let _ = crate::modules::tray::update_tray_menu(&app);
     logger::log_info(&format!(
-        "[MiniMax Code Switch] 切换完成: account_id={}, email={}, client={}",
-        account_id,
-        email,
-        result.display()
+        "[MiniMax Code Switch] 切换完成: account_id={}, email={}", account_id, email
     ));
-    Ok(format!("切换完成: {} ({})", email, result.display()))
+    Ok(format!("切换完成: {}", email))
 }
 
 #[tauri::command]
@@ -202,12 +194,7 @@ pub fn minimax_code_oauth_login_cancel(login_id: Option<String>) -> Result<(), S
 pub async fn get_checkin_status_minimax_code(
     account_id: String,
 ) -> Result<minimax_code_api::MinimaxCodeCheckinStatus, String> {
-    let account = minimax_code_account::load_account(&account_id)
-        .ok_or_else(|| format!("账号不存在: {account_id}"))?;
-    minimax_code_api::get_checkin_status(
-        &account.access_token,
-        account.region.as_deref().unwrap_or("cn"),
-    ).await
+    minimax_code_api::get_account_checkin_status(&account_id).await
 }
 
 #[tauri::command]
@@ -215,27 +202,20 @@ pub async fn checkin_minimax_code(
     app: tauri::AppHandle,
     account_id: String,
 ) -> Result<minimax_code_api::MinimaxCodeCheckinResult, String> {
-    let account = minimax_code_account::load_account(&account_id)
-        .ok_or_else(|| format!("账号不存在: {account_id}"))?;
-    // MiniMax tokens are ~1h and the client renews them locally; refresh first so a
-    // stale token does not burn the retry budget.
-    let account = match minimax_code_account::refresh_account_token(&account_id).await {
-        Ok(refreshed) => refreshed,
-        Err(_) => account,
-    };
-    let region = account.region.as_deref().unwrap_or("cn").to_string();
-    let response = minimax_code_api::perform_checkin(&account.access_token, &region).await?;
+    let started = std::time::Instant::now();
+    let result = minimax_code_api::checkin_account(&account_id).await;
+    let log_account = account_id.clone();
+    let log_result = result.clone();
+    let duration_ms = started.elapsed().as_millis() as u64;
+    tauri::async_runtime::spawn_blocking(move || {
+        minimax_code_auto_checkin::record_manual_result(&log_account, &log_result, duration_ms)
+    })
+    .await
+    .map_err(|error| format!("签到请求已结束，但记录保存任务失败: {error}"))?
+    .map_err(|error| format!("签到请求已结束，但记录保存失败: {error}"))?;
+    let _ = app.emit("minimax-code-auto-checkin-logs-changed", ());
+    let response = result?;
     if response.success {
-        let now = chrono::Utc::now().timestamp();
-        let streak = if response.already_claimed {
-            account.checkin_streak.unwrap_or(0)
-        } else {
-            response.streak_days
-                .and_then(|v| i32::try_from(v).ok())
-                .unwrap_or_else(|| account.checkin_streak.unwrap_or(0).saturating_add(1))
-        };
-        let reward = response.credit.map(|credit| serde_json::json!({ "credit": credit }));
-        minimax_code_account::update_checkin_info(&account_id, Some(now), streak, reward)?;
         let _ = crate::modules::tray::update_tray_menu(&app);
         let _ = app.emit("minimaxcode:checkin_completed", serde_json::json!({
             "accountId": account_id, "success": true, "credit": response.credit, "streakDays": response.streak_days,
@@ -245,24 +225,51 @@ pub async fn checkin_minimax_code(
 }
 
 #[tauri::command]
-pub fn get_minimax_code_auto_checkin_config(
+pub async fn get_minimax_code_auto_checkin_config(
 ) -> Result<minimax_code_auto_checkin::MinimaxCodeAutoCheckinConfig, String> {
-    minimax_code_auto_checkin::get_config_checked()
+    tauri::async_runtime::spawn_blocking(minimax_code_auto_checkin::get_config_checked)
+        .await
+        .map_err(|error| format!("自动签到配置任务失败: {error}"))?
 }
 #[tauri::command]
-pub fn save_minimax_code_auto_checkin_config(
+pub async fn migrate_minimax_code_auto_checkin_config(
+    legacy_config: minimax_code_auto_checkin::MinimaxCodeAutoCheckinConfig,
+) -> Result<minimax_code_auto_checkin::MinimaxCodeAutoCheckinConfig, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        minimax_code_auto_checkin::migrate_config_if_missing(&legacy_config)
+    })
+    .await
+    .map_err(|error| format!("自动签到配置任务失败: {error}"))?
+}
+
+#[tauri::command]
+pub async fn save_minimax_code_auto_checkin_config(
     config: minimax_code_auto_checkin::MinimaxCodeAutoCheckinConfig,
 ) -> Result<(), String> {
-    minimax_code_auto_checkin::save_config(&config)
+    tauri::async_runtime::spawn_blocking(move || minimax_code_auto_checkin::save_config(&config))
+        .await
+        .map_err(|error| format!("自动签到配置任务失败: {error}"))?
 }
 #[tauri::command]
-pub fn get_minimax_code_auto_checkin_logs(
-) -> Result<Vec<minimax_code_auto_checkin::MinimaxCodeAutoCheckinLogRecord>, String> {
-    minimax_code_auto_checkin::get_logs_checked()
+pub async fn get_minimax_code_auto_checkin_logs(
+    retry: Option<bool>,
+) -> Result<
+    crate::modules::wakeup_history_store::HistoryRead<
+        crate::modules::minimax_code_auto_checkin::MinimaxCodeAutoCheckinLogRecord,
+    >,
+    String,
+> {
+    tauri::async_runtime::spawn_blocking(move || {
+        minimax_code_auto_checkin::get_logs_checked(retry.unwrap_or(false))
+    })
+    .await
+    .map_err(|error| format!("签到历史任务失败: {error}"))?
 }
 #[tauri::command]
-pub fn clear_minimax_code_auto_checkin_logs() -> Result<(), String> {
-    minimax_code_auto_checkin::save_logs(&[])
+pub async fn clear_minimax_code_auto_checkin_logs() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(minimax_code_auto_checkin::clear_logs)
+        .await
+        .map_err(|error| format!("签到历史任务失败: {error}"))?
 }
 #[tauri::command]
 pub async fn run_minimax_code_auto_checkin_now(

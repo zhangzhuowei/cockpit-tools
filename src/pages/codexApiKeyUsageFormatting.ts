@@ -79,7 +79,7 @@ export function useCodexApiKeyUsageFormatting(
   );
 
   const formatApiKeyUsagePercent = useCallback(
-    (summary?: CodexModelProviderUsageSummary): number => {
+    (summary?: CodexModelProviderUsageSummary): number | null => {
       if (summary?.mode === "new_api") {
         const { granted, available } = resolveNewApiQuotaSnapshot(summary);
         if (granted != null && available != null && granted > 0) {
@@ -88,6 +88,7 @@ export function useCodexApiKeyUsageFormatting(
             Math.min(100, Math.round(((granted - available) / granted) * 100)),
           );
         }
+        return null;
       }
       const used = summary?.quotaUsed ?? summary?.totalCost;
       const limit = summary?.quotaLimit;
@@ -108,39 +109,20 @@ export function useCodexApiKeyUsageFormatting(
   const formatApiKeyUsageDetailLabel = useCallback(
     (key: string, fallback: string): string => {
       const labels: Record<string, string> = {
-        modelName: t("codex.modelProviders.usage.fields.modelName", "Model"),
-        intervalRemaining: t(
-          "codex.modelProviders.usage.fields.intervalRemaining",
-          "Interval Remaining",
-        ),
-        intervalLimit: t(
-          "codex.modelProviders.usage.fields.intervalLimit",
-          "Interval Limit",
-        ),
-        intervalRemainingPercent: t(
-          "codex.modelProviders.usage.fields.intervalRemainingPercent",
-          "Interval Remaining %",
-        ),
-        intervalExpiresAt: t(
-          "codex.modelProviders.usage.fields.intervalExpiresAt",
-          "Interval Reset",
-        ),
-        weeklyRemaining: t(
-          "codex.modelProviders.usage.fields.weeklyRemaining",
-          "Weekly Remaining",
-        ),
-        weeklyLimit: t(
-          "codex.modelProviders.usage.fields.weeklyLimit",
-          "Weekly Limit",
-        ),
-        weeklyRemainingPercent: t(
-          "codex.modelProviders.usage.fields.weeklyRemainingPercent",
-          "Weekly Remaining %",
-        ),
-        weeklyExpiresAt: t(
-          "codex.modelProviders.usage.fields.weeklyExpiresAt",
-          "Weekly Reset",
-        ),
+        modelName: t("common.codexUsage.model"),
+        intervalRemaining: t("codex.modelProviders.usage.fields.intervalRemaining"),
+        intervalLimit: t("codex.modelProviders.usage.fields.intervalLimit"),
+        intervalRemainingPercent: t("codex.modelProviders.usage.fields.intervalRemainingPercent"),
+        intervalExpiresAt: t("codex.modelProviders.usage.fields.intervalExpiresAt"),
+        weeklyRemaining: t("codex.modelProviders.usage.fields.weeklyRemaining"),
+        weeklyLimit: t("codex.modelProviders.usage.fields.weeklyLimit"),
+        weeklyRemainingPercent: t("codex.modelProviders.usage.fields.weeklyRemainingPercent"),
+        weeklyExpiresAt: t("codex.modelProviders.usage.fields.weeklyExpiresAt"),
+        dailyLimit: t("common.apiBudget.dailyLimit"),
+        dailyRemaining: `${t("common.apiBudget.daily")} · ${t("codex.modelProviders.usage.fields.remaining")}`,
+        dailyExpiresAt: `${t("common.apiBudget.daily")} · ${t("common.apiBudget.resetsAt")}`,
+        monthlyRemainingPercent: `${t("common.apiBudget.monthly")} · ${t("codex.modelProviders.usage.fields.remaining")} (%)`,
+        monthlyExpiresAt: `${t("common.apiBudget.monthly")} · ${t("common.apiBudget.resetsAt")}`,
         status: t("codex.modelProviders.usage.fields.status", "状态"),
         planName: t("codex.modelProviders.usage.fields.planName", "订阅"),
         remaining: t("codex.modelProviders.usage.fields.remaining", "剩余额度"),
@@ -200,11 +182,8 @@ export function useCodexApiKeyUsageFormatting(
           "codex.modelProviders.usage.fields.totalUsage",
           "累计消耗",
         ),
-        isAvailable: t(
-          "codex.modelProviders.usage.fields.isAvailable",
-          "余额可用",
-        ),
-        currency: t("codex.modelProviders.usage.fields.currency", "币种"),
+        isAvailable: t("codex.modelProviders.usage.fields.isAvailable"),
+        currency: t("codex.modelProviders.usage.fields.currency"),
         totalBalance: t(
           "codex.modelProviders.usage.fields.totalBalance",
           "总余额",
@@ -243,7 +222,7 @@ export function useCodexApiKeyUsageFormatting(
       }
       if (
         Number.isFinite(numeric) &&
-        (item.key === "intervalExpiresAt" || item.key === "weeklyExpiresAt")
+        ["intervalExpiresAt", "dailyExpiresAt", "weeklyExpiresAt", "monthlyExpiresAt"].includes(item.key)
       ) {
         return numeric > 0 ? formatDate(numeric * 1000) : "-";
       }

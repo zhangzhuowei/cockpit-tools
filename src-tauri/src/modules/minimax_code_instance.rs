@@ -270,11 +270,7 @@ pub fn create_instance(params: CreateInstanceParams) -> Result<InstanceProfile, 
         user_data_dir,
         working_dir: params.working_dir,
         extra_args: params.extra_args.trim().to_string(),
-        bind_account_id: if create_empty {
-            None
-        } else {
-            params.bind_account_id
-        },
+        bind_account_id: params.bind_account_id,
         model_routing: None,
         launch_mode: crate::models::InstanceLaunchMode::App,
         app_speed: crate::models::codex::CodexAppSpeed::Standard,
@@ -991,6 +987,9 @@ mod minimax_code_instance_tests {
     #[test]
     fn default_settings_round_trip_at_injected_root() {
         let base = temp_data_dir("default-settings");
+        let legacy_path = instances_path_for(&base);
+        let legacy = serde_json::to_vec(&InstanceStore::new()).unwrap();
+        fs::write(&legacy_path, &legacy).unwrap();
         let updated = update_default_settings_at(
             &base,
             Some(Some("acc-9".to_string())),
@@ -999,7 +998,12 @@ mod minimax_code_instance_tests {
         .expect("update default settings");
         assert_eq!(updated.bind_account_id.as_deref(), Some("acc-9"));
         assert_eq!(updated.extra_args, "--new-window");
-        assert!(instances_path_for(&base).is_file());
+        let saved = instance_store::load_instance_store(&legacy_path, MINIMAX_CODE_INSTANCES_FILE)
+            .expect("reload default settings")
+            .default_settings;
+        assert_eq!(saved.bind_account_id, updated.bind_account_id);
+        assert_eq!(saved.extra_args, updated.extra_args);
+        assert_eq!(fs::read(legacy_path).unwrap(), legacy);
     }
 
     /// 每个实例的 `auth.json` 都落在自己的 data root 下（多开隔离的根本保证）。

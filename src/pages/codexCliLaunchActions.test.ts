@@ -15,12 +15,12 @@ function harness(overrides: Record<string, any> = {}) {
   const context = vm.createContext({
     getCodexSwitchOrLaunchBlockedReason: () => null,
     isCodexWebSessionAccount: () => false,
-    isDeepSeekAccount: (account: any) => account.api_provider_id === 'deepseek',
+    isCodexApiKeyAccount: (account: any) => account.api_provider_id === 'deepseek' || account.auth_mode === 'apikey',
     updateAccountInstanceAccess: async (...args: any[]) => {
       calls.updates.push(args);
       return { id: args[0], api_provider_id: 'deepseek', api_instance_access_mode: args[1] };
     },
-    resolveDeepSeekBindAccountId: (account: any) => `${account.id}:${account.api_instance_access_mode}`,
+    resolveCodexProviderBindAccountId: (account: any) => account.api_instance_access_mode ? `${account.id}:${account.api_instance_access_mode}` : account.id,
     buildCodexAccountPresentation: (account: any) => ({ displayName: account.id }),
     openCodexCliLaunchModal: (...args: any[]) => { calls.cli.push(args); },
     restoreLaunchPreviewInstanceId: () => {},
@@ -33,8 +33,9 @@ function harness(overrides: Record<string, any> = {}) {
   });
   function visit(node: ts.Node) {
     if (ts.isVariableDeclaration(node) && node.initializer &&
-      ['handleLaunchCodexCli', 'handleLaunchLocalAccessCli'].includes(node.name.getText(source))) {
-      vm.runInContext(ts.transpileModule(`globalThis.${node.name.getText(source)} = ${node.initializer.getText(source)}`, {
+      ['handleLaunchCodexCli', 'handleLaunchLocalAccessCli', 'handleExecuteLaunchPreview'].includes(node.name.getText(source))) {
+      const handler = ts.isCallExpression(node.initializer) ? node.initializer.arguments[0] : node.initializer;
+      vm.runInContext(ts.transpileModule(`globalThis.${node.name.getText(source)} = ${handler.getText(source)}`, {
         compilerOptions: { target: ts.ScriptTarget.ES2022 },
       }).outputText, context);
     }
@@ -64,13 +65,20 @@ test('CLI from an account list still opens the preview before preparing CLI', as
 test('DeepSeek CLI uses the confirmed access mode and image configuration', async () => {
   const h = harness();
   await h.context.handleLaunchCodexCli({ id: 'deepseek-account', api_provider_id: 'deepseek' }, {
-    deepSeekAccessMode: 'gateway', imageGenerationAccountIds: ['image-account'],
+    providerAccessMode: 'gateway', imageGenerationAccountIds: ['image-account'],
     imageGenerationAccountModels: { 'image-account': 'gpt-image-2.5' },
   });
   assert.deepEqual(h.calls.updates, [['deepseek-account', 'gateway', null,
     ['image-account'], { 'image-account': 'gpt-image-2.5' }]]);
   assert.equal(h.calls.cli[0][3], 'deepseek-account:gateway');
   assert.deepEqual(h.calls.preview, []);
+});
+
+test('a third-party CLI preview saves direct access without rewriting image settings', async () => {
+  const h = harness();
+  await h.context.handleLaunchCodexCli({ id: 'relay-account', auth_mode: 'apikey' }, { providerAccessMode: 'direct' });
+  assert.deepEqual(h.calls.updates, [['relay-account', 'direct', null, undefined, undefined]]);
+  assert.equal(h.calls.cli[0][3], 'relay-account:direct');
 });
 
 test('preview CLI errors propagate to the current modal instead of the hidden page', async () => {
@@ -97,10 +105,52 @@ test('failed DeepSeek settings save prevents opening CLI and can be retried', as
     return { id: 'deepseek-account', api_provider_id: 'deepseek', api_instance_access_mode: 'gateway' };
   } });
   const account = { id: 'deepseek-account', api_provider_id: 'deepseek' };
-  const options = { deepSeekAccessMode: 'gateway' };
+  const options = { providerAccessMode: 'gateway' };
   await assert.rejects(h.context.handleLaunchCodexCli(account, options), /disk full/);
   assert.deepEqual(h.calls.cli, []);
   assert.deepEqual(h.calls.errors, []);
   await h.context.handleLaunchCodexCli(account, options);
   assert.equal(h.calls.cli.length, 1);
+});
+
+test('only an explicit non-default CLI switch-and-start requests background continuation', async () => {
+  for (const [launchMode, start, terminalPreview, expected] of [
+    ['cli', true, false, [['bind', 'selected-account'], ['start CLI', 'managed', 'selected-account']]],
+    ['app', true, false, [['bind', 'selected-account'], ['start app', 'managed']]],
+    ['cli', false, false, [['switch', 'managed', 'selected-account']]],
+    ['cli', true, true, [['preview', 'selected-account']]],
+  ] as const) {
+    const calls: string[][] = [];
+    const h = harness({
+      activeLaunchPreviewAccount: { id: 'selected-account' },
+      launchPreviewInstanceId: 'managed',
+      launchPreviewInstanceLabel: 'Managed fixture',
+      launchPreviewCliIntent: terminalPreview,
+      DEFAULT_CODEX_INSTANCE_ID: '__default__',
+      persistCodexLaunchPreviewLastInstanceId() {},
+      setPendingCliLaunchTarget(target: { bindAccountId: string }) {
+        calls.push(['preview', target.bindAccountId]);
+      },
+      codexInstanceStore: {
+        async updateInstance(payload: { bindAccountId: string }) {
+          calls.push(['bind', payload.bindAccountId]);
+          return { id: 'managed', launchMode };
+        },
+        async startInstance(id: string) { calls.push(['start app', id]); },
+        async fetchInstances() {},
+      },
+      codexInstanceService: {
+        async startInstance(id: string, options: { expectedSwitchBinding: string }) {
+          calls.push(['start CLI', id, options.expectedSwitchBinding]);
+        },
+        async switchInstanceAccount(id: string, binding: string) {
+          calls.push(['switch', id, binding]);
+          return false;
+        },
+      },
+      async executeCodexAccountSwitch() { assert.fail('expected a non-default instance'); },
+    });
+    assert.equal(await h.context.handleExecuteLaunchPreview(start), true);
+    assert.deepEqual(calls, expected);
+  }
 });

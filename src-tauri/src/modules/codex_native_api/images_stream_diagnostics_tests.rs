@@ -58,10 +58,14 @@ impl Host for ImageReadHost {
     fn image_route<'a>(
         &'a self,
         _: &'a Caller,
-        _: ImageRouteRequest,
+        request: ImageRouteRequest,
     ) -> BoxFuture<'a, Result<ImageRoute, ServiceError>> {
         Box::pin(async move {
-            self.selections.fetch_add(1, Ordering::SeqCst);
+            let selection = self.selections.fetch_add(1, Ordering::SeqCst);
+            if selection > 0 {
+                assert_eq!(request.preferred_account_id.as_deref(), Some("image-read-account"));
+                assert!(!request.force_refresh);
+            }
             let permit = self.capacity.clone().try_acquire_owned().unwrap();
             Ok(ImageRoute {
                 route: Route {
@@ -311,7 +315,7 @@ async fn image_bootstrap_disconnect_retries_only_within_its_budget_on_the_same_o
         response.json::<Value>().await.unwrap()["data"][0]["b64_json"],
         "AA=="
     );
-    assert_eq!(fixture.host.selections.load(Ordering::SeqCst), 1);
+    assert_eq!(fixture.host.selections.load(Ordering::SeqCst), 2);
     let report = fixture.report().await;
     assert!(report.success);
     assert_eq!(report.account_id, "image-read-account");
@@ -361,7 +365,7 @@ async fn image_bootstrap_disconnect_honors_zero_and_exhausted_retry_budgets() {
             .unwrap()
             .contains("stage=bootstrap"));
         assert_eq!(calls.load(Ordering::SeqCst), usize::from(retries) + 1);
-        assert_eq!(fixture.host.selections.load(Ordering::SeqCst), 1);
+        assert_eq!(fixture.host.selections.load(Ordering::SeqCst), usize::from(retries) + 1);
         assert_eq!(fixture.host.capacity.available_permits(), 1);
         fixture.close().await;
     }
@@ -464,6 +468,43 @@ async fn image_eof_and_idle_timeout_keep_distinct_codes() {
         assert_eq!(report.diagnostics.unwrap().attempts.len(), 1);
         fixture.close().await;
     }
+}
+
+#[tokio::test]
+async fn image_completed_without_output_records_both_models_and_usage() {
+    let app = Router::new().route("/v1/responses", post(|Json(body): Json<Value>| async move {
+        assert_eq!(body["model"], "image-main-fixture");
+        assert_eq!(body["tools"][0]["model"], "gpt-image-2.5-flare");
+        (
+            [(header::CONTENT_TYPE, "text/event-stream")],
+            frame(json!({"type":"response.completed","response":{
+                "id":"resp-no-image","status":"completed","output":[
+                    {"type":"message","role":"assistant","content":[{"type":"output_text","text":"fixture text only"}]}
+                ],"usage":{"input_tokens":3200,"output_tokens":12,"total_tokens":3212}
+            }})),
+        )
+    }));
+    let fixture = ImageReadFixture::new(app, policy(3)).await;
+    let response = fixture.send(false).await;
+    assert_eq!(response.status(), 502);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["error"]["code"], "image_output_missing");
+    assert!(body["error"]["message"].as_str().unwrap().contains("stage=completed_without_image"));
+    let report = fixture.report().await;
+    assert!(!report.success);
+    assert_eq!(report.usage.unwrap()["total_tokens"], 3212);
+    let diagnostics = report.diagnostics.unwrap();
+    assert_eq!(diagnostics.failure_phase.as_deref(), Some("upstream_response"));
+    assert_eq!(diagnostics.attempts.len(), 1, "do not retry completed generation");
+    let attempt = &diagnostics.attempts[0];
+    assert_eq!(attempt.status, Some(502));
+    let image = attempt.image_request.as_ref().unwrap();
+    assert_eq!(image.requested_model.as_deref(), Some("gpt-image-2.5"));
+    assert_eq!(image.upstream_model, "gpt-image-2.5-flare");
+    assert_eq!(image.responses_model.as_deref(), Some("image-main-fixture"));
+    assert_eq!(image.upstream_status, Some(200));
+    assert!(!body.to_string().contains("fixture text only"));
+    fixture.close().await;
 }
 
 #[tokio::test]

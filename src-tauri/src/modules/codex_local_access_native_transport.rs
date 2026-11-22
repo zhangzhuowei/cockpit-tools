@@ -1,5 +1,6 @@
 // Shared transport policy for native HTTP and WebSocket requests.
 const NATIVE_HTTP_CLIENT_CACHE_LIMIT: usize = 128;
+const NATIVE_TLS_ROOTS_TTL: Duration = Duration::from_secs(60);
 
 struct NativeHttpClientEntry {
     account_id: String,
@@ -199,7 +200,7 @@ fn native_transport_fingerprint(
         ])
     });
     let material = json!({
-        "version":5,"account":account.id,"owner":context.owner,
+        "version":6,"account":account.id,"owner":context.owner,
         "profile":[context.profile.version,context.profile.scope,context.profile.installation_id,context.profile.revision],
         "base":native_transport_endpoint(context.base_url),
         "protocol":match context.wire_api { native_contract::WireApi::Responses=>"responses",native_contract::WireApi::Chat=>"chat",native_contract::WireApi::Anthropic=>"anthropic" },
@@ -385,10 +386,13 @@ async fn native_http_client(
         if let Some((client, identity)) = cached {
             return Ok((client, proxy, proxy_route, identity));
         }
-        let mut builder = native_http_client_builder(
-            native_codex_responses_alpn(account, context),
-            context.http1_only || fallback,
-        )
+        let http1_only = context.http1_only || fallback;
+        let mut builder = if native_codex_responses_alpn(account, context) {
+            let roots = native_codex_tls_roots(host).await?;
+            native_codex_http_client_builder(roots, http1_only)?
+        } else {
+            native_http_client_builder(http1_only)
+        }
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_millis(
             collection
@@ -440,6 +444,62 @@ async fn native_http_client(
     }
 }
 
+async fn native_codex_tls_roots(
+    host: &NativeHostBridge,
+) -> Result<Arc<rustls::RootCertStore>, native_contract::ServiceError> {
+    let mut cache = host.tls_roots.clone().lock_owned().await;
+    if let Some((loaded_at, roots)) = cache.as_ref() {
+        if loaded_at.elapsed() < NATIVE_TLS_ROOTS_TTL {
+            return Ok(roots.clone());
+        }
+    }
+    // A cancelled request must not start a second trust-store load while this
+    // worker still owns the lock. Never hold the transport cache lock here.
+    tokio::task::spawn_blocking(move || {
+        let loaded = rustls_native_certs::load_native_certs();
+        let mut roots = rustls::RootCertStore::empty();
+        let (added, ignored) = roots.add_parsable_certificates(loaded.certs);
+        if added == 0 && (ignored > 0 || !loaded.errors.is_empty()) {
+            return Err(native_error(
+                503,
+                "transport_unavailable",
+                "Unable to load upstream TLS trust roots",
+            ));
+        }
+        let roots = Arc::new(roots);
+        *cache = Some((Instant::now(), roots.clone()));
+        Ok(roots)
+    })
+    .await
+    .map_err(|_| native_error(
+        503,
+        "transport_unavailable",
+        "Unable to load upstream TLS trust roots",
+    ))?
+}
+
+fn native_codex_http_client_builder(
+    roots: Arc<rustls::RootCertStore>,
+    http1_only: bool,
+) -> Result<reqwest::ClientBuilder, native_contract::ServiceError> {
+    let provider = rustls::crypto::CryptoProvider::get_default()
+        .cloned()
+        .unwrap_or_else(|| Arc::new(rustls::crypto::ring::default_provider()));
+    let mut tls = rustls::ClientConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .map_err(|_| native_error(503, "transport_unavailable", "Unable to initialize upstream TLS"))?
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    // Match reqwest's protocol negotiation while building a fresh per-client
+    // TLS configuration and resumption store from shared trust roots only.
+    tls.alpn_protocols = if http1_only {
+        vec![b"http/1.1".to_vec()]
+    } else {
+        vec![b"h2".to_vec(), b"http/1.1".to_vec()]
+    };
+    Ok(native_http_client_builder(http1_only).use_preconfigured_tls(tls))
+}
+
 fn native_codex_responses_alpn(
     account: &CodexAccount,
     context: &NativeTransportContext<'_>,
@@ -450,16 +510,16 @@ fn native_codex_responses_alpn(
         && context.wire_api == native_contract::WireApi::Responses
 }
 
-fn native_http_client_builder(codex_responses: bool, http1_only: bool) -> reqwest::ClientBuilder {
-    let builder = Client::builder();
-    let builder = if codex_responses {
-        // The native-tls default does not advertise h2 without an additional
-        // global feature. Select ALPN-capable TLS only for Codex Responses,
-        // keeping native platform trust and HTTP/1.1 fallback.
-        builder.use_rustls_tls()
-    } else {
-        builder
-    };
+fn native_http_client_builder(http1_only: bool) -> reqwest::ClientBuilder {
+    // The local proxy's TCP socket can stay open after its upstream path dies.
+    // HTTP/2 PING checks that path even while waiting for response headers or
+    // model output. Healthy PONGs do not impose a total generation deadline.
+    let builder = Client::builder()
+        .http2_keep_alive_interval(Duration::from_secs(30))
+        .http2_keep_alive_timeout(Duration::from_secs(15))
+        .http2_keep_alive_while_idle(false)
+        .tcp_keepalive(Duration::from_secs(30))
+        .pool_idle_timeout(Duration::from_secs(30));
     // Upgrade uses HTTP/1.1 end-to-end, including TLS ALPN. Request.version
     // alone does not prevent the peer from negotiating h2.
     if http1_only {

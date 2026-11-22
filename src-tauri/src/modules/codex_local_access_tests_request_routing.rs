@@ -364,21 +364,78 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
     }
 
     #[test]
-    fn sidecar_timeout_event_requests_automatic_restart() {
-        let event: SidecarUsageEvent = serde_json::from_value(json!({
-            "success": false,
-            "status": 504,
-            "errorCategory": "gateway_context_canceled",
-            "errorMessage": "Post https://chatgpt.com/backend-api/codex/responses: context canceled"
-        }))
-        .expect("timeout event should deserialize");
+    fn legacy_sidecar_http_200_eof_needs_evidence_to_attribute_the_disconnect() {
+        for (status, category, message, expected) in [
+            (200, "client_canceled", "unexpected EOF", "request_failed"),
+            (200, "request_failed", "unexpected EOF", "request_failed"),
+            (200, "", "unexpected EOF", "request_failed"),
+            (200, "client_canceled", "unexpected EOF: stream closed before response.completed", "stream_incomplete"),
+            (200, "client_canceled", "unexpected EOF: stream disconnected before completion, last_event=response.failed", "upstream_response_failed"),
+            (200, "client_canceled", "client disconnected: unexpected EOF", "client_canceled"),
+            (200, "upstream_stream_error", "unexpected EOF", "upstream_stream_error"),
+            (499, "client_canceled", "unexpected EOF", "client_canceled"),
+        ] {
+            let event: SidecarUsageEvent = serde_json::from_value(json!({
+                "success": false, "status": status, "errorCategory": category, "errorMessage": message,
+            })).unwrap();
+            assert_eq!(normalized_sidecar_error_category(&event).as_deref(), Some(expected), "{status}: {message}");
+            assert_eq!(sidecar_usage_event_is_client_canceled(&event), expected == "client_canceled", "{status}: {message}");
+            assert!(!sidecar_usage_event_should_auto_restart(&event), "{status}: {message}");
+        }
+    }
 
-        assert!(sidecar_usage_event_should_auto_restart(&event));
-        assert!(!sidecar_usage_event_is_client_canceled(&event));
-        assert_eq!(
-            normalized_sidecar_error_category(&event).as_deref(),
-            Some("gateway_context_canceled")
-        );
+    #[tokio::test]
+    async fn unattributed_sidecar_eof_does_not_penalize_the_account() {
+        use super::{gateway_runtime, update_sidecar_account_health};
+
+        let account_id = format!("eof-fixture-{}", uuid::Uuid::new_v4());
+        let mut event: SidecarUsageEvent = serde_json::from_value(json!({
+            "accountId": account_id,
+            "success": false,
+            "status": 200,
+            "errorCategory": "client_canceled",
+            "errorMessage": "unexpected EOF",
+        }))
+        .unwrap();
+        let category = normalized_sidecar_error_category(&event);
+        update_sidecar_account_health(&event, category.as_deref()).await;
+        assert!(!gateway_runtime()
+            .lock()
+            .await
+            .account_health
+            .contains_key(&account_id));
+
+        event.error_message = Some("unexpected EOF: last_event=response.failed".into());
+        let category = normalized_sidecar_error_category(&event);
+        update_sidecar_account_health(&event, category.as_deref()).await;
+        let health = gateway_runtime()
+            .lock()
+            .await
+            .account_health
+            .remove(&account_id)
+            .unwrap();
+        assert_eq!(health.consecutive_failures, 1);
+        assert_eq!(health.last_failure_category.as_deref(), Some("upstream_response_failed"));
+    }
+
+    #[test]
+    fn sidecar_timeout_event_requests_automatic_restart() {
+        for category in ["gateway_context_canceled", "client_canceled"] {
+            let event: SidecarUsageEvent = serde_json::from_value(json!({
+                "success": false,
+                "status": 504,
+                "errorCategory": category,
+                "errorMessage": "Post https://chatgpt.com/backend-api/codex/responses: context canceled"
+            }))
+            .expect("timeout event should deserialize");
+
+            assert!(sidecar_usage_event_should_auto_restart(&event));
+            assert!(!sidecar_usage_event_is_client_canceled(&event));
+            assert_eq!(
+                normalized_sidecar_error_category(&event).as_deref(),
+                Some("gateway_context_canceled")
+            );
+        }
     }
 
     #[test]
@@ -425,6 +482,15 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
         .expect("client disconnect event should deserialize");
 
         assert!(!sidecar_usage_event_should_auto_restart(&event));
+        let canceled: SidecarUsageEvent = serde_json::from_value(json!({
+            "success": false,
+            "status": 499,
+            "errorCategory": "client_canceled",
+            "errorMessage": "context canceled"
+        }))
+        .expect("client cancellation event should deserialize");
+        assert!(sidecar_usage_event_is_client_canceled(&canceled));
+        assert!(!sidecar_usage_event_should_auto_restart(&canceled));
     }
 
     #[test]
@@ -538,6 +604,21 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
     }
 
     #[test]
+    fn plan_rank_treats_expired_oauth_subscriptions_as_free() {
+        let mut account = test_account_with_plan("plus");
+        account.subscription_active_until = Some("946684800".to_string());
+        assert_eq!(resolve_plan_rank(&account), Some(100));
+
+        account.auth_mode = crate::models::codex::CodexAuthMode::Apikey;
+        assert_eq!(resolve_plan_rank(&account), Some(300));
+        account.auth_mode = crate::models::codex::CodexAuthMode::OAuth;
+        account.subscription_active_until = Some("2099-01-01T00:00:00Z".to_string());
+        assert_eq!(resolve_plan_rank(&account), Some(300));
+        account.subscription_active_until = Some("invalid".to_string());
+        assert_eq!(resolve_plan_rank(&account), Some(300));
+    }
+
+    #[test]
     fn plan_low_first_places_business_and_team_before_pro() {
         let mut candidates = vec![
             RoutingCandidate {
@@ -545,36 +626,42 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
                 plan_rank: Some(500),
                 remaining_quota: Some(80),
                 subscription_expiry_ms: None,
+                five_hour_reset_at: None,
             },
             RoutingCandidate {
                 account_id: "acc-plus".to_string(),
                 plan_rank: Some(300),
                 remaining_quota: Some(40),
                 subscription_expiry_ms: None,
+                five_hour_reset_at: None,
             },
             RoutingCandidate {
                 account_id: "acc-team".to_string(),
                 plan_rank: Some(300),
                 remaining_quota: Some(70),
                 subscription_expiry_ms: None,
+                five_hour_reset_at: None,
             },
             RoutingCandidate {
                 account_id: "acc-business".to_string(),
                 plan_rank: Some(300),
                 remaining_quota: Some(60),
                 subscription_expiry_ms: None,
+                five_hour_reset_at: None,
             },
             RoutingCandidate {
                 account_id: "acc-promax".to_string(),
                 plan_rank: Some(600),
                 remaining_quota: Some(90),
                 subscription_expiry_ms: None,
+                five_hour_reset_at: None,
             },
             RoutingCandidate {
                 account_id: "acc-edu".to_string(),
                 plan_rank: Some(700),
                 remaining_quota: Some(100),
                 subscription_expiry_ms: None,
+                five_hour_reset_at: None,
             },
         ];
         let original_index = candidates
@@ -998,6 +1085,56 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
     }
 
     #[test]
+    fn claude_code_model_aliases_keep_both_luna_names_visible() {
+        use super::{apply_model_aliases_to_ids, normalize_model_aliases, CodexLocalAccessModelAlias};
+
+        let source_model = "gpt-5.6-luna";
+        let mut collection = test_local_access_collection(vec![]);
+        collection.image_generation_mode = CodexLocalAccessImageGenerationMode::Disabled;
+        collection.model_aliases = normalize_model_aliases(
+            ["claude-sonnet-5", "claude-haiku-4-5-20251001"]
+                .into_iter()
+                .enumerate()
+                .map(|(index, alias)| CodexLocalAccessModelAlias {
+                    source_model: source_model.to_string(),
+                    alias: alias.to_string(),
+                    fork: index == 0,
+                })
+                .collect(),
+        );
+        let api_key = resolve_collection_api_key(&collection, &collection.api_key)
+            .expect("resolve collection key");
+        assert_eq!(
+            visible_codex_model_ids_for_api_key_with_supported_models(
+                &collection,
+                &api_key,
+                None,
+                None,
+                vec![source_model.into(), "gpt-5.3-codex-spark".into()],
+            ),
+            [
+                source_model,
+                "claude-sonnet-5",
+                "claude-haiku-4-5-20251001",
+                "gpt-5.3-codex-spark",
+                "gpt-reserve",
+                CODEX_AUTO_REVIEW_MODEL_ID,
+            ],
+        );
+        for alias in &collection.model_aliases {
+            assert_eq!(
+                canonical_model_for_client_model(&alias.alias, &collection, &api_key),
+                source_model,
+            );
+        }
+        collection.model_aliases[0].fork = false;
+        assert_eq!(
+            apply_model_aliases_to_ids(vec![source_model.into()], &collection.model_aliases),
+            ["claude-sonnet-5", "claude-haiku-4-5-20251001"],
+        );
+    }
+
+    #[test]
     fn local_models_include_codex_image_model() {
         let response = build_local_models_response(&[
             "gpt-5.4".to_string(),
@@ -1341,8 +1478,17 @@ data: {"type":"response.completed","response":{"id":"resp_123","usage":{"input_t
                         .filter_map(|tool| tool.get("type").and_then(Value::as_str))
                         .collect::<Vec<_>>()
                 }),
-            Some(vec!["function", "function", "custom", "tool_search", "namespace"])
+            Some(vec![
+                "function",
+                "function",
+                "custom",
+                "tool_search",
+                "tool_search",
+                "namespace"
+            ])
         );
+        let tools = mapped_body["tools"].as_array().unwrap();
+        assert_eq!(tools[4]["execution"], "client");
         assert!(mapped_body.get("tool_choice").is_none());
         assert!(mapped_body
             .get("tools")
@@ -3178,7 +3324,7 @@ data: {"error":{"code":"server_error","type":"upstream","message":"stream aborte
             Vec::new(),
         );
 
-        assert!(is_local_access_eligible_account(&account, true));
+        assert!(is_local_access_eligible_account(&account));
         assert_eq!(
             account_upstream_base_url(&account),
             "https://relay.example/v1"
@@ -3199,17 +3345,53 @@ data: {"error":{"code":"server_error","type":"upstream","message":"stream aborte
         );
         account.api_wire_api = Some("responses".to_string());
 
-        assert!(is_local_access_eligible_account(&account, false));
-        assert_eq!(local_access_ineligible_reason(&account, false), None);
+        assert!(is_local_access_eligible_account(&account));
+        assert_eq!(local_access_ineligible_reason(&account), None);
         let (_, synced_ids, added_ids, skipped) = append_eligible_local_access_account_ids(
             &[],
             vec![account.id.clone()],
             &[account.clone()],
-            false,
         );
         assert_eq!(synced_ids, vec![account.id.clone()]);
         assert_eq!(added_ids, vec![account.id]);
         assert!(skipped.is_empty());
+    }
+
+    #[test]
+    fn minimax_defaults_to_native_responses_in_probe_and_runtime() {
+        use crate::modules::codex_provider_protocol::normalize_model_provider_wire_api;
+
+        for base_url in [
+            "https://api.minimax.io/v1",
+            "https://api.minimax.cn/v1",
+            "https://api.minimaxi.com/v1",
+        ] {
+            let mut account = CodexAccount::new_api_key(
+                "minimax".to_string(),
+                "minimax@example.com".to_string(),
+                "sk-test".to_string(),
+                CodexApiProviderMode::Custom,
+                Some(base_url.to_string()),
+                Some("minimax".to_string()),
+                Some("MiniMax".to_string()),
+                vec!["MiniMax-M3.1-Flash".to_string()],
+            );
+            for (stored, expected) in [
+                (None, "responses"),
+                (Some("responses"), "responses"),
+                (Some("chat_completions"), "chat_completions"),
+            ] {
+                account.api_wire_api = stored.map(str::to_string);
+                assert_eq!(normalize_model_provider_wire_api(stored, base_url), expected);
+                assert_eq!(super::provider_gateway_wire_api_for_account(&account), expected);
+            }
+        }
+
+        let chat_endpoint = "https://api.minimax.io/v1/chat/completions";
+        assert_eq!(
+            normalize_model_provider_wire_api(None, chat_endpoint),
+            "chat_completions"
+        );
     }
 
     #[test]
@@ -3226,7 +3408,7 @@ data: {"error":{"code":"server_error","type":"upstream","message":"stream aborte
         );
         account.api_wire_api = Some("chat_completions".to_string());
 
-        assert!(is_local_access_eligible_account(&account, false));
+        assert!(is_local_access_eligible_account(&account));
     }
 
     #[test]
@@ -3243,7 +3425,7 @@ data: {"error":{"code":"server_error","type":"upstream","message":"stream aborte
         );
         account.api_wire_api = Some("chat_completions".to_string());
 
-        assert!(is_local_access_eligible_account(&account, false));
+        assert!(is_local_access_eligible_account(&account));
         assert!(is_provider_gateway_eligible_account(&account));
     }
 
@@ -3306,6 +3488,9 @@ data: {"error":{"code":"server_error","type":"upstream","message":"stream aborte
             "gpt-6-sol",
             "gpt-6-luna",
             "gpt-6.1-sol",
+            "gpt-6.1-terra",
+            "gpt-6.2-sol",
+            "gpt-6.2-astra",
         ] {
             assert!(
                 models.iter().any(|model| model == model_id),
@@ -3320,6 +3505,9 @@ data: {"error":{"code":"server_error","type":"upstream","message":"stream aborte
             default_codex_model_ids(),
             vec![
                 "gpt-6.1-sol",
+                "gpt-6.2-sol",
+                "gpt-6.2-astra",
+                "gpt-6.1-terra",
                 "gpt-6-astra",
                 "gpt-6-sol",
                 "gpt-6-luna",

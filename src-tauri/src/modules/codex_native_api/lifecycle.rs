@@ -69,10 +69,12 @@ impl Drop for BlockingWorkGuard {
 }
 
 pub(super) struct RequestTracker {
+    peer_ip: Option<std::net::IpAddr>,
     pub overload: super::overload::Budget,
     pub(super) quota_exhausted_accounts: std::collections::HashSet<String>,
     quota_exhausted_attempt: Option<usize>,
     pub field_compat: super::request_compat::Budget,
+    pub(super) opencode_go_session: Option<axum::http::HeaderValue>,
     request_size: Option<super::diagnostics::RequestSize>,
     pending_overload_retry: Option<super::diagnostics::OverloadRetry>,
     overload_response_seen: bool,
@@ -135,6 +137,7 @@ struct DiagnosticCheckpoint {
     upstream_request_scoped: bool,
     failure_phase: Option<String>,
     first_response_ms: Option<u64>,
+    first_upstream_response_ms: Option<u64>,
     truncated: bool,
 }
 
@@ -202,6 +205,7 @@ impl RequestTracker {
             stop,
             started,
             response_started: started,
+            peer_ip: None,
             busy: true,
             report: None,
             pending_dispatch: None,
@@ -216,6 +220,7 @@ impl RequestTracker {
             quota_exhausted_accounts: Default::default(),
             quota_exhausted_attempt: None,
             field_compat: Default::default(),
+            opencode_go_session: None,
             request_size: None,
             pending_overload_retry: None,
             overload_response_seen: false,
@@ -265,6 +270,7 @@ impl RequestTracker {
         self.quota_exhausted_accounts.clear();
         self.quota_exhausted_attempt = None;
         self.field_compat = Default::default();
+        self.opencode_go_session = None;
         self.request_size = None;
         self.pending_overload_retry = None;
         self.overload_response_seen = false;
@@ -300,12 +306,34 @@ impl RequestTracker {
         });
     }
 
+    pub(super) fn payload_json(
+        &mut self,
+        stage: &str,
+        transport: &str,
+        headers: &axum::http::HeaderMap,
+        body: &serde_json::Value,
+    ) {
+        if self.capture_payloads {
+            self.payload(stage, transport, headers, &body.to_string());
+        }
+    }
+
     pub(super) fn payload(
         &mut self,
         stage: &str,
         transport: &str,
         headers: &axum::http::HeaderMap,
         body: &str,
+    ) {
+        self.payload_with(stage, transport, headers, || body);
+    }
+
+    pub(super) fn payload_with<S: AsRef<str>>(
+        &mut self,
+        stage: &str,
+        transport: &str,
+        headers: &axum::http::HeaderMap,
+        body: impl FnOnce() -> S,
     ) {
         if !self.capture_payloads {
             return;
@@ -317,6 +345,8 @@ impl RequestTracker {
             context.truncated = true;
             return;
         }
+        let body = body();
+        let body = body.as_ref();
         let limit = 256 * 1024;
         let mut end = body.len().min(limit);
         while !body.is_char_boundary(end) {
@@ -345,6 +375,10 @@ impl RequestTracker {
         });
     }
 
+    pub(super) fn set_peer(&mut self, peer_ip: Option<std::net::IpAddr>) {
+        self.peer_ip = peer_ip;
+    }
+
     pub(super) fn authorized(&mut self, caller: &Caller, model: &str) {
         if let Some(report) = self
             .report
@@ -356,6 +390,7 @@ impl RequestTracker {
         }
         if self.report.is_none() {
             self.report = Some(RequestReport {
+                peer_ip: self.peer_ip,
                 transient_rate_limit: false,
                 official_access_fingerprint: None,
                 official_authorization_revision: None,
@@ -373,6 +408,7 @@ impl RequestTracker {
                 success: false,
                 elapsed: Duration::ZERO,
                 usage: None,
+                input_text_characters: None,
                 error: Some("client_cancelled".into()),
                 error_message: None,
                 credential_scope: false,
@@ -427,6 +463,7 @@ impl RequestTracker {
                 upstream_request_scoped: context.upstream_request_scoped,
                 failure_phase: context.failure_phase.clone(),
                 first_response_ms: context.first_response_ms,
+                first_upstream_response_ms: context.first_upstream_response_ms,
                 truncated: context.truncated,
             }),
             retry: None,
@@ -493,6 +530,22 @@ impl RequestTracker {
         true
     }
 
+    pub(super) fn mark_failure_cooldown_recorded(&mut self, account: &str) {
+        if let Some(attempt) = self.diagnostics.as_mut().and_then(|context| context.attempts.last_mut()) {
+            if attempt.account_id == account {
+                attempt.failure_cooldown_recorded = true;
+            }
+        }
+    }
+
+    pub(super) fn mark_confirmed_quota_cooldown_recorded(&mut self, account: &str) {
+        if let Some(attempt) = self.diagnostics.as_mut().and_then(|context| context.attempts.last_mut()) {
+            if attempt.account_id == account {
+                attempt.confirmed_quota_cooldown_recorded = true;
+            }
+        }
+    }
+
     pub(super) fn upstream_attempt_count(&self) -> usize {
         self.dispatch_count
     }
@@ -544,6 +597,7 @@ impl RequestTracker {
             context.upstream_request_scoped = before.upstream_request_scoped;
             context.failure_phase = before.failure_phase;
             context.first_response_ms = before.first_response_ms;
+            context.first_upstream_response_ms = before.first_upstream_response_ms;
             context.truncated = before.truncated;
         }
         true
@@ -597,6 +651,10 @@ impl RequestTracker {
                 .map_err(|error| error.with_upstream_not_sent(true))?;
         }
         Ok(())
+    }
+
+    pub(super) fn request_quota_refresh(&self) {
+        if let Some(account) = self.quota_candidate() { self.host.request_quota_refresh(account); }
     }
 
     /// Mark only when a business request is actually about to be sent. A
@@ -654,6 +712,12 @@ impl RequestTracker {
         self.response_started = Instant::now();
     }
 
+    pub(super) fn measure_initial_local_prepare(&mut self, elapsed: Duration) {
+        if let Some(context) = &mut self.diagnostics {
+            context.initial_local_prepare_ms = Some(elapsed.as_millis() as u64);
+        }
+    }
+
     pub(super) fn first_response_event(&mut self, event: &serde_json::Value) {
         let is_response = match event["type"].as_str().unwrap_or_default() {
             "" => super::events::response_terminal_kind(event).is_some(),
@@ -675,9 +739,15 @@ impl RequestTracker {
                 }
                 self.overload_response_seen = true;
             }
-            context
-                .first_response_ms
-                .get_or_insert(self.response_started.elapsed().as_millis() as u64);
+            if context.first_response_ms.is_none() {
+                context.first_response_ms =
+                    Some(self.response_started.elapsed().as_millis() as u64);
+                if self.dispatch_open {
+                    // The quota clock starts at every dispatch, before proxy I/O.
+                    context.first_upstream_response_ms =
+                        Some(self.quota_started.elapsed().as_millis() as u64);
+                }
+            }
         }
     }
 
@@ -692,6 +762,48 @@ impl RequestTracker {
     pub(super) fn upstream_request_bytes(&mut self, bytes: usize) {
         if let Some(attempt) = self.diagnostics.as_mut().and_then(|context| context.attempts.last_mut()) {
             attempt.upstream_request_bytes = Some(bytes as u64);
+        }
+    }
+
+    pub(super) fn responses_history_rejection(
+        &mut self,
+        prepared: &super::mapping::Prepared,
+        sent: &serde_json::Value,
+        compact: bool,
+    ) {
+        use super::request_metrics::{ResponsesHistoryRejection, ResponsesHistoryShape};
+        let Some(context) = &mut self.diagnostics else { return };
+        let Some(attempt) = context.attempts.last_mut() else { return };
+        let rejection = ResponsesHistoryRejection {
+            client: ResponsesHistoryShape::from_body(&prepared.source_body),
+            upstream: ResponsesHistoryShape::from_body(sent),
+            compaction_request: compact,
+            rebuilt_history: prepared.rebuild_applied,
+            recovered_continuation: prepared.continuation_recovered,
+        };
+        tracing::warn!(target: "codex_api", request_id=%context.request_id,
+            upstream_request_id=?attempt.upstream_request_id, attempt=attempt.sequence,
+            request_bytes=?attempt.request_size.as_ref().map(|size| size.total_bytes),
+            upstream_request_bytes=?attempt.upstream_request_bytes,
+            history=?rejection, "[NativeAPI][responses_bad_request]");
+        attempt.responses_history_rejection = Some(rejection);
+    }
+
+    pub(super) fn image_request_models(
+        &mut self,
+        models: crate::models::codex_local_access::CodexLocalAccessImageRequestDiagnostic,
+    ) {
+        if let Some(attempt) = self.diagnostics.as_mut().and_then(|context| context.attempts.last_mut()) {
+            attempt.image_request = Some(models);
+        }
+    }
+
+    pub(super) fn image_upstream_status(&mut self, status: u16) {
+        if let Some(image) = self.diagnostics.as_mut()
+            .and_then(|context| context.attempts.last_mut())
+            .and_then(|attempt| attempt.image_request.as_mut())
+        {
+            image.upstream_status = Some(status);
         }
     }
 
@@ -763,10 +875,11 @@ impl RequestTracker {
         if let Some(details) = error.response_error.as_ref() {
             self.capture_official_authorization_error(error.status, details);
         }
+        let transport_failure = error.transport_failure_kind();
         let retired = self.transport_identity.as_deref().and_then(|identity| {
-            match error.transport_failure {
+            match transport_failure {
                 Some(super::contract::TransportFailureKind::TlsDecryptHttp2) => Some(self.host.invalidate_http2_transport(identity)),
-                Some(super::contract::TransportFailureKind::TlsDecrypt) => Some(self.host.invalidate_transport(identity)),
+                Some(super::contract::TransportFailureKind::TlsDecrypt | super::contract::TransportFailureKind::Network) => Some(self.host.invalidate_transport(identity)),
                 None => None,
             }
         });
@@ -780,8 +893,11 @@ impl RequestTracker {
             }
             context.failure_phase = Some(phase.to_owned());
             if let Some(attempt) = context.attempts.last_mut().filter(|_| open_attempt) {
-                if error.transport_failure.is_some() {
-                    attempt.transport_error = Some("tls_decrypt".into());
+                if let Some(kind) = transport_failure {
+                    attempt.transport_error = Some(match kind {
+                        super::contract::TransportFailureKind::Network => "network",
+                        _ => "tls_decrypt",
+                    }.into());
                     // Repeated reporting of the same failure must preserve a
                     // successful invalidation rather than overwrite it as false.
                     if let Some(retired) = retired {
@@ -921,6 +1037,7 @@ impl RequestTracker {
             ..Default::default()
         };
         let report = RequestReport {
+            peer_ip: self.peer_ip,
             transient_rate_limit: false,
             official_authorization_revision: route.official_authorization_revision.clone(),
             official_registration_id: route.official_registration_id.clone(),
@@ -940,6 +1057,7 @@ impl RequestTracker {
             success: false,
             elapsed: Duration::ZERO,
             usage: None,
+            input_text_characters: self.request_size.as_ref().and_then(|size| size.input_text_characters),
             error: Some("client_cancelled".to_string()),
             error_message: None,
             credential_scope: false,
@@ -1034,6 +1152,29 @@ impl RequestTracker {
     pub(super) fn response_tier(&mut self, value: Option<&str>) {
         if let (Some(report), Some(value)) = (self.report.as_mut(), value) {
             report.response_service_tier = Some(value.to_string());
+        }
+    }
+
+    pub(super) fn record_response_model(&mut self, route: &Route, event: &serde_json::Value) {
+        use super::events::{completed_response, response_terminal_kind};
+
+        if route.wire_api != super::contract::WireApi::Responses
+            || !self.dispatch_open
+            || !matches!(response_terminal_kind(event), Some("response.completed" | "response.done"))
+            || !completed_response(event)
+        {
+            return;
+        }
+        let response = event.get("response").unwrap_or(event);
+        let model = response.get("model").and_then(serde_json::Value::as_str).filter(|value| {
+            !value.is_empty() && value.len() <= 256
+                && value.bytes().all(|byte| byte.is_ascii_alphanumeric()
+                    || matches!(byte, b'-' | b'_' | b'.' | b'/' | b':'))
+        });
+        if let Some((attempt, model)) = self.diagnostics.as_mut()
+            .and_then(|context| context.attempts.last_mut()).zip(model)
+        {
+            attempt.response_model = Some(model.to_string());
         }
     }
 
@@ -1172,6 +1313,30 @@ impl RequestTracker {
     pub(super) async fn fail(&mut self, error: &ServiceError) {
         let dispatched = self.dispatch_open;
         self.attempt_error(error);
+        if matches!(error.code, "blocking_capacity_timeout" | "blocking_operation_timeout") {
+            tracing::warn!(target: "codex_api", request_id=%self.diagnostic_request_id(),
+                status=error.status, code=error.code, elapsed_ms=self.started.elapsed().as_millis() as u64,
+                request_bytes=?self.request_size.as_ref().map(|size| size.total_bytes),
+                upstream_attempts=self.dispatch_count, "[NativeAPI][state_timeout]");
+        }
+        // Preserve the accounting boundary for requests that never dispatched.
+        // An authenticated request still belongs in the host's audit log.
+        if self.dispatch_count == 0 && self.peer_ip.is_some() {
+            if let Some(mut report) = self.report.take() {
+                report.diagnostics = self.diagnostics.take();
+                report.status = error.status;
+                report.elapsed = self.started.elapsed();
+                report.error = Some(error.code.to_string());
+                report.error_message = Some(super::diagnostics::sanitize_error_text(&error.message));
+                let host = self.host.clone();
+                let activity = self.activity.clone();
+                activity.tasks.fetch_add(1, Ordering::SeqCst);
+                tokio::spawn(async move {
+                    let _guard = PersistenceGuard(activity);
+                    let _ = tokio::time::timeout(Duration::from_secs(5), host.record_rejection(report)).await;
+                });
+            }
+        }
         if dispatched && error.retry_after.is_some() {
             self.set_retry_after(error.retry_after);
         }

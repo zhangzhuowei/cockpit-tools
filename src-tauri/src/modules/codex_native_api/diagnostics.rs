@@ -11,12 +11,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{contract::ServiceError, server::AppState};
-pub use super::request_metrics::{OverloadRetry, RequestSize};
+pub use super::request_metrics::{OverloadRetry, RequestSize, ResponsesHistoryRejection};
 
 #[path = "diagnostic_error.rs"]
 mod error;
 pub(crate) use error::error_object;
 pub(crate) use error::is_cloudflare_challenge;
+pub(super) use error::cloudflare_gateway_message;
 pub(crate) use error::upstream_error_metadata_status;
 pub(super) use error::{
     failure_phase, sanitize_error_text, transport_failure, upstream_error_metadata,
@@ -49,6 +50,10 @@ pub struct DiagnosticContext {
     pub method: String,
     pub started_at_ms: i64,
     pub first_response_ms: Option<u64>,
+    #[serde(skip)]
+    pub initial_local_prepare_ms: Option<u64>,
+    #[serde(skip)]
+    pub first_upstream_response_ms: Option<u64>,
     pub output_generation_ms: Option<u64>,
     pub proxy_route: Option<Value>,
     pub failure_phase: Option<String>,
@@ -61,9 +66,17 @@ pub struct DiagnosticContext {
 #[serde(rename_all = "camelCase")]
 pub struct DiagnosticAttempt {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_request: Option<crate::models::codex_local_access::CodexLocalAccessImageRequestDiagnostic>,
+    #[serde(skip)]
+    pub failure_cooldown_recorded: bool,
+    #[serde(skip)]
+    pub confirmed_quota_cooldown_recorded: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub request_size: Option<RequestSize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub upstream_request_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub responses_history_rejection: Option<ResponsesHistoryRejection>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub overload_retry: Option<OverloadRetry>,
     pub authorization_route: Option<String>,
@@ -87,6 +100,8 @@ pub struct DiagnosticAttempt {
     pub account_id: String,
     pub account_email: Option<String>,
     pub model_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_model: Option<String>,
     pub transport: String,
     #[serde(default)]
     pub upstream_identity_captured: bool,

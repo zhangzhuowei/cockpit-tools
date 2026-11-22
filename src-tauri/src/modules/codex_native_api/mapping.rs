@@ -20,6 +20,7 @@ pub(super) use continuation::recover as recover_previous;
 
 #[derive(Clone)]
 pub(super) struct Prepared {
+    pub reasoning_ceiling_proof: Option<crate::models::codex_local_access::CodexReasoningLevel>,
     pub execution: super::execution::Execution,
     pub route: Route,
     pub headers: HeaderMap,
@@ -348,7 +349,7 @@ async fn prepare_excluding_inner(
                     excluded.push(account.clone());
                 }
             }
-            return prepare_rebuilt(
+            let replacement = prepare_rebuilt(
                 state,
                 caller,
                 incoming,
@@ -359,9 +360,39 @@ async fn prepare_excluding_inner(
                 websocket,
             )
             .await;
+            return match replacement {
+                Err(replacement_error)
+                    if matches!(replacement_error.code, "no_available_account" | "quota_reserved") =>
+                {
+                    Err(error)
+                }
+                result => result,
+            };
+        }
+        Err(error)
+            if !websocket
+                && !compact
+                && body["previous_response_id"].is_string()
+                && context.state_account_id.is_some()
+                && error.status == 409
+                && matches!(error.code, "account_binding_unavailable" | "account_not_allowed")
+                && super::output_error::is_codex_client(incoming) =>
+        {
+            return Err(ServiceError::new(
+                400,
+                error.code,
+                "This conversation is bound to its original account. Restore access to that account and retry, or start a new conversation.",
+            )
+            .with_error_details(serde_json::json!({"retryable": false})));
         }
         Err(error) => return Err(error),
     };
+    // DeepSeek's Responses API is stateless. Reuse the verified HTTP checkpoint
+    // for an explicit continuation while leaving complete inputs on their usual path.
+    let official_deepseek_continuation = body["previous_response_id"]
+        .as_str()
+        .is_some_and(|id| !id.trim().is_empty())
+        && crate::modules::codex_account::is_official_deepseek_base_url(&selected.base_url);
     if !compact
         // SIWC sockets are bridged to stateless HTTP. A reconnect has no local
         // socket checkpoint, so expand a validated durable response here too.
@@ -369,7 +400,8 @@ async fn prepare_excluding_inner(
         && (!websocket || selected.chatgpt_plan)
         && ((selected.chatgpt && !selected.headers.contains_key("x-xai-token-auth"))
             || selected.chatgpt_plan
-            || super::grok_errors::applies(&selected))
+            || super::grok_errors::applies(&selected)
+            || official_deepseek_continuation)
         && selected.wire_api == super::contract::WireApi::Responses
         && (body
             .get("previous_response_id")
@@ -377,12 +409,12 @@ async fn prepare_excluding_inner(
             || body.get("input").is_some_and(Value::is_string))
     {
         let identity = state.identity.clone();
-        let original_body = body.clone();
+        let original_body = body;
         let original_headers = incoming.clone();
         let source_body = original_body.clone();
         let source_headers = original_headers.clone();
         let max_body_bytes = state.options.max_body_bytes;
-        let expanded_previous = body
+        let expanded_previous = original_body
             .get("previous_response_id")
             .is_some_and(Value::is_string);
         let (context, normalized_body, plan) = super::blocking::run_prepared(state, move || {
@@ -617,7 +649,7 @@ async fn finalize(
     if !selected.chatgpt_plan && selected.official_fallback_registration_id.is_some()
         && !official_fallback::same_owner(state, &context, &selected).await? {
         let (rebuilt, plan) = official_fallback::replay(state, caller, incoming, &body, context.clone(), None)
-            .await?.ok_or_else(|| official_fallback::history_recovery("history_unavailable"))?;
+            .await?.ok_or_else(|| official_fallback::HistoryRecovery::Missing.error())?;
         context = rebuilt;
         body = plan.body.clone();
         request.preferred_account_id = None;
@@ -673,15 +705,15 @@ async fn finalize(
         "preflight",
     )
     .await.map_err(|error| {
-        if official_candidate && matches!(error.code,
-            "capability_fallback_history_unsafe" | "capability_fallback_encryption_unsafe") {
-            official_fallback::history_recovery("history_not_portable")
-        } else {
-            error
+        match (official_candidate, error.code) {
+            (true, "capability_fallback_history_unsafe") => official_fallback::HistoryRecovery::Unverified.error(),
+            (true, "capability_fallback_encryption_unsafe") => official_fallback::HistoryRecovery::Encrypted.error(),
+            _ => error,
         }
     })?;
     let mut context = selection.context;
     let selected = selection.route;
+    let mapping_enabled = context.restrict_session_mapping(selected.uses_codex_session_mapping());
     let request = selection.request;
     let mut body = selection.body;
     let incoming = &selection.headers;
@@ -725,8 +757,27 @@ async fn finalize(
     .await?;
     let source_headers = logical_headers;
     let mut headers = outbound_headers(incoming);
+    if !mapping_enabled {
+        for (name, marker) in super::websocket::ROUTING_HEADERS {
+            if incoming.contains_key(marker) {
+                headers.remove(name);
+            }
+        }
+    }
     headers.extend(selected.headers.clone());
     super::server::forward_remote_scope_headers(incoming,&selected,&mut headers);
+    if mapping_enabled
+        && context.generated_session
+        && selected.wire_api == super::contract::WireApi::Responses
+        && !compact
+        && image_route_request.is_none()
+        && request.auxiliary.is_none()
+        && source_body.get("store").and_then(Value::as_bool) == Some(false)
+        && body["prompt_cache_key"].is_string()
+        && local_quota_replay_is_portable(incoming, &source_body)
+    {
+        context.use_prompt_cache_session(&headers, &body)?;
+    }
     let identity = state.identity.clone();
     let account_id = selected.continuity_id().to_owned();
     let owner_id = selected.owner_id.clone();
@@ -738,21 +789,25 @@ async fn finalize(
     .await?;
     let mut headers = headers;
     super::account_installation::apply(&selected, &mut headers, &mut body)?;
-    if selected.headers.contains_key("x-xai-token-auth") {
-        headers.remove("x-grok-conv-id");
-        if let Some(session) = headers.get("session-id").cloned() {
+    if selected.headers.contains_key("x-xai-token-auth")
+        && !headers.contains_key("x-grok-conv-id")
+    {
+        if let Some(session) = headers
+            .get("session-id")
+            .or_else(|| headers.get("session_id"))
+            .cloned()
+        {
             headers.insert("x-grok-conv-id", session);
         }
     }
     body["model"] = Value::String(selected.model.clone());
     if selected.chatgpt_plan {
         super::chatgpt_plan_wire::adapt_service_tier(&mut body);
-    } else if body.get("service_tier").is_none() {
-        if let Some(tier) = &selected.default_service_tier {
-            body["service_tier"] = Value::String(tier.clone());
-        }
+    } else {
+        apply_route_service_tier(&mut body, &source_headers, &selected);
     }
     Ok(Prepared {
+        reasoning_ceiling_proof: None,
         execution: super::execution::current_or_new(state).await?,
         route: selected,
         headers,
@@ -1101,10 +1156,12 @@ pub(super) async fn observe_event(
     }
     let identity = state.identity.clone();
     let binding = prepared.binding.clone();
-    let event = event.clone();
+    let owned_event = event.clone();
     let replay = (event["type"] == "response.incomplete")
         .then(|| prepared.rebuild_plan.as_ref().map(|plan| plan.body.clone())).flatten();
-    super::blocking::run_tracked(state, move || identity.observe_event_with_partial_history(&binding, &event, replay.as_ref())).await
+    super::blocking::run_tracked(state, move || identity.observe_event_with_partial_history(&binding, &owned_event, replay.as_ref())).await?;
+    state.reasoning_proofs.remember(prepared, event);
+    Ok(())
 }
 
 async fn inspect_mode(
@@ -1159,7 +1216,8 @@ pub(super) async fn prepare_control(
     }
     let mut inspected = body.clone();
     inspected.as_object_mut().unwrap().remove("previous_response_id");
-    let context = inspect_mode(state, caller, incoming, &inspected, false).await?;
+    let mut context = inspect_mode(state, caller, incoming, &inspected, false).await?;
+    context.restrict_session_mapping(next.route.uses_codex_session_mapping());
     let mut wire = super::execution::within(state, state.host.prepare_body(caller, &next.route, incoming, body.clone(), false, false)).await?;
     let fields = wire.as_object().unwrap().keys().cloned().collect::<std::collections::HashSet<_>>();
     let identity = state.identity.clone();
@@ -1175,6 +1233,10 @@ pub(super) async fn prepare_control(
     super::multi_agent_transport::prepare(&mut next, &mut wire)?;
     let endpoint = next.route.websocket_endpoint.as_ref().map_or(next.route.base_url.as_str(), |endpoint| endpoint.base_url.as_str());
     super::codex_wire::normalize_steering(&mut wire, next.route.chatgpt, endpoint);
+    next.reasoning_ceiling_proof = super::reasoning_policy::check_dispatch_with_parent(
+        state, caller, &next.route, &body, &wire, super::contract::WireApi::Responses,
+        parent.reasoning_ceiling_proof,
+    ).await?;
     next.multi_agent_context.inherit_plaintext(&prior_context);
     next.multi_agent_context.optimized_namespace |= prior_context.optimized_namespace;
     next.body = wire;
@@ -1294,9 +1356,10 @@ async fn rewrite_body_inner(
 async fn rewrite_with_context(
     state: &AppState,
     prepared: &Prepared,
-    context: RequestIdentity,
+    mut context: RequestIdentity,
     mut body: Value,
 ) -> Result<(Value, HeaderMap, Binding), ServiceError> {
+    let mapping_enabled = context.restrict_session_mapping(prepared.route.uses_codex_session_mapping());
     body["model"] = Value::String(prepared.route.model.clone());
     apply_grok_thinking(
         &prepared.route,
@@ -1319,7 +1382,18 @@ async fn rewrite_with_context(
     let store = state.identity.clone();
     let account = prepared.route.continuity_id().to_owned();
     let owner = prepared.route.owner_id.clone();
-    let mut headers = prepared.headers.clone();
+    // Rewriting already-mapped headers maps Session-Id a second time. Build
+    // the same logical header projection as finalize, keeping fresh route
+    // credentials and the caller's deliberate session/cache alias intact.
+    let incoming = prepared.replay_headers();
+    let mut headers = outbound_headers(incoming);
+    if !mapping_enabled {
+        for (name, marker) in super::websocket::ROUTING_HEADERS {
+            if incoming.contains_key(marker) { headers.remove(name); }
+        }
+    }
+    headers.extend(prepared.route.headers.clone());
+    super::server::forward_remote_scope_headers(incoming, &prepared.route, &mut headers);
     let (mut body, mut headers, binding) = super::blocking::run_prepared(state, move || {
         let binding = store.rewrite(&context, &account, &owner, &mut headers, &mut body)?;
         Ok((body, headers, binding))
@@ -1329,12 +1403,24 @@ async fn rewrite_with_context(
     body["model"] = Value::String(prepared.route.model.clone());
     if prepared.route.chatgpt_plan {
         super::chatgpt_plan_wire::adapt_service_tier(&mut body);
-    } else if body.get("service_tier").is_none() {
-        if let Some(tier) = &prepared.route.default_service_tier {
+    } else {
+        apply_route_service_tier(&mut body, &prepared.source_headers, &prepared.route);
+    }
+    Ok((body, headers, binding))
+}
+
+fn apply_route_service_tier(body: &mut Value, incoming: &HeaderMap, route: &Route) {
+    use crate::modules::codex_speed::{CLIENT_SERVICE_TIER_HEADER, CLIENT_SERVICE_TIER_VALUE};
+
+    // Codex omits the wire field for Standard, even when the app-server
+    // received an explicit default. The managed profile already chose a tier.
+    let client_controls_tier = incoming.get(CLIENT_SERVICE_TIER_HEADER)
+        .is_some_and(|value| value == CLIENT_SERVICE_TIER_VALUE);
+    if !client_controls_tier && body.get("service_tier").is_none() {
+        if let Some(tier) = &route.default_service_tier {
             body["service_tier"] = Value::String(tier.clone());
         }
     }
-    Ok((body, headers, binding))
 }
 
 fn apply_grok_thinking(

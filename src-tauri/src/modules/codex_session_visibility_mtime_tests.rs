@@ -59,6 +59,7 @@ impl VisibilityMtimeFixture {
                 data_dir: self.dir.clone(),
                 last_pid: None,
             }],
+            false,
         )
     }
 
@@ -88,6 +89,7 @@ fn quick_entry_applies_actual_mtime_once_and_metadata_backup_restores_without_co
         "mtime-fixture",
         "Mtime fixture",
         &fixture.dir,
+        false,
     )
     .unwrap();
     assert_eq!(first.changed_rollout_file_count, 1);
@@ -112,6 +114,7 @@ fn quick_entry_applies_actual_mtime_once_and_metadata_backup_restores_without_co
         "mtime-fixture",
         "Mtime fixture",
         &fixture.dir,
+        false,
     )
     .unwrap();
     assert_eq!(second.changed_rollout_file_count, 0);
@@ -225,6 +228,9 @@ fn quick_entry_real_mtime_setter_failure_rolls_back_prior_times_and_sqlite() {
     let db = Connection::open(fixture.dir.join(STATE_DB_FILE)).unwrap();
     db.execute("INSERT INTO threads (id,rollout_path,model_provider,has_user_event,first_user_message,thread_source,updated_at_ms) VALUES ('immutable-thread',?1,'openai',0,'hello','',1780362123234)",[relative.as_ref()]).unwrap();
     drop(db);
+    let official_db = fixture.dir.join(SQLITE_DIR_NAME).join(OFFICIAL_STATE_DB_FILE);
+    fs::create_dir_all(official_db.parent().unwrap()).unwrap();
+    fs::copy(fixture.dir.join(STATE_DB_FILE), &official_db).unwrap();
     struct ImmutableGuard(std::ffi::CString);
     impl Drop for ImmutableGuard {
         fn drop(&mut self) {
@@ -258,6 +264,13 @@ fn quick_entry_real_mtime_setter_failure_rolls_back_prior_times_and_sqlite() {
         read_thread_provider(&fixture.dir, "immutable-thread"),
         "openai"
     );
+    let provider: String = Connection::open(official_db).unwrap()
+        .query_row(
+            "SELECT model_provider FROM threads WHERE id='mtime-thread'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+    assert_eq!(provider, "openai");
     drop(guard);
     let retry = fixture.summary(None).unwrap();
     assert_eq!(retry.changed_rollout_file_count, 2);

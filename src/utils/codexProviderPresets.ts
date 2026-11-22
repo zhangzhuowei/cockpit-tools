@@ -1,3 +1,7 @@
+import defaultModels from "./codexProviderDefaultModels.json";
+import opencodeGoCatalog from "./opencodeGoCatalog.json";
+export { opencodeGoCatalog };
+
 export interface CodexApiProviderPreset {
   id: string;
   name: string;
@@ -36,44 +40,21 @@ export const DEEPSEEK_CODEX_VISION_MODEL_CATALOG = [
   "deepseek-v4-flash-vision-exp",
 ] as const;
 export const OPENCODE_GO_API_PROVIDER_ID = "opencode_go";
-export const OPENCODE_GO_API_BASE_URL = "https://opencode.ai/zen/go/v1";
+export const OPENCODE_GO_API_BASE_URL = opencodeGoCatalog.baseUrls[0];
+export const OLLAMA_LOCAL_API_PROVIDER_ID = "ollama_local";
+const OLLAMA_LOCAL_BASE_URLS = ["http://127.0.0.1:11434/v1", "http://localhost:11434/v1", "http://[::1]:11434/v1"];
+export const OLLAMA_CLOUD_API_PROVIDER_ID = "ollama_cloud";
 export const MINIMAX_API_PROVIDER_ID = "minimax";
 export const MINIMAX_EN_API_PROVIDER_ID = "minimax_en";
 export const MINIMAX_CODEX_MODEL_CATALOG = [
   "MiniMax-M3",
+  "MiniMax-M3.1-Flash",
   "MiniMax-M2.7",
 ] as const;
 /** MiniMax models whose published input modalities include images. */
-export const MINIMAX_CODEX_VISION_MODEL_CATALOG = ["MiniMax-M3"] as const;
+export const MINIMAX_CODEX_VISION_MODEL_CATALOG = ["MiniMax-M3", "MiniMax-M3.1-Flash"] as const;
 /** OpenCode Go models exposed through its OpenAI-compatible chat completions API. */
-export const OPENCODE_GO_CODEX_MODEL_CATALOG = [
-  "minimax-m3",
-  "minimax-m2.7",
-  "minimax-m2.5",
-  "kimi-k3",
-  "kimi-k2.7-code",
-  "kimi-k2.6",
-  "kimi-k2.5",
-  "glm-5.2",
-  "glm-5.3",
-  "glm-5.1",
-  "glm-5",
-  "deepseek-v4-pro",
-  "deepseek-v4-flash",
-  "qwen3.7-max",
-  "qwen3.8-max",
-  "qwen3.7-plus",
-  "qwen3.6-plus",
-  "qwen3.5-plus",
-  "mimo-v2-pro",
-  "mimo-v2-omni",
-  "mimo-v2.5-pro",
-  "mimo-v2.5",
-  "hy3",
-  "hy3-preview",
-  "gpt-5.6-luna",
-  "grok-4.5",
-] as const;
+export const OPENCODE_GO_CODEX_MODEL_CATALOG = [...opencodeGoCatalog.legacyModels, opencodeGoCatalog.imageModel];
 
 const COCKPIT_API_HIDDEN_BASE_URLS = [COCKPIT_API_BASE_URL] as const;
 
@@ -93,6 +74,19 @@ export const CODEX_API_PROVIDER_PRESETS: readonly CodexApiProviderPreset[] = [
     website:
       "https://learn.microsoft.com/en-us/azure/ai-foundry/openai/how-to/codex",
     isOfficial: true,
+  },
+  {
+    id: OLLAMA_LOCAL_API_PROVIDER_ID,
+    name: "Ollama",
+    baseUrls: OLLAMA_LOCAL_BASE_URLS,
+    website: "https://docs.ollama.com/api/openai-compatibility",
+  },
+  {
+    id: OLLAMA_CLOUD_API_PROVIDER_ID,
+    name: "Ollama Cloud",
+    baseUrls: ["https://ollama.com/v1"],
+    website: "https://docs.ollama.com/cloud",
+    apiKeyUrl: "https://ollama.com/settings/keys",
   },
   {
     id: DEEPSEEK_API_PROVIDER_ID,
@@ -212,10 +206,19 @@ export const CODEX_API_PROVIDER_PRESETS: readonly CodexApiProviderPreset[] = [
   {
     id: OPENCODE_GO_API_PROVIDER_ID,
     name: "OpenCode Go",
-    baseUrls: [OPENCODE_GO_API_BASE_URL],
+    baseUrls: [...opencodeGoCatalog.baseUrls],
     modelCatalog: [...OPENCODE_GO_CODEX_MODEL_CATALOG],
+    visionModelCatalog: [opencodeGoCatalog.imageModel],
     website: "https://opencode.ai/",
     apiKeyUrl: "https://opencode.ai/auth",
+  },
+  {
+    id: "requesty",
+    name: "Requesty",
+    baseUrls: ["https://router.requesty.ai/v1"],
+    modelCatalog: ["openai/gpt-6.1-terra", "openai/gpt-5.4"],
+    website: "https://www.requesty.ai/",
+    apiKeyUrl: "https://app.requesty.ai/api-keys",
   },
   {
     id: "aicodemirror",
@@ -283,6 +286,7 @@ export const CODEX_API_PROVIDER_PRESETS: readonly CodexApiProviderPreset[] = [
     id: "volcengine_agentplan",
     name: "火山Agentplan",
     baseUrls: ["https://ark.cn-beijing.volces.com/api/coding/v3"],
+    modelCatalog: defaultModels["https://ark.cn-beijing.volces.com/api/coding/v3"],
     website: "https://www.volcengine.com/product/ark",
   },
   {
@@ -295,6 +299,7 @@ export const CODEX_API_PROVIDER_PRESETS: readonly CodexApiProviderPreset[] = [
     id: "doubaoseed",
     name: "DouBaoSeed",
     baseUrls: ["https://ark.cn-beijing.volces.com/api/v3"],
+    modelCatalog: defaultModels["https://ark.cn-beijing.volces.com/api/v3"],
     website: "https://www.volcengine.com/product/ark",
   },
   {
@@ -336,7 +341,7 @@ export const CODEX_API_PROVIDER_PRESETS: readonly CodexApiProviderPreset[] = [
   {
     id: MINIMAX_API_PROVIDER_ID,
     name: "MiniMax",
-    baseUrls: ["https://api.minimaxi.com/v1"],
+    baseUrls: ["https://api.minimaxi.com/v1", "https://api.minimax.cn/v1"],
     modelCatalog: [...MINIMAX_CODEX_MODEL_CATALOG],
     visionModelCatalog: [...MINIMAX_CODEX_VISION_MODEL_CATALOG],
     website: "https://platform.minimaxi.com/docs",
@@ -359,12 +364,14 @@ export const CODEX_API_PROVIDER_PRESETS: readonly CodexApiProviderPreset[] = [
     id: "xiaomi_mimo",
     name: "Xiaomi MiMo",
     baseUrls: ["https://api.xiaomimimo.com/v1"],
+    modelCatalog: defaultModels["https://api.xiaomimimo.com/v1"],
     website: "https://www.xiaomimimo.com/",
   },
   {
     id: "xiaomi_mimo_token_plan",
     name: "Xiaomi MiMo Token Plan",
     baseUrls: ["https://token-plan-cn.xiaomimimo.com/v1"],
+    modelCatalog: defaultModels["https://token-plan-cn.xiaomimimo.com/v1"],
     website: "https://www.xiaomimimo.com/",
   },
   {
@@ -453,6 +460,13 @@ export function findCodexApiProviderPresetByBaseUrl(
       ),
     ) ?? null
   );
+}
+
+export function resolveOllamaLocalPlaceholderKey(rawBaseUrl: string): string {
+  const baseUrl = normalizeCodexProviderBaseUrl(rawBaseUrl);
+  if (!baseUrl || !OLLAMA_LOCAL_BASE_URLS.includes(baseUrl)) return "";
+  // Ollama ignores the token. Keep the placeholder specific to the endpoint because Codex accounts are keyed by token.
+  return `cockpit-ollama-local-${new URL(baseUrl).hostname.replace(/[^a-z0-9.]+/g, "-")}`;
 }
 
 export function isCockpitApiProviderBaseUrl(rawBaseUrl: string): boolean {

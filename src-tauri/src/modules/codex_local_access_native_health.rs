@@ -41,10 +41,10 @@ fn apply_native_health_snapshot(
                 .min(i64::MAX as u128) as i64;
             current.entry(key.account.clone()).or_default().push(
                 CodexLocalAccessAccountCooldown {
-                    model_id: if key.model.is_empty() {
-                        "*".into()
-                    } else {
-                        key.model.clone()
+                    model_id: match &key.scope {
+                        NativeCooldownScope::Model(model) => model.clone(),
+                        NativeCooldownScope::ReserveQuota => CODEX_GPT_RESERVE_MODEL_ID.into(),
+                        NativeCooldownScope::Credential | NativeCooldownScope::IncludedQuota | NativeCooldownScope::UpstreamFailure => "*".into(),
                     },
                     next_retry_at: now_ms.saturating_add(remaining_ms),
                     remaining_ms,

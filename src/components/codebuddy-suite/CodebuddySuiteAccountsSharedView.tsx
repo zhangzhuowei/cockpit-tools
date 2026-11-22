@@ -1,3 +1,5 @@
+import { LaunchPathSettingsButton } from '../LaunchPathSettingsButton';
+import { useAccountsOverviewFilterState } from '../../hooks/useAccountsOverviewFilterState';
 import {
   useMemo,
   useCallback,
@@ -71,8 +73,6 @@ import type {
 import { buildValidAccountsFilterOption } from "../../utils/accountValidityFilter";
 import {
   readAccountsOverviewFilterStringArray,
-  removeAccountsOverviewFilterField,
-  writeAccountsOverviewFilterField,
 } from "../../utils/accountsOverviewFilterPersistence";
 import { getAccountQuotaUpdatedAtMs } from "../../utils/codebuddy-suite/parser";
 
@@ -88,6 +88,7 @@ export interface CodebuddySuiteAccountsPlatformConfig<
   TAccount extends CodebuddySuiteAccountBase,
 > {
   pageClassName: string;
+  accountPlatformKey?: string;
   quickSettingsType?: "codebuddy_cn" | "workbuddy" | "zcode" | "grok" | "minimaxcode";
   /** 签到按钮 tooltip 的 i18n key，默认沿用 workbuddy */
   checkinModalTitleKey?: string;
@@ -109,6 +110,7 @@ export interface CodebuddySuiteAccountsPlatformConfig<
   addAccountTitleKey: string;
   addAccountTitleDefault: string;
   oauthDescKey: string;
+  allowOauthRestartOnError?: boolean;
   oauthDescDefault: string;
   oauthFeatureCardClassName: string;
   oauthFeatureTitleKey: string;
@@ -175,6 +177,12 @@ export interface CodebuddySuiteAccountsPlatformConfig<
   hasQuotaData: (account: TAccount, groups: QuotaCategoryGroup[]) => boolean;
   renderQuotaSummary?: (account: TAccount) => ReactNode;
   renderQuotaAction?: (account: TAccount) => ReactNode;
+  /** 积分到期时间（用于卡片时间区的「到期时间」选项）；不实现则该项不显示 */
+  /** 卡片底部时间区旁的提示（如「包含即将到期的积分」） */
+  /** 卡片内、配额区上方的提示条（如模型受限警示） */
+  renderCardNotice?: (account: TAccount) => ReactNode;
+  /** 卡片操作按钮组里的额外按钮（如单账号探测） */
+  renderCardActionExtra?: (account: TAccount) => ReactNode;
   usagePrefix: string;
   quotaPrefix: string;
   tableUsageClassName: string;
@@ -202,6 +210,8 @@ interface CodebuddySuiteAccountsSharedViewProps<
   page: UseProviderAccountsPageReturn;
   platformConfig: CodebuddySuiteAccountsPlatformConfig<TAccount>;
   onRefreshAccounts: () => void;
+  onSelectionChange?: (ids: string[]) => void;
+  onLaunchAccount?: (account: TAccount) => void;
 }
 
 export function CodebuddySuiteAccountsSharedView<
@@ -212,8 +222,10 @@ export function CodebuddySuiteAccountsSharedView<
   page,
   platformConfig,
   onRefreshAccounts,
+  onSelectionChange,
+  onLaunchAccount,
 }: CodebuddySuiteAccountsSharedViewProps<TAccount>) {
-  const [filterTypes, setFilterTypes] = useState<string[]>(() =>
+  const [filterTypes, setFilterTypes] = useAccountsOverviewFilterState<string[]>(page.filterPersistenceScope, FILTER_TYPES_FIELD, () =>
     page.filterPersistenceEnabled
       ? readAccountsOverviewFilterStringArray(
           page.filterPersistenceScope,
@@ -238,8 +250,6 @@ export function CodebuddySuiteAccountsSharedView<
     setViewMode,
     searchQuery,
     setSearchQuery,
-    filterPersistenceEnabled,
-    filterPersistenceScope,
     sortDirection,
     selected,
     toggleSelect,
@@ -339,6 +349,17 @@ export function CodebuddySuiteAccountsSharedView<
     formatDate,
     normalizeTag,
   } = page;
+
+  // Keep the submitted text in state for IPC and error recovery, but keep the
+  // native text area empty until the successful import closes the dialog.
+  const hideWorkbuddyImportText = platformConfig.quickSettingsType === "workbuddy"
+    && (importing || addStatus === "success");
+
+  const selectedIdsKey = useMemo(() => Array.from(selected).sort().join(","), [selected]);
+  useEffect(() => {
+    onSelectionChange?.(selectedIdsKey ? selectedIdsKey.split(",") : []);
+  }, [selectedIdsKey, onSelectionChange]);
+
   const quotaNumberFormatter = useMemo(
     () =>
       new Intl.NumberFormat(locale || undefined, { maximumFractionDigits: 2 }),
@@ -387,21 +408,6 @@ export function CodebuddySuiteAccountsSharedView<
   });
   useEscClose(showCheckinModal, () => setShowCheckinModal(false));
 
-  useEffect(() => {
-    if (!filterPersistenceEnabled) {
-      removeAccountsOverviewFilterField(
-        filterPersistenceScope,
-        FILTER_TYPES_FIELD,
-      );
-      return;
-    }
-    writeAccountsOverviewFilterField(
-      filterPersistenceScope,
-      FILTER_TYPES_FIELD,
-      filterTypes,
-    );
-  }, [filterPersistenceEnabled, filterPersistenceScope, filterTypes]);
-
   const toggleFilterTypeValue = useCallback((value: string) => {
     setFilterTypes((prev) => {
       if (prev.includes(value)) {
@@ -438,10 +444,11 @@ export function CodebuddySuiteAccountsSharedView<
   );
 
   const platformKey = useMemo(() => {
+    if (platformConfig.accountPlatformKey) return platformConfig.accountPlatformKey;
     if (platformConfig.quickSettingsType) return platformConfig.quickSettingsType;
     const match = platformConfig.pageClassName.replace(/-accounts-page$/, '');
     return match || 'workbuddy';
-  }, [platformConfig.pageClassName, platformConfig.quickSettingsType]);
+  }, [platformConfig.accountPlatformKey, platformConfig.pageClassName, platformConfig.quickSettingsType]);
 
   const grouping = usePlatformAccountGroups(platformKey, () => toggleSelectAll(Array.from(selected)));
 
@@ -499,7 +506,7 @@ export function CodebuddySuiteAccountsSharedView<
   const pagination = usePagination({
     items: filteredAccounts,
     storageKey: buildPaginationPageSizeStorageKey(
-      platformConfig.quickSettingsType ?? platformConfig.pageClassName,
+      platformConfig.accountPlatformKey ?? platformConfig.quickSettingsType ?? platformConfig.pageClassName,
     ),
   });
   const paginatedAccounts = pagination.pageItems;
@@ -727,12 +734,12 @@ export function CodebuddySuiteAccountsSharedView<
                 {t("accounts.status.current", "当前")}
               </span>
             )}
-            <span
+            {planBadge && <span
               className={`tier-badge ${tierBadgeClass}`}
               title={planBadgeTitle}
             >
               {planBadge}
-            </span>
+            </span>}
           </div>
           {accountTags.length > 0 && (
             <div className="card-tags">
@@ -746,6 +753,7 @@ export function CodebuddySuiteAccountsSharedView<
               )}
             </div>
           )}
+          {platformConfig.renderCardNotice?.(account)}
           <div className="ghcp-quota-section">
             {renderQuotaQuerySection(account, "card")}
           </div>
@@ -760,9 +768,11 @@ export function CodebuddySuiteAccountsSharedView<
             <div className="card-actions">
               <button
                 className="card-action-btn success"
-                onClick={() => handleInjectToVSCode?.(account.id)}
+                onClick={() => onLaunchAccount ? onLaunchAccount(account) : handleInjectToVSCode?.(account.id)}
                 disabled={!!injecting}
-                title={t("common.shared.switchAccount", "切换账号")}
+                title={onLaunchAccount ? t("instances.actions.start") : t("common.shared.switchAccount", "切换账号")}
+                aria-haspopup={onLaunchAccount ? "dialog" : undefined}
+                aria-label={onLaunchAccount ? t("instances.actions.start") : undefined}
               >
                 {injecting === account.id ? (
                   <RefreshCw size={14} className="loading-spinner" />
@@ -800,7 +810,7 @@ export function CodebuddySuiteAccountsSharedView<
                   className="card-action-btn"
                   onClick={() => handleOpenWebview(account.id)}
                   disabled={webviewing === account.id}
-                  title={t("workbuddy.webview.open", "打开网页会话")}
+                  title={t("common.shared.webSession.open")}
                 >
                   {webviewing === account.id ? (
                     <RefreshCw size={14} className="loading-spinner" />
@@ -809,6 +819,7 @@ export function CodebuddySuiteAccountsSharedView<
                   )}
                 </button>
               )}
+              {platformConfig.renderCardActionExtra?.(account)}
               <button
                 className="card-action-btn danger"
                 onClick={() => handleDelete(account.id)}
@@ -849,22 +860,39 @@ export function CodebuddySuiteAccountsSharedView<
             />
           </td>
           <td>
-            <span className="table-email" title={maskAccountText(displayEmail)}>
-              {maskAccountText(displayEmail)}
-            </span>
-            {isCurrent && (
-              <span className="current-tag">
-                {t("accounts.status.current", "当前")}
+            <div className="table-email-cell">
+              <span className="table-email" title={maskAccountText(displayEmail)}>
+                {maskAccountText(displayEmail)}
               </span>
+              {isCurrent && (
+                <span className="current-tag">
+                  {t("accounts.status.current", "当前")}
+                </span>
+              )}
+            </div>
+            {(account.tags?.length ?? 0) > 0 && (
+              <div className="card-tags">
+                {(account.tags || []).map((tag) => tag.trim()).filter(Boolean).slice(0, 2).map((tag, idx) => (
+                  <span key={`${account.id}-${tag}-${idx}`} className="tag-pill">
+                    {tag}
+                  </span>
+                ))}
+                {((account.tags || []).map((tag) => tag.trim()).filter(Boolean).length > 2) && (
+                  <span className="tag-pill more">
+                    +{(account.tags || []).map((tag) => tag.trim()).filter(Boolean).length - 2}
+                  </span>
+                )}
+              </div>
             )}
+            {platformConfig.renderCardNotice?.(account)}
           </td>
           <td>
-            <span
+            {planBadge && <span
               className={`tier-badge ${tierBadgeClass}`}
               title={planBadgeTitle}
             >
               {planBadge}
-            </span>
+            </span>}
           </td>
           <td>
             <div className={platformConfig.tableUsageClassName}>
@@ -884,14 +912,22 @@ export function CodebuddySuiteAccountsSharedView<
             <div className="action-buttons">
               <button
                 className="action-btn success"
-                onClick={() => handleInjectToVSCode?.(account.id)}
+                onClick={() => onLaunchAccount ? onLaunchAccount(account) : handleInjectToVSCode?.(account.id)}
                 disabled={!!injecting}
+                title={onLaunchAccount ? t("instances.actions.start") : t("common.shared.switchAccount", "切换账号")}
+                aria-haspopup={onLaunchAccount ? "dialog" : undefined}
+                aria-label={onLaunchAccount ? t("instances.actions.start") : undefined}
               >
-                <Play size={14} />
+                {injecting === account.id ? (
+                  <RefreshCw size={14} className="loading-spinner" />
+                ) : (
+                  <Play size={14} />
+                )}
               </button>
               <button
                 className="action-btn"
                 onClick={() => openTagModal(account.id)}
+                title={t("accounts.editTags", "编辑标签")}
               >
                 <Tag size={14} />
               </button>
@@ -899,6 +935,7 @@ export function CodebuddySuiteAccountsSharedView<
                 className="action-btn"
                 onClick={() => handleRefresh(account.id)}
                 disabled={refreshing === account.id}
+                title={t("common.shared.refreshQuota", "刷新")}
               >
                 <RotateCw
                   size={14}
@@ -908,6 +945,7 @@ export function CodebuddySuiteAccountsSharedView<
               <button
                 className="action-btn"
                 onClick={() => handleExportByIds([account.id])}
+                title={t("common.shared.export.title", "导出")}
               >
                 <Upload size={14} />
               </button>
@@ -916,7 +954,7 @@ export function CodebuddySuiteAccountsSharedView<
                   className="action-btn"
                   onClick={() => handleOpenWebview(account.id)}
                   disabled={webviewing === account.id}
-                  title={t("workbuddy.webview.open", "打开网页会话")}
+                  title={t("common.shared.webSession.open")}
                 >
                   {webviewing === account.id ? (
                     <RefreshCw size={14} className="loading-spinner" />
@@ -925,9 +963,11 @@ export function CodebuddySuiteAccountsSharedView<
                   )}
                 </button>
               )}
+              {platformConfig.renderCardActionExtra?.(account)}
               <button
                 className="action-btn danger"
                 onClick={() => handleDelete(account.id)}
+                title={t("common.delete", "删除")}
               >
                 <Trash2 size={14} />
               </button>
@@ -1192,6 +1232,9 @@ export function CodebuddySuiteAccountsSharedView<
           {platformConfig.quickSettingsType && (
             <QuickSettingsPopover type={platformConfig.quickSettingsType} />
           )}
+          {platformConfig.accountPlatformKey === 'workbuddy_ai' && (
+            <LaunchPathSettingsButton app="workbuddy_ai" iconOnly />
+          )}
         </div>
       </div>
 
@@ -1307,7 +1350,7 @@ export function CodebuddySuiteAccountsSharedView<
                 ({ groupKey, items, totalCount }) => (
                   <Fragment key={groupKey}>
                     <tr className="tag-group-row">
-                      <td colSpan={5}>
+                      <td colSpan={6}>
                         <div className="tag-group-header">
                           <span className="tag-group-title">
                             {resolveGroupLabel(groupKey)}
@@ -1623,7 +1666,7 @@ export function CodebuddySuiteAccountsSharedView<
                           <div className="add-status error">
                             <CircleAlert size={16} />
                             <span>{oauthCompleteError}</span>
-                            {oauthTimedOut && (
+                            {(oauthTimedOut || (platformConfig.allowOauthRestartOnError && !oauthPolling)) && (
                               <button
                                 className="btn btn-sm btn-outline"
                                 onClick={handleRetryOauth}
@@ -1786,7 +1829,8 @@ export function CodebuddySuiteAccountsSharedView<
                     ) : (
                       <textarea
                         className="token-input"
-                        value={tokenInput}
+                        value={hideWorkbuddyImportText ? "" : tokenInput}
+                        readOnly={hideWorkbuddyImportText}
                         onChange={(e) => setTokenInput(e.target.value)}
                         placeholder={t(
                           platformConfig.tokenInputPlaceholderKey ||
@@ -1801,6 +1845,7 @@ export function CodebuddySuiteAccountsSharedView<
                       onClick={handleTokenImport}
                       disabled={
                         importing ||
+                        hideWorkbuddyImportText ||
                         !tokenInput.trim() ||
                         platformConfig.tokenSubmitDisabled
                       }
@@ -1830,7 +1875,8 @@ export function CodebuddySuiteAccountsSharedView<
                     </p>
                     <textarea
                       className="token-input"
-                      value={tokenInput}
+                      value={hideWorkbuddyImportText ? "" : tokenInput}
+                      readOnly={hideWorkbuddyImportText}
                       onChange={(e) => setTokenInput(e.target.value)}
                       placeholder={t(
                         platformConfig.pasteJsonPlaceholderKey ||
@@ -1842,7 +1888,7 @@ export function CodebuddySuiteAccountsSharedView<
                     <button
                       className="btn btn-primary btn-full"
                       onClick={handleTokenImport}
-                      disabled={importing || !tokenInput.trim()}
+                      disabled={importing || hideWorkbuddyImportText || !tokenInput.trim()}
                     >
                       {importing ? (
                         <RefreshCw size={16} className="loading-spinner" />

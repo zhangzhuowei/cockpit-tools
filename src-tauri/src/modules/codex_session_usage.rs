@@ -6,7 +6,7 @@
 //!
 //! 数据与官方配额、API 服务 `request_logs` 完全隔离，打开用量面板时才扫描。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -172,6 +172,7 @@ struct ReplayCaches {
 enum ParentResolution {
     None,
     Parent,
+    Paginated,
     Continuation,
     Deferred,
 }
@@ -350,6 +351,8 @@ impl SessionUsageStore {
 
             for file_path in &files {
                 let mut file_changed = false;
+                let mut reader = UsageReaderCache::default();
+                let mut parent_reader = UsageReaderCache::default();
                 loop {
                     if crate::modules::app_lifecycle::is_shutdown_started() {
                         return Ok(result);
@@ -365,6 +368,8 @@ impl SessionUsageStore {
                         file_path,
                         &rollout_index,
                         &mut cursors,
+                        &mut reader,
+                        &mut parent_reader,
                     );
                     drop(resource);
                     match file_result {
@@ -549,17 +554,30 @@ fn collect_codex_session_files(codex_dir: &Path) -> Vec<PathBuf> {
     if sessions_dir.is_dir() {
         collect_jsonl_recursive(&sessions_dir, &mut files, 0, 3);
     }
+    let active_names: HashSet<_> = files
+        .iter()
+        .filter_map(|path| {
+            logical_rollout_path(path)
+                .file_name()
+                .map(ToOwned::to_owned)
+        })
+        .collect();
     let archived_dir = codex_dir.join("archived_sessions");
     if archived_dir.is_dir() {
         if let Ok(entries) = fs::read_dir(&archived_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if is_rollout_path(&path) {
+                if is_rollout_path(&path)
+                    && !logical_rollout_path(&path)
+                        .file_name()
+                        .is_some_and(|name| active_names.contains(name))
+                {
                     files.push(path);
                 }
             }
         }
     }
+    files.retain(|path| !is_compressed_rollout(path) || !logical_rollout_path(path).is_file());
     files.sort();
     files
 }
@@ -585,16 +603,34 @@ fn is_rollout_path(path: &Path) -> bool {
 }
 
 fn is_rollout_filename(file_name: &str) -> bool {
-    if !file_name.starts_with("rollout-") || !file_name.ends_with(".jsonl") {
+    let Some(stem) = rollout_filename_stem(file_name) else {
         return false;
-    }
-    let stem = file_name.trim_end_matches(".jsonl");
+    };
     stem.get(stem.len().saturating_sub(36)..)
         .is_some_and(|candidate| uuid::Uuid::parse_str(candidate).is_ok())
 }
 
+fn is_compressed_rollout(path: &Path) -> bool {
+    path.extension().is_some_and(|extension| extension == "zst")
+}
+
+fn logical_rollout_path(path: &Path) -> std::borrow::Cow<'_, Path> {
+    if is_compressed_rollout(path) {
+        std::borrow::Cow::Owned(path.with_extension(""))
+    } else {
+        std::borrow::Cow::Borrowed(path)
+    }
+}
+
+fn rollout_filename_stem(file_name: &str) -> Option<&str> {
+    file_name.strip_prefix("rollout-")?;
+    file_name
+        .strip_suffix(".jsonl")
+        .or_else(|| file_name.strip_suffix(".jsonl.zst"))
+}
+
 fn thread_id_from_filename(path: &Path) -> Option<String> {
-    let stem = path.file_stem()?.to_str()?;
+    let stem = rollout_filename_stem(path.file_name()?.to_str()?)?;
     let candidate = stem.get(stem.len().checked_sub(36)?..)?;
     uuid::Uuid::parse_str(candidate)
         .ok()
@@ -607,7 +643,7 @@ fn thread_id_from_filename(path: &Path) -> Option<String> {
 // treated as forks of the root (issue #2897), or None for a plain single-uuid rollout.
 fn continuation_root_thread_id(file_path: &Path) -> Option<String> {
     const UUID_LEN: usize = 36;
-    let stem = file_path.file_stem()?.to_str()?;
+    let stem = rollout_filename_stem(file_path.file_name()?.to_str()?)?;
     let leaf_start = stem.len().checked_sub(UUID_LEN)?;
     uuid::Uuid::parse_str(stem.get(leaf_start..)?).ok()?;
     let sep = leaf_start.checked_sub(1)?;
@@ -662,29 +698,45 @@ fn load_cursors(conn: &Connection) -> Result<HashMap<String, (i64, i64, i64)>, S
 }
 
 fn inherit_archived_cursor(
+    conn: &Connection,
     file_path: &Path,
     cursors: &HashMap<String, (i64, i64, i64)>,
-) -> Option<(i64, i64, i64)> {
+) -> Result<Option<(i64, i64, i64)>, String> {
     if file_path
         .parent()
         .and_then(Path::file_name)
         .and_then(|name| name.to_str())
         != Some("archived_sessions")
     {
-        return None;
+        return Ok(None);
     }
-    let file_name = file_path.file_name()?.to_str()?;
+    let Some(file_name) = file_path.file_name().and_then(|name| name.to_str()) else {
+        return Ok(None);
+    };
     let slash_suffix = format!("/{file_name}");
     let backslash_suffix = format!("\\{file_name}");
-    cursors
+    let Some((prior_path, &prior_cursor)) = cursors
         .iter()
         .filter(|(path, _)| {
             path.as_str() != file_path.to_string_lossy().as_ref()
                 && (path.ends_with(&slash_suffix) || path.ends_with(&backslash_suffix))
         })
-        .map(|(_, &(modified, size, offset))| (offset, modified, size))
-        .max()
-        .map(|(offset, modified, size)| (modified, size, offset))
+        .max_by_key(|(_, (modified, size, offset))| (*offset, *modified, *size))
+    else {
+        return Ok(None);
+    };
+    let prior_checkpoint: Option<String> = conn
+        .query_row(
+            "SELECT state FROM session_parser_checkpoints WHERE file_path=?1",
+            [prior_path],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    let compressed = prior_checkpoint
+        .and_then(|state| serde_json::from_str::<ParserCheckpoint>(&state).ok())
+        .is_some_and(|checkpoint| checkpoint.compressed);
+    Ok((!compressed).then_some(prior_cursor))
 }
 
 fn sync_single_file(
@@ -693,18 +745,24 @@ fn sync_single_file(
     file_path: &Path,
     rollout_index: &RolloutIndex,
     cursors: &mut HashMap<String, (i64, i64, i64)>,
+    reader: &mut UsageReaderCache,
+    parent_reader: &mut UsageReaderCache,
 ) -> Result<FileSyncResult, String> {
-    let file_path_str = file_path.to_string_lossy().to_string();
+    let logical_path = logical_rollout_path(file_path);
+    let file_path_str = logical_path.to_string_lossy().into_owned();
+    let compressed = is_compressed_rollout(file_path);
     let metadata =
         fs::metadata(file_path).map_err(|error| format!("无法读取文件元数据: {error}"))?;
     let file_modified = metadata_modified_nanos(&metadata);
     let file_size = metadata.len();
 
-    let (last_modified, last_size, last_offset) = cursors
-        .get(&file_path_str)
-        .copied()
-        .or_else(|| inherit_archived_cursor(file_path, cursors))
-        .unwrap_or((0, 0, 0));
+    let (last_modified, last_size, last_offset) = match cursors.get(&file_path_str) {
+        Some(cursor) => *cursor,
+        // A compressed rollout moved to the archive must replay from zero
+        // and deduplicate by ID because the cursor uses different offsets.
+        None if compressed => (0, 0, 0),
+        None => inherit_archived_cursor(conn, file_path, cursors)?.unwrap_or((0, 0, 0)),
+    };
 
     let checkpoint = if last_modified > 0
         && file_modified != last_modified
@@ -714,10 +772,18 @@ fn sync_single_file(
     } else {
         load_parser_checkpoint(conn, file_path, file_size, last_size)?
     };
+    let checkpoint_exists = checkpoint.is_some()
+        || conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM session_parser_checkpoints WHERE file_path=?1)",
+                [&file_path_str],
+                |r| r.get::<_, bool>(0),
+            )
+            .map_err(|e| e.to_string())?;
     if file_size >= last_size.max(0) as u64
         && file_modified <= last_modified
         && last_offset > 0
-        && checkpoint.as_ref().is_none_or(|c| c.complete)
+        && (checkpoint.as_ref().is_some_and(|c| c.complete) || (!compressed && !checkpoint_exists))
     {
         return Ok(FileSyncResult::default());
     }
@@ -747,24 +813,25 @@ fn sync_single_file(
     }
 
     let prior_offset = checkpoint.as_ref().map(|c| c.byte_offset).unwrap_or(0);
-    let rewrite = file_size < last_size.max(0) as u64
-        || (checkpoint.is_none()
-            && conn
-                .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM session_parser_checkpoints WHERE file_path=?1)",
-                    [&file_path_str],
-                    |r| r.get::<_, bool>(0),
-                )
-                .map_err(|e| e.to_string())?);
-    let last_offset = if rewrite { 0 } else { last_offset };
+    let rewrite =
+        file_size < last_size.max(0) as u64 || (checkpoint.is_none() && checkpoint_exists);
+    let last_offset = if rewrite || (compressed && checkpoint.is_none()) {
+        0
+    } else {
+        last_offset
+    };
     if rewrite && !prepare_rewrite_batch(conn, &file_path_str)? {
         return Ok(FileSyncResult {
             more: true,
             ..Default::default()
         });
     }
-    let mut parsed =
-        parse_codex_file_batch(file_path, thread_id_from_filename(file_path), checkpoint)?;
+    let mut parsed = parse_codex_file_batch(
+        file_path,
+        thread_id_from_filename(file_path),
+        checkpoint,
+        reader,
+    )?;
     let more = !parsed.checkpoint.complete && parsed.checkpoint.byte_offset > prior_offset;
     let cursor_modified = if parsed.checkpoint.complete {
         file_modified
@@ -781,7 +848,7 @@ fn sync_single_file(
             file_size,
             parsed.line_offset,
         )?;
-        save_parser_checkpoint(&tx, file_path, &parsed.checkpoint)?;
+        save_parser_checkpoint(&tx, &logical_path, &parsed.checkpoint)?;
         publish_rewrite(&tx, &file_path_str, parsed.checkpoint.complete)?;
         tx.commit().map_err(|e| e.to_string())?;
         cursors.insert(
@@ -815,7 +882,7 @@ fn sync_single_file(
         0
     } else {
         match parsed.parent {
-            ParentResolution::None => 0,
+            ParentResolution::None | ParentResolution::Paginated => 0,
             ParentResolution::Deferred => {
                 return Ok(mark_deferred(
                     file_path,
@@ -854,6 +921,7 @@ fn sync_single_file(
                     rollout_index,
                     &parsed.token_events,
                     &mut parsed.checkpoint,
+                    parent_reader,
                 ) {
                     Ok(ParentReplay::Pending) => {
                         return Ok(FileSyncResult {
@@ -890,6 +958,7 @@ fn sync_single_file(
                             rollout_index,
                             &parsed.token_events,
                             &mut parsed.checkpoint,
+                            parent_reader,
                         ) {
                             Ok(ParentReplay::Pending) => {
                                 return Ok(FileSyncResult {
@@ -906,8 +975,8 @@ fn sync_single_file(
             }
         }
     };
-    parsed.checkpoint.replay_closed |=
-        parsed.parent == ParentResolution::None || replay_prefix < parsed.token_events.len();
+    parsed.checkpoint.replay_closed |= matches!(parsed.parent, ParentResolution::None | ParentResolution::Paginated)
+        || replay_prefix < parsed.token_events.len();
 
     if let Ok(mut caches) = replay_caches().lock() {
         caches.pending.remove(file_path);
@@ -980,7 +1049,7 @@ fn sync_single_file(
             file_size,
             parsed.line_offset,
         )?;
-        save_parser_checkpoint(&tx, file_path, &parsed.checkpoint)?;
+        save_parser_checkpoint(&tx, &logical_path, &parsed.checkpoint)?;
         publish_rewrite(&tx, &file_path_str, parsed.checkpoint.complete)?;
         tx.commit()
             .map_err(|error| format!("提交会话用量写入失败: {error}"))?;
@@ -1055,12 +1124,14 @@ fn parse_codex_file(
     file_path: &Path,
     root_thread_id: Option<String>,
 ) -> Result<ParsedCodexFile, String> {
-    let mut parsed = parse_codex_file_batch(file_path, root_thread_id.clone(), None)?;
+    let mut reader = UsageReaderCache::default();
+    let mut parsed = parse_codex_file_batch(file_path, root_thread_id.clone(), None, &mut reader)?;
     while !parsed.checkpoint.complete {
         let next = parse_codex_file_batch(
             file_path,
             root_thread_id.clone(),
             Some(parsed.checkpoint.clone()),
+            &mut reader,
         )?;
         if next.checkpoint.byte_offset == parsed.checkpoint.byte_offset {
             break;
@@ -1077,12 +1148,11 @@ fn parse_codex_file_batch(
     file_path: &Path,
     root_thread_id: Option<String>,
     checkpoint: Option<ParserCheckpoint>,
+    cache: &mut UsageReaderCache,
 ) -> Result<ParsedCodexFile, String> {
-    let mut file = File::open(file_path).map_err(|error| format!("无法打开文件: {error}"))?;
     let previous = checkpoint.unwrap_or_default();
-    file.seek(SeekFrom::Start(previous.byte_offset))
-        .map_err(|e| e.to_string())?;
-    let mut reader = BufReader::new(file);
+    let compressed = is_compressed_rollout(file_path);
+    let reader = cache.at(file_path, previous.byte_offset)?;
     let mut root_meta_seen = previous.root_meta_seen;
     let mut root_timestamp = previous.root_timestamp;
     let mut parent = previous.parent;
@@ -1099,25 +1169,22 @@ fn parse_codex_file_batch(
     let mut has_billable_tokens = previous.has_billable_tokens;
     let mut discard_line = previous.discard_line;
     let started = std::time::Instant::now();
-    loop {
-        let position = reader.stream_position().map_err(|e| e.to_string())?;
+    let (byte_offset, complete) = loop {
+        let position = reader.offset;
         if line_offset > previous.line_offset
             && (position.saturating_sub(previous.byte_offset)
                 >= crate::modules::background_maintenance::BATCH_BYTES
                 || token_events.len() >= INSERT_BATCH_SIZE
                 || started.elapsed() >= crate::modules::background_maintenance::BATCH_TIME)
         {
-            break;
+            break (position, reader.at_eof()?);
         }
-        let Some(line) = read_usage_line(&mut reader, &mut discard_line)? else {
-            break;
+        let Some(line) = read_usage_line(reader, &mut discard_line)? else {
+            break (position, true);
         };
-        // Do not advance past a partially written JSON record.
-        if !line.ends_with('\n') && !line.is_empty() {
-            reader
-                .seek(SeekFrom::Start(position))
-                .map_err(|e| e.to_string())?;
-            break;
+        // A plain rollout can grow, so retry its unterminated line later.
+        if !compressed && !line.ends_with('\n') && !line.is_empty() {
+            break (position, false);
         }
         line_offset += 1;
         if line.trim().is_empty() {
@@ -1154,7 +1221,18 @@ fn parse_codex_file_batch(
                             deferred_reason =
                                 Some("parent_thread_id 与 root_thread_id 相同".to_string());
                         } else {
-                            parent = ParentResolution::Parent;
+                            let base = &payload["history_base"];
+                            let first_ordinal = value["ordinal"].as_u64();
+                            parent = if payload["history_mode"] == "paginated"
+                                && base["thread_id"] == parent_thread_id
+                                && base["end_byte_offset"].as_u64().is_some()
+                                && first_ordinal.is_some_and(|start| base["end_ordinal_exclusive"].as_u64() == Some(start))
+                            {
+                                // Parent history is referenced by byte/ordinal, not copied into this file.
+                                ParentResolution::Paginated
+                            } else {
+                                ParentResolution::Parent
+                            };
                             parent_id = Some(parent_thread_id);
                         }
                     }
@@ -1259,7 +1337,13 @@ fn parse_codex_file_batch(
                         output: last.output,
                     }
                 } else if let Some(total) = total.as_ref() {
-                    compute_delta(&total_high_water, total)
+                    if parent == ParentResolution::Paginated && total_high_water.is_none() {
+                        // The first cumulative snapshot also includes the ancestor's usage.
+                        // Without a per-turn counter it can only establish a baseline.
+                        DeltaTokens::default()
+                    } else {
+                        compute_delta(&total_high_water, total)
+                    }
                 } else {
                     continue;
                 };
@@ -1293,15 +1377,7 @@ fn parse_codex_file_batch(
             }
             _ => {}
         }
-    }
-
-    let byte_offset = reader.stream_position().map_err(|e| e.to_string())?;
-    let complete = byte_offset
-        >= reader
-            .get_ref()
-            .metadata()
-            .map_err(|e| e.to_string())?
-            .len();
+    };
     let checkpoint = ParserCheckpoint {
         version: PARSER_VERSION,
         byte_offset,
@@ -1322,6 +1398,7 @@ fn parse_codex_file_batch(
         anchor: checkpoint_anchor(file_path, byte_offset)?,
         complete,
         discard_line,
+        compressed,
     };
     Ok(ParsedCodexFile {
         checkpoint,
@@ -2097,6 +2174,81 @@ mod tests {
         assert_eq!(report.by_model.len(), 1);
         assert_eq!(report.by_model[0].key, "gpt-5.4");
         fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn paginated_fork_counts_own_usage_without_local_parent() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let sessions = home.join("sessions");
+        let child = rollout_path(&sessions, CHILD_ID);
+        let parent = rollout_path(&sessions, PARENT_ID);
+        let mut meta = session_meta_at(CHILD_ID, Some(PARENT_ID), "2026-07-10T03:10:00Z");
+        meta["ordinal"] = json!(25);
+        meta["payload"]["history_mode"] = json!("paginated");
+        meta["payload"]["history_base"] = json!({
+            "thread_id": PARENT_ID, "end_ordinal_exclusive": 25, "end_byte_offset": 41904,
+        });
+        write_jsonl(&child, &[meta]);
+        let store = SessionUsageStore::open_path(temp.path().join("usage.sqlite"));
+        let instances = [UsageInstance {
+            id: DEFAULT_INSTANCE_ID.into(), name: DEFAULT_INSTANCE_NAME.into(), data_dir: home,
+        }];
+        assert_eq!(store.sync(false, &instances).unwrap().imported, 0);
+        store.open_conn().unwrap().execute(
+            "UPDATE session_parser_checkpoints SET state=json_set(state,'$.version',1,'$.parent','Parent')",
+            [],
+        ).unwrap();
+        use std::io::Write;
+        let mut stream = fs::OpenOptions::new().append(true).open(&child).unwrap();
+        writeln!(stream, "{}", turn_context("gpt-5.6-sol")).unwrap();
+        writeln!(stream, "{}", token_count_with_last(
+            30, 6, 12, 11, 3, 5, "codex", "2026-07-10T03:10:05Z",
+        )).unwrap();
+        drop(stream);
+        let result = store.sync(false, &instances).unwrap();
+        assert_eq!(result.imported, 1);
+        assert_eq!(result.deferred_files, 0);
+        let query = CodexSessionUsageQuery::default();
+        let report = store.query(&query).unwrap();
+        assert_eq!(report.totals.input_tokens, 11);
+        assert_eq!(report.totals.output_tokens, 5);
+        assert_eq!(report.totals.total_tokens, 16);
+        assert_eq!(report.totals.request_count, 1);
+
+        write_jsonl(&parent, &[
+            session_meta(PARENT_ID),
+            turn_context("gpt-5.6-sol"),
+            token_count_with_last(9, 1, 3, 9, 1, 3, "codex", "2026-07-10T03:00:02Z"),
+            token_count_with_last(19, 3, 7, 10, 2, 4, "codex", "2026-07-10T03:00:03Z"),
+        ]);
+        store.sync(false, &instances).unwrap();
+        store.sync(false, &instances).unwrap();
+        let report = store.query(&query).unwrap();
+        assert_eq!(report.totals.input_tokens, 30);
+        assert_eq!(report.totals.cached_input_tokens, 6);
+        assert_eq!(report.totals.output_tokens, 12);
+        assert_eq!(report.totals.total_tokens, 42);
+        assert_eq!(report.totals.request_count, 3);
+    }
+
+    #[test]
+    fn paginated_fork_treats_an_inherited_cumulative_snapshot_as_baseline() {
+        let temp = tempfile::tempdir().unwrap();
+        let child = rollout_path(temp.path(), CHILD_ID);
+        let mut meta = session_meta_at(CHILD_ID, Some(PARENT_ID), "2026-07-10T03:10:00Z");
+        meta["ordinal"] = json!(25);
+        meta["payload"]["history_mode"] = json!("paginated");
+        meta["payload"]["history_base"] = json!({
+            "thread_id": PARENT_ID, "end_ordinal_exclusive": 25, "end_byte_offset": 41904,
+        });
+        write_jsonl(&child, &[
+            meta,
+            token_count_total(1_400, 100, 35, "2026-07-10T03:10:05Z"),
+            token_count_total(1_460, 120, 46, "2026-07-10T03:11:05Z"),
+        ]);
+        let parsed = parse_codex_file(&child, Some(CHILD_ID.to_string())).unwrap();
+        assert_eq!(nonzero_deltas(&parsed), vec![(60, 20, 11)]);
     }
 
     #[test]

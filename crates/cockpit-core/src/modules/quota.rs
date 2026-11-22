@@ -466,6 +466,11 @@ pub struct QuotaFetchError {
     pub validation_url: Option<String>,
 }
 
+fn is_explicit_quota_denial(reason: Option<&str>, validation_url: Option<&str>) -> bool {
+    matches!(reason, Some("VALIDATION_REQUIRED" | "SUBSCRIPTION_REQUIRED"))
+        || validation_url.is_some_and(|url| !url.trim().is_empty())
+}
+
 pub fn parse_google_api_error(status: u16, text: &str) -> QuotaFetchError {
     let mut message = if text.trim().is_empty() {
         format!("API returned status {}", status)
@@ -1112,7 +1117,7 @@ fn build_quota_data_from_response(
                 .map(|f| (f * 100.0) as i32)
                 .unwrap_or(0);
             let reset_time = quota_info.reset_time.unwrap_or_default();
-            if name.contains("gemini") || name.contains("claude") || name.contains("argon") || name.contains("gpt") {
+            if name.contains("gemini") || name.contains("claude") || name.contains("argon") || name.contains("carbon") || name.contains("gpt") {
                 quota_data.add_model(name, display_name, percentage, reset_time);
             }
         }
@@ -1161,11 +1166,12 @@ enum ModelsFetchOutcome {
 }
 
 /// retrieveUserQuotaSummary 的结果：value 为成功拿到的 summary；
-/// validation_error 仅在接口要求账号验证时保留，作为本次查询的 error 返回给上层。
+/// errors 为各候选域名返回的非成功响应，其中哪一个算作本次查询的 error，
+/// 由 fetch_quota_with_context 结合模型接口的结果决定。
 #[derive(Debug, Default)]
 struct QuotaSummaryFetch {
     value: Option<serde_json::Value>,
-    validation_error: Option<QuotaFetchError>,
+    errors: Vec<QuotaFetchError>,
 }
 
 fn is_validation_required_error(error: &QuotaFetchError) -> bool {
@@ -1292,7 +1298,7 @@ async fn fetch_user_quota_summary_json(
     payload: &serde_json::Value,
     user_agent: &str,
 ) -> QuotaSummaryFetch {
-    let mut validation_error: Option<QuotaFetchError> = None;
+    let mut errors: Vec<QuotaFetchError> = Vec::new();
     for (host_index, base_url) in base_urls.iter().enumerate() {
         let summary_url = format!("{}/v1internal:retrieveUserQuotaSummary", base_url);
         crate::modules::logger::log_info(&format!(
@@ -1325,7 +1331,7 @@ async fn fetch_user_quota_summary_json(
                                 Ok(val) => {
                                     return QuotaSummaryFetch {
                                         value: Some(val),
-                                        validation_error: None,
+                                        errors: Vec::new(),
                                     };
                                 }
                                 Err(_) => {
@@ -1347,16 +1353,13 @@ async fn fetch_user_quota_summary_json(
                         "[Quota] retrieveUserQuotaSummary 请求未成功: {}, body: {}",
                         status, err_text
                     ));
-                    let parsed = parse_google_api_error(status.as_u16(), &err_text);
-                    if is_validation_required_error(&parsed) {
-                        validation_error = Some(parsed);
-                    }
+                    errors.push(parse_google_api_error(status.as_u16(), &err_text));
                     if status == reqwest::StatusCode::UNAUTHORIZED
                         || status == reqwest::StatusCode::FORBIDDEN
                     {
                         return QuotaSummaryFetch {
                             value: None,
-                            validation_error,
+                            errors,
                         };
                     }
                 }
@@ -1377,7 +1380,7 @@ async fn fetch_user_quota_summary_json(
     }
     QuotaSummaryFetch {
         value: None,
-        validation_error,
+        errors,
     }
 }
 
@@ -1462,54 +1465,83 @@ pub async fn fetch_quota_with_context(
         .clone()
         .or_else(|| ctx.preferred_project_id.clone());
 
-    match models_outcome {
+    let (mut payload_value, models_error) = match models_outcome {
+        ModelsFetchOutcome::Failed(err) => return Err(err),
+        ModelsFetchOutcome::Ok(value) => (value, None),
         ModelsFetchOutcome::Forbidden(error) => {
-            crate::modules::logger::log_warn(&format!(
-                "账号无权限 (403 Forbidden), 标记为 forbidden 状态: {}",
-                email
-            ));
-            let mut q = QuotaData::new();
-            q.is_forbidden = true;
-            q.subscription_tier = meta.subscription_tier;
-            Ok(QuotaFetchResult {
-                quota: q,
-                error: Some(error),
-            })
-        }
-        ModelsFetchOutcome::Failed(err) => Err(err),
-        ModelsFetchOutcome::Ok(mut payload_value) => {
-            if let Some(val) = summary_fetch.value.clone() {
-                if let Some(obj) = payload_value.as_object_mut() {
-                    obj.insert("quota_summary".to_string(), val);
-                    crate::modules::logger::log_info(
-                        "[Quota] 成功将 quota_summary 合并到 payload_value",
-                    );
-                }
+            if is_explicit_quota_denial(error.reason.as_deref(), error.validation_url.as_deref()) {
+                crate::modules::logger::log_warn(&format!(
+                    "账号无权限 (403 Forbidden), 标记为 forbidden 状态: {}",
+                    email
+                ));
+                let mut quota = QuotaData::new();
+                quota.is_forbidden = true;
+                quota.subscription_tier = meta.subscription_tier;
+                quota.credits = meta.credits;
+                return Ok(QuotaFetchResult {
+                    quota,
+                    error: Some(error),
+                });
             }
-
-            write_api_cache(
-                "authorized",
-                "desktop",
-                email,
-                effective_project_id,
-                payload_value.clone(),
+            crate::modules::logger::log_warn(
+                "[Quota] fetchAvailableModels 返回 403，继续检查配额摘要",
             );
+            (json!({"models": {}}), Some(error))
+        }
+    };
 
-            let quota_response: QuotaResponse = serde_json::from_value(payload_value)
-                .map_err(|e| AppError::Unknown(format!("API 响应解析失败: {}", e)))?;
-            let quota_data = build_quota_data_from_response(
-                quota_response,
-                meta.subscription_tier,
-                meta.credits,
-                summary_fetch.value,
-            );
+    // 模型接口 403 但原因不明确时，汇总接口只有明确的拒绝（需验证 / 需订阅）才算数；
+    // 模型接口正常时沿用较宽的“需要验证账号”判断。
+    let QuotaSummaryFetch {
+        value: quota_summary,
+        errors: summary_errors,
+    } = summary_fetch;
+    let quota_summary_error = summary_errors
+        .into_iter()
+        .filter(|error| {
+            if models_error.is_some() {
+                is_explicit_quota_denial(error.reason.as_deref(), error.validation_url.as_deref())
+            } else {
+                is_validation_required_error(error)
+            }
+        })
+        .last();
 
-            Ok(QuotaFetchResult {
-                quota: quota_data,
-                error: summary_fetch.validation_error,
-            })
+    if let Some(val) = quota_summary.clone() {
+        if let Some(obj) = payload_value.as_object_mut() {
+            obj.insert("quota_summary".to_string(), val);
+            crate::modules::logger::log_info("[Quota] 成功将 quota_summary 合并到 payload_value");
         }
     }
+
+    if models_error.is_none() {
+        write_api_cache(
+            "authorized",
+            "desktop",
+            email,
+            effective_project_id,
+            payload_value.clone(),
+        );
+    }
+
+    let quota_response: QuotaResponse = serde_json::from_value(payload_value)
+        .map_err(|e| AppError::Unknown(format!("API 响应解析失败: {}", e)))?;
+    let mut quota_data = build_quota_data_from_response(
+        quota_response,
+        meta.subscription_tier,
+        meta.credits,
+        quota_summary,
+    );
+
+    if models_error.is_some() {
+        quota_data.is_forbidden = quota_summary_error.is_some();
+    }
+
+    Ok(QuotaFetchResult {
+        error: quota_summary_error
+            .or_else(|| models_error.filter(|_| quota_data.models.is_empty())),
+        quota: quota_data,
+    })
 }
 
 #[cfg(test)]

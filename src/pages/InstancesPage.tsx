@@ -1,8 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
+import { AntigravityClientTabs } from '../components/AntigravityClientIcon';
+import { AntigravityInstanceLaunchDialog } from '../components/AntigravityInstanceLaunchDialog';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { InstancesManager } from '../components/InstancesManager';
 import { OverviewTabsHeader } from '../components/OverviewTabsHeader';
 import { useAntigravityRuntimeTarget } from '../hooks/useAntigravityRuntimeTarget';
+import { type AntigravityRuntimeTarget } from '../utils/antigravityRuntimeTarget';
+import { useDurableUiSetting } from '../hooks/useDurableUiSetting';
+import { useAccountsOverviewFilterState } from '../hooks/useAccountsOverviewFilterState';
+import { readAccountsOverviewFilterField, readAccountsOverviewFilterPersistenceEnabled, resolveAccountSortMode } from '../utils/accountsOverviewFilterPersistence';
+import { subscribeUserMemory } from '../utils/userMemory';
 import { useAccountStore } from '../stores/useAccountStore';
 import { useAntigravityLegacyInstanceStore } from '../stores/useAntigravityLegacyInstanceStore';
 import { useInstanceStore } from '../stores/useInstanceStore';
@@ -14,12 +21,18 @@ import {
   buildQuotaPreviewLines,
 } from '../presentation/platformAccountPresentation';
 import {
-  ANTIGRAVITY_ACCOUNTS_SORT_BY_STORAGE_KEY,
-  ANTIGRAVITY_ACCOUNTS_SORT_DIRECTION_STORAGE_KEY,
   createAntigravityAccountComparator,
+  DEFAULT_ANTIGRAVITY_SORT_BY,
   normalizeAntigravitySortBy,
   normalizeAntigravitySortDirection,
 } from '../utils/antigravityAccountSort';
+import {
+  ANTIGRAVITY_CUSTOM_SORT_ACTIVE_KEY,
+  ANTIGRAVITY_FILTER_FIELD_SORT_BY,
+  ANTIGRAVITY_FILTER_FIELD_SORT_DIRECTION,
+  ANTIGRAVITY_FILTER_PERSISTENCE_SCOPE,
+  readAntigravityCustomSortOrder,
+} from './antigravityAccountOverviewModel';
 
 interface InstancesPageProps {
   onNavigate?: (page: Page) => void;
@@ -27,7 +40,10 @@ interface InstancesPageProps {
 
 export function InstancesPage({ onNavigate }: InstancesPageProps) {
   const { t } = useTranslation();
-  const runtimeTarget = useAntigravityRuntimeTarget();
+  const preferredTarget = useAntigravityRuntimeTarget();
+  const [selectedTarget, setSelectedTarget] = useState<AntigravityRuntimeTarget>();
+  const runtimeTarget = selectedTarget ?? preferredTarget;
+  const [launchRequest, setLaunchRequest] = useState<{ target: AntigravityRuntimeTarget; instanceId: string }>();
   const legacyInstanceStore = useAntigravityLegacyInstanceStore();
   const ideInstanceStore = useInstanceStore();
   const instanceStore =
@@ -35,15 +51,31 @@ export function InstancesPage({ onNavigate }: InstancesPageProps) {
   const { accounts, currentAccountsByTarget, fetchAccounts, fetchCurrentAccount } = useAccountStore();
   const currentAccount = currentAccountsByTarget[runtimeTarget] ?? null;
   const [displayGroups, setDisplayGroups] = useState<DisplayGroup[]>([]);
-  const [sortBy] = useState(() =>
-    normalizeAntigravitySortBy(
-      localStorage.getItem(ANTIGRAVITY_ACCOUNTS_SORT_BY_STORAGE_KEY),
-    ),
+
+  const [rememberedSortBy] = useAccountsOverviewFilterState(
+    ANTIGRAVITY_FILTER_PERSISTENCE_SCOPE, ANTIGRAVITY_FILTER_FIELD_SORT_BY,
+    () => readAccountsOverviewFilterPersistenceEnabled(ANTIGRAVITY_FILTER_PERSISTENCE_SCOPE)
+      ? normalizeAntigravitySortBy(readAccountsOverviewFilterField<string | null>(
+          ANTIGRAVITY_FILTER_PERSISTENCE_SCOPE, ANTIGRAVITY_FILTER_FIELD_SORT_BY, null,
+        ))
+      : DEFAULT_ANTIGRAVITY_SORT_BY,
   );
-  const [sortDirection] = useState(() =>
-    normalizeAntigravitySortDirection(
-      localStorage.getItem(ANTIGRAVITY_ACCOUNTS_SORT_DIRECTION_STORAGE_KEY),
-    ),
+  const sortBy = resolveAccountSortMode(
+    rememberedSortBy, useDurableUiSetting(ANTIGRAVITY_CUSTOM_SORT_ACTIVE_KEY), DEFAULT_ANTIGRAVITY_SORT_BY,
+  );
+  const [sortDirection] = useAccountsOverviewFilterState(
+    ANTIGRAVITY_FILTER_PERSISTENCE_SCOPE, ANTIGRAVITY_FILTER_FIELD_SORT_DIRECTION,
+    () => normalizeAntigravitySortDirection(readAccountsOverviewFilterPersistenceEnabled(ANTIGRAVITY_FILTER_PERSISTENCE_SCOPE)
+      ? readAccountsOverviewFilterField<string | null>(
+          ANTIGRAVITY_FILTER_PERSISTENCE_SCOPE, ANTIGRAVITY_FILTER_FIELD_SORT_DIRECTION, null,
+        )
+      : null),
+  );
+  const getOrderSnapshot = () => JSON.stringify(readAntigravityCustomSortOrder());
+  const order = useSyncExternalStore(subscribeUserMemory, getOrderSnapshot, getOrderSnapshot);
+  const customSortOrderIndex = useMemo(
+    () => new Map((JSON.parse(order) as string[]).map((id, index) => [id, index])),
+    [order],
   );
 
   const accountSortComparator = useMemo(
@@ -53,8 +85,9 @@ export function InstancesPage({ onNavigate }: InstancesPageProps) {
         sortDirection,
         displayGroups,
         currentAccountId: currentAccount?.id ?? null,
+        customSortOrderIndex,
       }),
-    [currentAccount?.id, displayGroups, sortBy, sortDirection],
+    [currentAccount?.id, customSortOrderIndex, displayGroups, sortBy, sortDirection],
   );
   const sortedAccountsForSelect = useMemo(
     () => [...accounts].sort(accountSortComparator),
@@ -101,9 +134,11 @@ export function InstancesPage({ onNavigate }: InstancesPageProps) {
       <OverviewTabsHeader
         active="instances"
         onNavigate={onNavigate}
-        subtitle={t('instances.subtitle', '多实例独立配置，多账号并行运行。')}
+        subtitle={t('instances.subtitle')}
       />
+      <AntigravityClientTabs selected={runtimeTarget} onSelect={setSelectedTarget} />
       <InstancesManager
+        key={runtimeTarget}
         instanceStore={instanceStore}
         accounts={sortedAccountsForSelect}
         fetchAccounts={fetchAccounts}
@@ -111,7 +146,7 @@ export function InstancesPage({ onNavigate }: InstancesPageProps) {
         renderAccountBadge={(account) => {
           const presentation = buildAntigravityAccountPresentation(account, displayGroups, t);
           return (
-            <span className={`instance-plan-badge ${presentation.planClass}`}>{presentation.planLabel}</span>
+            <span className={`tier-badge ${presentation.planClass}`}>{presentation.planLabel}</span>
           );
         }}
         getAccountSearchText={(account) => {
@@ -119,7 +154,9 @@ export function InstancesPage({ onNavigate }: InstancesPageProps) {
           return `${presentation.displayName} ${presentation.planLabel} ${account.name ?? ''}`;
         }}
         appType={runtimeTarget}
+        onLaunchRequest={(instance) => setLaunchRequest({ target: runtimeTarget, instanceId: instance.id })}
       />
+      {launchRequest && <AntigravityInstanceLaunchDialog source={launchRequest} onClose={() => setLaunchRequest(undefined)} />}
     </div>
   );
 }

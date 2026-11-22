@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import { Account, AccountNoteUpdate, QuotaData, RefreshStats, TokenData } from '../types/account';
 import * as accountService from '../services/accountService';
 import { emitAccountsChanged, emitCurrentAccountChanged } from '../utils/accountSyncEvents';
+import { replaceLegacyAccountDisplayCache } from '../utils/providerAccountDisplayCache';
 import {
   AntigravityRuntimeTarget,
   DEFAULT_ANTIGRAVITY_RUNTIME_TARGET,
@@ -47,7 +48,13 @@ function scheduleAccountStoreQuotaRecovery(storageKey: string) {
 const accountStoreStorage = createJSONStorage(() => ({
   getItem: (name: string) => {
     try {
-      return localStorage.getItem(name);
+      const raw = localStorage.getItem(name);
+      if (raw === null) return null;
+      const value = JSON.parse(raw);
+      if (!value?.state) return raw;
+      const clean = JSON.stringify({ ...value, state: accountCacheState(value.state) });
+      replaceLegacyAccountDisplayCache(name, raw, clean);
+      return clean;
     } catch (error) {
       console.warn(`[AccountStore] 读取持久化数据失败: ${name}`, error);
       return null;
@@ -80,17 +87,16 @@ const accountStoreStorage = createJSONStorage(() => ({
   },
 }));
 
-function toPersistedTokenSnapshot(token: TokenData): TokenData {
+function toPersistedTokenSnapshot(token?: TokenData): TokenData {
   return {
     access_token: '',
     refresh_token: '',
     expires_in: 0,
     expiry_timestamp: 0,
-    token_type: token.token_type || 'Bearer',
-    email: token.email,
-    project_id: token.project_id,
-    is_gcp_tos: token.is_gcp_tos,
-    session_id: token.session_id,
+    token_type: token?.token_type || 'Bearer',
+    email: token?.email,
+    project_id: token?.project_id,
+    is_gcp_tos: token?.is_gcp_tos,
   };
 }
 
@@ -114,6 +120,18 @@ function toPersistedAccountSnapshot(account: Account): Account {
     mail_url: undefined,
     token: toPersistedTokenSnapshot(account.token),
     quota: toPersistedQuotaSnapshot(account.quota),
+  };
+}
+
+function accountCacheState(state: Partial<AccountState>) {
+  return {
+    accounts: (state.accounts ?? []).map(toPersistedAccountSnapshot),
+    currentAccount: state.currentAccount ? toPersistedAccountSnapshot(state.currentAccount) : null,
+    currentAccountsByTarget: Object.fromEntries(
+      Object.entries({ ...buildEmptyCurrentAccountsByTarget(), ...state.currentAccountsByTarget }).map(([target, account]) => [
+        target, account ? toPersistedAccountSnapshot(account) : null,
+      ]),
+    ) as CurrentAccountsByTarget,
   };
 }
 
@@ -158,7 +176,7 @@ interface AccountState {
     currentAccountsByTarget: CurrentAccountsByTarget;
     loading: boolean;
     error: string | null;
-    fetchAccounts: () => Promise<void>;
+    fetchAccounts: (options?: { background?: boolean }) => Promise<void>;
     fetchCurrentAccount: (runtimeTarget?: AntigravityRuntimeTarget) => Promise<void>;
     addAccount: (email: string, refreshToken: string) => Promise<Account>;
     deleteAccount: (accountId: string) => Promise<void>;
@@ -168,7 +186,7 @@ interface AccountState {
     refreshAllQuotas: (trigger?: 'auto' | 'manual') => Promise<RefreshStats>;
     startOAuthLogin: (update?: AccountNoteUpdate) => Promise<Account>;
     reorderAccounts: (accountIds: string[]) => Promise<void>;
-    switchAccount: (accountId: string, runtimeTarget?: AntigravityRuntimeTarget) => Promise<Account>;
+    switchAccount: (accountId: string, runtimeTarget?: AntigravityRuntimeTarget, launch?: boolean, inlinePathRecovery?: boolean) => Promise<Account>;
     syncCurrentFromClient: () => Promise<void>;
     updateAccountTags: (accountId: string, tags: string[]) => Promise<Account>;
     updateAccountNotes: (accountId: string, update: string | AccountNoteUpdate) => Promise<Account>;
@@ -183,7 +201,7 @@ export const useAccountStore = create<AccountState>()(
       loading: false,
       error: null,
 
-      fetchAccounts: async () => {
+      fetchAccounts: async ({ background = false } = {}) => {
           const now = Date.now();
           
           // 如果正在请求中，且距离上次请求不足 DEBOUNCE_MS，复用现有 Promise
@@ -195,7 +213,9 @@ export const useAccountStore = create<AccountState>()(
           
           fetchAccountsPromise = (async () => {
               const requestId = ++fetchAccountsSeq;
-              set({ loading: true, error: null });
+              if (!background || get().accounts.length === 0) {
+                  set({ loading: true, error: null });
+              }
               try {
                   const accounts = await accountService.listAccounts();
                   if (requestId !== fetchAccountsSeq) {
@@ -203,11 +223,11 @@ export const useAccountStore = create<AccountState>()(
                   }
                   if (accounts.length === 0 && get().accounts.length > 0 && !allowNextEmptyAccountList) {
                       console.warn('[AccountStore] 忽略异常空账号列表，保留本地缓存账号');
-                      set({ loading: false });
+                      set({ loading: false, error: null });
                       return;
                   }
                   allowNextEmptyAccountList = false;
-                  set({ accounts, loading: false });
+                  set({ accounts, loading: false, error: null });
               } catch (e) {
                   if (requestId !== fetchAccountsSeq) {
                       return;
@@ -456,11 +476,11 @@ export const useAccountStore = create<AccountState>()(
         await get().fetchAccounts();
     },
 
-    switchAccount: async (accountId: string, runtimeTarget?: AntigravityRuntimeTarget) => {
+    switchAccount: async (accountId, runtimeTarget, launch, inlinePathRecovery) => {
         const target = resolveRuntimeTarget(runtimeTarget);
         const previousCurrentAccountId = get().currentAccountsByTarget[target]?.id ?? null;
         try {
-            const account = await accountService.switchAccount(accountId, target);
+            const account = await accountService.switchAccount(accountId, target, launch, inlinePathRecovery);
             set((state) => ({
                 currentAccount: account,
                 currentAccountsByTarget: updateCurrentAccountsByTarget(
@@ -548,53 +568,37 @@ export const useAccountStore = create<AccountState>()(
   {
     name: ACCOUNTS_STORE_KEY,
     storage: accountStoreStorage,
-    partialize: (state) => ({
-      accounts: state.accounts.map(toPersistedAccountSnapshot),
-      currentAccount: state.currentAccount
-        ? toPersistedAccountSnapshot(state.currentAccount)
-        : null,
-      currentAccountsByTarget: Object.fromEntries(
-        Object.entries(state.currentAccountsByTarget).map(([target, account]) => [
-          target,
-          account ? toPersistedAccountSnapshot(account) : null,
-        ]),
-      ) as CurrentAccountsByTarget,
-    }),
+    partialize: (state: AccountState) => accountCacheState(state),
     onRehydrateStorage: () => (state) => {
-      // Migrate from old ACCOUNTS_CACHE_KEY if the new state is empty
-      if (state && state.accounts.length === 0 && typeof window !== 'undefined') {
+      if (state && typeof window !== 'undefined') {
         setTimeout(() => {
           try {
             const oldAccountsRaw = localStorage.getItem(LEGACY_ACCOUNTS_CACHE_KEY);
             const oldCurrentRaw = localStorage.getItem(LEGACY_CURRENT_ACCOUNT_CACHE_KEY);
-            let hasMigrated = false;
-            
             if (oldAccountsRaw) {
               const oldAccounts = JSON.parse(oldAccountsRaw);
               if (Array.isArray(oldAccounts) && oldAccounts.length > 0) {
-                useAccountStore.setState({ accounts: oldAccounts });
-                hasMigrated = true;
+                const accounts = oldAccounts.map(toPersistedAccountSnapshot);
+                if (fetchAccountsSeq === 0 && useAccountStore.getState().accounts.length === 0) {
+                  useAccountStore.setState({ accounts });
+                }
+                replaceLegacyAccountDisplayCache(LEGACY_ACCOUNTS_CACHE_KEY, oldAccountsRaw, JSON.stringify(accounts));
               }
             }
             if (oldCurrentRaw) {
-              const oldCurrent = JSON.parse(oldCurrentRaw);
+              const oldCurrent = JSON.parse(oldCurrentRaw) as Account | null;
               if (oldCurrent && oldCurrent.id) {
-                useAccountStore.setState((currentState) => ({
-                  currentAccount: oldCurrent,
-                  currentAccountsByTarget: updateCurrentAccountsByTarget(
-                    currentState.currentAccountsByTarget,
-                    DEFAULT_ANTIGRAVITY_RUNTIME_TARGET,
-                    oldCurrent,
-                  ),
-                }));
-                hasMigrated = true;
+                const currentAccount = toPersistedAccountSnapshot(oldCurrent);
+                if (!useAccountStore.getState().currentAccount && !fetchCurrentLastTimes[DEFAULT_ANTIGRAVITY_RUNTIME_TARGET]) {
+                  useAccountStore.setState((currentState) => ({
+                    currentAccount,
+                    currentAccountsByTarget: updateCurrentAccountsByTarget(
+                      currentState.currentAccountsByTarget, DEFAULT_ANTIGRAVITY_RUNTIME_TARGET, currentAccount,
+                    ),
+                  }));
+                }
+                replaceLegacyAccountDisplayCache(LEGACY_CURRENT_ACCOUNT_CACHE_KEY, oldCurrentRaw, JSON.stringify(currentAccount));
               }
-            }
-            
-            // Cleanup the old keys if we migrated successfully
-            if (hasMigrated) {
-              localStorage.removeItem(LEGACY_ACCOUNTS_CACHE_KEY);
-              localStorage.removeItem(LEGACY_CURRENT_ACCOUNT_CACHE_KEY);
             }
           } catch (error) {
             // ignore migration errors

@@ -48,6 +48,28 @@ fn unsent_fixture() -> (RequestTracker, Arc<Recorder>, Arc<Activity>, watch::Sen
     (tracker, host, activity, stop)
 }
 
+#[test]
+fn payload_formatting_is_lazy_without_room_for_capture() {
+    let (mut tracker, _host, _activity, _stop) = unsent_fixture();
+    let headers = axum::http::HeaderMap::new();
+    tracker.context("POST", "/v1/responses", &headers, false);
+    let unexpected = || -> String { panic!("skipped diagnostics must not format the body") };
+    tracker.payload_with("client_request", "http", &headers, unexpected);
+    assert!(tracker.diagnostics.as_ref().unwrap().payloads.is_empty());
+
+    tracker.context("POST", "/v1/responses", &headers, true);
+    for _ in 0..16 {
+        tracker.payload_with("client_request", "http", &headers, || json!({"text":"测试"}).to_string());
+    }
+    tracker.payload_with("client_request", "http", &headers, unexpected);
+    let context = tracker.diagnostics.as_ref().unwrap();
+    assert!(context.truncated);
+    assert_eq!(context.payloads.len(), 16);
+    let payload = &context.payloads[0];
+    assert_eq!(payload.body, "{\"text\":\"测试\"}");
+    assert_eq!(payload.original_bytes, payload.body.len() as u64);
+}
+
 fn select_candidate(tracker: &mut RequestTracker, account_id: &str) {
     let caller = Caller { id: "caller".into(), label: "test".into() };
     tracker.routed(&caller, &dispatch_route(account_id), "requested");
@@ -316,4 +338,22 @@ async fn quota_protection_fences_the_pending_candidate_without_committing_a_send
     host.quota_denied.lock().unwrap().push("retry-selected".into());
     assert_eq!(tracker.check_quota_before_send().unwrap_err().code, "quota_reserved");
     assert_eq!(host.quota_checks.lock().unwrap().last().unwrap(), "retry-selected");
+}
+
+#[tokio::test]
+async fn failure_feedback_marker_is_scoped_to_one_dispatch_and_never_serialized() {
+    let (mut tracker, _host, _activity, _stop) = unsent_fixture();
+    select_candidate(&mut tracker, "a");
+    tracker.begin_attempt("responses");
+    tracker.mark_failure_cooldown_recorded("a");
+    let first = tracker.diagnostics.as_ref().unwrap().attempts.last().unwrap();
+    assert!(first.failure_cooldown_recorded);
+    assert!(serde_json::to_value(first).unwrap().get("failureCooldownRecorded").is_none());
+    tracker.attempt_error(&ServiceError::new(503, "upstream_unavailable", "first dispatch failed"));
+    select_candidate(&mut tracker, "b");
+    tracker.begin_attempt("responses");
+    tracker.mark_failure_cooldown_recorded("a");
+    assert!(!tracker.diagnostics.as_ref().unwrap().attempts.last().unwrap().failure_cooldown_recorded);
+    tracker.mark_failure_cooldown_recorded("b");
+    assert!(tracker.diagnostics.as_ref().unwrap().attempts.last().unwrap().failure_cooldown_recorded);
 }

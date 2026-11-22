@@ -4,6 +4,7 @@ import { deferred, loadHookModule, settlePromises } from '../../tests/helpers/re
 import type { CodexModelProvider } from './codexModelProviderService';
 import type { CodexAccount } from '../types/codex';
 import { buildCodexModelProviderAccountSnapshot } from '../utils/codexModelProviderAccountSync';
+import opencodeGoCatalog from '../utils/opencodeGoCatalog.json';
 
 function provider(): CodexModelProvider {
   return {
@@ -71,6 +72,26 @@ test('account reconciliation creates missing official, built-in and imported pro
   await h.service.mergeCodexModelProviderApiKeysFromAccounts(source);
   assert.equal(h.writeCount(), writes);
   assert.deepEqual(source, before, 'backfill must not rewrite account credentials or routes');
+});
+
+test('OpenCode Go upgrades untouched catalogs without expanding an independently restricted key', async () => {
+  const initial = provider();
+  initial.baseUrl = opencodeGoCatalog.baseUrls[1];
+  initial.modelCatalog = [...opencodeGoCatalog.legacyModels];
+  initial.wireApi = undefined;
+  initial.apiKeys[1].modelCatalog = ['deepseek-v4-pro'];
+  const h = harness(initial);
+  const [updated] = await h.service.listCodexModelProviders();
+  assert.equal(updated.wireApi, 'chat_completions');
+  assert.equal(updated.modelCatalog?.slice(-1)[0], opencodeGoCatalog.imageModel);
+  const inherited = buildCodexModelProviderAccountSnapshot(updated, '', 'sk-first');
+  const restricted = buildCodexModelProviderAccountSnapshot(updated, '', 'sk-second');
+  assert.equal(inherited.apiModelVisionSupport?.[opencodeGoCatalog.imageModel], true);
+  assert.deepEqual(Array.from(restricted.apiModelCatalog ?? []), ['deepseek-v4-pro']);
+  const writes = h.writeCount();
+  h.service.invalidateCodexModelProviderCache();
+  await h.service.listCodexModelProviders();
+  assert.equal(h.writeCount(), writes);
 });
 
 test('missing keys and service credential references do not create providers', async () => {
@@ -279,6 +300,23 @@ test('a load failure is surfaced instead of replacing existing providers with em
   assert.equal((await h.service.listCodexModelProviders())[0].apiKeys.length, 2);
 });
 
+test('saving a reused provider key preserves each saved name across reload', async () => {
+  const h = harness();
+  for (const apiKey of ['sk-first', 'sk-second', 'sk-first']) {
+    await h.service.upsertCodexModelProviderFromCredential({
+      providerId: 'provider', providerName: 'Relay', apiKeyName: 'Relay',
+      apiBaseUrl: 'https://relay.example/v1', apiKey,
+    });
+  }
+  await h.service.renameApiKeyOnCodexModelProvider('provider', 'key-2', 'Renamed');
+  h.service.invalidateCodexModelProviderCache();
+  const [saved] = await h.service.listCodexModelProviders();
+  assert.equal(saved.name, 'Relay');
+  assert.deepEqual(Array.from(saved.apiKeys, (key) => [key.name, key.apiKey]), [
+    ['First', 'sk-first'], ['Renamed', 'sk-second'],
+  ]);
+});
+
 test('same URL keys retain independent catalogs, context and vision settings across reload and key edits', async () => {
   const h = harness();
   await h.service.updateCodexModelProvider('provider', {
@@ -446,6 +484,22 @@ test('creating an official account optionally stores its query key without requi
   assert.equal(keys[0].usageApiKey, 'admin-one');
   assert.equal(keys[1].usageApiKey, undefined);
   await assert.rejects(h.service.queryCodexModelProviderUsage({ baseUrl: saved.baseUrl, apiKey: 'model-two' }), /OPENAI_USAGE_NOT_CONFIGURED/);
+});
+
+test('custom quota configuration persists across reload and does not enter Codex account credentials', async () => {
+  const h = harness();
+  const config = {
+    endpoint: '/user/balance', headers: { 'User-Agent': 'cc-switch/1.0' },
+    mappings: { remaining: 'balance' }, unit: 'CNY',
+  };
+  await h.service.updateCodexModelProvider('provider', { customUsage: config });
+  assert.deepEqual(h.stored()[0].customUsage, config);
+  h.service.invalidateCodexModelProviderCache();
+  const [saved] = await h.service.listCodexModelProviders();
+  assert.deepEqual(JSON.parse(JSON.stringify(saved.customUsage)), config);
+  assert.equal(JSON.stringify(buildCodexModelProviderAccountSnapshot(saved, 'sk-first')).includes('/user/balance'), false);
+  await h.service.updateCodexModelProvider('provider', { customUsage: null });
+  assert.equal(h.stored()[0].customUsage, undefined);
 });
 
 test('concurrent organization queries share one request while other providers retain their model key', async () => {

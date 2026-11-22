@@ -148,22 +148,20 @@ export function ChatGptPlanDialog({ sourceAccount, onBound, onJoined, embedded =
     void run('models', () => reloadModels(account));
   }, [phase, canCall, identityMismatch, bindingRequired, modelsLoaded, account?.id, reloadModels, busy]);
 
+  const reportedCallbackError = useRef<{ loginId: string; error: string } | null>(null);
   useEffect(() => {
     if (!login || phase !== 'waiting') return;
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const endWithError = (key: string) => {
+      loginRef.current = null;
+      setLogin(null);
+      setPhase('connect');
+      error.report(t(key));
+    };
     const poll = async () => {
       try {
-        const expiry = login.expires_at > 1e12 ? login.expires_at : login.expires_at * 1000;
-        if (Date.now() >= expiry) {
-          void cancelLoginSafely(login.login_id);
-          if (stopped || !active.current) return;
-          loginRef.current = null;
-          setLogin(null);
-          setPhase('connect');
-          error.report(t('chatgptPlan.error.expired'));
-          return;
-        }
+        // A delayed poll can still retrieve a result saved before the deadline.
         const status = await pollChatGptPlanLogin(login.login_id);
         if (stopped || !active.current) return;
         if (status.status === 'complete' && status.account) {
@@ -186,17 +184,24 @@ export function ChatGptPlanDialog({ sourceAccount, onBound, onJoined, embedded =
             setAccount((previous) => withChatGptPlanMembership(draft, membersRef.current, previous));
             changedInBackground();
           }
-          loginRef.current = null;
-          setLogin(null);
-          setPhase('connect');
-          error.report(t(chatGptPlanErrorKey(status.error ?? `CHATGPT_PLAN_LOGIN_${status.status.toUpperCase()}`)));
+          endWithError(chatGptPlanErrorKey(status.error ?? `CHATGPT_PLAN_LOGIN_${status.status.toUpperCase()}`));
           return;
+        }
+        const reported = reportedCallbackError.current;
+        if (status.status === 'pending' && status.error && (reported?.loginId !== login.login_id || reported.error !== status.error)) {
+          reportedCallbackError.current = { loginId: login.login_id, error: status.error };
+          error.report(t(chatGptPlanErrorKey(status.error)));
         }
         // The server owns expiration and session cleanup; polling never overlaps.
         timer = setTimeout(() => void poll(), 1500);
       } catch (failure) {
         if (stopped || !active.current) return;
-        error.report(t(chatGptPlanErrorKey(failure)));
+        const key = chatGptPlanErrorKey(failure);
+        if (key === 'chatgptPlan.error.expired' || key === 'chatgptPlan.error.cancelled') {
+          endWithError(key);
+          return;
+        }
+        error.report(t(key));
         timer = setTimeout(() => void poll(), 5000);
       }
     };

@@ -28,6 +28,12 @@ struct Checkpoint {
     owner: ReplayOwner,
 }
 
+pub(super) struct ReducedReplay {
+    pub previous_id: String,
+    pub prefix_items: usize,
+    pub delta_items: usize,
+}
+
 #[derive(Clone, PartialEq, Eq)]
 pub(super) struct ReplayOwner {
     pub account: String,
@@ -42,17 +48,23 @@ impl ReplayOwner {
             account: prepared.route.continuity_id().to_owned(),
             owner: prepared.route.owner_id.clone(),
             caller: prepared.caller.id.clone(),
-            session: mapped_header(prepared, "session-id"),
-            thread: mapped_header(prepared, "thread-id"),
+            session: session(prepared),
+            thread: thread(prepared),
         }
     }
     pub fn matches(&self, prepared: &Prepared) -> bool {
         self.account == prepared.route.continuity_id()
             && self.owner == prepared.route.owner_id
             && self.caller == prepared.caller.id
-            && self.session == mapped_header(prepared, "session-id")
-            && self.thread == mapped_header(prepared, "thread-id")
+            && self.session == session(prepared)
+            && self.thread == thread(prepared)
     }
+}
+fn session(prepared: &Prepared) -> Option<String> {
+    mapped_header(prepared, "session-id").or_else(|| prepared.request.session_id.clone())
+}
+fn thread(prepared: &Prepared) -> Option<String> {
+    mapped_header(prepared, "thread-id").or_else(|| prepared.request.thread_id.clone())
 }
 fn mapped_header(prepared: &Prepared, name: &str) -> Option<String> {
     prepared
@@ -63,6 +75,83 @@ fn mapped_header(prepared: &Prepared, name: &str) -> Option<String> {
 }
 
 impl History {
+    /// A bounded append may retain only the last fully observed same-owner
+    /// parent. Unknown IDs, partial anchors and account/thread moves cannot
+    /// authorize hidden preloads on an existing upstream connection.
+    pub fn can_seed_append(&self, prepared: &Prepared, completed_id: Option<&str>, body: &Value) -> bool {
+        self.checkpoint.as_ref().is_some_and(|checkpoint| {
+            !checkpoint.connection_local
+                && checkpoint.complete_for_rebuild
+                && checkpoint.owner.matches(prepared)
+                && completed_id == Some(checkpoint.id.as_str())
+                && body.get("previous_response_id").and_then(Value::as_str) == Some(checkpoint.id.as_str())
+                && !prepared.continuation_recovered
+                && !prepared.rebuild_applied
+                && !prepared.compact
+        })
+    }
+
+    /// A custom-provider client may replay a completed tool call after removing
+    /// an empty plaintext marker. Reuse only this socket's complete, same-owner
+    /// anchor; keep the caller's full source body intact for recovery.
+    pub fn reduce_full_replay(
+        &self,
+        prepared: &Prepared,
+        completed_id: Option<&str>,
+        wire: &mut Value,
+    ) -> Option<ReducedReplay> {
+        let checkpoint = self.checkpoint.as_ref()?;
+        let source = prepared.replay_body();
+        if checkpoint.connection_local
+            || !checkpoint.complete_for_rebuild
+            || completed_id != Some(checkpoint.id.as_str())
+            || !checkpoint.owner.matches(prepared)
+            || !prepared.execution.policy.account_switch_rebuild
+            || prepared.continuation_recovered
+            || prepared.rebuild_applied
+            || prepared.compact
+            || prepared.raw_chat.is_some()
+            || prepared.grok_context.is_some()
+            || prepared.route.chatgpt_plan
+            || prepared.route.wire_api != super::super::contract::WireApi::Responses
+            || source.get("previous_response_id").is_some_and(|id| !id.is_null())
+            || wire.get("previous_response_id").is_some_and(|id| !id.is_null())
+            || source.get("conversation").is_some_and(|value| !value.is_null())
+            || source.get("generate") == Some(&Value::Bool(false))
+            || source.get("background") == Some(&Value::Bool(true))
+            || ["/client_metadata/parent_response_id", "/client_metadata/codex/parent_response_id"]
+                .iter().any(|path| source.pointer(path)
+                    .is_some_and(|id| !id.is_null() && id.as_str() != Some(checkpoint.id.as_str())))
+        {
+            return None;
+        }
+        let input = source.get("input")?.as_array()?;
+        let prefix_items = checkpoint.input.len().checked_add(checkpoint.output.len())?;
+        if prefix_items == 0 || input.len() <= prefix_items {
+            return None;
+        }
+        // Only optional wire annotations may disappear. Text, images, IDs,
+        // arguments, tool results and non-empty crypto evidence remain exact.
+        if !checkpoint.input.iter().chain(checkpoint.output.iter())
+            .zip(input).all(|(previous, current)| same_replay_item(previous, current))
+        {
+            return None;
+        }
+        let wire_input = wire.get_mut("input")?.as_array_mut()?;
+        if wire_input.len() != input.len() {
+            return None;
+        }
+        let delta = wire_input.split_off(prefix_items);
+        let delta_items = delta.len();
+        *wire_input = delta;
+        wire["previous_response_id"] = Value::String(checkpoint.id.clone());
+        Some(ReducedReplay {
+            previous_id: checkpoint.id.clone(),
+            prefix_items,
+            delta_items,
+        })
+    }
+
     /// An incomplete HTTP response is only a connection-local replay anchor.
     /// Expand it before durable completed-response lookup, then hard-pin every
     /// account and mapped identity field before any request can reach upstream.
@@ -91,7 +180,7 @@ impl History {
             .and_then(Value::as_array)
             .ok_or_else(invalid_input)?;
         let mut previous = checkpoint.input.clone();
-        previous.extend(checkpoint.output.iter().cloned());
+        previous.extend(checkpoint.output.iter().map(super::super::replay_wire::upstream_item));
         body["input"] = Value::Array(extend_input(&previous, input));
         body.as_object_mut().unwrap().remove("previous_response_id");
         Ok((body, Some(checkpoint.owner.clone())))
@@ -159,7 +248,7 @@ impl History {
             .and_then(Value::as_array)
         {
             for item in input {
-                self.remember_call(item);
+                self.remember_call(item, false);
             }
         }
     }
@@ -234,7 +323,7 @@ impl History {
         }
         let incoming = body.get("input")?.as_array()?;
         let mut previous = checkpoint.input.clone();
-        previous.extend(checkpoint.output.iter().cloned());
+        previous.extend(checkpoint.output.iter().map(super::super::replay_wire::upstream_item));
         Some(extend_input(&previous, incoming))
     }
 
@@ -266,7 +355,7 @@ impl History {
         }
         if event["type"] == "response.output_item.done" {
             if let Some(item) = event.get("item") {
-                self.remember_call(item);
+                self.remember_call(item, true);
                 let bytes = item.to_string().len();
                 let index = event
                     .get("output_index")
@@ -371,7 +460,7 @@ impl History {
                 .collect();
         }
         for item in &output {
-            self.remember_call(item);
+            self.remember_call(item, true);
         }
         // Retain one full current anchor. The auxiliary call cache has its own
         // LRU budget and must not truncate conversation or interruption state.
@@ -436,7 +525,7 @@ impl History {
         )
     }
 
-    fn remember_call(&mut self, item: &Value) {
+    fn remember_call(&mut self, item: &Value, upstream: bool) {
         if !super::super::output_items::complete_tool_call(item) {
             return;
         }
@@ -448,7 +537,7 @@ impl History {
             self.call_bytes = self.call_bytes.saturating_sub(old.to_string().len());
             self.order.retain(|old| old != id);
         }
-        self.calls.insert(id.into(), item.clone());
+        self.calls.insert(id.into(), if upstream { super::super::replay_wire::upstream_item(item) } else { item.clone() });
         self.order.push_back(id.into());
         self.call_bytes += bytes;
         // A single complete call may exceed the auxiliary budget; never discard
@@ -491,18 +580,22 @@ impl History {
         let previous = self
             .checkpoint
             .iter()
-            .flat_map(|checkpoint| checkpoint.input.iter().chain(checkpoint.output.iter()));
+            .flat_map(|checkpoint| {
+                checkpoint.input.iter().map(|item| (item, false))
+                    .chain(checkpoint.output.iter().map(|item| (item, true)))
+            });
         let mut available = BTreeMap::new();
-        for item in self
+        for (item, upstream) in self
             .calls
             .values()
+            .map(|item| (item, false))
             .chain(previous)
-            .chain(self.output.values())
-            .chain(input.iter())
+            .chain(self.output.values().map(|item| (item, true)))
+            .chain(input.iter().map(|item| (item, false)))
         {
             if super::super::output_items::complete_tool_call(item) {
                 if let Some(id) = item["call_id"].as_str() {
-                    available.insert(id, item);
+                    available.insert(id, (item, upstream));
                 }
             }
         }
@@ -521,8 +614,8 @@ impl History {
                 Some("function_call_output" | "custom_tool_call_output") => {
                     if let Some(id) = item["call_id"].as_str() {
                         if !seen.contains_key(id) {
-                            if let Some(call) = available.get(id) {
-                                result.push((*call).clone());
+                            if let Some((call, upstream)) = available.get(id) {
+                                result.push(if *upstream { super::super::replay_wire::upstream_item(call) } else { (*call).clone() });
                                 seen.insert(id, *call);
                             }
                         }
@@ -534,6 +627,37 @@ impl History {
         }
         Ok(result)
     }
+}
+
+fn same_replay_item(previous: &Value, current: &Value) -> bool {
+    if previous == current {
+        return true;
+    }
+    let (Some(previous), Some(current)) = (previous.as_object(), current.as_object()) else {
+        return false;
+    };
+    let kind = previous.get("type").and_then(Value::as_str);
+    let model_output = matches!(kind, Some("reasoning" | "function_call" | "custom_tool_call"))
+        || (kind == Some("message")
+            && previous.get("role").and_then(Value::as_str) == Some("assistant"));
+    if !model_output {
+        return false;
+    }
+    previous.iter().all(|(key, value)| {
+        if current.get(key) == Some(value) {
+            return true;
+        }
+        let omitted = current.get(key).is_none_or(Value::is_null);
+        omitted && match key.as_str() {
+            "metadata" | "internal_chat_message_metadata_passthrough" => true,
+            "encrypted_function_args" => kind == Some("function_call")
+                && value.as_array().is_some_and(Vec::is_empty),
+            "content" => kind == Some("reasoning")
+                && previous.get("encrypted_content").and_then(Value::as_str)
+                    .is_some_and(|cipher| !cipher.is_empty()),
+            _ => false,
+        }
+    }) && current.keys().all(|key| previous.contains_key(key))
 }
 fn replayable_output(item: &Value) -> bool {
     !matches!(
@@ -582,7 +706,7 @@ mod tests {
     fn repair_uses_only_exact_cached_calls_and_preserves_conflicting_ids() {
         let mut history = History::default();
         let call = json!({"type":"function_call","call_id":"exact","name":"tool","arguments":"{}"});
-        history.remember_call(&call);
+        history.remember_call(&call, false);
         let output = json!({"type":"function_call_output","call_id":"exact","output":"ok"});
         assert_eq!(
             history.repair_tools(&[output.clone()]).unwrap(),
@@ -607,4 +731,5 @@ mod tests {
         assert_eq!(history.repair_tools(&input).unwrap(), input);
     }
     include!("websocket_history_regression_tests.rs");
+    include!("websocket_full_replay_tests.rs");
 }

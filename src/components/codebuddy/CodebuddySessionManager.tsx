@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { open } from '@tauri-apps/plugin-dialog';
 import {
   ChevronDown,
   ChevronRight,
@@ -11,9 +12,11 @@ import {
   X,
 } from 'lucide-react';
 import { SingleSelectDropdown, type SingleSelectOption } from '../SingleSelectDropdown';
+import { ModalErrorMessage } from '../ModalErrorMessage';
 import type {
   CodebuddySessionRecord,
   CodebuddySessionPlatform,
+  CodebuddySessionLocation,
 } from '../../services/codebuddySessionService';
 import * as sessionService from '../../services/codebuddySessionService';
 import type { CodebuddySuiteAccountBase } from '../../types/codebuddy-suite';
@@ -51,8 +54,17 @@ interface Props {
   accounts?: CodebuddySuiteAccountBase[];
 }
 
+const rebindText = 'codebuddy.sessionManager.rebind';
+
 export function CodebuddySessionManager({ platform, accounts = [] }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const rebindFormId = useId();
+  const language = i18n.resolvedLanguage || i18n.language;
+  const relativeTime = useMemo(
+    () => new Intl.RelativeTimeFormat(language, { style: 'short' }),
+    [language],
+  );
+  const unknownTime = t('codebuddy.sessionManager.unknownTime');
 
   // userId → displayName map
   const userIdMap = useMemo(() => {
@@ -79,21 +91,32 @@ export function CodebuddySessionManager({ platform, accounts = [] }: Props) {
 
   // UI state
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [rebind, setRebind] = useState<{
+    cwd: string;
+    instances: CodebuddySessionLocation[];
+    instanceId: string;
+    destination: string;
+  } | null>(null);
+  const [rebindError, setRebindError] = useState<string | null>(null);
+  const [rebindMessage, setRebindMessage] = useState<string | null>(null);
+  const [rebinding, setRebinding] = useState(false);
+  const rebindPending = useRef(false);
 
   const statusOptions = useMemo<SingleSelectOption[]>(
     () => [
       {
         value: '',
-        label: t('codebuddy.sessionManager.statusAll', '全部状态'),
+        label: t('codebuddy.sessionManager.statusAll'),
       },
       {
         value: 'Completed',
-        label: t('codebuddy.sessionManager.statusCompleted', '已完成'),
+        label: t('codebuddy.sessionManager.statusCompleted'),
       },
       {
         value: 'InProgress',
-        label: t('codebuddy.sessionManager.statusInProgress', '进行中'),
+        label: t('codebuddy.sessionManager.statusInProgress'),
       },
     ],
     [t],
@@ -101,6 +124,7 @@ export function CodebuddySessionManager({ platform, accounts = [] }: Props) {
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const copyTimerRef = useRef<number | null>(null);
+  const loadVersion = useRef(0);
 
   // Cleanup timers on unmount
   useEffect(() => {
@@ -134,22 +158,28 @@ export function CodebuddySessionManager({ platform, accounts = [] }: Props) {
   // ---------------------------------------------------------------------------
 
   const loadSessions = useCallback(async () => {
+    const version = ++loadVersion.current;
     setLoading(true);
+    setLoadError(null);
     try {
-      const data = await sessionService.codebuddyListSessions(platform, {
+      const result = await sessionService.codebuddyListSessionOverview(platform, {
         keyword: keyword || undefined,
         status: statusFilter || undefined,
       });
-      setSessions(data);
-    } catch (_e) {
-      // silently ignore
+      if (version === loadVersion.current) {
+        setSessions(result.sessions);
+        if (result.warnings.length > 0) setLoadError(result.warnings.join('\n'));
+      }
+    } catch (error) {
+      if (version === loadVersion.current) setLoadError(String(error));
     } finally {
-      setLoading(false);
+      if (version === loadVersion.current) setLoading(false);
     }
   }, [platform, keyword, statusFilter]);
 
   useEffect(() => {
-    loadSessions();
+    void loadSessions();
+    return () => { loadVersion.current += 1; };
   }, [loadSessions]);
 
   // ---------------------------------------------------------------------------
@@ -169,6 +199,41 @@ export function CodebuddySessionManager({ platform, accounts = [] }: Props) {
     copyTimerRef.current = window.setTimeout(() => setCopiedId(null), 1200);
   }, []);
 
+  const selectWorkspace = async () => {
+    if (!rebind || rebindPending.current) return;
+    setRebindError(null);
+    try {
+      const path = await open({ directory: true, multiple: false });
+      if (typeof path === 'string') {
+        setRebind((current) => current === rebind ? { ...rebind, destination: path } : current);
+      }
+    } catch (error) {
+      setRebindError(String(error));
+    }
+  };
+
+  const applyRebind = async () => {
+    if (!rebind?.destination || rebindPending.current) return;
+    rebindPending.current = true;
+    setRebinding(true);
+    setRebindError(null);
+    try {
+      const count = await sessionService.workbuddyRebindWorkspace(rebind.instanceId, rebind.cwd, rebind.destination);
+      if (count === 0) {
+        setRebindError(t(`${rebindText}.noSessions`));
+        return;
+      }
+      setRebindMessage(t(`${rebindText}.success`, { count }));
+      setRebind(null);
+      await loadSessions();
+    } catch (error) {
+      setRebindError(String(error));
+    } finally {
+      rebindPending.current = false;
+      setRebinding(false);
+    }
+  };
+
   return (
     <div className="codex-session-manager codebuddy-session-manager">
       {/* Search & Filter row */}
@@ -181,7 +246,7 @@ export function CodebuddySessionManager({ platform, accounts = [] }: Props) {
                 type="text"
                 value={keywordInput}
                 onChange={(e) => handleKeywordChange(e.target.value)}
-                placeholder={t('codebuddy.sessionManager.searchPlaceholder', '搜索标题或工作目录...')}
+                placeholder={t('codebuddy.sessionManager.searchPlaceholder')}
                 disabled={loading}
               />
             </div>
@@ -201,7 +266,7 @@ export function CodebuddySessionManager({ platform, accounts = [] }: Props) {
             options={statusOptions}
             onChange={setStatusFilter}
             disabled={loading}
-            ariaLabel={t('codebuddy.sessionManager.statusFilter', '会话状态')}
+            ariaLabel={t('codebuddy.sessionManager.statusFilter')}
             menuWidth={160}
             menuMaxHeight={220}
           />
@@ -222,20 +287,27 @@ export function CodebuddySessionManager({ platform, accounts = [] }: Props) {
 
       {/* Session list */}
       <div className="codex-session-manager__list">
+        <ModalErrorMessage message={loadError ? t('messages.actionFailed', { action: t('common.refresh'), error: loadError }) : null} />
+        {rebindMessage && <p role="status">{rebindMessage}</p>}
         {loading && sessions.length === 0 && (
           <div className="codex-session-manager__empty">
             {t('common.loading', '加载中...')}
           </div>
         )}
-        {!loading && sessions.length === 0 && (
+        {!loading && !loadError && sessions.length === 0 && (
           <div className="codex-session-manager__empty">
             {keyword || statusFilter
-              ? t('codebuddy.sessionManager.noMatching', '没有匹配的会话')
-              : t('codebuddy.sessionManager.noSessions', '暂无会话记录')}
+              ? t('codebuddy.sessionManager.noMatching')
+              : t('codebuddy.sessionManager.noSessions')}
           </div>
         )}
         {groupedSessions.map((group) => {
           const isExpanded = expandedGroups.includes(group.cwd);
+          const instances = platform === 'workbuddy'
+            ? [...new Map(group.sessions.flatMap((session) => session.locations
+              .filter((location) => location.local)
+              .map((location) => [location.instanceId, location] as const))).values()]
+            : [];
 
           return (
             <div key={group.cwd} className="codex-session-folder">
@@ -251,10 +323,56 @@ export function CodebuddySessionManager({ platform, accounts = [] }: Props) {
                   </button>
                   <span className="codex-session-group__count">{group.sessions.length}</span>
                 </div>
+                {group.cwd && instances.length > 0 && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    disabled={rebinding}
+                    aria-expanded={rebind?.cwd === group.cwd}
+                    aria-controls={rebind?.cwd === group.cwd ? rebindFormId : undefined}
+                    onClick={() => {
+                      setRebindError(null);
+                      setRebindMessage(null);
+                      setRebind({ cwd: group.cwd, instances, instanceId: instances[0].instanceId, destination: '' });
+                    }}
+                  >
+                    {t(`${rebindText}.title`)}
+                  </button>
+                )}
                 <span className="codex-session-folder__time">
-                  {formatRelativeTime(group.latestUpdatedAt, t)}
+                  {formatRelativeTime(group.latestUpdatedAt, relativeTime, unknownTime)}
                 </span>
               </div>
+
+              {rebind?.cwd === group.cwd && (
+                <form id={rebindFormId} aria-label={t(`${rebindText}.title`)} className="workbuddy-workspace-rebind" onSubmit={(event) => { event.preventDefault(); void applyRebind(); }}>
+                  <strong>{t(`${rebindText}.title`)}</strong>
+                  <span className="workbuddy-workspace-rebind__path">{rebind.cwd}</span>
+                  <span>{t(`${rebindText}.scope`)}</span>
+                  {rebind.instances.length > 1 ? (
+                    <SingleSelectDropdown
+                      value={rebind.instanceId}
+                      options={rebind.instances.map(({ instanceId, instanceName }) => ({ value: instanceId, label: instanceName }))}
+                      onChange={(instanceId) => setRebind({ ...rebind, instanceId })}
+                      disabled={rebinding}
+                      ariaLabel={t(`${rebindText}.instance`)}
+                    />
+                  ) : <span>{rebind.instances[0].instanceName}</span>}
+                  {rebind.destination && <span className="workbuddy-workspace-rebind__path">{rebind.destination}</span>}
+                  <ModalErrorMessage message={rebindError} />
+                  <div className="workbuddy-workspace-rebind__actions">
+                    <button className="btn btn-secondary" type="button" onClick={selectWorkspace} disabled={rebinding}>
+                      {t(`${rebindText}.choose`)}
+                    </button>
+                    <button className="btn btn-secondary" type="button" onClick={() => setRebind(null)} disabled={rebinding}>
+                      {t('common.cancel')}
+                    </button>
+                    <button className="btn btn-primary" type="submit" disabled={rebinding || !rebind.destination}>
+                      {t(`${rebindText}.apply`)}
+                    </button>
+                  </div>
+                </form>
+              )}
 
               {/* Expanded sessions */}
               {isExpanded && (
@@ -264,7 +382,7 @@ export function CodebuddySessionManager({ platform, accounts = [] }: Props) {
                       <div className="codex-session-row__left">
                         <div className="codex-session-row__content">
                           <span className="codex-session-row__title">
-                            {session.title || t('codebuddy.sessionManager.untitled', '(untitled)')}
+                            {session.title || t('codebuddy.sessionManager.untitled')}
                           </span>
                           {session.locations.length > 0 && (
                             <span className="codex-session-row__meta">
@@ -276,21 +394,21 @@ export function CodebuddySessionManager({ platform, accounts = [] }: Props) {
                             </span>
                           )}
                           <span className="codex-session-row__meta codex-session-row__session-id" title={session.conversationId}>
-                            {t('codebuddy.sessionManager.labels.session', '会话')}: {formatConversationId(session.conversationId)}
+                            {t('codebuddy.sessionManager.labels.session')}: {formatConversationId(session.conversationId)}
                           </span>
                           {session.userId && (
                             <span className="codex-session-row__meta codex-session-row__session-id codex-session-row__user" title={session.userId}>
-                              {t('codebuddy.sessionManager.labels.user', '用户')}: {resolveUserName(session.userId)}
+                              {t('codebuddy.sessionManager.labels.user')}: {resolveUserName(session.userId)}
                             </span>
                           )}
                           <span className="codex-session-row__meta codex-session-row__cwd" title={session.cwd}>
-                            {t('codebuddy.sessionManager.labels.dir', '目录')}: {formatCwdDisplay(session.cwd)}
+                            {t('codebuddy.sessionManager.labels.dir')}: {formatCwdDisplay(session.cwd)}
                           </span>
                         </div>
                       </div>
                       <div className="codex-session-row__right">
                         <span className="codex-session-row__status-badge">
-                          {session.status}
+                          {statusOptions.find((option) => option.value && option.value === session.status)?.label ?? session.status}
                         </span>
                         <button
                           type="button"
@@ -301,7 +419,7 @@ export function CodebuddySessionManager({ platform, accounts = [] }: Props) {
                           {copiedId === session.conversationId ? <Check size={12} /> : <Copy size={12} />}
                         </button>
                         <span className="codex-session-row__time">
-                          {formatRelativeTime(session.updatedAt, t)}
+                          {formatRelativeTime(session.updatedAt, relativeTime, unknownTime)}
                         </span>
                       </div>
                     </div>

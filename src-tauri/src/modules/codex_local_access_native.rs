@@ -10,6 +10,7 @@ const NATIVE_SOFT_BINDING_LIMIT: usize = 65_536;
 static NATIVE_SYSTEM_PROXY_IO: std::sync::LazyLock<Arc<Semaphore>> =
     std::sync::LazyLock::new(|| Arc::new(Semaphore::new(1)));
 static NATIVE_API_RUNNING: AtomicBool = AtomicBool::new(false);
+static NATIVE_RESPONSE_TIMINGS_ENABLED: AtomicBool = AtomicBool::new(false);
 static NATIVE_PROFILE_RUNNING: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 static NATIVE_ACCOUNT_IO: std::sync::LazyLock<Arc<Semaphore>> =
@@ -73,6 +74,12 @@ async fn ensure_native_gateway_locked(
     let options = native_api::Options {
         shared_continuation_references: true,
         session_identity_mapping_enabled: collection.session_identity_mapping_enabled,
+        request_body_timeout: Some(Duration::from_millis(
+            collection
+                .timeouts
+                .legacy_request_read_timeout_ms
+                .clamp(1000, LOCAL_ACCESS_TIMEOUT_MAX_MS),
+        )),
         request_timeout: Duration::from_millis(
             collection
                 .timeouts
@@ -202,6 +209,7 @@ struct NativeHostBridge {
     cooldowns: Mutex<HashMap<NativeCooldownKey, NativeCooldown>>,
     cooling_disabled: AtomicBool,
     clients: Mutex<NativeHttpClientCache>,
+    tls_roots: Arc<TokioMutex<Option<(Instant, Arc<rustls::RootCertStore>)>>>,
     system_proxy_cache: TokioMutex<Option<(Instant, Option<String>)>>,
     #[cfg(test)]
     routing_sequence: AtomicU64,
@@ -255,6 +263,7 @@ fn native_recorded_failure_cools_account(report: &native_contract::RequestReport
             report.error.as_deref(),
             Some(
                 "upstream_request_scoped"
+                    | "quota_reserved"
                     | "request_scoped"
                     | "connection_lifecycle"
                     | "client_cancelled"
@@ -276,9 +285,11 @@ fn native_recorded_failure_cools_account(report: &native_contract::RequestReport
     if !report.success && !report.account_id.is_empty() && native_report_model_unavailable(report) {
         return true;
     }
+    // A generic upstream 404 can describe the requested resource or endpoint.
+    // Only a confirmed model-unavailable error gets the model's long cooldown.
     if report.success
         || report.account_id.is_empty()
-        || !matches!(report.status, 401 | 402 | 403 | 404 | 408 | 429 | 500..=599)
+        || !matches!(report.status, 401 | 402 | 403 | 408 | 429 | 500..=599)
     {
         return false;
     }
@@ -346,6 +357,7 @@ impl NativeHostBridge {
         }
         if report.success {
             if let Ok(mut states) = self.cooldowns.lock() {
+                states.remove(&native_upstream_failure_key(&report.account_id));
                 let credential = native_cooldown_key(&report.account_id, "", true);
                 if !states
                     .get(&credential)
@@ -362,6 +374,11 @@ impl NativeHostBridge {
             return;
         }
         if !native_recorded_failure_cools_account(report) {
+            return;
+        }
+        if report.diagnostics.as_ref().and_then(|context| context.attempts.last())
+            .is_some_and(|attempt| attempt.account_id == report.account_id && attempt.confirmed_quota_cooldown_recorded)
+        {
             return;
         }
         if let Ok(mut cooldowns) = self.cooldowns.lock() {
@@ -386,7 +403,7 @@ impl NativeHostBridge {
                 );
                 return;
             }
-            native_upsert_cooldown(
+            native_update_cooldown(
                 &mut cooldowns,
                 &report.account_id,
                 &report.upstream_model,
@@ -398,6 +415,8 @@ impl NativeHostBridge {
                 report.retry_after,
                 native_report_credential_scope(report),
                 Instant::now(),
+                !report.diagnostics.as_ref().and_then(|context| context.attempts.last())
+                    .is_some_and(|attempt| attempt.failure_cooldown_recorded),
             );
         }
     }
@@ -549,7 +568,7 @@ fn native_scoped_account_ids(
 
 fn native_quota_allows(collection: &CodexLocalAccessCollection, account: &CodexAccount) -> bool {
     let now = now_ms();
-    if account_quota_cooldown(account, now).is_some_and(|snapshot| snapshot.active(now)) {
+    if pool_account_quota_cooldown(collection, account, now).is_some_and(|snapshot| snapshot.active(now)) {
         return false;
     }
     native_bound_quota_reserve_allows(collection, account)
@@ -642,6 +661,17 @@ fn native_model_for_key(
         .iter()
         .find(|alias| alias.alias.eq_ignore_ascii_case(base_model))
         .map(|alias| alias.source_model.as_str())
+        .or_else(|| {
+            // Old Codex threads can still send a GPT-shaped ID to the DeepSeek
+            // instance they were bound to. Shared API service keys keep GPT IDs.
+            let key = key.filter(|key| {
+                matches!(key.account_ids.as_slice(), [id] if key.id == provider_gateway_api_key_id(id))
+            })?;
+            let gateway = key.provider_gateway.as_ref().filter(|gateway| {
+                codex_account::is_official_deepseek_base_url(&gateway.base_url)
+            })?;
+            legacy_deepseek_model_id(base_model, gateway.upstream_models.iter().map(String::as_str))
+        })
         .unwrap_or(base_model);
     if native_excluded(&collection.excluded_models, canonical)
         || key.is_some_and(|key| native_excluded(&key.excluded_models, canonical))
@@ -669,6 +699,13 @@ fn native_eligible(account: &CodexAccount) -> bool {
         && native_wire_api(account).is_ok()
 }
 
+fn native_account_mapped_model<'a>(account: &'a CodexAccount, model: &str) -> Option<&'a str> {
+    account.api_model_mappings
+        .iter()
+        .find(|mapping| mapping.client_model.eq_ignore_ascii_case(model))
+        .map(|mapping| mapping.upstream_model.as_str())
+}
+
 fn native_account_model(account: &CodexAccount, model: &str) -> Option<String> {
     if account.is_api_key_auth() {
         let slots = automatic_api_service_account_model_slots(account);
@@ -681,18 +718,16 @@ fn native_account_model(account: &CodexAccount, model: &str) -> Option<String> {
         return (provider_gateway_wire_api_for_account(account) == "responses")
             .then(|| model.to_owned());
     }
-    let mapped = account
-        .api_model_mappings
-        .iter()
-        .find(|mapping| mapping.client_model.eq_ignore_ascii_case(model))
-        .map(|mapping| mapping.upstream_model.as_str())
-        .unwrap_or(model);
+    let mapped = native_account_mapped_model(account, model).unwrap_or(model);
     Some(mapped.to_string())
 }
 
 async fn native_load_accounts(
     ids: Vec<String>,
 ) -> Result<Vec<CodexAccount>, native_contract::ServiceError> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
     let permit = NATIVE_ACCOUNT_IO
         .clone()
         .acquire_owned()
@@ -700,8 +735,7 @@ async fn native_load_accounts(
         .map_err(|_| native_error(503, "service_unavailable", "Account reader is unavailable"))?;
     tokio::task::spawn_blocking(move || {
         let _permit = permit;
-        ids.iter()
-            .filter_map(|id| codex_account::load_account(id))
+        codex_account::load_accounts_for_routing(&ids)
             .map(|mut account| {
                 if let Some(remote) = crate::modules::codex_remote_service::for_account(&account) {
                     for model in remote.image_models {
@@ -807,6 +841,13 @@ impl native_contract::Host for NativeHostBridge {
             .filter(|collection| collection.bound_oauth_account_id.as_deref() == Some(account_id))
             .and_then(|collection| collection.bound_oauth_quota_reserve.as_ref());
         check_gateway_quota_before_send(account_id, self.collection_override.is_none(), local)
+    }
+    fn request_quota_refresh(&self, account_id: &str) {
+        let bound = quota_reserve_coordinator().lock().ok()
+            .is_some_and(|runtime| runtime.watched_account.as_deref() == Some(account_id));
+        if bound && self.collection_override.is_none() && crate::get_app_handle().is_some() {
+            trigger_bound_oauth_quota_refresh_in_background("请求发送前复核", Duration::from_secs(1));
+        }
     }
     fn set_session_affinity_enabled(&self, enabled: bool) {
         if self
@@ -958,7 +999,13 @@ impl native_contract::Host for NativeHostBridge {
         Box::pin(async move {
             if self.selected_route_current(route).await {
                 if let Ok(mut states) = self.cooldowns.lock() {
-                    native_mark_quota_exhausted(&mut states, &route.account_id, retry_after, Instant::now());
+                    let now = Instant::now();
+                    if route.chatgpt {
+                        let key = native_oauth_quota_key(&route.account_id, &route.model);
+                        native_mark_quota_exhausted_at_key(&mut states, key, retry_after, now);
+                    } else {
+                        native_mark_quota_exhausted(&mut states, &route.account_id, retry_after, now);
+                    }
                 }
             }
         })
@@ -1126,6 +1173,9 @@ impl native_contract::Host for NativeHostBridge {
                 websocket_initial_timeout: Duration::from_millis(
                     limits.websocket_initial_message_timeout_ms.max(1000),
                 ),
+                websocket_fragment_timeout: Duration::from_millis(
+                    limits.websocket_fragment_timeout_ms,
+                ),
                 websocket_idle_timeout: Duration::from_millis(
                     limits.websocket_idle_timeout_ms.max(1000),
                 ),
@@ -1241,6 +1291,20 @@ impl native_contract::Host for NativeHostBridge {
         context: NativeDiagnosticContext,
     ) -> futures_util::future::BoxFuture<'_, ()> {
         Box::pin(async move {
+            if let Some(prepare_ms) = context.initial_local_prepare_ms {
+                let debug_logs = self.collection_override.as_ref().map_or_else(
+                    || NATIVE_RESPONSE_TIMINGS_ENABLED.load(Ordering::Relaxed),
+                    |collection| collection.debug_logs,
+                );
+                if debug_logs {
+                    let upstream_ms = context.first_upstream_response_ms
+                        .map_or_else(|| "-".to_owned(), |elapsed| elapsed.to_string());
+                    logger::log_codex_api_info(&format!(
+                        "[NativeAPI] response timing request_id={} initial_local_prepare_ms={prepare_ms} dispatch_to_first_upstream_response_ms={upstream_ms}",
+                        context.request_id,
+                    ));
+                }
+            }
             native_record_diagnostic(context);
         })
     }
@@ -1304,6 +1368,57 @@ impl native_contract::Host for NativeHostBridge {
                 dedicated_image,
                 compact,
             ))
+        })
+    }
+
+    fn reasoning_ceiling<'a>(
+        &'a self,
+        caller: &'a native_contract::Caller,
+    ) -> futures_util::future::BoxFuture<'a, Result<Option<crate::models::codex_local_access::CodexReasoningLevel>, native_contract::ServiceError>> {
+        Box::pin(async move {
+            let lookup = |collection: &CodexLocalAccessCollection| {
+                collection.api_keys.iter().find(|key| key.id == caller.id)
+                    .and_then(|key| key.max_reasoning_effort)
+            };
+            if let Some(collection) = &self.collection_override {
+                return Ok(lookup(collection));
+            }
+            let runtime = gateway_runtime().lock().await;
+            Ok(runtime.collection.as_ref().and_then(lookup))
+        })
+    }
+
+    fn record_rejection(
+        &self,
+        report: native_contract::RequestReport,
+    ) -> futures_util::future::BoxFuture<'_, ()> {
+        Box::pin(async move {
+            let (Some(peer), Some(context)) = (report.peer_ip, report.diagnostics) else {
+                return;
+            };
+            let request_kind = match report.operation {
+                "image_generation" => CodexLocalAccessRequestKind::ImageGeneration,
+                "image_edit" => CodexLocalAccessRequestKind::ImageEdit,
+                "other" => CodexLocalAccessRequestKind::Other,
+                _ => CodexLocalAccessRequestKind::Text,
+            };
+            let event = CodexLocalAccessUsageEvent {
+                local_rejection: true,
+                connection_source: Some(classify_native_request_peer(peer).await),
+                timestamp: context.started_at_ms,
+                request_id: context.request_id,
+                api_key_id: report.caller.id,
+                api_key_label: report.caller.label,
+                client_instance_id: context.client_instance_id.unwrap_or_default(),
+                requested_model: report.requested_model,
+                request_kind,
+                http_status: Some(report.status),
+                error_category: report.error.unwrap_or_default(),
+                error_message: report.error_message.unwrap_or_default(),
+                latency_ms: report.elapsed.as_millis().min(u64::MAX as u128) as u64,
+                ..Default::default()
+            };
+            let _ = queue_local_access_usage_event(event).await;
         })
     }
 
@@ -1457,6 +1572,10 @@ impl native_contract::Host for NativeHostBridge {
                 ["input_tokens", "output_tokens", "prompt_tokens", "completion_tokens", "total_tokens"].iter()
                     .any(|field| usage.get(*field).is_some_and(|value| !value.is_null()))
             }).map(native_usage_capture);
+            let connection_source = match report.peer_ip {
+                Some(peer) => Some(classify_native_request_peer(peer).await),
+                None => None,
+            };
             if let Err(error) = record_request_stats_with_meta(
                 (!report.account_id.is_empty()).then_some(report.account_id.as_str()),
                 None,
@@ -1470,6 +1589,7 @@ impl native_contract::Host for NativeHostBridge {
                 report.elapsed.as_millis() as u64,
                 usage,
                 RequestStatsMeta {
+                    connection_source,
                     authorization_route: Some(if report.official_registration_id.is_some() {
                         "official"
                     } else {
@@ -1481,6 +1601,7 @@ impl native_contract::Host for NativeHostBridge {
                     client_instance_id: diagnostics.and_then(|d| d.client_instance_id.as_deref()),
                     first_response_ms: diagnostics.and_then(|d| d.first_response_ms),
                     output_generation_ms: diagnostics.and_then(|d| d.output_generation_ms),
+                    input_text_characters: report.input_text_characters,
                     service_tier: report
                         .response_service_tier
                         .as_deref()
@@ -1581,6 +1702,10 @@ mod native_live_protocol;
 mod native_live_pool;
 
 #[cfg(test)]
+#[path = "codex_local_access_native_live_images.rs"]
+mod native_live_images;
+
+#[cfg(test)]
 mod native_host_tests {
     use super::*;
     include!("codex_local_access_tests_native.rs");
@@ -1592,6 +1717,7 @@ mod native_host_tests {
     include!("codex_local_access_tests_native_cooling_continuation.rs");
     include!("codex_local_access_tests_native_quota_continuation.rs");
     include!("codex_local_access_tests_native_quota_http.rs");
+    include!("codex_local_access_tests_native_pool_timing.rs");
     include!("codex_local_access_tests_native_reserve.rs");
     include!("codex_local_access_tests_native_automatic.rs");
     include!("codex_local_access_tests_native_parity22.rs");

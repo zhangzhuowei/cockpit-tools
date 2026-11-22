@@ -2209,6 +2209,11 @@ fn build_account_scoped_upstream_body<'a>(
         .map_err(|e| format!("序列化账号级 responses 请求体失败: {}", e))
 }
 
+#[cfg(test)]
+tokio::task_local! {
+    pub(crate) static TEST_DIRECT_CODEX_ORIGIN: std::net::SocketAddr;
+}
+
 async fn send_upstream_request(
     method: &str,
     target: &str,
@@ -2222,6 +2227,10 @@ async fn send_upstream_request(
     request_kind: CodexLocalAccessRequestKind,
 ) -> Result<reqwest::Response, String> {
     let url = build_upstream_url(account, target)?;
+    #[cfg(test)]
+    let url = TEST_DIRECT_CODEX_ORIGIN
+        .try_with(|origin| format!("http://{origin}{target}"))
+        .unwrap_or(url);
     let upstream_token = account_upstream_token(account)?;
     let authorization = format!("Bearer {}", upstream_token);
     send_upstream_request_with_authorization_url(
@@ -2313,11 +2322,6 @@ async fn send_upstream_request_with_authorization_url(
         }
         if let Some(session_id) = session_id {
             request = request.header("Session-Id", session_id);
-        }
-        if !account.is_api_key_auth() {
-            if let Some(account_id) = resolve_upstream_account_id(account) {
-                request = request.header("ChatGPT-Account-Id", account_id);
-            }
         }
         if !headers.contains_key("accept") {
             request = request.header(

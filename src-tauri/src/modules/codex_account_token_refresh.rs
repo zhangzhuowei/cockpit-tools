@@ -94,6 +94,20 @@ fn is_server_revoked_refresh_error(message: &str) -> bool {
     )
 }
 
+fn is_refresh_grant_only_failure(reason: &str) -> bool {
+    let reason = reason.to_ascii_lowercase();
+    !is_server_revoked_refresh_error(&reason)
+        && [
+            "invalid_grant",
+            "invalid_refresh_token",
+            "invalid refresh token",
+            "refresh_token is invalid",
+            "refresh_token_expired",
+        ]
+        .iter()
+        .any(|code| reason.contains(code))
+}
+
 fn format_refresh_error_for_user(raw: &str) -> String {
     match classify_refresh_error(raw) {
         CodexRefreshErrorKind::RefreshTokenReused => format!(
@@ -922,8 +936,10 @@ where
         ));
         return Ok((current, false));
     }
+    let previous_expiry = current.subscription_active_until.clone();
     update(&mut current);
     save_account_with_tombstone_guard(&current)?;
+    sync_token_subscription_index(previous_expiry.as_deref(), &current);
     Ok((current, true))
 }
 
@@ -932,13 +948,45 @@ fn account_matches_refresh_snapshot(current: &CodexAccount, expected: &CodexAcco
         && account_credential_hash(current) == account_credential_hash(expected)
 }
 
+fn subscription_workspace_unchanged(previous: &CodexAccount, next: &CodexAccount) -> bool {
+    fn compatible(previous: Option<&str>, next: Option<&str>) -> bool {
+        previous.zip(next).is_none_or(|(previous, next)| previous == next)
+    }
+    compatible(previous.account_id.as_deref(), next.account_id.as_deref())
+        && compatible(previous.organization_id.as_deref(), next.organization_id.as_deref())
+}
+
+fn sync_token_subscription_index(previous_expiry: Option<&str>, next: &CodexAccount) {
+    if previous_expiry != next.subscription_active_until.as_deref() {
+        if let Err(error) = update_account_plan_type_in_index(
+            &next.id, &next.plan_type, &next.subscription_active_until,
+        ) {
+            logger::log_warn(&format!("[Codex Subscription] Account index write: {error}"));
+        }
+    }
+}
+
 fn persist_refreshed_account(
     expected: &CodexAccount,
     tokens: CodexTokens,
 ) -> Result<(CodexAccount, bool), String> {
     update_account_after_refresh_if_current(expected, |current| {
+        let previous = current.clone();
         current.tokens = tokens;
         sync_identity_from_tokens(current);
+        if previous.subscription_query_last_success_at.is_some() {
+            if subscription_workspace_unchanged(&previous, current) {
+                if crate::modules::codex_quota::has_confirmed_free_subscription(&previous) {
+                    current.plan_type = previous.plan_type;
+                }
+                current.subscription_active_until = previous.subscription_active_until;
+            } else {
+                current.subscription_query_last_attempt_at = None;
+                current.subscription_query_last_success_at = None;
+                current.subscription_query_next_retry_at = None;
+                current.subscription_query_last_error = None;
+            }
+        }
         mark_token_chain_updated(current);
     })
 }

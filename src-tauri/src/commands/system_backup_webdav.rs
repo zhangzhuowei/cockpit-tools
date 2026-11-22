@@ -467,6 +467,7 @@ fn open_path_in_system(path: &Path) -> Result<(), String> {
         std::process::Command::new("open")
             .arg(path)
             .spawn()
+            .map(crate::modules::process::background_child_pid)
             .map_err(|e| format!("打开目录失败: {}", e))?;
     }
 
@@ -475,6 +476,7 @@ fn open_path_in_system(path: &Path) -> Result<(), String> {
         std::process::Command::new("explorer")
             .arg(path)
             .spawn()
+            .map(crate::modules::process::background_child_pid)
             .map_err(|e| format!("打开目录失败: {}", e))?;
     }
 
@@ -483,6 +485,7 @@ fn open_path_in_system(path: &Path) -> Result<(), String> {
         std::process::Command::new("xdg-open")
             .arg(path)
             .spawn()
+            .map(crate::modules::process::background_child_pid)
             .map_err(|e| format!("打开目录失败: {}", e))?;
     }
 
@@ -493,6 +496,48 @@ fn open_path_in_system(path: &Path) -> Result<(), String> {
 pub async fn open_data_folder() -> Result<(), String> {
     let path = modules::account::get_data_dir()?;
     open_path_in_system(path.as_path())
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DataDirectorySettings {
+    current_path: Option<String>,
+    configured_path: Option<String>,
+    environment_override: bool,
+    restart_required: bool,
+    error: Option<String>,
+}
+
+#[tauri::command]
+pub fn get_data_directory_settings() -> DataDirectorySettings {
+    use modules::data_paths;
+
+    let active = data_paths::resolve_data_dir();
+    let active_custom = data_paths::active_custom_data_dir();
+    let configured = data_paths::read_data_dir_preference();
+    let environment_override = data_paths::environment_data_dir().is_some();
+    let restart_required = !environment_override
+        && configured.as_ref().is_ok_and(|configured| {
+            active_custom.as_ref().map_or(true, |active| active != configured)
+        });
+    let error = active.as_ref().err().or_else(|| configured.as_ref().err()).cloned();
+    DataDirectorySettings {
+        current_path: active.ok().map(|path| path.to_string_lossy().into_owned()),
+        configured_path: configured.ok().flatten().map(|path| path.to_string_lossy().into_owned()),
+        environment_override,
+        restart_required,
+        error,
+    }
+}
+
+#[tauri::command]
+pub async fn set_data_directory(path: Option<String>) -> Result<DataDirectorySettings, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        modules::data_paths::save_data_dir_preference(path.as_deref().map(std::path::Path::new))?;
+        Ok(get_data_directory_settings())
+    })
+    .await
+    .map_err(|error| format!("保存数据目录设置失败: {error}"))?
 }
 
 #[tauri::command]
@@ -575,7 +620,13 @@ pub fn update_auto_backup_last_run(
 }
 
 #[tauri::command]
-pub fn write_auto_backup_file(file_name: String, content: String) -> Result<String, String> {
+pub async fn write_auto_backup_file(file_name: String, content: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || write_managed_backup_file(file_name, content))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+fn write_managed_backup_file(file_name: String, content: String) -> Result<String, String> {
     modules::backup_storage::ensure_backup_write_available()?;
     let safe_name = sanitize_auto_backup_file_name(&file_name)?;
     if !safe_name.ends_with(".json") {
@@ -741,22 +792,40 @@ pub fn delete_auto_backup_file(file_name: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn cleanup_auto_backup_files(retention_days: i32) -> Result<Vec<String>, String> {
-    let dir = get_auto_backup_dir_path()?;
+pub async fn cleanup_auto_backup_files(retention_days: i32) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = get_auto_backup_dir_path()?;
+        let retention_days = config::sanitize_auto_backup_retention_days(retention_days);
+        let now = SystemTime::now();
+        let cutoff = now
+            .checked_sub(Duration::from_secs(retention_days as u64 * 24 * 60 * 60))
+            .unwrap_or(now);
+        cleanup_expired_backups_in(&dir, cutoff, || {
+            match modules::mfa_vault_store::prepare_legacy_backup_rotation() {
+                Ok(ready) => ready,
+                Err(error) => {
+                    modules::logger::log_warn(&format!("[Backup] 2FA 恢复检查点未通过校验，保留旧配置备份: {error}"));
+                    false
+                }
+            }
+        })
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+fn cleanup_expired_backups_in(
+    dir: &Path,
+    cutoff: SystemTime,
+    recovery_ready: impl FnOnce() -> bool,
+) -> Result<Vec<String>, String> {
     if !dir.exists() {
         return Ok(Vec::new());
     }
-
-    let normalized_retention_days = config::sanitize_auto_backup_retention_days(retention_days);
-    let now = SystemTime::now();
-    let cutoff = now
-        .checked_sub(Duration::from_secs(
-            normalized_retention_days as u64 * 24 * 60 * 60,
-        ))
-        .unwrap_or(now);
-
+    let mut check_recovery = Some(recovery_ready);
+    let mut recovery_verified = false;
     let mut deleted = Vec::new();
-    let entries = fs::read_dir(&dir).map_err(|err| format!("读取自动备份目录失败: {}", err))?;
+    let entries = fs::read_dir(dir).map_err(|err| format!("读取自动备份目录失败: {}", err))?;
     for entry in entries {
         let entry = entry.map_err(|err| format!("读取自动备份文件失败: {}", err))?;
         let path = entry.path();
@@ -775,6 +844,24 @@ pub fn cleanup_auto_backup_files(retention_days: i32) -> Result<Vec<String>, Str
         };
         if modified >= cutoff {
             continue;
+        }
+        if mfa_backup_timestamp(&path).is_some() {
+            if let Some(check) = check_recovery.take() {
+                recovery_verified = check();
+                if recovery_verified {
+                    let current = match fs::metadata(&path) {
+                        Ok(current) => current,
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                        Err(error) => return Err(format!("读取备份文件信息失败: {error}")),
+                    };
+                    if current.modified().ok() != Some(modified) || current.len() != metadata.len() {
+                        continue;
+                    }
+                }
+            }
+            if !recovery_verified {
+                continue;
+            }
         }
         fs::remove_file(&path).map_err(|err| format!("清理过期备份失败: {}", err))?;
         deleted.push(file_name);

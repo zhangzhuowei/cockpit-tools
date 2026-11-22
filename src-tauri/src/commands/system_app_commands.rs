@@ -76,14 +76,31 @@ async fn run_codex_path_validation(
 }
 
 #[tauri::command]
-pub async fn set_app_path(app: String, path: String) -> Result<(), String> {
-    let normalized_path = modules::process::normalize_windows_user_facing_path(&path);
+pub async fn set_app_path(app: String, path: String, validate: Option<bool>) -> Result<(), String> {
+    let normalized_path = modules::process::normalize_windows_user_facing_path(path.trim());
     tauri::async_runtime::spawn_blocking(move || {
+        if app == "workbuddy_ai" && !normalized_path.is_empty()
+            && modules::workbuddy_ai_account::executable_at(std::path::Path::new(&normalized_path)).is_none()
+        {
+            return Err(modules::workbuddy_ai_account::MISSING_APP_PATH.to_string());
+        }
+        if validate.unwrap_or(false) && !normalized_path.is_empty()
+            && !(cfg!(windows) && app == "claude" && normalized_path.starts_with("shell:AppsFolder\\"))
+        {
+            let selected = std::path::Path::new(&normalized_path);
+            let usable = selected.is_file()
+                || cfg!(target_os = "macos") && selected.is_dir()
+                    && selected.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("app"));
+            if !usable {
+                return Err(format!("APP_PATH_NOT_FOUND:{app}"));
+            }
+        }
         config::patch_user_config(move |current| {
             match app.as_str() {
-                "antigravity" | "antigravity_ide" | "antigravity_legacy" => {
+                "antigravity" | "antigravity_ide" => {
                     current.antigravity_app_path = normalized_path
                 }
+                "antigravity_legacy" => current.antigravity_legacy_app_path = normalized_path,
                 "codex" => current.codex_app_path = normalized_path,
                 "claude" => current.claude_app_path = normalized_path,
                 "zed" => current.zed_app_path = normalized_path,
@@ -101,6 +118,7 @@ pub async fn set_app_path(app: String, path: String) -> Result<(), String> {
                 "trae_cn" => current.trae_cn_app_path = normalized_path,
                 "trae_solo_cn" => current.trae_solo_cn_app_path = normalized_path,
                 "workbuddy" => current.workbuddy_app_path = normalized_path,
+                "workbuddy_ai" => current.workbuddy_ai_app_path = normalized_path,
                 "minimaxcode" | "minimax_code" => current.minimax_code_app_path = normalized_path,
                 "opencode" => current.opencode_app_path = normalized_path,
                 _ => return Err("未知应用类型".to_string()),
@@ -167,6 +185,8 @@ pub fn set_codex_local_access_entry_visible(enabled: bool) -> Result<(), String>
 pub fn detect_app_path(app: String, force: Option<bool>) -> Result<Option<String>, String> {
     let force = force.unwrap_or(false);
     match app.as_str() {
+        "workbuddy_ai" => Ok(modules::workbuddy_ai_account::detect_executable()
+            .map(|path| path.to_string_lossy().into_owned())),
         "windsurf" => Ok(modules::windsurf_instance::detect_and_save_windsurf_launch_path(force)),
         "kiro" => Ok(modules::kiro_instance::detect_and_save_kiro_launch_path(
             force,
@@ -181,6 +201,16 @@ pub fn detect_app_path(app: String, force: Option<bool>) -> Result<Option<String
         ),
         _ => Err("未知应用类型".to_string()),
     }
+}
+
+#[tauri::command]
+pub async fn launch_opencode_current() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let config = config::get_user_config();
+        modules::process::start_opencode_with_path(Some(&config.opencode_app_path))
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -231,7 +261,7 @@ pub async fn scan_app_launch_targets(
         "antigravity" | "antigravity_ide" | "antigravity_legacy" | "codex" | "claude"
         | "vscode" | "windsurf" | "kiro" | "cursor" | "grok_bot" | "codebuddy" | "codebuddy_cn" | "qoder"
         | "zcode" | "trae" | "trae_solo" | "trae_cn" | "trae_solo_cn" | "workbuddy" | "zed"
-        | "opencode" | "minimaxcode" | "minimax_code" => {}
+        | "opencode" | "minimaxcode" | "minimax_code" | "workbuddy_ai" => {}
         _ => return Err("未知应用类型".to_string()),
     }
     let _ = scan_roots;
@@ -312,6 +342,9 @@ pub fn handle_window_close(
     // 执行操作
     match action.as_str() {
         "minimize" => {
+            if !config::get_user_config().show_tray_icon {
+                return window.minimize().map_err(|err| err.to_string());
+            }
             if let Err(err) = modules::floating_card_window::destroy_main_window_to_tray(&window) {
                 modules::logger::log_warn(&format!("[Window] 销毁主窗口失败，回退隐藏: {}", err));
                 let _ = window.hide();
@@ -434,17 +467,7 @@ pub async fn update_floating_card_appearance(
 
 #[tauri::command]
 pub fn resize_current_floating_card_window(window: tauri::Window, height: f64) -> Result<(), String> {
-    let label = window.label();
-    if label != modules::floating_card_window::FLOATING_CARD_WINDOW_LABEL
-        && !label.starts_with(modules::floating_card_window::INSTANCE_FLOATING_CARD_WINDOW_LABEL_PREFIX) {
-        return Err("invalid_floating_card_window".to_string());
-    }
-    let minimal = config::get_user_config().floating_card_minimal;
-    let min_height = if minimal { 110.0 } else { 290.0 };
-    let height = if height.is_finite() { height.clamp(min_height, 520.0) } else { min_height };
-    window.set_min_size(Some(tauri::LogicalSize::new(250.0, min_height))).map_err(|err| err.to_string())?;
-    let size = window.inner_size().map_err(|err| err.to_string())?.to_logical::<f64>(window.scale_factor().map_err(|err| err.to_string())?);
-    window.set_size(tauri::LogicalSize::new(size.width.max(250.0), height)).map_err(|err| err.to_string())
+    modules::floating_card_window::resize_floating_card_window(&window, height)
 }
 
 #[tauri::command]
@@ -528,6 +551,7 @@ pub async fn open_folder(path: String) -> Result<(), String> {
         std::process::Command::new("open")
             .arg(&path)
             .spawn()
+            .map(crate::modules::process::background_child_pid)
             .map_err(|e| format!("打开文件夹失败: {}", e))?;
     }
 
@@ -536,6 +560,7 @@ pub async fn open_folder(path: String) -> Result<(), String> {
         std::process::Command::new("explorer")
             .arg(&path)
             .spawn()
+            .map(crate::modules::process::background_child_pid)
             .map_err(|e| format!("打开文件夹失败: {}", e))?;
     }
 
@@ -544,6 +569,7 @@ pub async fn open_folder(path: String) -> Result<(), String> {
         std::process::Command::new("xdg-open")
             .arg(&path)
             .spawn()
+            .map(crate::modules::process::background_child_pid)
             .map_err(|e| format!("打开文件夹失败: {}", e))?;
     }
 
@@ -576,21 +602,29 @@ pub async fn delete_corrupted_file(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn load_user_memory() -> Result<modules::user_memory::UserMemory, String> {
-    modules::user_memory::load_user_memory()
+pub async fn load_user_memory(
+    legacy: Option<modules::user_memory::UserMemory>,
+) -> Result<modules::user_memory::UserMemory, String> {
+    tauri::async_runtime::spawn_blocking(move || modules::user_memory::load_user_memory(legacy))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
-pub fn mark_user_memory_dismissed(id: String) -> Result<modules::user_memory::UserMemory, String> {
-    modules::user_memory::mark_user_memory_dismissed(&id)
+pub async fn mark_user_memory_dismissed(id: String) -> Result<modules::user_memory::UserMemory, String> {
+    tauri::async_runtime::spawn_blocking(move || modules::user_memory::mark_user_memory_dismissed(&id))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
-pub fn save_user_memory_list(
+pub async fn save_user_memory_list(
     id: String,
     items: Vec<String>,
 ) -> Result<modules::user_memory::UserMemory, String> {
-    modules::user_memory::save_user_memory_list(&id, items)
+    tauri::async_runtime::spawn_blocking(move || modules::user_memory::save_user_memory_list(&id, items))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 /// 返回操作系统真实时区相对 UTC 的偏移（分钟），如 `+08:00` -> `480`。

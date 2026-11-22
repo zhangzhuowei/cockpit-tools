@@ -12,6 +12,12 @@ pub fn get_codex_home() -> PathBuf {
         }
     }
     if let Some(from_env) = resolve_codex_home_from_env() {
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        if crate::modules::codex_instance::is_inherited_managed_codex_home(&from_env) {
+            // A shell opened by a managed Codex instance inherits its profile.
+            // That profile is not the default client's credential directory.
+            return dirs::home_dir().expect("无法获取用户主目录").join(".codex");
+        }
         return from_env;
     }
     dirs::home_dir().expect("无法获取用户主目录").join(".codex")
@@ -76,7 +82,7 @@ fn catalog_ref_targets_profile_file(value: &str, base_dir: &Path, file_name: &st
         .eq_ignore_ascii_case(&absolute_path_for_config(&base_dir.join(file_name)))
 }
 
-fn catalog_ref_targets_cockpit_managed_file(value: &str, base_dir: &Path) -> bool {
+pub(crate) fn catalog_ref_targets_cockpit_managed_file(value: &str, base_dir: &Path) -> bool {
     [
         CODEX_MANAGED_MODEL_CATALOG_FILE,
         CODEX_LEGACY_PROVIDER_MODEL_CATALOG_FILE,
@@ -88,6 +94,54 @@ fn catalog_ref_targets_cockpit_managed_file(value: &str, base_dir: &Path) -> boo
 
 fn experimental_model_catalog_path(base_dir: &Path) -> PathBuf {
     base_dir.join(CODEX_MANAGED_MODEL_CATALOG_FILE)
+}
+
+pub(crate) fn restore_missing_managed_catalog_backup(
+    base_dir: &Path,
+    reference: &str,
+) -> Result<bool, String> {
+    use std::io::{ErrorKind, Read};
+
+    if !catalog_ref_targets_cockpit_managed_file(reference, base_dir) {
+        return Ok(false);
+    }
+    let path = resolve_catalog_reference(reference, base_dir);
+    if path.try_exists().map_err(|error| error.to_string())? {
+        return Ok(false);
+    }
+    let backup_path = path.with_extension("json.bak");
+    let metadata = match fs::symlink_metadata(&backup_path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(false),
+        Err(error) => {
+            return Err(format!(
+                "读取 Codex 模型目录备份失败: path={}, error={}",
+                backup_path.display(),
+                error
+            ));
+        }
+    };
+    let limit = crate::modules::codex_model_catalog::MAX_CATALOG_BYTES;
+    if !metadata.is_file() || metadata.len() > limit as u64 {
+        return Ok(false);
+    }
+    let mut content = String::new();
+    fs::File::open(&backup_path)
+        .and_then(|file| file.take((limit + 1) as u64).read_to_string(&mut content))
+        .map_err(|error| {
+            format!(
+                "读取 Codex 模型目录备份失败: path={}, error={}",
+                backup_path.display(),
+                error
+            )
+        })?;
+    if content.len() > limit
+        || !serde_json::from_str::<serde_json::Value>(&content)
+            .is_ok_and(|catalog| catalog.get("models").is_some_and(|models| models.is_array()))
+    {
+        return Ok(false);
+    }
+    crate::modules::atomic_write::replace_string_if_matches(&path, None, Some(&content))
 }
 
 pub(crate) fn cleanup_legacy_managed_model_catalogs(base_dir: &Path) {
@@ -509,22 +563,15 @@ fn migrate_builtin_model_display_names(base_dir: &Path, doc: &Document) -> Resul
     Ok(catalog_changed || cached_config_needs_write)
 }
 
-/// 把 GPT-6 家族按官方推荐顺序（astra → sol → luna）排到清单最前面。
+/// 把 GPT-6 家族按官方推荐顺序排到清单最前面。
 ///
-/// 官方客户端的推荐集把这三个模型放在 5.6 系列之前；缺失的条目会被跳过，
+/// 官方客户端的推荐集把这些模型放在 5.6 系列之前；缺失的条目会被跳过，
 /// 不会凭空插入用户清单里不存在的模型。
 fn prioritize_gpt_6_model_definitions(
     mut models: Vec<CodexExperimentalModelDefinition>,
 ) -> Vec<CodexExperimentalModelDefinition> {
     let mut target_index = 0;
-    for model_id in [
-        GPT_6_1_SOL_MODEL_ID,
-        GPT_6_ASTRA_MODEL_ID,
-        GPT_6_SOL_MODEL_ID,
-        GPT_6_LUNA_MODEL_ID,
-    ]
-    .into_iter()
-    {
+    for model_id in crate::modules::codex_model_catalog::RECOMMENDED_FRONTIER_MODELS {
         let Some(index) = models
             .iter()
             .position(|model| model.model_id.eq_ignore_ascii_case(model_id))
@@ -611,9 +658,10 @@ fn experimental_model_config_requires_catalog_migration(base_dir: &Path) -> bool
 fn default_experimental_model_definitions(
     _base_dir: &Path,
 ) -> Vec<CodexExperimentalModelDefinition> {
-    let model_ids = SHIPPED_VISIBLE_CODEX_MODEL_IDS
-        .iter()
-        .map(|model_id| (*model_id).to_string())
+    let model_ids = crate::modules::codex_model_catalog::recommended_models()
+        .into_iter()
+        .map(|(model_id, _)| model_id)
+        .chain(std::iter::once("gpt-reserve".to_string()))
         .collect::<Vec<_>>();
     let catalog = crate::modules::codex_protocol::build_codex_client_models_response(&model_ids);
     let models = catalog
@@ -652,6 +700,7 @@ fn default_experimental_model_definitions(
                         display_name: model_catalog_display_name(model_id, display_name),
                         reasoning_efforts: None,
                         default_reasoning_effort: None,
+                        ultra_reasoning_effort: None,
                         context_window: None,
                         auto_compact_token_limit: None,
                     })
@@ -667,6 +716,7 @@ fn default_experimental_model_definitions(
                 model_id,
                 reasoning_efforts: None,
                 default_reasoning_effort: None,
+                ultra_reasoning_effort: None,
                 context_window: None,
                 auto_compact_token_limit: None,
             })
@@ -784,7 +834,7 @@ fn maybe_add_gpt_6_1_sol_to_previous_shipped_model_definitions(
         .collect::<HashSet<_>>();
     if !SHIPPED_VISIBLE_CODEX_MODEL_IDS
         .iter()
-        .filter(|id| **id != GPT_6_1_SOL_MODEL_ID && **id != "gpt-reserve")
+        .filter(|id| ![GPT_6_1_SOL_MODEL_ID, GPT_6_1_TERRA_MODEL_ID, "gpt-reserve"].contains(id))
         .filter(|id| !is_retired_builtin_codex_model(id))
         .all(|id| ids.contains(&id.to_ascii_lowercase()))
     {
@@ -799,12 +849,33 @@ fn maybe_add_gpt_6_1_sol_to_previous_shipped_model_definitions(
     prioritize_gpt_6_model_definitions(models)
 }
 
+/// Extend the previous default catalog once, preserving curated lists and explicit removals.
+fn maybe_add_gpt_6_1_terra_to_previous_shipped_model_definitions(
+    base_dir: &Path,
+    mut models: Vec<CodexExperimentalModelDefinition>,
+) -> Vec<CodexExperimentalModelDefinition> {
+    let ids = models.iter().map(|model| model.model_id.to_ascii_lowercase())
+        .filter(|id| id != "gpt-reserve").collect::<HashSet<_>>();
+    let previous = SHIPPED_VISIBLE_CODEX_MODEL_IDS.iter()
+        .filter(|id| ![GPT_6_1_TERRA_MODEL_ID, "gpt-reserve"].contains(id))
+        .map(|id| id.to_string()).collect::<HashSet<_>>();
+    if ids == previous {
+        if let Some(terra) = default_experimental_model_definitions(base_dir).into_iter()
+            .find(|model| model.model_id == GPT_6_1_TERRA_MODEL_ID)
+        {
+            models.push(terra);
+        }
+    }
+    prioritize_gpt_6_model_definitions(models)
+}
+
 fn model_catalog_display_name(model_id: &str, fallback: &str) -> String {
     match model_id.trim().to_ascii_lowercase().as_str() {
         "gpt-5.6-sol" => "GPT-5.6 Sol".to_string(),
         "gpt-5.6-terra" => "GPT-5.6 Terra".to_string(),
         "gpt-5.6-luna" => "GPT-5.6 Luna".to_string(),
         GPT_6_1_SOL_MODEL_ID => "GPT-6.1 Sol".to_string(),
+        GPT_6_1_TERRA_MODEL_ID => "GPT-6.1 Terra".to_string(),
         GPT_6_ASTRA_MODEL_ID => "GPT-6 Astra".to_string(),
         GPT_6_SOL_MODEL_ID => "GPT-6 Sol".to_string(),
         GPT_6_LUNA_MODEL_ID => "GPT-6 Luna".to_string(),
@@ -815,6 +886,19 @@ fn model_catalog_display_name(model_id: &str, fallback: &str) -> String {
         "gpt-5.6-sol-wm" => "GPT-5.6 Sol WM".to_string(),
         _ => fallback.trim().to_string(),
     }
+}
+
+// Files from the last two bundled defaults may lack Terra, or the reserve entry.
+// Only that exact model set identifies an old automatic list.
+fn is_previous_gpt_6_2_default_catalog(ids: impl Iterator<Item = String>) -> bool {
+    let mut ids = ids.collect::<HashSet<_>>();
+    ids.remove("gpt-reserve");
+    ids.remove(GPT_6_1_TERRA_MODEL_ID);
+    ids == SHIPPED_VISIBLE_CODEX_MODEL_IDS
+        .iter()
+        .filter(|id| ![GPT_6_1_TERRA_MODEL_ID, "gpt-reserve"].contains(id))
+        .map(|id| id.to_string())
+        .collect()
 }
 
 fn is_valid_model_catalog_id(model_id: &str) -> bool {
@@ -931,12 +1015,38 @@ pub(crate) fn model_reasoning_efforts_for_profile(
     result
 }
 
-fn validate_profile_default_reasoning_efforts(
+const ULTRA_REASONING_INVALID: &str = "EXPERIMENTAL_MODEL_CATALOG_ULTRA_REASONING_INVALID";
+
+fn supports_ultra_reasoning_override<'a>(
+    effort: &str,
+    levels: impl Iterator<Item = &'a str> + Clone,
+) -> bool {
+    effort != "ultra"
+        && levels.clone().any(|level| level == "ultra")
+        && levels.into_iter().any(|level| level == effort)
+}
+
+fn validate_ultra_reasoning_override(
+    model: &CodexExperimentalModelDefinition,
+    efforts: Option<&Vec<String>>,
+) -> Result<(), String> {
+    if model.ultra_reasoning_effort.as_deref().is_some_and(|effort| {
+        !efforts.is_some_and(|levels| {
+            supports_ultra_reasoning_override(effort, levels.iter().map(String::as_str))
+        })
+    }) {
+        return Err(ULTRA_REASONING_INVALID.to_string());
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_profile_reasoning_efforts(
     base_dir: &Path,
     models: &[CodexExperimentalModelDefinition],
 ) -> Result<(), String> {
     let efforts = model_reasoning_efforts_for_profile(base_dir, models);
     for model in models {
+        validate_ultra_reasoning_override(model, efforts.get(&model.model_id))?;
         if let Some(default) = model.default_reasoning_effort.as_ref() {
             if !efforts
                 .get(&model.model_id)
@@ -1057,11 +1167,20 @@ pub(crate) fn normalize_experimental_model_definitions_with_template(
                 default_reasoning_effort = selected.first().cloned();
             }
         }
+        let ultra_reasoning_effort = model.ultra_reasoning_effort
+            .as_deref().map(str::trim).filter(|value| !value.is_empty())
+            .map(str::to_ascii_lowercase);
+        if ultra_reasoning_effort.as_deref().is_some_and(|effort| {
+            effort == "ultra" || !CODEX_REASONING_EFFORTS.contains(&effort)
+        }) {
+            return Err(ULTRA_REASONING_INVALID.to_string());
+        }
         let definition = CodexExperimentalModelDefinition {
             model_id: model_id.to_string(),
             display_name: display_name.to_string(),
             reasoning_efforts,
             default_reasoning_effort,
+            ultra_reasoning_effort,
             context_window: model.context_window,
             auto_compact_token_limit: model.context_window.map(|window| {
                 model.auto_compact_token_limit.unwrap_or_else(|| {
@@ -1114,6 +1233,8 @@ pub(crate) fn read_experimental_model_definitions(
                 .migrations
                 .iter()
                 .any(|item| item == GPT_6_1_SOL_MODEL_CATALOG_MIGRATION_ID);
+            let should_add_terra_61 = !config.migrations.iter()
+                .any(|item| item == GPT_6_1_TERRA_MODEL_CATALOG_MIGRATION_ID);
             normalize_experimental_model_definitions_for_profile(Some(base_dir), config.models).map(
                 |models| {
                     (
@@ -1122,17 +1243,18 @@ pub(crate) fn read_experimental_model_definitions(
                         should_add_astra,
                         should_add_sol_luna,
                         should_add_sol_61,
+                        should_add_terra_61,
                     )
                 },
             )
         }) {
-        Ok((_models, true, _, _, _)) => {
+        Ok((_models, true, _, _, _, _)) => {
             // A release migration intentionally resets all pre-release lists to the
             // shipped visible-model preset. Later user edits are preserved by version 4+
             // and the additive Astra / GPT-6 Sol-Luna migration markers.
             default_experimental_model_definitions(base_dir)
         }
-        Ok((models, false, should_add_astra, should_add_sol_luna, should_add_sol_61)) => {
+        Ok((models, false, should_add_astra, should_add_sol_luna, should_add_sol_61, should_add_terra_61)) => {
             let models = if should_add_astra {
                 maybe_add_gpt_6_astra_to_previous_shipped_model_definitions(base_dir, models)
             } else {
@@ -1143,10 +1265,15 @@ pub(crate) fn read_experimental_model_definitions(
             } else {
                 prioritize_gpt_6_model_definitions(models)
             };
-            if should_add_sol_61 {
+            let models = if should_add_sol_61 {
                 maybe_add_gpt_6_1_sol_to_previous_shipped_model_definitions(base_dir, models)
             } else {
                 prioritize_gpt_6_model_definitions(models)
+            };
+            if should_add_terra_61 {
+                maybe_add_gpt_6_1_terra_to_previous_shipped_model_definitions(base_dir, models)
+            } else {
+                models
             }
         }
         Err(error) => {
@@ -1158,6 +1285,17 @@ pub(crate) fn read_experimental_model_definitions(
             default_experimental_model_definitions(base_dir)
         }
     };
+    if !has_saved_experimental_model_definitions(base_dir) {
+        let ids: HashSet<_> = models.iter().map(|model| model.model_id.to_ascii_lowercase()).collect();
+        let is_previous_default = is_previous_gpt_6_2_default_catalog(ids.iter().cloned());
+        let is_current_default = crate::modules::codex_model_catalog::bundled_recommended_models()
+            .iter().all(|(id, _)| ids.contains(id));
+        if is_previous_default || is_current_default {
+            models.splice(0..0, default_experimental_model_definitions(base_dir).into_iter()
+                .filter(|model| !ids.contains(&model.model_id.to_ascii_lowercase())));
+            models = prioritize_gpt_6_model_definitions(models);
+        }
+    }
     if !models
         .iter()
         .any(|model| model.model_id.eq_ignore_ascii_case("gpt-reserve"))
@@ -1167,6 +1305,7 @@ pub(crate) fn read_experimental_model_definitions(
             display_name: crate::modules::codex_protocol::CODEX_RESERVE_DISPLAY_NAME.to_string(),
             reasoning_efforts: None,
             default_reasoning_effort: None,
+            ultra_reasoning_effort: None,
             context_window: None,
             auto_compact_token_limit: None,
         });
@@ -1188,7 +1327,7 @@ fn persist_experimental_model_definitions(
     let models = prioritize_gpt_6_model_definitions(
         normalize_experimental_model_definitions_for_profile(Some(base_dir), models)?,
     );
-    validate_profile_default_reasoning_efforts(base_dir, &models)?;
+    validate_profile_reasoning_efforts(base_dir, &models)?;
     let mut default_model_id = default_model_id.and_then(|value| {
         models
             .iter()
@@ -1234,6 +1373,9 @@ fn persist_experimental_model_definitions(
     {
         migrations.push(GPT_6_1_SOL_MODEL_CATALOG_MIGRATION_ID.to_string());
     }
+    if !migrations.iter().any(|item| item == GPT_6_1_TERRA_MODEL_CATALOG_MIGRATION_ID) {
+        migrations.push(GPT_6_1_TERRA_MODEL_CATALOG_MIGRATION_ID.to_string());
+    }
     let mut content = serde_json::to_string_pretty(&ExperimentalModelCatalogConfig {
         version: EXPERIMENTAL_MODEL_CATALOG_CONFIG_VERSION,
         models: models.clone(),
@@ -1273,7 +1415,7 @@ fn persist_experimental_model_policy(base_dir: &Path, enabled: bool) -> Result<(
     }
 }
 
-fn apply_model_context_config_to_catalog(
+pub(crate) fn apply_model_context_config_to_catalog(
     catalog: &mut serde_json::Value,
     models: &[CodexExperimentalModelDefinition],
 ) {
@@ -1288,6 +1430,14 @@ fn apply_model_context_config_to_catalog(
         })
         .collect::<Vec<_>>();
     crate::modules::codex_protocol::apply_model_context_overrides(catalog, &definitions);
+}
+
+pub(crate) fn read_enabled_profile_model_definitions(base_dir: &Path) -> Vec<CodexExperimentalModelDefinition> {
+    if experimental_model_policy_enabled(base_dir) {
+        read_experimental_model_definitions(base_dir)
+    } else {
+        Vec::new()
+    }
 }
 
 fn apply_model_reasoning_config_to_catalog(
@@ -1340,8 +1490,24 @@ fn apply_model_reasoning_config_to_catalog(
             }
             entry["default_reasoning_level"] = serde_json::json!(default);
         }
+        apply_ultra_reasoning_override(entry, definition);
     }
     Ok(())
+}
+
+fn apply_ultra_reasoning_override(
+    entry: &mut serde_json::Value,
+    definition: &CodexExperimentalModelDefinition,
+) {
+    let Some(effort) = definition.ultra_reasoning_effort.as_deref() else {
+        return;
+    };
+    let levels = entry["supported_reasoning_levels"]
+        .as_array().into_iter().flatten()
+        .filter_map(|level| level["effort"].as_str());
+    if supports_ultra_reasoning_override(effort, levels) {
+        entry["multi_agent_reasoning_effort"] = serde_json::json!(effort);
+    }
 }
 
 pub(crate) fn decorate_managed_model_catalog_for_profile(
@@ -1498,7 +1664,14 @@ fn read_catalog_model_definitions(
     let Ok(catalog) = serde_json::from_str::<serde_json::Value>(&content) else {
         return Vec::new();
     };
-    let uses_chatgpt_models = profile_uses_chatgpt_models(base_dir);
+    catalog_model_definitions(&catalog, profile_uses_chatgpt_models(base_dir), false)
+}
+
+pub(crate) fn catalog_model_definitions(
+    catalog: &serde_json::Value,
+    uses_chatgpt_models: bool,
+    preserve_display_names: bool,
+) -> Vec<CodexExperimentalModelDefinition> {
     catalog
         .get("models")
         .and_then(serde_json::Value::as_array)
@@ -1558,9 +1731,14 @@ fn read_catalog_model_definitions(
             };
             Some(CodexExperimentalModelDefinition {
                 model_id: model_id.to_string(),
-                display_name: model_catalog_display_name(model_id, display_name),
+                display_name: if preserve_display_names {
+                    display_name.to_string()
+                } else {
+                    model_catalog_display_name(model_id, display_name)
+                },
                 reasoning_efforts: None,
                 default_reasoning_effort: None,
+                ultra_reasoning_effort: None,
                 context_window,
                 auto_compact_token_limit,
             })
@@ -1664,7 +1842,7 @@ fn apply_experimental_model_catalog_to_doc(
                 }
             }
         }
-        migrate_retired_chatgpt_default_in_doc(doc);
+        migrate_retired_chatgpt_default_in_doc(base_dir, doc);
         return Ok(currently_enabled || policy_enabled);
     }
 
@@ -1748,12 +1926,19 @@ fn apply_experimental_model_catalog_to_doc(
             &generated_content,
         )?
     };
-    let content = crate::modules::codex_model_catalog_capabilities::decorate(&content)?;
-    write_string_atomic(&experimental_model_catalog_path(base_dir), &content)
+    let mut catalog = serde_json::from_str(&content)
+        .map_err(|_| "EXPERIMENTAL_MODEL_CATALOG_SERIALIZE_FAILED".to_string())?;
+    crate::modules::codex_local_access::apply_attached_catalog_route_capabilities(doc, &mut catalog)?;
+    apply_model_context_config_to_catalog(&mut catalog, &experimental_models);
+    crate::modules::codex_model_catalog_capabilities::supplement(&mut catalog)?;
+    let content = serde_json::to_string_pretty(&catalog)
+        .map_err(|_| "EXPERIMENTAL_MODEL_CATALOG_SERIALIZE_FAILED".to_string())?;
+    let path = experimental_model_catalog_path(base_dir);
+    write_string_atomic(&path, &content)
         .map_err(|_| "EXPERIMENTAL_MODEL_CATALOG_WRITE_FAILED".to_string())?;
     crate::modules::codex_local_access::invalidate_codex_model_cache(base_dir)
         .map_err(|_| "EXPERIMENTAL_MODEL_CATALOG_CACHE_CLEAR_FAILED".to_string())?;
-    cleanup_legacy_managed_model_catalogs(base_dir);
+    crate::modules::codex_managed_model_catalog_version::write_managed_catalog_meta(&path)?;
     doc[CODEX_CONFIG_MODEL_CATALOG_JSON_KEY] = value(CODEX_MANAGED_MODEL_CATALOG_FILE);
     Ok(false)
 }
@@ -1772,13 +1957,13 @@ fn enforce_experimental_model_policy_for_dir(base_dir: &Path) -> Result<(), Stri
     if let Some(parent) = config_path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("创建 config.toml 目录失败: {}", e))?;
     }
-    migrate_retired_chatgpt_default_in_doc(&mut doc);
+    migrate_retired_chatgpt_default_in_doc(base_dir, &mut doc);
     let content = crate::modules::codex_config_format::codex_config_doc_to_string(&mut doc);
     crate::modules::codex_config_format::write_codex_config_toml_atomic(&config_path, &content)
         .map_err(|e| format!("写入 config.toml 失败: {}", e))?;
 
+    cleanup_legacy_managed_model_catalogs(base_dir);
     if migrated_legacy_catalog {
-        cleanup_legacy_managed_model_catalogs(base_dir);
         let _ = crate::modules::codex_local_access::invalidate_codex_model_cache(base_dir);
     }
     persist_experimental_model_policy(base_dir, true)
@@ -1827,22 +2012,40 @@ pub fn migrate_model_management_default_off_once(base_dir: &Path) -> Result<bool
         .and_then(|item| item.as_str())
         .is_some_and(|catalog| catalog_ref_targets_cockpit_managed_file(catalog, base_dir));
 
+    // This catalog is needed by the attached API Service even with model management off.
+    if managed_catalog_configured
+        && doc.get(CODEX_CONFIG_MODEL_PROVIDER_KEY).and_then(|item| item.as_str())
+            == Some(CODEX_RUNTIME_MODEL_PROVIDER_ID)
+        && is_loopback_http_base_url(
+            doc.get("model_providers")
+                .and_then(|providers| providers.get(CODEX_RUNTIME_MODEL_PROVIDER_ID))
+                .and_then(|provider| provider.get("base_url"))
+                .and_then(|base_url| base_url.as_str()),
+        )
+    {
+        return Ok(false);
+    }
+
     if policy_enabled {
         apply_experimental_model_catalog_to_doc(base_dir, &mut doc, Some(false))?;
     } else if managed_catalog_configured {
         let _ = doc.remove(CODEX_CONFIG_MODEL_CATALOG_JSON_KEY);
     }
-    if policy_enabled || managed_catalog_configured {
+    if remove_named_profile_managed_catalog_references(base_dir, &mut doc)
+        || policy_enabled
+        || managed_catalog_configured
+    {
         if let Some(parent) = config_path.parent() {
             fs::create_dir_all(parent)
                 .map_err(|error| format!("创建 config.toml 目录失败: {}", error))?;
         }
-        migrate_retired_chatgpt_default_in_doc(&mut doc);
+        migrate_retired_chatgpt_default_in_doc(base_dir, &mut doc);
         let content = crate::modules::codex_config_format::codex_config_doc_to_string(&mut doc);
         crate::modules::codex_config_format::write_codex_config_toml_atomic(&config_path, &content)
             .map_err(|error| format!("写入 config.toml 失败: {}", error))?;
     }
 
+    cleanup_standalone_profile_managed_catalog_references(base_dir)?;
     let managed_catalog_path = experimental_model_catalog_path(base_dir);
     if managed_catalog_path.exists() {
         crate::modules::atomic_write::remove_file_locked(&managed_catalog_path).map_err(
@@ -2173,18 +2376,22 @@ fn write_quick_config_to_config_toml_with_default_mode(
         // catalog. Remove both Cockpit-managed and user-supplied model_catalog_json references;
         // the referenced user file is intentionally preserved for manual reuse later.
         let _ = doc.remove(CODEX_CONFIG_MODEL_CATALOG_JSON_KEY);
+        remove_named_profile_managed_catalog_references(base_dir, &mut doc);
+        cleanup_standalone_profile_managed_catalog_references(base_dir)?;
     }
 
     if let Some(parent) = config_path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("创建 config.toml 目录失败: {}", e))?;
     }
-    migrate_retired_chatgpt_default_in_doc(&mut doc);
+    migrate_retired_chatgpt_default_in_doc(base_dir, &mut doc);
     let content = crate::modules::codex_config_format::codex_config_doc_to_string(&mut doc);
     crate::modules::codex_config_format::write_codex_config_toml_atomic(&config_path, &content)
         .map_err(|e| format!("写入 config.toml 失败: {}", e))?;
 
-    if migrated_legacy_catalog {
+    if migrated_legacy_catalog || effective_experimental_enabled == Some(true) {
         cleanup_legacy_managed_model_catalogs(base_dir);
+    }
+    if migrated_legacy_catalog {
         let _ = crate::modules::codex_local_access::invalidate_codex_model_cache(base_dir);
     }
 
@@ -2419,7 +2626,7 @@ fn apply_forced_login_method_to_config_toml(
     }
 
     doc[CODEX_CONFIG_FORCED_LOGIN_METHOD_KEY] = value(target);
-    migrate_retired_chatgpt_default_in_doc(&mut doc);
+    migrate_retired_chatgpt_default_in_doc(base_dir, &mut doc);
     let content = crate::modules::codex_config_format::codex_config_doc_to_string(&mut doc);
     crate::modules::codex_config_format::write_codex_config_toml_atomic(&config_path, &content)
         .map_err(|e| format!("写入 config.toml 失败: {}", e))?;
@@ -2671,7 +2878,7 @@ fn write_api_provider_to_config_toml_with_options(
     if let Some(parent) = config_path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("创建 config.toml 目录失败: {}", e))?;
     }
-    migrate_retired_chatgpt_default_in_doc(&mut doc);
+    migrate_retired_chatgpt_default_in_doc(base_dir, &mut doc);
     let content = crate::modules::codex_config_format::codex_config_doc_to_string(&mut doc);
     crate::modules::codex_config_format::write_codex_config_toml_atomic(&config_path, &content)
         .map_err(|e| format!("写入 config.toml 失败: {}", e))
@@ -2695,54 +2902,107 @@ fn remove_managed_model_catalog_from_doc(doc: &mut Document) -> bool {
     false
 }
 
-fn remove_provider_managed_model_catalog_from_doc(doc: &mut Document) -> bool {
-    let managed_catalog = doc
+fn remove_provider_managed_model_catalog_from_doc(base_dir: &Path, doc: &mut Document) -> bool {
+    let managed_catalog = remove_cockpit_catalog_reference(base_dir, doc.as_table_mut());
+    remove_named_profile_managed_catalog_references(base_dir, doc) || managed_catalog
+}
+
+fn remove_cockpit_catalog_reference(base_dir: &Path, config: &mut dyn toml_edit::TableLike) -> bool {
+    let managed_catalog = config
         .get(CODEX_CONFIG_MODEL_CATALOG_JSON_KEY)
         .and_then(|item| item.as_str())
-        .map(str::trim);
-    if matches!(
-        managed_catalog,
-        Some(CODEX_MANAGED_MODEL_CATALOG_FILE)
-            | Some(CODEX_LEGACY_PROVIDER_MODEL_CATALOG_FILE)
-            | Some(CODEX_LEGACY_LOCAL_ACCESS_MODEL_CATALOG_FILE)
-    ) {
-        let _ = doc.remove(CODEX_CONFIG_MODEL_CATALOG_JSON_KEY);
-        return true;
+        .is_some_and(|reference| catalog_ref_targets_cockpit_managed_file(reference, base_dir));
+    if managed_catalog {
+        config.remove(CODEX_CONFIG_MODEL_CATALOG_JSON_KEY);
     }
-    false
+    managed_catalog
+}
+
+fn remove_named_profile_managed_catalog_references(base_dir: &Path, doc: &mut Document) -> bool {
+    let Some(profiles) = doc.get_mut("profiles").and_then(|item| item.as_table_like_mut()) else {
+        return false;
+    };
+    let mut changed = false;
+    for (_, item) in profiles.iter_mut() {
+        let Some(profile) = item.as_table_like_mut() else {
+            continue;
+        };
+        changed |= remove_cockpit_catalog_reference(base_dir, profile);
+    }
+    changed
+}
+
+fn cleanup_standalone_profile_managed_catalog_references(base_dir: &Path) -> Result<bool, String> {
+    let entries = match fs::read_dir(base_dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(format!("读取 Codex 命名配置目录失败: {}", error)),
+    };
+    let mut changed = false;
+    for entry in entries {
+        let entry = entry.map_err(|error| format!("读取 Codex 命名配置目录失败: {}", error))?;
+        let path = entry.path();
+        if !entry.file_name().to_string_lossy().ends_with(".config.toml") || !path.is_file() {
+            continue;
+        }
+        let content = fs::read_to_string(&path)
+            .map_err(|error| format!("读取 Codex 命名配置失败: {}: {}", path.display(), error))?;
+        // Codex cannot load an invalid profile. Leave it available for the user to repair.
+        let Ok(mut doc) = content.parse::<Document>() else {
+            continue;
+        };
+        if !remove_cockpit_catalog_reference(base_dir, doc.as_table_mut()) {
+            continue;
+        }
+
+        // A named profile can be a symlink. Update its target without replacing the link.
+        let target = fs::canonicalize(&path)
+            .map_err(|error| format!("定位 Codex 命名配置失败: {}: {}", path.display(), error))?;
+        crate::modules::codex_config_format::prepare_codex_config_file_for_write(&target)?;
+        let updated = crate::modules::atomic_write::replace_string_if_matches(
+            &target,
+            Some(&content),
+            Some(&doc.to_string()),
+        )?;
+        if !updated {
+            return Err(format!("Codex 命名配置已被其他操作修改: {}", path.display()));
+        }
+        changed = true;
+    }
+    Ok(changed)
 }
 
 fn cleanup_experimental_model_catalog_for_dir(base_dir: &Path) -> Result<(), String> {
     let config_path = get_config_toml_path(base_dir);
     let managed_catalog_path = experimental_model_catalog_path(base_dir);
-    if config_path.exists() {
-        let existing = fs::read_to_string(&config_path).unwrap_or_default();
-        if !existing.trim().is_empty() {
-            let mut doc =
-                crate::modules::codex_config_format::read_codex_config_doc_from_str(&existing)
-                    .map_err(|e| format!("解析 config.toml 失败: {}", e))?;
-            let uses_experimental_catalog = doc
-                .get(CODEX_CONFIG_MODEL_CATALOG_JSON_KEY)
-                .and_then(|item| item.as_str())
-                .is_some_and(|catalog| catalog_ref_targets_cockpit_managed_file(catalog, base_dir));
-            if uses_experimental_catalog {
-                apply_experimental_model_catalog_to_doc(base_dir, &mut doc, Some(false))?;
-                if !experimental_model_policy_enabled(base_dir) {
-                    let _ = doc.remove(CODEX_CONFIG_MODEL_CATALOG_JSON_KEY);
-                }
+    let existing = match fs::read_to_string(&config_path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(format!("读取 config.toml 失败: {}", error)),
+    };
+    if !existing.trim().is_empty() {
+        let mut doc = crate::modules::codex_config_format::read_codex_config_doc_from_str(&existing)
+            .map_err(|error| format!("解析 config.toml 失败: {}", error))?;
+        let uses_experimental_catalog = doc
+            .get(CODEX_CONFIG_MODEL_CATALOG_JSON_KEY)
+            .and_then(|item| item.as_str())
+            .is_some_and(|catalog| catalog_ref_targets_cockpit_managed_file(catalog, base_dir));
+        if uses_experimental_catalog {
+            apply_experimental_model_catalog_to_doc(base_dir, &mut doc, Some(false))?;
+            if !experimental_model_policy_enabled(base_dir) {
+                let _ = doc.remove(CODEX_CONFIG_MODEL_CATALOG_JSON_KEY);
             }
-            if uses_experimental_catalog {
-                let content =
-                    crate::modules::codex_config_format::codex_config_doc_to_string(&mut doc);
-                crate::modules::codex_config_format::write_codex_config_toml_atomic(
-                    &config_path,
-                    &content,
-                )
-                .map_err(|e| format!("写入 config.toml 失败: {}", e))?;
-            }
+        }
+        if remove_named_profile_managed_catalog_references(base_dir, &mut doc)
+            || uses_experimental_catalog
+        {
+            let content = crate::modules::codex_config_format::codex_config_doc_to_string(&mut doc);
+            crate::modules::codex_config_format::write_codex_config_toml_atomic(&config_path, &content)
+                .map_err(|error| format!("写入 config.toml 失败: {}", error))?;
         }
     }
 
+    cleanup_standalone_profile_managed_catalog_references(base_dir)?;
     if managed_catalog_path.exists() {
         crate::modules::atomic_write::remove_file_locked(&managed_catalog_path).map_err(
             |error| {
@@ -2777,13 +3037,28 @@ fn sync_api_key_model_catalog_to_dir(
     base_dir: &Path,
     account: &CodexAccount,
 ) -> Result<bool, String> {
+    sync_provider_catalog_to_dir(base_dir, account, false)
+}
+
+pub(crate) fn sync_discovered_provider_catalog_to_dir(
+    base_dir: &Path,
+    account: &CodexAccount,
+) -> Result<bool, String> {
+    sync_provider_catalog_to_dir(base_dir, account, true)
+}
+
+fn sync_provider_catalog_to_dir(
+    base_dir: &Path,
+    account: &CodexAccount,
+    direct_upstream: bool,
+) -> Result<bool, String> {
     if !account_syncs_model_catalog_to_codex(account) {
         return Ok(false);
     }
     // 官方 DeepSeek 使用官方 DeepSeek 目录/工具声明，避免客户端发出上游不认的
     // GPT 专属字段（如 web_search 的 search_content_types）。
     if is_deepseek_responses_account(account) {
-        return sync_deepseek_shell_remap_catalog_to_dir(base_dir, account);
+        return sync_deepseek_gateway_catalog_to_dir(base_dir, account);
     }
 
     let config_path = get_config_toml_path(base_dir);
@@ -2814,10 +3089,11 @@ fn sync_api_key_model_catalog_to_dir(
         models.iter().filter_map(|m|m["slug"].as_str().map(str::to_owned)).collect())
         .unwrap_or_else(||normalize_api_model_catalog(account.api_model_catalog.clone()));
     // 直连上游 / CDP 注入用上游真实模型 ID；其余按官方壳位分配。
-    let slots = crate::modules::codex_local_access::provider_model_slots_for_account(
-        account,
-        &upstream_models,
-    );
+    let slots = if direct_upstream {
+        crate::modules::codex_local_access::raw_provider_model_slots(&upstream_models)
+    } else {
+        crate::modules::codex_local_access::provider_model_slots_for_account(account, &upstream_models)
+    };
     let client_models = slots
         .iter()
         .map(|slot| slot.client_model.clone())
@@ -2865,13 +3141,12 @@ fn sync_api_key_model_catalog_to_dir(
             err
         ));
     }
-    cleanup_legacy_managed_model_catalogs(base_dir);
-
     doc[CODEX_CONFIG_MODEL_CATALOG_JSON_KEY] = value(CODEX_MANAGED_MODEL_CATALOG_FILE);
-    migrate_retired_chatgpt_default_in_doc(&mut doc);
+    migrate_retired_chatgpt_default_in_doc(base_dir, &mut doc);
     let content = crate::modules::codex_config_format::codex_config_doc_to_string(&mut doc);
     crate::modules::codex_config_format::write_codex_config_toml_atomic(&config_path, &content)
         .map_err(|e| format!("写入 config.toml 失败: {}", e))?;
+    cleanup_legacy_managed_model_catalogs(base_dir);
     // 模型目录变更后同步生图 header：无 gpt-image-2 时清掉残留 actor，避免客户端误开生图卡住。
     if let Err(err) = refresh_api_key_provider_projection_in_dir(base_dir, account) {
         logger::log_warn(&format!(
@@ -2901,7 +3176,7 @@ fn sync_or_cleanup_account_model_catalog_for_dir(
             write_deepseek_official_responses_runtime_to_dir(base_dir, account)?;
             return Ok(());
         }
-        let _ = sync_deepseek_shell_remap_catalog_to_dir(base_dir, account)?;
+        let _ = sync_deepseek_gateway_catalog_to_dir(base_dir, account)?;
         return Ok(());
     }
     let _ = cleanup_deepseek_official_model_catalog_for_dir(base_dir)?;
@@ -2954,6 +3229,25 @@ fn sync_or_cleanup_managed_model_catalog_for_dir(
 
 fn cleanup_managed_model_catalog_for_dir(base_dir: &Path) -> Result<bool, String> {
     let mut changed = false;
+    let config_path = get_config_toml_path(base_dir);
+    let existing = match fs::read_to_string(&config_path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(format!("读取 config.toml 失败: {}", error)),
+    };
+    if !existing.trim().is_empty() {
+        let mut doc = crate::modules::codex_config_format::read_codex_config_doc_from_str(&existing)
+            .map_err(|error| format!("解析 config.toml 失败: {}", error))?;
+        if remove_provider_managed_model_catalog_from_doc(base_dir, &mut doc) {
+            migrate_retired_chatgpt_default_in_doc(base_dir, &mut doc);
+            let content = crate::modules::codex_config_format::codex_config_doc_to_string(&mut doc);
+            crate::modules::codex_config_format::write_codex_config_toml_atomic(&config_path, &content)
+                .map_err(|error| format!("写入 config.toml 失败: {}", error))?;
+            changed = true;
+        }
+    }
+
+    changed |= cleanup_standalone_profile_managed_catalog_references(base_dir)?;
     for file_name in [
         CODEX_MANAGED_MODEL_CATALOG_FILE,
         CODEX_LEGACY_PROVIDER_MODEL_CATALOG_FILE,
@@ -2975,47 +3269,26 @@ fn cleanup_managed_model_catalog_for_dir(base_dir: &Path) -> Result<bool, String
         }
     }
 
-    let config_path = get_config_toml_path(base_dir);
-    if !config_path.exists() {
-        return Ok(changed);
-    }
-    let existing = fs::read_to_string(&config_path).unwrap_or_default();
-    if existing.trim().is_empty() {
-        return Ok(changed);
-    }
-    let mut doc = crate::modules::codex_config_format::read_codex_config_doc_from_str(&existing)
-        .map_err(|e| format!("解析 config.toml 失败: {}", e))?;
-    if remove_provider_managed_model_catalog_from_doc(&mut doc) {
-        migrate_retired_chatgpt_default_in_doc(&mut doc);
-        let content = crate::modules::codex_config_format::codex_config_doc_to_string(&mut doc);
-        crate::modules::codex_config_format::write_codex_config_toml_atomic(&config_path, &content)
-            .map_err(|e| format!("写入 config.toml 失败: {}", e))?;
-        changed = true;
-    }
     Ok(changed)
 }
 
 /// 启动时按版本戳重建落后的受管模型目录。
 ///
-/// 目录内容用「旧目录里的模型清单 + 当前生成逻辑」重建，只刷新结构/能力字段，
-/// 不改变用户实际可用的模型集合；展示名沿用旧目录，避免界面名称漂移。
+/// 目录内容用「旧目录里的模型清单 + 当前生成逻辑」重建，刷新结构/能力字段，
+/// 并为未自定义的默认清单补入新型号；展示名沿用旧目录，保留用户模型选择。
 pub(crate) fn rebuild_stale_managed_model_catalogs() -> usize {
     let mut rebuilt = 0usize;
     for base_dir in managed_catalog_profile_dirs() {
         let catalog_path = base_dir.join(CODEX_MANAGED_MODEL_CATALOG_FILE);
-        if !crate::modules::codex_managed_model_catalog_version::managed_catalog_needs_rebuild(
-            &catalog_path,
-        ) {
-            continue;
-        }
-        match rebuild_managed_catalog_from_existing(&catalog_path) {
-            Ok(()) => {
+        match rebuild_stale_managed_model_catalog(&base_dir) {
+            Ok(true) => {
                 rebuilt += 1;
                 logger::log_info(&format!(
                     "[Codex模型目录] 已按当前版本重建模型目录: path={}",
                     catalog_path.display()
                 ));
             }
+            Ok(false) => {}
             Err(err) => logger::log_warn(&format!(
                 "[Codex模型目录] 重建模型目录失败: path={}, error={}",
                 catalog_path.display(),
@@ -3024,6 +3297,15 @@ pub(crate) fn rebuild_stale_managed_model_catalogs() -> usize {
         }
     }
     rebuilt
+}
+
+pub(crate) fn rebuild_stale_managed_model_catalog(base_dir: &Path) -> Result<bool, String> {
+    let catalog_path = base_dir.join(CODEX_MANAGED_MODEL_CATALOG_FILE);
+    if !crate::modules::codex_managed_model_catalog_version::managed_catalog_needs_rebuild(&catalog_path) {
+        return Ok(false);
+    }
+    rebuild_managed_catalog_from_existing(&catalog_path)?;
+    Ok(true)
 }
 
 fn managed_catalog_profile_dirs() -> Vec<PathBuf> {
@@ -3044,6 +3326,7 @@ fn managed_catalog_profile_dirs() -> Vec<PathBuf> {
 
 fn rebuild_managed_catalog_from_existing(catalog_path: &Path) -> Result<(), String> {
     use serde_json::Value as JsonValue;
+    use sha2::{Digest, Sha256};
 
     let existing =
         fs::read_to_string(catalog_path).map_err(|e| format!("读取现有模型目录失败: {}", e))?;
@@ -3054,7 +3337,7 @@ fn rebuild_managed_catalog_from_existing(catalog_path: &Path) -> Result<(), Stri
         .and_then(JsonValue::as_array)
         .cloned()
         .unwrap_or_default();
-    let model_ids = old_models
+    let mut model_ids = old_models
         .iter()
         .filter_map(|model| {
             model
@@ -3066,9 +3349,25 @@ fn rebuild_managed_catalog_from_existing(catalog_path: &Path) -> Result<(), Stri
     if model_ids.is_empty() {
         return Err("现有模型目录没有可重建的模型条目".to_string());
     }
+    let configured = catalog_path.parent().map(read_experimental_model_definitions).unwrap_or_default();
+    let customized = catalog_path.parent().is_some_and(has_saved_experimental_model_definitions);
+    if !customized && catalog_path.parent().is_some_and(experimental_model_policy_enabled)
+        && is_previous_gpt_6_2_default_catalog(model_ids.iter().map(|id| id.to_ascii_lowercase())) {
+        model_ids.splice(0..0, crate::modules::codex_model_catalog::GPT_6_2_MODELS.map(str::to_string));
+    }
+    let previous_ids = SHIPPED_VISIBLE_CODEX_MODEL_IDS.iter()
+        .filter(|id| ![GPT_6_1_TERRA_MODEL_ID, "gpt-reserve"].contains(id))
+        .map(|id| id.to_string()).collect::<HashSet<_>>();
+    let existing_ids = model_ids.iter().map(|id| id.to_ascii_lowercase())
+        .filter(|id| id != "gpt-reserve" && !crate::modules::codex_model_catalog::GPT_6_2_MODELS.contains(&id.as_str()))
+        .collect::<HashSet<_>>();
+    if existing_ids == previous_ids && configured.iter().any(|model| model.model_id == GPT_6_1_TERRA_MODEL_ID) {
+        let insert_at = model_ids.iter().position(|id| id.eq_ignore_ascii_case(GPT_6_ASTRA_MODEL_ID))
+            .map(|index| index + 1).unwrap_or(0);
+        model_ids.insert(insert_at, GPT_6_1_TERRA_MODEL_ID.into());
+    }
     let mut rebuilt =
         crate::modules::codex_protocol::build_codex_client_models_response(&model_ids);
-    let configured = catalog_path.parent().map(read_experimental_model_definitions).unwrap_or_default();
     if let Some(new_models) = rebuilt.get_mut("models").and_then(JsonValue::as_array_mut) {
         for model in new_models.iter_mut() {
             let Some(slug) = model
@@ -3089,6 +3388,11 @@ fn rebuild_managed_catalog_from_existing(catalog_path: &Path) -> Result<(), Stri
                     model[field] = value.clone();
                 }
             }
+            if customized {
+                if let Some(priority) = old.get("priority").filter(|value| value.is_i64()) {
+                    model["priority"] = priority.clone();
+                }
+            }
             let name = old["display_name"].as_str().unwrap_or_default().to_ascii_lowercase();
             let known_name = match name.as_str() {
                 "deepseek-v4.1-flash" | "deepseek-v4-flash" => "deepseek-flash",
@@ -3104,27 +3408,78 @@ fn rebuild_managed_catalog_from_existing(catalog_path: &Path) -> Result<(), Stri
                 let levels = if customized && old["supported_reasoning_levels"].is_array() { &old["supported_reasoning_levels"] } else { &template["supported_reasoning_levels"] };
                 model["supported_reasoning_levels"] = levels.clone();
                 let old_default = old["default_reasoning_level"].as_str();
-                model["default_reasoning_level"] = if levels.as_array().is_some_and(|items| items.iter().any(|item| item["effort"].as_str() == old_default)) { old["default_reasoning_level"].clone() } else { template["default_reasoning_level"].clone() };
+                model["default_reasoning_level"] = if customized
+                    && levels.as_array().is_some_and(|items| {
+                        items.iter().any(|item| item["effort"].as_str() == old_default)
+                    })
+                {
+                    old["default_reasoning_level"].clone()
+                } else {
+                    template["default_reasoning_level"].clone()
+                };
+            }
+            // Preserve provider-supplied modalities when rebuilding from disk.
+            // For an attached API service the current key's route wins below.
+            if let Some(modalities) = old.get("input_modalities").filter(|value| value.is_array()) {
+                model["input_modalities"] = modalities.clone();
+            }
+            if let Some(original) = old.get("supports_image_detail_original").and_then(JsonValue::as_bool) {
+                model["supports_image_detail_original"] = serde_json::json!(original);
             }
             // Rebuilding capabilities must retain the profile's per-model limits.
-            for field in [
-                "context_window",
-                "max_context_window",
-                "auto_compact_token_limit",
-            ] {
-                if let Some(value) = old
-                    .get(field)
-                    .filter(|value| value.as_u64().is_some_and(|n| n > 0))
-                {
-                    model[field] = value.clone();
+            let upgrade_sol_defaults = crate::modules::codex_model_catalog::uses_legacy_sol_context(old)
+                && !configured.iter().any(|definition| {
+                    definition.model_id.eq_ignore_ascii_case(&slug)
+                        && (definition.context_window.is_some()
+                            || definition.auto_compact_token_limit.is_some())
+                });
+            if !upgrade_sol_defaults {
+                for field in [
+                    "context_window",
+                    "max_context_window",
+                    "auto_compact_token_limit",
+                ] {
+                    if let Some(value) = old
+                        .get(field)
+                        .filter(|value| value.as_u64().is_some_and(|n| n > 0))
+                    {
+                        model[field] = value.clone();
+                    }
                 }
             }
+            if let Some(definition) = configured.iter().find(|definition| {
+                definition.model_id.eq_ignore_ascii_case(&slug)
+            }) {
+                apply_ultra_reasoning_override(model, definition);
+            }
+        }
+    }
+    if let Some(profile) = catalog_path.parent() {
+        match fs::read_to_string(get_config_toml_path(profile)) {
+            Ok(text) => {
+                let doc = crate::modules::codex_config_format::read_codex_config_doc_from_str(&text)
+                    .map_err(|error| error.to_string())?;
+                crate::modules::codex_local_access::apply_attached_catalog_route_capabilities(&doc, &mut rebuilt)?;
+                if experimental_model_policy_enabled(profile) {
+                    apply_model_context_config_to_catalog(&mut rebuilt, &configured);
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.to_string()),
         }
     }
     let mut content = serde_json::to_string_pretty(&rebuilt)
         .map_err(|e| format!("序列化重建后的模型目录失败: {}", e))?;
     content.push('\n');
-    crate::modules::atomic_write::write_string_atomic(catalog_path, &content)?;
+    let expected_hash: [u8; 32] = Sha256::digest(existing.as_bytes()).into();
+    if !crate::modules::atomic_write::write_string_atomic_if_hash_matches(
+        catalog_path, expected_hash, || Ok(content),
+    )? {
+        return Err("CODEX_MANAGED_CATALOG_CHANGED".into());
+    }
+    if let Some(profile) = catalog_path.parent() {
+        crate::modules::codex_local_access::invalidate_codex_model_cache(profile)?;
+    }
     crate::modules::codex_managed_model_catalog_version::write_managed_catalog_meta(catalog_path)
 }
 
@@ -3388,7 +3743,7 @@ fn write_api_key_bearer_provider_override_to_config_toml(
     if let Some(parent) = config_path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("创建 config.toml 目录失败: {}", e))?;
     }
-    migrate_retired_chatgpt_default_in_doc(&mut doc);
+    migrate_retired_chatgpt_default_in_doc(base_dir, &mut doc);
     let content = crate::modules::codex_config_format::codex_config_doc_to_string(&mut doc);
     crate::modules::codex_config_format::write_codex_config_toml_atomic(&config_path, &content)
         .map_err(|e| format!("写入 config.toml 失败: {}", e))
@@ -3435,8 +3790,9 @@ fn api_key_account_requires_bearer_provider_override(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or(CODEX_PROVIDER_WIRE_API);
-    let requires_http_only_responses_provider = account.api_provider_mode
+    let requires_http_only_responses_provider = (account.api_provider_mode
         == CodexApiProviderMode::Custom
+        || !is_default_openai_base_url(base_url))
         && wire_api.eq_ignore_ascii_case(CODEX_PROVIDER_WIRE_API)
         && !account.api_supports_websockets;
     oauth_bound
@@ -3506,7 +3862,7 @@ fn write_deepseek_official_responses_runtime_to_dir(
     if let Some(parent) = config_path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("创建 config.toml 目录失败: {}", e))?;
     }
-    migrate_retired_chatgpt_default_in_doc(&mut doc);
+    migrate_retired_chatgpt_default_in_doc(base_dir, &mut doc);
     let content = crate::modules::codex_config_format::codex_config_doc_to_string(&mut doc);
     crate::modules::codex_config_format::write_codex_config_toml_atomic(&config_path, &content)
         .map_err(|e| format!("写入 config.toml 失败: {}", e))?;

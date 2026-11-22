@@ -166,6 +166,7 @@ fn automatic_routing_excludes_retired_builtin_models() {
     // 只断言纯函数：清单不依赖全局实验目录（其它用例可能开启「模型管理」）。
     let trimmed = super::automatic_api_service_visible_model_ids_with_explicit_catalog(vec![
         "gpt-6-astra".into(),
+        "gpt-6.1-terra".into(),
         "gpt-6-sol".into(),
         "gpt-6-luna".into(),
         "gpt-5.6-sol".into(),
@@ -183,6 +184,7 @@ fn automatic_routing_excludes_retired_builtin_models() {
         trimmed,
         vec![
             "gpt-6-astra",
+            "gpt-6.1-terra",
             "gpt-6-sol",
             "gpt-6-luna",
             "gpt-5.6-sol",
@@ -211,6 +213,8 @@ fn automatic_routing_excludes_retired_builtin_models() {
 
 #[test]
 fn automatic_routing_accepts_catalog_models_without_opening_unknown_gpt_names() {
+    let future_id = "gpt-6.99-sol";
+    let future_name = "GPT-6.99 Sol";
     let mut catalog = crate::modules::codex_model_catalog::snapshot().as_ref().clone();
     let mut future = catalog["models"]
         .as_array()
@@ -219,8 +223,8 @@ fn automatic_routing_accepts_catalog_models_without_opening_unknown_gpt_names() 
         .find(|model| model["slug"] == "gpt-6.1-sol")
         .unwrap()
         .clone();
-    future["slug"] = json!("gpt-6.2-sol");
-    future["display_name"] = json!("GPT-6.2 Sol");
+    future["slug"] = json!(future_id);
+    future["display_name"] = json!(future_name);
     future["visibility"] = json!("list");
     future["supported_in_api"] = json!(true);
     future["use_responses_lite"] = json!(true);
@@ -228,34 +232,35 @@ fn automatic_routing_accepts_catalog_models_without_opening_unknown_gpt_names() 
 
     crate::modules::codex_model_catalog::with_test_catalog(catalog, || {
         let visible = super::automatic_api_service_visible_model_ids(vec![
-            "gpt-6.2-sol".into(),
-            "gpt-6.2-unlisted".into(),
+            future_id.into(),
+            "gpt-6.99-unlisted".into(),
             "gpt-5.4".into(),
             "deepseek-v4-pro".into(),
         ]);
-        assert_eq!(visible, vec!["gpt-6.2-sol", "deepseek-v4-pro"]);
+        assert_eq!(visible, vec![future_id, "deepseek-v4-pro"]);
         assert!(super::api_service_routable_codex_model_ids()
             .iter()
-            .any(|model| model == "gpt-6.2-sol"));
+            .any(|model| model == future_id));
         assert!(super::local_gateway_visible_gpt_model_definitions()
-            .contains(&("gpt-6.2-sol".into(), "GPT-6.2 Sol".into())));
+            .contains(&(future_id.into(), future_name.into())));
         let rendered = super::codex_protocol::build_codex_client_models_response(
-            &["gpt-6.2-sol".into()],
+            &[future_id.into()],
         );
-        assert_eq!(rendered["models"][0]["display_name"], "GPT-6.2 Sol");
+        assert_eq!(rendered["models"][0]["display_name"], future_name);
         assert_eq!(rendered["models"][0]["context_window"],
             crate::modules::codex_model_catalog::snapshot()["models"]
                 .as_array().unwrap().iter()
-                .find(|model| model["slug"] == "gpt-6.2-sol").unwrap()["context_window"]);
+                .find(|model| model["slug"] == future_id).unwrap()["context_window"]);
     });
 }
 
 #[test]
 fn configured_api_key_models_receive_catalog_thinking_without_changing_mapping() {
+    let future_id = "gpt-6.99-sol";
     let mut catalog = crate::modules::codex_model_catalog::snapshot().as_ref().clone();
     let mut future = catalog["models"].as_array().unwrap().iter()
         .find(|model| model["slug"] == "gpt-6.1-sol").unwrap().clone();
-    future["slug"] = json!("gpt-6.2-sol");
+    future["slug"] = json!(future_id);
     future["supported_reasoning_levels"] = json!([
         {"effort": "low", "description": "Low"},
         {"effort": "ultra", "description": "Ultra"}
@@ -264,17 +269,17 @@ fn configured_api_key_models_receive_catalog_thinking_without_changing_mapping()
     crate::modules::codex_model_catalog::with_test_catalog(catalog, || {
         let mut collection = automatic_routing_collection();
         collection.model_aliases = vec![super::CodexLocalAccessModelAlias {
-            source_model: "gpt-6.2-sol".into(),
+            source_model: future_id.into(),
             alias: "my-model".into(),
             fork: false,
         }];
-        let account = automatic_routing_account("upstream", "responses", &["gpt-6.2-sol"]);
+        let account = automatic_routing_account("upstream", "responses", &[future_id]);
         let values = super::sidecar_codex_key_model_values(&account, &collection);
-        assert_eq!(values[0]["name"], "gpt-6.2-sol");
+        assert_eq!(values[0]["name"], future_id);
         assert_eq!(values[0]["alias"], "my-model");
         // The native gateway exposes reasoning through /models, not the
         // retired Go sidecar's `thinking` configuration field.
-        let rendered = super::codex_protocol::build_codex_client_models_response(&["gpt-6.2-sol".into()]);
+        let rendered = super::codex_protocol::build_codex_client_models_response(&[future_id.into()]);
         let levels = rendered["models"][0]["supported_reasoning_levels"].as_array().unwrap()
             .iter().map(|level| level["effort"].clone()).collect::<Vec<_>>();
         assert_eq!(levels, vec![json!("low"), json!("ultra")]);
@@ -317,6 +322,10 @@ fn deepseek_future_relay_models_keep_reasoning_in_mixed_catalog() {
     let slots = super::allocate_provider_model_slots(&["vendor/deepseek-v5-pro".into(), "other-model".into()]);
     let catalog: serde_json::Value = serde_json::from_str(&super::build_provider_model_catalog_json(&slots).unwrap()).unwrap();
     let slot = slots.iter().find(|slot| slot.upstream_model == "vendor/deepseek-v5-pro").unwrap();
+    assert_eq!(slot.client_model, "vendor/deepseek-v5-pro");
+    assert!(slots.iter().any(|slot| {
+        slot.upstream_model == "other-model" && slot.client_model == "gpt-5.6-terra"
+    }));
     let model = catalog["models"].as_array().unwrap().iter().find(|model| model["slug"] == slot.client_model).unwrap();
     let efforts: Vec<_> = model["supported_reasoning_levels"].as_array().unwrap().iter().map(|level| level["effort"].as_str().unwrap()).collect();
     assert_eq!(efforts, ["low", "high", "max"]);
@@ -637,4 +646,53 @@ fn profile_extra_models_include_account_owned_gpt_models() {
         !models.iter().any(|model| model == "gpt-5.6-sol"),
         "壳位别名不应进入目录: {models:?}"
     );
+}
+
+#[test]
+fn managed_catalog_save_preserves_scoped_image_input_and_explicit_disable() {
+    let _lock = crate::modules::test_support::env_lock().lock().unwrap_or_else(|error| error.into_inner());
+    let _env = LocalAccessTestDataGuard::new("catalog-scoped-vision-save");
+    let profile = tempfile::tempdir().unwrap();
+    let mut account = CodexAccount::new_api_key(
+        "vision-scoped".into(), "fixture@example.invalid".into(), "fixture-upstream-key".into(),
+        CodexApiProviderMode::Custom, Some("https://example.invalid/v1".into()), None, None,
+        vec!["custom-input-model".into()],
+    );
+    account.api_wire_api = Some("responses".into());
+    let mut collection = test_local_access_collection(vec![account.id.clone()]);
+    collection.gateway_mode = CodexLocalAccessGatewayMode::Native;
+    collection.api_keys = vec![serde_json::from_value(serde_json::json!({
+        "id":"vision-key", "key":"fixture-scoped-key", "label":"Vision",
+        "inheritAccountPool":false, "accountIds":[account.id], "modelPrefix":"team"
+    })).unwrap()];
+    super::save_collection_to_disk(&collection).unwrap();
+    let provider = super::CODEX_LOCAL_ACCESS_RUNTIME_PROVIDER_ID;
+    fs::write(profile.path().join("config.toml"), format!(
+        "model_provider = '{provider}'\n[model_providers.{provider}]\nbase_url = '{}'\nwire_api = 'responses'\nexperimental_bearer_token = 'fixture-scoped-key'\n",
+        super::build_collection_base_url(&collection),
+    )).unwrap();
+    let model = crate::models::codex::CodexExperimentalModelDefinition {
+        model_id: "team/custom-input-model".into(), display_name: "My custom model".into(),
+        reasoning_efforts: None, default_reasoning_effort: None,
+        ultra_reasoning_effort: None,
+        context_window: None, auto_compact_token_limit: None,
+    };
+    let path = profile.path().join("cockpit-model-catalog.json");
+    for vision in [true, false] {
+        account.api_model_vision_support.insert("custom-input-model".into(), vision);
+        crate::modules::codex_account::save_account(&account).unwrap();
+        crate::modules::codex_account::save_model_catalog_for_base_dir_preserving_context(
+            profile.path(), true, vec![model.clone()], Some(model.model_id.clone()),
+        ).unwrap();
+        let saved: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        let served = super::native_catalog(&collection, collection.api_keys.first(), &[account.clone()]).unwrap();
+        let get_model = |catalog: &serde_json::Value| catalog["models"].as_array().unwrap()
+            .iter().find(|entry| entry["slug"].as_str() == Some(model.model_id.as_str())).unwrap().clone();
+        let disk = get_model(&saved);
+        assert_eq!(disk["display_name"], "My custom model");
+        assert_eq!(disk["input_modalities"], get_model(&served)["input_modalities"]);
+        assert_eq!(disk["input_modalities"], if vision { serde_json::json!(["text", "image"]) } else { serde_json::json!(["text"]) });
+        assert_eq!(disk["supports_image_detail_original"], false);
+        assert!(!crate::modules::codex_managed_model_catalog_version::managed_catalog_needs_rebuild(&path));
+    }
 }

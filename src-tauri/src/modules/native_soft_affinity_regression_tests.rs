@@ -92,6 +92,7 @@ fn report(
     message: Option<&str>,
 ) -> native_contract::RequestReport {
     native_contract::RequestReport {
+        peer_ip: None,
         transient_rate_limit: false,
         official_access_fingerprint: None,
         official_authorization_revision: None,
@@ -108,6 +109,7 @@ fn report(
         success: status == 200,
         elapsed: Duration::ZERO,
         usage: None,
+        input_text_characters: None,
         error: error.map(str::to_owned),
         error_message: message.map(str::to_owned),
         credential_scope: false,
@@ -506,5 +508,6 @@ async fn confirmed_quota_excludes_the_affinity_account_even_with_cooling_disable
     // An account outside the key scope must remain unavailable to failover.
     host.collection_override.as_mut().unwrap().api_keys[0].account_ids = vec!["a".into()];
     let unavailable = native_contract::Host::route(&host, &caller, request).await.err().unwrap();
-    assert_eq!(unavailable.code, "no_available_account");
+    assert_eq!((unavailable.status, unavailable.code), (429, "usage_limit_reached"));
+    assert!(unavailable.retry_after.is_some());
 }

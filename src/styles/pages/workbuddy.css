@@ -480,3 +480,253 @@
 .btn.workbuddy-credit-tab:disabled {
   opacity: .5;
 }
+
+/* WorkBuddy model probe */
+.workbuddy-probe-toolbar { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+.modal-content.workbuddy-model-probe-modal {
+  --probe-inset: clamp(14px, 4vw, 24px);
+  --probe-gap: 16px;
+  width: min(760px, calc(100vw - 32px));
+  max-width: 760px;
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.workbuddy-model-probe-modal > .modal-header,
+.workbuddy-model-probe-modal > .modal-footer {
+  flex: 0 0 auto;
+  padding: 14px var(--probe-inset);
+}
+
+.workbuddy-model-probe-modal > .modal-header {
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.workbuddy-model-probe-modal > .modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--probe-gap) var(--probe-inset);
+}
+
+.workbuddy-model-probe-modal > .modal-footer {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.workbuddy-model-probe-modal > .modal-footer .btn {
+  min-height: 36px;
+  padding: 7px 13px;
+  font-size: 13px;
+  white-space: normal;
+}
+
+.wb-probe-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.wb-probe-title-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 38px;
+  height: 38px;
+  border-radius: var(--radius-full);
+  color: var(--primary);
+  background: var(--primary-light);
+}
+
+.wb-probe-heading-copy { min-width: 0; }
+
+.workbuddy-model-probe-modal .wb-probe-heading h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.workbuddy-model-probe-modal > .modal-header .modal-close { flex-shrink: 0; }
+
+.wb-probe-hint {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.wb-probe-setup {
+  display: grid;
+  gap: var(--probe-gap);
+  min-width: 0;
+}
+
+.wb-probe-account-pane {
+  display: grid;
+  grid-template-columns: minmax(5rem, 22%) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 16px;
+  padding-bottom: var(--probe-gap);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.wb-probe-model-pane {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.wb-probe-pane-heading {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.wb-probe-account-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.wb-probe-options {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 8px 12px;
+  background: var(--bg-primary);
+  border-radius: var(--radius-sm);
+}
+
+.wb-probe-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 26px;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.wb-probe-checkbox input,
+.wb-probe-model-item input {
+  appearance: none;
+  display: grid;
+  place-content: center;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 1px solid var(--text-secondary);
+  border-radius: calc(var(--radius-sm) / 2);
+  background: var(--bg-surface);
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+.wb-probe-checkbox input:checked,
+.wb-probe-model-item input:checked {
+  border-color: currentColor;
+}
+
+.wb-probe-checkbox input:checked::before,
+.wb-probe-model-item input:checked::before {
+  content: '';
+  width: 5px;
+  height: 8px;
+  border: solid currentColor;
+  border-width: 0 2px 2px 0;
+  transform: translateY(-1px) rotate(45deg);
+}
+
+.wb-probe-checkbox input:focus-visible,
+.wb-probe-model-item input:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.wb-probe-checkbox:has(input:disabled) {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+.wb-probe-notice { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.wb-probe-notice-item { display: flex; align-items: center; gap: 6px; color: var(--danger); font-size: 12px; }
+.wb-probe-notice-item.recovered { color: var(--success); }
+.wb-probe-notice-item > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-probe-notice-close {
+  appearance: none;
+  font: inherit;
+  background: transparent;
+  color: inherit;
+  border: 0;
+  border-radius: 4px;
+  padding: 4px;
+  cursor: pointer;
+}
+.wb-probe-notice-close:hover { background: var(--bg-secondary); }
+.wb-probe-notice-close:focus-visible { outline: 2px solid var(--primary); }
+.wb-probe-notice-close:disabled { opacity: .5; cursor: not-allowed; }
+
+
+.workbuddy-ai-accounts-page .tier-badge:not(.free) {
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.workbuddy-credit-breakdown-item > *,
+.workbuddy-credit-group > strong > span,
+.workbuddy-credit-time {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbuddy-credit-breakdown {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.workbuddy-credit-breakdown-item {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.workbuddy-credit-breakdown-item > strong {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.wb-probe-matrix-account-line .tier-badge,
+.wb-probe-matrix-current {
+  flex-shrink: 0;
+}
+
+.workbuddy-credit-entry[data-international] {
+  padding-inline: 0;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--border-light);
+  border-radius: 0;
+}

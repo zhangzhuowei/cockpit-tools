@@ -1,4 +1,44 @@
 {
+  "antigravityLaunch": {
+    "initializeTitle": "Antigravity IDE 尚未初始化",
+    "initializeThenSwitch": "先開啟 IDE，初始化後即可切換帳號。",
+    "initializeThenBind": "初始化後即可綁定帳號。",
+    "initializeThenUseAccount": "初始化後即可使用已綁定的帳號。",
+    "initializeAction": "先啟動一次",
+    "initializeHint": "Antigravity IDE 尚未初始化。請先啟動所選執行個體一次，完成後再繼續。",
+    "initializeWaiting": "正在等待 Antigravity IDE 初始化。完成後可手動繼續。",
+    "initializeRetry": "初始化尚未完成。請確認 IDE 已開啟，再重試。",
+    "pathLabel": "啟動路徑",
+    "pathConfigured": "已設定",
+    "pathDetected": "自動偵測",
+    "pathInvalid": "已設定的路徑無效",
+    "pathCheckFailed": "路徑偵測失敗",
+    "pathSaveAndRetry": "儲存並重試",
+    "switchAndCopy": "切換並複製",
+    "sharedInstanceStart": "切換共用帳號並啟動",
+    "sharedInstanceHint": "其他已開啟的 Antigravity 執行個體會繼續運作，也可能同步至新帳號。",
+    "sharedInstanceRestart": "只重新啟動選取的執行個體。",
+    "lastSharedAccount": "最近切換的共用帳號",
+    "sharedAccountUnknown": "尚無切換記錄",
+    "sharedInstanceSubtitle": "各執行個體使用獨立目錄，共用 Google 登入。",
+    "sharedInstanceStarted": "已更新共用登入並送出啟動要求。",
+    "sharedInstanceLaunchFailed": "共用登入已更新，但執行個體啟動失敗：{{error}}",
+    "sharedCopySource": "複製所選執行個體的設定目錄。",
+    "quickSwitchSetting": "適用於 Antigravity IDE 快速切換帳號。在帳號對話框中，每次都可選擇是否啟動。",
+    "title": "選擇用戶端",
+    "switchOnly": "僅切換帳號",
+    "switchAndLaunch": "切換並啟動",
+    "homeDirectory": "使用者主目錄",
+    "invalidDirectory": "請選擇現有的資料夾。",
+    "directoryFailed": "無法開啟資料夾選擇器。{{error}}",
+    "shared": "以下用戶端共用 Google 登入：{{clients}}。",
+    "sharedHint": "共用 Google 登入的用戶端可能會一起切換帳號。",
+    "clientOnly": "此用戶端使用獨立登入。",
+    "cliAuth": "agy 依自身的驗證設定啟動。若已設定 API Key 或 Google Cloud 憑證，會優先使用該驗證方式。",
+    "cliMissing": "找不到 agy，請安裝官方 Antigravity CLI 後再試。",
+    "terminalFailed": "無法準備終端機。{{error}}",
+    "switchedTerminalFailed": "帳號已切換，但終端機未開啟。{{error}}"
+  },
   "pelican": {
     "caseKinds": {
       "mathExact": "數學·精確機率",
@@ -158,10 +198,28 @@
     "providerClear": "清除選取"
   },
   "common": {
+    "collapseAll": "全部收起",
+    "expandAll": "全部展開",
+    "syncing": "同步中…",
+    "notice": "提示",
+    "gotIt": "我知道了",
+    "unknown": "未知",
+    "noData": "暫無資料",
+    "search": "搜尋",
+    "rename": "重新命名",
+    "yes": "是",
+    "no": "否",
+    "saved": "已儲存",
+    "done": "完成",
+    "edit": "編輯",
+    "windowMinimize": "最小化",
+    "windowMaximize": "最大化",
+    "windowRestore": "還原",
     "profileRestoreBusy": "正在還原登入狀態，請稍後重試。",
     "profileRestoreInvalid": "登入狀態快照路徑無效，請重新匯入帳號。",
     "profileRestoreRecoveryFailed": "登入狀態還原失敗，備份已保留：{{detail}}",
     "dataQueryBusy": "資料正在處理中，請稍後再試。",
+    "historyRestoring": "正在還原歷史記錄…",
     "apiBudget": {
       "keyScope": "目前 Key",
       "upgradeRequired": "請升級閘道所在電腦的 Cockpit Tools，以查看統計和請求記錄。",
@@ -389,6 +447,33 @@
       "workspaceDesc": "切換帳號時複製並合併此裝置上 {{platform}} 帳號的 workspace 對話索引與還原狀態；不會修改加密的 Builder/Agent 對話資料庫，也不會上傳內容。"
     },
     "shared": {
+      "quotaCategories": {
+        "other": "其他",
+        "extra": "加量包",
+        "activity": "活動贈送包",
+        "base": "基礎體驗包"
+      },
+      "webSession": {
+        "openFailed": "無法開啟網頁工作階段：{{error}}",
+        "opened": "已開啟網頁工作階段：{{email}}",
+        "open": "開啟網頁工作階段"
+      },
+      "addAccountTargetGroup": "將新增至群組：{{group}}",
+      "checkin": {
+        "saveFailed": "自動簽到設定儲存失敗：{{message}}",
+        "manualTestPartialFailure": "部分帳號簽到失敗，請查看紀錄；背景稍後會自動重試。",
+        "manualTestAlreadyRunning": "自動簽到任務正在執行，請稍後查看紀錄。",
+        "manualTestFailed": "測試執行失敗：{{message}}",
+        "clearLogsFailed": "清空簽到記錄失敗：{{message}}",
+        "tabSettings": "自動簽到設定",
+        "tabHistory": "自動簽到紀錄",
+        "historyRangeHint": "僅保留近 30 天的自動簽到紀錄（共 {{count}} 條）",
+        "manualTest": "測試執行",
+        "clearLogs": "清空",
+        "historyLoadFailed": "讀取自動簽到記錄失敗：{{message}}",
+        "historyLoading": "正在讀取自動簽到記錄...",
+        "noHistory": "暫無近 30 天的自動簽到紀錄"
+      },
       "addAccount": "新增帳號",
       "columns": {
         "actions": "操作",
@@ -421,6 +506,7 @@
       },
       "filterLabel": "篩選",
       "import": {
+        "file": "選擇檔案",
         "failedMsg": "匯入失敗: {{error}}",
         "label": "匯入",
         "importing": "正在匯入本地帳號...",
@@ -519,6 +605,15 @@
       "refreshQuota": "刷新配額",
       "search": "搜尋帳號...",
       "sort": {
+        "name": "依名稱",
+        "customReset": "重設自訂順序",
+        "customModalDesc": "拖曳帳號或使用上下按鈕調整顯示順序。",
+        "customModalTitle": "自訂帳號排序",
+        "customSettingsTooltip": "設定自訂順序",
+        "custom": "自訂順序",
+        "dragToReorder": "拖曳排序",
+        "moveUp": "上移",
+        "moveDown": "下移",
         "ascTooltip": "目前：升序，點擊切換為降序",
         "createdAt": "按建立時間",
         "descTooltip": "目前：降序，點擊切換為升序",
@@ -562,6 +657,7 @@
         "expiresAt": "到期時間：{{time}}",
         "unlimited": "無限額度",
         "leftPercent": "剩餘 {{value}}%",
+        "weeklyLimitReached": "週額度已用盡",
         "cachedRefreshFailed": "刷新失敗，以下為上次成功資料",
         "lastSuccessfulQuery": "上次成功：{{time}}",
         "cachedNeedsReauth": "⚠️ 帳號需完成網頁驗證以繼續使用（以下為上次成功數據）"
@@ -599,7 +695,14 @@
       },
       "clear": "清除",
       "loginSuccess": "登入成功",
-      "switchAccount": "切換帳號"
+      "switchAccount": "切換帳號",
+      "tokenFormat": {
+        "summary": "必填欄位與範例（點擊展開）",
+        "single": "單筆範例",
+        "singleToken": "單筆範例（Token）",
+        "singleJson": "單筆範例（JSON）",
+        "batchJson": "批次範例（JSON）"
+      }
     },
     "topRightAd": {
       "ariaLabel": "全域右上角廣告位",
@@ -667,6 +770,7 @@
     }
   },
   "nav": {
+    "workbuddyAi": "WorkBuddy AI",
     "overview": "Antigravity IDE",
     "accounts": "帳號管理",
     "wakeup": "喚醒任務",
@@ -686,9 +790,9 @@
     "codebuddy": "CodeBuddy",
     "qoder": "Qoder",
     "trae": "Trae",
-    "traeSolo": "TRAE SOLO​",
+    "traeSolo": "TraeWork",
     "traeCn": "Trae CN​",
-    "traeSoloCn": "TRAE SOLO CN​",
+    "traeSoloCn": "TraeWork CN",
     "codebuddyCn": "CodeBuddy CN",
     "minimaxcode": "MiniMax Code",
     "zed": "Zed 平台",
@@ -719,6 +823,7 @@
     "openSponsor": "查看"
   },
   "platformLayout": {
+    "customIconStorageFailed": "無法儲存自訂圖示，本機儲存空間可能已滿。請刪除不再使用的圖示後重試。",
     "title": "平台佈局",
     "sidebarSelected": "側邊欄已選擇 {{count}}/{{max}}",
     "reset": "恢復預設",
@@ -730,7 +835,12 @@
     "hiddenBadge": "已隱藏",
     "openFromMore": "管理平台佈局",
     "dragHandleLabel": "拖曳排序",
+    "sortKeyboardInstructions": "按空白鍵開始排序，按方向鍵移動，按空白鍵或 Enter 鍵放下，按 Esc 鍵取消。",
+    "sortPosition": "位置 {{position}}，共 {{total}} 項。",
+    "sortPlaced": "已移到第 {{position}} 個位置。",
+    "sortCancelled": "已取消排序。",
     "tipWithGroups": "拖曳可排序；最多選擇 {{max}} 個入口顯示在側邊欄。分組子級不參與側邊欄/儀表板開關，僅用於選單列與預設平台切換。",
+    "tipWithSidebarShortcuts": "拖曳可排序。側邊欄最多顯示 {{max}} 個入口，群組內的子平台也可以單獨顯示。",
     "addGroup": "新增分組",
     "editGroup": "編輯分組",
     "deleteGroup": "刪除分組",
@@ -763,7 +873,9 @@
     "groupEnabledHint": "啟用或停用此群組所有平台",
     "disabledHint": "停用後停止自動活動並隱藏平台設定；入口顯示另行控制",
     "enableAll": "全部啟用",
-    "disableAll": "全部停用"
+    "disableAll": "全部停用",
+    "confirmResetDesc": "恢復預設將清除自訂分組與排序設定，確定要繼續嗎？",
+    "confirmDeleteGroupDesc": "確定刪除分組「{{name}}」？群組內的平台將恢復為獨立顯示。"
   },
   "privacy": {
     "hideSensitive": "隱藏電子郵件",
@@ -783,6 +895,7 @@
       "toggleDirection": "切換排序方向"
     },
     "actions": {
+      "duplicate": "複製執行個體",
       "create": "新建實例",
       "refresh": "刷新",
       "startAll": "啟動全部",
@@ -841,6 +954,7 @@
       "editTitle": "編輯實例"
     },
     "form": {
+      "copyName": "{{name}} 副本",
       "name": "實例名稱",
       "namePlaceholder": "例如：工作帳號",
       "path": "實例目錄",
@@ -912,8 +1026,43 @@
       "appSpeed": "速度",
       "appSpeedDesc": "啟動官方 Codex 前寫入對應速度",
       "autoSyncThreads": "自動同步會話",
-      "autoSyncThreadsDesc": "關閉時保持多實例會話隔離；開啟後僅在所有 Codex 實例已停止時，啟動或關閉實例會自動合併本地會話記錄。",
+      "autoSyncThreadsDesc": "關閉時保持各實例的工作階段記錄隔離。開啟後，關閉實例且所有 Codex 實例皆已停止時，自動補齊缺少的工作階段並附加相符的歷程，不覆寫現有內容。同步可能複製大型工作階段檔案。",
       "modelRouting": {
+        "deselectModel": "取消選取",
+        "selectModel": "選取",
+        "manageAction": "管理管道",
+        "missingSource": "缺少路由",
+        "disabledSource": "路由已停用",
+        "unavailableSource": "帳號無法使用",
+        "modelUnavailable": "模型已不在 API 目錄",
+        "provider": "選擇 API 帳號",
+        "namespacePlaceholder": "前綴",
+        "deleteRoute": "刪除管道",
+        "loadedModels": "已載入模型",
+        "enabledTotal": "已啟用 / 總數",
+        "fetchModels": "取得清單",
+        "manualPlaceholder": "如 gpt-5.6-sol, grok-4.6",
+        "channelsSummary": "第三方 API 管道",
+        "manageChannels": "設定管道",
+        "noChannels": "尚未新增第三方 API 管道",
+        "addRoute": "新增管道",
+        "unnamedAccount": "未選擇帳號",
+        "routesCount": "{{count}} 個管道",
+        "statusBadge": "混合路由",
+        "catalogUnavailable": "Cockpit 無法管理此執行個體的可見模型目錄，因此暫時無法啟用模型路由。",
+        "desktopOnly": "只有桌面版執行個體支援模型路由。",
+        "oauthRequired": "請綁定可直接登入的 OAuth 訂閱帳號。",
+        "routeRequired": "請至少新增一個 API 模型路由。",
+        "invalidNamespace": "前綴須為 2–32 位小寫英文字母、數字、底線或連字號，且不得使用保留名稱。首位必須為字母或數字。",
+        "duplicateNamespace": "每個模型路由須使用不同的前綴。",
+        "providerRequired": "請為每個模型路由選擇一個 API 帳號。",
+        "enabledRouteRequired": "請至少啟用一個 API 模型路由。",
+        "createHint": "新增時複製預設執行個體可略過 Codex 設定。空白執行個體必須先啟動一次。",
+        "fetchCredentialsRequired": "此 API 帳號缺少金鑰或基礎 URL。",
+        "fetchEmpty": "供應商未傳回模型，可在下方手動新增。",
+        "noProviderAccounts": "沒有可用的 API 帳號，請先在「API 帳號」頁面新增受支援的供應商。",
+        "noCatalog": "尚未取得模型，請取得清單或手動新增。",
+        "modalDescription": "設定第三方 API 帳號與模型前綴。沒有前綴的模型會繼續使用目前的訂閱。",
         "title": "第三方 API 路由",
         "summary": "普通模型使用目前訂閱；帶前綴模型（如 cpa/gpt-5.6-sol）轉發到第三方 API。兩者皆依賴本機分流服務。",
         "rowSummary": "普通模型使用目前訂閱；帶前綴模型（如 cpa/gpt-5.6-sol）轉發到第三方 API。兩者皆依賴本機分流服務。",
@@ -932,7 +1081,8 @@
         "savedForNextLaunch": "已儲存，下次透過 Cockpit 啟動 Codex 時生效；目前工作階段維持不變。",
         "restartRollbackFailed": "新路由啟動失敗，恢復原配置後仍無法啟動：",
         "restartRolledBack": "新路由啟動失敗，已恢復原配置並重新啟動 Codex：{{error}}"
-      }
+      },
+      "copyTimeout": "複製逾時時間"
     },
     "quota": {
       "unbound": "未綁定帳號",
@@ -991,6 +1141,7 @@
         "preparingCredentials": "正在檢查 Token，並視需要更新完整登入憑證...",
         "profileReady": "執行個體 auth.json / 鑰匙圈已安全更新",
         "cliPrepared": "CLI 啟動命令已準備完成",
+        "cliResumeStarted": "CLI 工作階段已在背景開始接續",
         "startingClient": "正在啟動並確認 Codex 用戶端程序..."
       }
     },
@@ -1057,6 +1208,11 @@
       "submit": "匯入"
     },
     "launchDialog": {
+      "customCommand": "自訂命令",
+      "useDefaultCommand": "使用預設命令",
+      "customCommandHint": "留空使用預設命令。",
+      "rememberDirectory": "記住上次使用的工作目錄。",
+      "chooseDirectory": "選擇目錄",
       "title": "啟動實例",
       "terminal": "終端機",
       "command": "啟動指令",
@@ -1092,6 +1248,11 @@
       "data": "數據管理"
     },
     "general": {
+      "accountLevelRefreshSummary": "展開設定",
+      "accountLevelRefreshSummaryActive": "已設定 {{count}} 個帳號",
+      "accountLevelRefreshDesc": "為各帳號設定自動重新整理間隔，覆寫平台預設值。",
+      "accountLevelRefreshTitle": "帳號層級重新整理",
+      "accountLevelRefreshInherit": "繼承平台",
       "errorReporting": "遙測診斷",
       "errorReportingDesc": "啟用後提交經過去識別處理的啟動及介面診斷；關閉後停止提交。",
       "appearance": "介面外觀",
@@ -1129,6 +1290,8 @@
       "minimizeBehaviorDesc": "選擇最小化視窗時保留在 Dock 與選單列，或僅保留在選單列",
       "minimizeBehaviorDockAndTray": "Dock + 選單列（建議預設）",
       "minimizeBehaviorTrayOnly": "僅選單列",
+      "showTrayIcon": "顯示系統列圖示",
+      "showTrayIconDesc": "隱藏系統列或選單列圖示後，背景工作會繼續執行。可從 Dock 或工作列還原視窗。",
       "hideDockIcon": "是否隱藏 Dock 圖示（僅 macOS）",
       "hideDockIconDesc": "獨立控制 Dock 圖示顯示狀態，不受視窗最小化行為影響",
       "hideDockIconOff": "否（顯示 Dock 圖示）",
@@ -1137,6 +1300,9 @@
       "trayIconStyleDesc": "選擇系統單色圖示或原彩色 App 圖示",
       "trayIconStyleTemplate": "單色圖示",
       "trayIconStyleColor": "彩色圖示",
+      "menuBarLeftClick": "選單列圖示左鍵行為",
+      "menuBarLeftClickMenu": "開啟原生額度選單",
+      "menuBarLeftClickWindow": "直接開啟主視窗",
       "floatingCardStartup": "啟動時顯示懸浮卡片",
       "floatingCardStartupDesc": "應用啟動後預設顯示懸浮帳號卡片",
       "floatingCardAlwaysOnTop": "懸浮卡片預設置頂",
@@ -1146,6 +1312,9 @@
       "floatingCardShowNowAction": "顯示懸浮卡片",
       "dataDir": "資料目錄",
       "dataDirDesc": "帳號與設定檔的儲存位置。",
+      "dataDirPending": "重新啟動後，Cockpit Tools 將讀取 {{path}} 中的資料。",
+      "dataDirPendingDefault": "重新啟動後將使用預設目錄。",
+      "dataDirEnvironment": "目前啟動使用 COCKPIT_TOOLS_DATA_DIR 指定的目錄。",
       "topRightAdVisible": "顯示頂部推廣",
       "topRightAdVisibleDesc": "關閉後隱藏應用頂部推廣位，不影響贊助商頁面。",
       "opencodeTitle": "OpenCode 連動",
@@ -1179,7 +1348,7 @@
       "vscodeAppPathPlaceholder": "預設路徑",
       "vscodePathSelect": "選擇",
       "vscodePathReset": "重設預設值",
-      "antigravityAppPath": "Antigravity IDE 啟動路徑",
+      "antigravityAppPath": "{{appName}} 啟動路徑",
       "antigravityTitle": "Antigravity IDE 啟動",
       "commonTitle": "通用",
       "antigravitySettingsTitle": "Antigravity IDE 設定",
@@ -1214,6 +1383,10 @@
       "cursorPathReset": "重設預設值",
       "codexLaunchOnSwitch": "切換 Codex 時自動啟動 Codex App",
       "codexLaunchOnSwitchDesc": "切換帳號後自動啟動或重新啟動 Codex App",
+      "codexAutomaticSessionRepair": "自動修復工作階段可見性",
+      "codexAutomaticSessionRepairDesc": "從 Cockpit 啟動 Codex 或切換工作階段供應商時，選擇是否修復工作階段索引與歷史檔案時間。",
+      "codexAutomaticSessionRepairIndexOnly": "僅修復索引",
+      "codexAutomaticSessionRepairQuick": "快速修復",
       "autoUpdate": "背景自動更新",
       "autoUpdateDesc": "偵測到新版本時，於背景靜默更新；完成後提示重新啟動。",
       "autoUpdateOff": "關閉（手動更新）",
@@ -1241,7 +1414,7 @@
       "traeAppPathPlaceholder": "預設路徑",
       "traePathSelect": "選擇",
       "traePathReset": "重設預設",
-      "workbuddyAppPath": "WorkBuddy 啟動路徑",
+      "workbuddyAppPath": "WorkBuddy 中國版路徑",
       "workbuddyAppPathDesc": "留空則使用預設路徑",
       "workbuddyAppPathPlaceholder": "預設路徑",
       "workbuddyPathSelect": "選擇",
@@ -1350,6 +1523,8 @@
       "claudeSettingsTitle": "Claude 設定",
       "claudeAutoRefresh": "Claude 自動重新整理額度",
       "claudeAutoRefreshDesc": "在背景自動更新 Claude 帳號額度快取",
+      "claudeShareCodeSessionsOnSwitch": "切換帳號時同步 Code 工作階段清單",
+      "claudeShareCodeSessionsOnSwitchDesc": "切換 macOS 預設 Claude Desktop 的登入帳號時，在本機帳號之間共用 Code 工作階段清單。",
       "claudeAppPath": "Claude Desktop 啟動目標",
       "claudeAppPathDesc": "預設實例可使用 Microsoft Store 應用目標；應用多開請選擇真實 Claude.exe。",
       "antigravityLaunchOnSwitch": "切換時啟動 Antigravity IDE",
@@ -1357,9 +1532,9 @@
       "tokenKeeper": "背景授權保活",
       "tokenKeeperDesc": "僅在授權快過期時分批刷新帳號 Token，降低大量帳號場景下的背景請求壓力。",
       "platformAutoRefresh": "{{platform}} 自動刷新配額",
-      "traeSoloAppPath": "TRAE SOLO 啟動路徑",
+      "traeSoloAppPath": "TraeWork 啟動路徑",
       "traeCnAppPath": "Trae CN 啟動路徑",
-      "traeSoloCnAppPath": "TRAE SOLO CN 啟動路徑",
+      "traeSoloCnAppPath": "TraeWork CN 啟動路徑",
       "reducedMotion": "減少動畫",
       "reducedMotionDesc": "降低頁面淡入、彈層過渡、陰影、模糊與平滑捲動，僅保留必要載入回饋",
       "autoImportFromLocal": "本機帳號自動匯入",
@@ -1390,19 +1565,25 @@
       "webdavAllowedDomainsDesc": "逗號分隔；留空不限制",
       "claudeQuotaDisplayRemaining": "Claude 額度顯示剩餘%",
       "claudeQuotaDisplayRemainingDesc": "預設顯示已用百分比；開啟後改為顯示剩餘百分比。自動切號與預警仍依已用比例計算。",
+      "menuBarLeftClick": "選單列左鍵操作",
+      "menuBarLeftClickDesc": "右鍵一律開啟額度選單。",
+      "menuBarLeftClickQuotaMenu": "額度選單",
+      "menuBarLeftClickMainWindow": "主視窗",
       "menuBarQuota": "選單列顯示即時額度",
       "menuBarQuotaDesc": "啟用後在選單列圖示旁顯示所選平台目前帳號的剩餘額度；平台等專屬選項在彈窗中設定",
       "menuBarQuotaEnabledDesc": "已啟用 · {{platform}} · 顯示該平台目前帳號剩餘額度（多條取最低）",
       "menuBarQuotaConfigure": "設定",
       "menuBarQuotaModalTitle": "選單列額度",
       "menuBarQuotaModalDesc": "以下為選單列額度的專屬選項：跟隨所選平台目前帳號。Codex 目前為 API 服務時顯示「API + 池剩餘%」；API Key 帳號顯示「API + 剩餘額度」；一般帳號顯示信箱前綴與剩餘%（多條取最低；低紅、中橙、高綠）。",
+      "menuBarAntigravityMetric": "選單列配額",
+      "menuBarQuotaLowest": "最低剩餘額度",
       "menuBarQuotaPlatform": "額度帳號平台",
       "menuBarQuotaPlatformDesc": "跟隨該平台目前正在使用的帳號，重新整理或切換後自動更新",
       "menuBarAccountPrefix": "顯示帳號信箱前 4 碼",
       "menuBarAccountPrefixDesc": "僅一般帳號：關閉後不顯示信箱前綴。Codex API 服務 / API Key 仍會顯示 API 標籤",
       "menuBarQuotaConfirmEnable": "啟用",
-      "codexHideRelayQuota": "隱藏中轉站額度",
-      "codexHideRelayQuotaDesc": "開啟後，Codex 帳號總覽隱藏中轉 / New API 類額度面板，減輕列表重疊與視覺干擾。",
+      "codexHideRelayQuota": "餘額開關",
+      "codexHideRelayQuotaDesc": "關閉後，隱藏 Codex 中轉站餘額，並停止自動與手動查詢餘額。",
       "floatingCardStyle": "懸浮窗樣式",
       "floatingCardStyleDesc": "所有懸浮窗共用此設定，可在懸浮窗內切換。",
       "floatingCardFull": "完整卡片",
@@ -1417,14 +1598,17 @@
       "codexPreserveExternalBridgeDesc": "切換 OAuth 帳號時保留經本機紀錄驗證的 Codex Web GPT 橋接；預設關閉。",
       "codexEnhancements": {
         "quotaCompat": "混合模式額度相容",
-        "quotaCompatDesc": "僅真實 OAuth 登入且使用外部 API 路由時，避免訂閱額度攔截本機 API 訊息；不改變實際用量及圖像額度。",
-        "restartHint": "原生下一步預測預設關閉。修改後需重新啟動各目標 Codex 執行個體，並保持 Cockpit Tools 執行。原生聽寫由用戶端功能與設定決定，Cockpit 不接管或強制啟用。",
+        "quotaCompatDesc": "API 服務執行個體使用可用額度檢視，僅調整用戶端顯示與本機判斷；實際上游用量及圖片額度不變。此開關僅適用於其他 OAuth＋外部 API 混合模式。",
         "configFailed": "設定讀取或儲存失敗：{{error}}",
         "nativePredictions": "原生下一步預測（Tab）",
-        "nativePredictionsDesc": "使用目前對話的 API 供應商和模型產生下一則訊息建議，會額外消耗 API 額度；儲存後重新啟動 Codex 生效。"
+        "nativePredictionsDesc": "預設開啟。使用目前對話的 API 供應商和模型產生下一則訊息建議，會增加 API 用量。變更後請重新啟動相關 Codex 執行個體，並讓 Cockpit Tools 保持執行。"
       },
       "timeDisplayMode": "時間顯示",
-      "timeDisplayModeDesc": "選擇帳號卡片與列表的時間內容，預設為切換時間"
+      "timeDisplayModeDesc": "選擇帳號卡片與列表的時間內容，預設為切換時間",
+      "menuBarLeftClick": "選單列左鍵操作",
+      "menuBarLeftClickDesc": "右鍵一律開啟額度選單。",
+      "menuBarLeftClickQuotaMenu": "額度選單",
+      "menuBarLeftClickMainWindow": "主視窗"
     },
     "network": {
       "apiTitle": "反重力駕駛艙 API",
@@ -1441,12 +1625,13 @@
       "saveFailed": "儲存失敗: {{error}}",
       "reportTitle": "網頁查詢服務",
       "reportService": "HTTP 報表服務",
-      "reportServiceDesc": "提供帶有 token 保護的 HTTP 查詢端點，用於查看用量摘要",
+      "reportServiceDesc": "啟用並儲存後立即啟動，之後隨應用程式啟動。存取需要 Token。",
       "reportPort": "報表埠",
-      "reportPortDesc": "預設為 {{port}}，修改後需重新啟動",
+      "reportPortDesc": "預設連接埠為 {{port}}，儲存後生效。",
       "reportToken": "存取 Token",
       "reportTokenDesc": "請求 /report 時必填，請妥善保管",
       "reportTokenRequired": "啟用網頁查詢服務時，存取 Token 不可為空。",
+      "reportApplyFailed": "設定已儲存，但無法啟動網頁查詢服務。{{error}}",
       "generateToken": "產生",
       "reportUrlPreview": "位址預覽",
       "reportUrlPreviewDesc": "支援 format=md / format=yaml，也支援 render=true 網頁渲染",
@@ -1652,6 +1837,7 @@
         "unsupportedLegacyFile": "無法識別此舊版帳號備份格式",
         "codexTopLayoutInvalid": "備份中的頂部版面格式無效，設定未匯入。",
         "codexTopLayoutImportFailed": "其他設定已匯入，但頂部版面儲存失敗。請重試匯入。",
+        "platformLayoutImportFailed": "部分設定可能已匯入。無法儲存平台版面配置，請重試匯入。",
         "unsupportedVersion": "目前版本暫不支援此資料包版本"
       }
     },
@@ -1767,6 +1953,16 @@
   },
   "appPath": {
     "missing": {
+      "pathLabel": "{{app}} 啟動路徑",
+      "configurePath": "設定路徑",
+      "configureHint": "選擇執行檔，或留空以使用自動偵測。",
+      "cliHint": "找不到 {{app}}。請選擇執行檔，或安裝 CLI 後重新偵測。",
+      "invalidPath": "此路徑下沒有可用的 {{app}} 執行檔。",
+      "accountAlreadySwitched": "帳號已切換。儲存路徑後只會重試啟動客戶端。",
+      "saveAndRetry": "儲存並重試",
+      "operationCancelled": "已取消啟動。",
+      "scanEmpty": "未偵測到執行中的應用程式。請先啟動再重試，或手動選擇路徑。",
+      "scanEmptyGeneric": "未偵測到執行中的 {{app}}。請先啟動再重試，或手動選擇路徑。",
       "title": "找不到應用程式路徑",
       "desc": "找不到 {{app}} 的應用程式路徑。請立即設定以繼續。",
       "codexLaunchHint": "切號已完成。啟動應用請先設定路徑；若切號後不需要啟動，請到設定中關閉「切換 Codex 時自動啟動 Codex App」。",
@@ -1870,6 +2066,8 @@
     "clearFilter": "清除篩選",
     "editTags": "編輯標籤",
     "tagModal": {
+      "renamePlaceholder": "新標籤名稱",
+      "renamingGlobal": "在所有帳號中重新命名標籤：",
       "title": "編輯標籤",
       "hint": "最多 {{max}} 個標籤，每個標籤長度不可超過 {{maxLength}} 個字元。",
       "empty": "目前沒有可用標籤",
@@ -2114,7 +2312,13 @@
     "refreshTime": "更新時間",
     "lastSwitchTimeFull": "切換時間：{{time}}",
     "refreshTimeFull": "更新時間：{{time}}",
-    "toggleTimeMode": "切換顯示切換或更新時間"
+    "toggleTimeMode": "切換顯示切換或更新時間",
+    "quotaSummary": {
+      "geminiModels": "Gemini 模型",
+      "claudeAndGptModels": "Claude 與 GPT 模型",
+      "weeklyLimit": "每週限額",
+      "fiveHourLimit": "5 小時限額"
+    }
   },
   "overview": {
     "title": "帳號總覽",
@@ -2151,8 +2355,8 @@
       "oauthAction": "OAuth 授權",
       "fromExtension": "從插件匯入",
       "syncBadge": "同步 Antigravity Cockpit 插件帳號",
-      "fromLocalDB": "從本地資料庫匯入",
-      "localDBDesc": "從此機器的 Antigravity IDE 客戶端讀取登入帳號",
+      "fromLocalApp": "從本機用戶端匯入",
+      "localAppDesc": "從此機器的 {{appName}} 客戶端讀取登入帳號",
       "toolsDescMigrate": "從 ~/.antigravity_tools/ 遷移帳號",
       "importingTools": "正從 Antigravity Tools 匯入...",
       "importingLocal": "正在匯入本地帳號...",
@@ -2169,6 +2373,7 @@
       "resetTime": "重置時間"
     },
     "errors": {
+      "viewVerificationDetail": "驗證詳細資料",
       "title": "錯誤詳情",
       "empty": "暫無錯誤資訊",
       "account": "帳號",
@@ -2196,6 +2401,8 @@
     "switchFailed": "切換失敗：{{error}}",
     "antigravitySwitchBusy": "Antigravity 帳號正在切換，請稍後重試。",
     "antigravitySwitchPrepareTimeout": "Antigravity 帳號準備逾時，請重試。",
+    "antigravityWindowsCredentialStoreCapacity": "Windows 認證管理員可能已滿。請在「控制台 → 使用者帳戶 → 認證管理員」中，只移除不再使用的 Windows 認證，再試一次。",
+    "antigravityWindowsCredentialTooLarge": "此認證超過 Windows 單筆認證 2,560 位元組的上限。",
     "antigravitySwitchStateSaveFailed": "用戶端憑據已切換，但儲存本機帳號狀態失敗：{{error}}。請重試切換帳號。",
     "antigravityLegacyUnsupported": "暫不支援 Antigravity 2.0.0 及以上版本，請選擇小於 Antigravity 2.0.0 的版本，或使用 Antigravity IDE",
     "importSuccess": "成功匯入 {{count}} 個帳號",
@@ -2262,6 +2469,7 @@
     "historyClear": "清空歷史",
     "historyPromptLabel": "喚醒詞：{{prompt}}",
     "errorUi": {
+      "officialLanguageServerUnavailable": "找不到喚醒所需的語言伺服器。請安裝 Antigravity 桌面版，或安裝內建語言伺服器的 IDE 版本。已檢查的資料夾：{{path}}。",
       "verificationRequiredTitle": "需要驗證",
       "quotaTitle": "配額限制",
       "temporaryTitle": "暫時性錯誤",
@@ -2327,6 +2535,8 @@
       "crontabRequired": "請輸入 crontab 表達式",
       "crontabValid": "Crontab 表達式有效",
       "crontabInvalid": "Crontab 表達式無效",
+      "stateLoadFailed": "讀取喚醒任務失敗：{{error}}",
+      "stateSaveFailed": "儲存喚醒任務失敗：{{error}}",
       "taskSaved": "任務「{{name}}」已儲存",
       "featureOff": "喚醒功能已關閉",
       "featureOn": "喚醒功能已開啟",
@@ -2368,7 +2578,9 @@
       "modeScheduled": "📅 定時觸發",
       "modeCrontab": "🧩 定時任務",
       "modeQuotaReset": "🔄 配額重置",
-      "antigravityVersion": "Antigravity IDE 版本",
+      "transportMode": "喚醒方式",
+      "transportLanguageServer": "語言伺服器",
+      "transportClientless": "無用戶端喚醒",
       "modelSelect": "模型選擇",
       "modelHint": "同一配額組建議只選一個模型，多模型會依序觸發。",
       "modelsEmpty": "暫無推薦模型",
@@ -2402,6 +2614,8 @@
       "crontabValidate": "驗證",
       "crontabValidateHint": "儲存時將驗證表達式",
       "crontabPreviewEmpty": "請輸入有效的 Crontab 表達式",
+      "weeklyQuotaResetOnly": "僅在每週配額重置後喚醒",
+      "weeklyQuotaResetHint": "每個所選帳號按自己的每週配額重置時間觸發。",
       "timeWindowEnabled": "啟用時段策略",
       "timeWindowHint": "啟用後，配額重置觸發僅在指定時段內執行；時段外使用固定時間觸發。",
       "timeWindow": "配額重置活躍視窗",
@@ -2462,6 +2676,7 @@
     "skipFailed": "跳過此更新失敗：{{error}}"
   },
   "closeDialog": {
+    "minimizeWindow": "最小化",
     "title": "關閉視窗",
     "description": "選擇關閉視窗時的操作",
     "minimize": "最小化到托盤",
@@ -2478,6 +2693,38 @@
     "other_group": "其他模型"
   },
   "codex": {
+    "subagentDefaults": {
+      "title": "子代理預設設定",
+      "description": "用於新啟動的子代理。派發時指定的值優先。留空則使用 Codex 預設值。"
+    },
+    "modelInstructions": {
+      "title": "系統指令",
+      "description": "選擇本機 UTF-8 檔案後立即儲存，建立新對話時生效。",
+      "deferred": "切離 DeepSeek 後生效。",
+      "selectFile": "選擇檔案",
+      "useDefault": "恢復預設"
+    },
+    "cli": {
+      "launchSuccess": "已啟動 Codex CLI",
+      "selectWorkingDir": "選擇 Codex CLI 工作目錄"
+    },
+    "resetAutomation": {
+      "nothingToReset": "目前沒有需要重置的額度視窗。",
+      "unknownOutcome": "無法確認重置結果，請重試。",
+      "noCredits": "暫無重設卡",
+      "minutes": "分鐘",
+      "hours": "小時",
+      "days": "天",
+      "conflict": "帳號資訊在重設期間已變更，請重試。",
+      "busy": "此帳號正在重設，請稍後再試。",
+      "storageError": "讀取或儲存重設記錄失敗。",
+      "timeout": "請求逾時，將重用已儲存的請求識別碼，避免重複扣卡。",
+      "accountMissing": "帳號已不存在。",
+      "previewExpiry": "距離重置卡到期不超過 {{value}} {{unit}}",
+      "previewWeekly": "週剩餘額度不高於 {{percent}}%",
+      "previewWeeklyAfterCredits": "週剩餘額度不高於 {{percent}}%，且確認點數無法使用",
+      "orSeparator": "，或"
+    },
     "overload": {
       "setting": "滿載時持續重試",
       "settingHint": "僅用於本機 Codex API 服務。開啟後，可安全重試的請求會持續等待模型恢復。設定對新請求生效。",
@@ -2504,6 +2751,70 @@
         "threadSyncFileBusy": "目標工作階段正由其他同步作業使用，請稍後重試。"
       }
     },
+    "quotaHistory": {
+      "storage": {
+        "title": "歷史儲存",
+        "recordCount": "記錄數",
+        "diskSpace": "佔用空間",
+        "defaultAccount": "預設帳號",
+        "recording": "記錄設定",
+        "usage": "{{records}} 筆記錄 · 佔用 {{size}}",
+        "loadFailed": "無法讀取歷史儲存。",
+        "enabled": "記錄額度歷史",
+        "onlyChanges": "僅在額度變動時記錄",
+        "autoCleanup": "自動清理過期記錄",
+        "intervalMinutes": "記錄間隔（分鐘）",
+        "retentionDays": "保留天數",
+        "cleanupEveryDays": "清理週期（天）",
+        "validRange": "請輸入 1 至 {{max}} 的整數。",
+        "recordScope": "記錄範圍",
+        "allAccounts": "全部帳號",
+        "selectedAccounts": "選定帳號",
+        "saveFailed": "無法儲存歷史設定。",
+        "saved": "歷史設定已儲存。",
+        "cleanup": "清理歷史",
+        "cleanupAccounts": "清理帳號",
+        "cleanupRange": "清理範圍",
+        "expired": "過期記錄",
+        "dates": "日期範圍",
+        "all": "全部記錄",
+        "fromDate": "開始日期",
+        "toDate": "結束日期",
+        "invalidDates": "請選擇有效的日期範圍。",
+        "cleanupFailed": "清理失敗，請重新預覽後再試。",
+        "previewCount": "預計刪除 {{records}} 筆記錄。",
+        "confirmCleanup": "確認刪除",
+        "preview": "預覽清理",
+        "deleted": "已刪除 {{records}} 筆記錄。"
+      },
+      "title": "額度趨勢",
+      "chart": "圖表",
+      "details": "明細",
+      "onlyChanges": "僅看變化",
+      "noChanges": "此時段暫無額度變化。",
+      "recordedAt": "記錄時間",
+      "noValue": "無",
+      "shortConsumed": "5 小時累計用量",
+      "weeklyConsumed": "週額度累計用量",
+      "shortRemaining": "5h 剩餘",
+      "shortDelta": "5h 變化",
+      "weeklyRemaining": "週剩餘",
+      "weeklyDelta": "週變化",
+      "changeFromPrevious": "與上一筆取樣的差異",
+      "points": "{{value}} 個百分點",
+      "account": "帳號",
+      "interval": "間隔（分鐘）",
+      "intervalInvalid": "請輸入 1 到 1440 的整數。",
+      "empty": "這段期間沒有額度樣本。",
+      "readFailed": "無法讀取額度歷史。",
+      "noAccount": "新增 Codex 訂閱帳號後即可查看額度歷史。"
+    },
+    "quotaRecovery": {
+      "title": "額度恢復提醒",
+      "description": "重新整理發現剩餘額度回升至 90% 或以上時，透過推送加傳送提醒。需要允許外部網路存取。",
+      "token": "推送加權杖",
+      "settingsError": "無法讀取或儲存提醒設定。"
+    },
     "thresholds": {
       "shortCycle": "短週期額度",
       "weekly": "週額度",
@@ -2520,11 +2831,12 @@
     },
     "launchErrors": {
       "sessionRestoreFailed": "工作階段修復失敗，備份還原尚未完成，已停止啟動。請先檢查日誌與備份，再重試。",
-      "sessionCheckTimeout": "工作階段檢查逾時，已停止啟動。請重試，或查看日誌。",
-      "sessionFileTooLarge": "工作階段檔案首行過大，已停止啟動。請查看日誌。",
       "bindingFailed": "無法確認帳號綁定，已停止啟動，請重試切換帳號。",
       "processScanFailed": "無法檢查舊背景程序，已停止啟動，請重試。",
-      "proxyEntryFailed": "設定的代理入口無法啟動，未改用其他出口，請重試。"
+      "proxyEntryFailed": "設定的代理入口無法啟動，未改用其他出口，請重試。",
+      "proxyEnvUnavailable": "無法套用代理設定。請檢查此 Codex 執行個體的 .env 檔案後再試。",
+      "proxyEnvChanged": "啟動時 .env 檔案已變更。請儲存編輯後再試。",
+      "proxyEnvStopFailed": "啟動時 .env 檔案已變更，且無法停止剛啟動的 Codex。請關閉該執行個體後再試。"
     },
     "oauthProxy": {
       "toggle": "透過代理授權",
@@ -2555,7 +2867,7 @@
     "contextOverride": {
       "title": "上下文管理",
       "description": "模型、排序、預設模型與推理強度跟隨官方目錄；只有手動設定時才覆寫上下文。",
-      "dialogDescription": "對目前 Codex 執行個體的所有帳號生效，切換帳號後保持不變；可選擇跟隨官方、預設值或自訂。",
+      "dialogDescription": "對目前 Codex 執行個體的所有帳號生效，切換帳號後保持不變；可選擇跟隨官方、預設值或自訂。選擇預設值或自訂後，會覆寫所有模型在目錄中各自的上下文視窗。",
       "followOfficial": "跟隨官方",
       "custom": "自訂上下文",
       "automatic": "自動",
@@ -2583,6 +2895,10 @@
       "enabledHint": "啟用後使用目前可見模型列表，重新啟動 Codex 才會生效。",
       "disabledHint": "關閉後會移除 Cockpit 管理的模型目錄，恢復官方模型可見性；具體可用模型由官方帳號權限決定。",
       "models": {
+        "addCustomBlank": "新增自訂模型",
+        "addAll": "全部新增（{{count}}）",
+        "added": "已新增",
+        "source": "來源",
         "title": "模型清單",
         "model": "模型",
         "default": "預設模型",
@@ -2596,6 +2912,7 @@
         "operation": "操作",
         "manage": "管理",
         "resetDefaults": "恢復預設",
+        "embeddedFallback": "更新版模型目錄無法使用，Cockpit 正在使用隨附的內建目錄。",
         "inheritHint": "官方模型保留原有能力欄位；自訂模型使用通用能力範本。可見模型可直接新增或刪除。",
         "validation": {
           "required": "至少保留一個模型。",
@@ -2643,15 +2960,29 @@
         "hourly": "5小時",
         "weekly": "週"
       },
+      "sessionResume": {
+        "title": "接續工作階段",
+        "enabled": "此執行個體啟動時傳送接續提示",
+        "cliHint": "按下「在終端機執行」時傳送設定的提示。預覽、複製與自訂命令沿用原行為。切換時若選擇啟動此執行個體，提示會在背景傳送。",
+        "target": "接續目標",
+        "recentActivity": "最近活躍的工作階段",
+        "lastCreated": "最近建立的工作階段",
+        "previousDesktopSession": "停止前正在檢視的工作階段",
+        "specific": "指定工作階段",
+        "threadId": "工作階段 ID",
+        "prompt": "接續提示",
+        "invalidId": "請輸入有效的工作階段 UUID。",
+        "promptRequired": "請輸入接續提示。"
+      },
       "syncAllRecords": {
         "action": "同步所有實例記錄",
         "autoAction": "自動同步所有實例記錄",
         "autoDisabled": "已關閉自動同步所有實例記錄",
         "autoEnabled": "已開啟自動同步所有實例記錄",
         "autoTooltip": "自動同步所有實例記錄",
-        "autoDesc": "關閉時維持多執行個體記錄隔離；開啟後，僅在所有 Codex 執行個體已停止時，啟動或關閉執行個體會自動補齊缺少的工作階段並追加歷程一致的新增內容，不覆寫既有位元組。",
+        "autoDesc": "關閉時保持各實例的工作階段記錄隔離。開啟後，關閉實例且所有 Codex 實例皆已停止時，自動補齊缺少的工作階段並附加相符的歷程，不覆寫現有內容。同步可能複製大型工作階段檔案。",
         "closeFirst": "請先關閉所有 Codex 實例後再同步記錄，避免執行中的實例把舊記錄寫回。",
-        "confirmMessage": "將補齊所有執行個體中缺少的工作階段，並在目標執行個體已停止且歷程一致時追加新增內容，不覆寫既有位元組。歷程分叉或目標仍在執行時，既有工作階段的更新將被拒絕。寫入前會備份目標檔案。確定繼續？",
+        "confirmMessage": "將補齊所有執行個體中缺少的工作階段，並在目標執行個體已停止且歷程一致時追加新增內容，不覆寫既有位元組。歷程分叉或目標仍在執行時，既有工作階段的更新將被拒絕。寫入前會備份目標檔案。同步可能複製大型工作階段檔案。確定繼續？",
         "needTwo": "至少需要兩個實例才能同步記錄",
         "settingsSection": "同步設定",
         "settingsSubtitle": "管理 Codex 多實例記錄同步方式",
@@ -2677,6 +3008,10 @@
     "refreshAllSuccess": "重新整理完成，成功 {{count}} 個帳號",
     "refreshAllPartialFailed": "重新整理完成，成功 {{success}} / {{total}} 個帳號，部分失敗",
     "launchPreview": {
+      "providerAccessAutomatic": "自動",
+      "providerAccessDirect": "直接連線",
+      "providerAccessGatewayHint": "透過執行個體閘道向供應商傳送請求。",
+      "providerAccessCdpHint": "透過 CDP 將模型清單載入桌面應用程式。",
       "configLoading": "正在讀取執行個體設定…",
       "configRefreshing": "正在核對執行個體設定，現有內容仍可檢視。",
       "configLoadTimeout": "讀取執行個體設定逾時，請重試。",
@@ -2731,7 +3066,8 @@
       "forceRefreshAction": "立即重新整理",
       "forceRefreshRunning": "正在重新整理 Token…",
       "forceRefreshSuccess": "Token 重新整理成功",
-      "forceRefreshRetry": "重新檢測"
+      "forceRefreshRetry": "重新檢測",
+      "advancedMaintenanceTitle": "維護與診斷工具"
     },
     "switch": "切換",
     "switched": "已切換至 {{email}}",
@@ -2791,9 +3127,11 @@
       "portInUseAction": "關閉佔用連接埠並重試",
       "timeout": "驗證逾時，請點擊",
       "timeoutRetry": "更新驗證連結",
-      "reauthEmailLabel": "重新授權帳號"
+      "reauthEmailLabel": "重新授權帳號",
+      "reauthEmailChangeHint": "如果已更換登入電子郵件，請在瀏覽器使用新地址登入。確認是同一使用者和工作區後，Cockpit 會更新這筆記錄的電子郵件。"
     },
     "token": {
+      "importPartial": "匯入完成。成功 {{success}} 個，失敗 {{failed}} 個。{{errors}}",
       "desc": "貼上 auth.json、帳號 JSON、Sub2API JSON、accessToken、個人存取權杖 at-… 或 refresh_token。",
       "placeholder": "範例：session JSON、accessToken、at-… 個人存取權杖、Sub2API JSON，或 {\"personal_access_token\":\"at-...\"}",
       "formatSummary": "必填欄位與範例（點擊展開）",
@@ -2874,7 +3212,7 @@
         "save": "儲存集合",
         "freeNotice": "暫不支援 Free 帳號，Free 帳號不可勾選。",
         "freeUnsupported": "暫不支援 Free 帳號",
-        "restrictFreeToggle": "限制 Free 帳號使用",
+        "restrictFreeToggle": "隱藏未加入的 Free 帳號",
         "sessionAffinityConfirmTitle": "開啟會話親和？",
         "sessionAffinityDescription": "開啟後，同一個會話會盡量持續使用同一個帳號進行對話；帳號不可用時仍會依調度策略切換，超過過期時間後會重新選擇帳號。",
         "pendingOauthUnsupported": "待授權不可加入",
@@ -2887,7 +3225,7 @@
       "entryAction": "加入 API 服務",
       "testAction": "測試",
       "testDialogTitle": "測試 API 服務",
-      "testDialogDesc": "像遊樂場一樣透過目前 API 服務發起真實對話，便於檢查模型、帳號路由與上游回應。",
+      "testDialogDesc": "透過目前的 API 服務測試對話或產生圖片。",
       "testProgressTitle": "正在測試服務",
       "testProgressDesc": "正在向本機 API 服務發出真實請求，請稍候。",
       "testOutputTitle": "回傳結果",
@@ -2983,6 +3321,12 @@
       "clearStatsConfirm": "確定要清空 API 服務統計嗎？",
       "clearStatsSuccess": "API 服務統計已清空",
       "killPortAction": "清理連接埠",
+      "portRecoveryTitle": "處理連接埠",
+      "portRecoveryCurrent": "目前連接埠：{{port}}",
+      "randomPortAction": "換隨機連接埠",
+      "randomPortDescription": "系統會分配可用連接埠，API 服務位址也會更新。",
+      "keepPortDescription": "嘗試釋放目前的連接埠，僅清理本工具可確認歸屬的程序。",
+      "randomPortSuccess": "API 服務已切換至連接埠 {{port}}",
       "killPortTitle": "清理 API 服務連接埠",
       "killPortConfirmMessage": "將強制結束占用本機 {{port}} 連接埠的其他處理程序，然後重新啟動 API 服務。確認繼續嗎？",
       "killPortSuccess": "連接埠已清理（已結束 {{count}} 個處理程序）",
@@ -3002,6 +3346,7 @@
         "planHighFirst": "優先高訂閱",
         "planLowFirst": "優先低訂閱",
         "expirySoonFirst": "優先近到期",
+        "fiveHourResetSoonFirst": "優先近重設（5 小時）",
         "random": "隨機分散",
         "custom": "自訂"
       },
@@ -3048,7 +3393,7 @@
         "custom": "自訂",
         "save": "儲存模型",
         "placeholder": "輸入自訂模型 ID",
-        "description": "用於 /v1/images/generations 與 /v1/images/edits 轉發；預設使用 gpt-image-2.5。",
+        "description": "預設模型：{{model}}",
         "required": "請輸入生圖模型名稱",
         "tooLong": "生圖模型名稱不能超過 200 個字元",
         "saveSuccess": "生圖模型已更新"
@@ -3239,7 +3584,7 @@
       },
       "testChatModel": "模型",
       "testChatClear": "清空對話",
-      "testChatEmpty": "輸入一則訊息後，會透過目前 API 服務發起真實對話。",
+      "testChatEmpty": "選擇模型，傳送訊息或圖片描述。",
       "testChatLatency": "耗時 {{latency}}",
       "testChatSending": "正在請求 API 服務",
       "testChatInputPlaceholder": "輸入測試訊息，Enter 傳送",
@@ -3251,7 +3596,7 @@
       "imageGenerationMainModel": {
         "label": "生圖主模型",
         "notice": "日常請勿修改生圖主模型。",
-        "hint": "此項僅用於官方生圖介面的底層轉發，不用於切換出圖模型。僅當官方調整主模型時手動更新；留空沿用 gpt-5.6-luna。",
+        "hint": "僅用於 Responses 內嵌生圖；獨立圖片介面不使用此設定。留空使用 gpt-5.6-luna。",
         "invalid": "請輸入不含空白的模型 ID，最長 200 字元。"
       },
       "requestDetail": {
@@ -3272,6 +3617,7 @@
       "hideApiKey": "隱藏 API Key",
       "apiKeyHiddenHint": "API Key 已隱藏，點擊顯示",
       "modelCatalog": {
+        "launchHint": "請在 Cockpit 中用此帳號啟動 Codex，以套用已儲存的模型設定。",
         "label": "模型清單",
         "fetch": "從上游取得",
         "fetching": "取得中...",
@@ -3279,7 +3625,7 @@
         "placeholder": "每行填寫一個模型 ID，也可以使用逗號分隔。",
         "editHint": "上游結果只會填入目前草稿，可在儲存前刪除、補充或調整模型。",
         "syncToggle": "同步供應商模型到 Codex",
-        "syncDescription": "儲存後使用目前模型清單產生 Cockpit 管理的 Codex 模型目錄，不會覆蓋使用者自訂目錄。",
+        "syncDescription": "在 Cockpit 中用此帳號啟動 Codex 時套用此模型清單。若已有自訂目錄，將優先使用該目錄。",
         "fetchCredentialsRequired": "請先填寫 API Key 和 Base URL。",
         "fetchEmpty": "上游未回傳可用模型，已保留目前清單。",
         "fetchFailed": "取得上游模型失敗：{{error}}",
@@ -3435,7 +3781,7 @@
       "reset": "重置",
       "weeklyBlocksHourly": "週額度為 0，因此 5 小時額度已不可用",
       "windowStats": "已用 {{tokens}} · {{cost}}",
-      "windowStatsHint": "從本視窗滿額到現在，此帳號經 API 服務的請求數、token 與帳號計費",
+      "windowStatsHint": "本額度視窗內透過 API 服務的請求數、Token 及估算用量價值",
       "windowUsed": "已用 {{tokens}} · {{cost}}",
       "windowReq": "{{count}} 次",
       "resetCredits": "重置 {{count}}",
@@ -3460,8 +3806,8 @@
       "resetCreditRecordsLoadFailed": "載入重置記錄失敗：{{error}}",
       "resetCreditGrantedAt": "發放",
       "resetCreditExpiresAt": "到期",
-      "windowAccountCostHint": "帳號計費（依模型價格估算）",
-      "windowEstimatedFullCostHint": "依已用額度換算：本視窗滿額約合多少帳號計費",
+      "windowAccountCostHint": "依模型 API 單價估算用量價值。訂閱剩餘額度以帳號回傳的百分比為準。",
+      "windowEstimatedFullCostHint": "依已用額度比例估算的視窗滿額用量價值",
       "windowUserCostHint": "使用者計費",
       "windowWeeks": "{{count}} 週配額",
       "windowDays": "{{count}} 天配額",
@@ -3521,15 +3867,7 @@
       "hourly": "按5小時配額",
       "weeklyReset": "按週配額重置時間",
       "hourlyReset": "按5小時配額重置時間",
-      "subscriptionExpiry": "按訂閱到期",
-      "custom": "自訂順序",
-      "customSettingsTooltip": "設定自訂順序",
-      "customModalTitle": "自訂帳號排序",
-      "customModalDesc": "拖曳帳號或使用上下按鈕調整顯示順序。",
-      "customDragHandle": "拖曳排序",
-      "customMoveUp": "上移",
-      "customMoveDown": "下移",
-      "customReset": "重設自訂順序"
+      "subscriptionExpiry": "按訂閱到期"
     },
     "opencodeSwitch": "OpenCode 切換開關",
     "opencodeSwitchDesc": "同步切換 OpenCode 裡的 Codex 帳號資訊",
@@ -3587,6 +3925,12 @@
       "nextRunLabel": "下次執行 {{time}}",
       "lastRunLabel": "上次執行 {{time}}",
       "lastStatusLabel": "最近結果",
+      "confirmationTimedOut": "確認逾時",
+      "confirmationDeclined": "已拒絕執行",
+      "confirmationDeclinedOrExpired": "已拒絕執行或確認逾時",
+      "confirmationUnavailable": "無法要求確認",
+      "taskRunCancelled": "任務已取消",
+      "taskRunInterrupted": "任務已中斷",
       "lastStatusIdle": "尚未執行",
       "lastStatusSuccessSummary": "成功 {{count}} 個帳號",
       "lastStatusFailedSummary": "失敗 {{count}} 個帳號",
@@ -3600,6 +3944,10 @@
       "taskNamePlaceholder": "例如：平日早晨例行喚醒",
       "taskNameRequired": "請輸入任務名稱。",
       "taskAccountsLabel": "選擇帳號",
+      "taskAccountsManual": "手動選帳號",
+      "taskAccountsApiPool": "API 服務帳號池",
+      "taskAccountsApiPoolHint": "按帳號池順序喚醒未暫停的訂閱帳號。",
+      "taskAccountsApiPoolEmpty": "帳號池沒有可喚醒的訂閱帳號。",
       "taskAccountsHint": "僅支援 OAuth Codex 帳號。可多選，系統會依序執行。",
       "taskAccountsRequired": "請至少選擇一個帳號。",
       "scheduleLabel": "排程方式",
@@ -3723,10 +4071,12 @@
         "max": "最高",
         "ultra": "極致"
       },
-      "scheduleQuotaResetHint": "啟用配額重置後喚醒時，系統會將自動刷新調整為每 2 分鐘執行一次。",
+      "scheduleQuotaResetHint": "任務依帳號最近記錄的配額重置時間觸發。Codex 自動更新間隔維持原設定。",
       "scheduleQuotaResetSummary": "配額重置後觸發",
       "quotaResetWindowLabel": "重置視窗觸發條件",
       "quotaResetWindowHint": "primary_window 一般指 5 小時配額；免費用戶下 primary_window 可能對應週配額，不同訂閱可能不同。",
+      "quotaResetDelayLabel": "重設後延遲",
+      "quotaResetDelayInvalid": "請輸入有效範圍內的非負整數分鐘。",
       "quotaResetWindowOptions": {
         "either": "primary_window 或 secondary_window 任一重置",
         "primary_window": "僅 primary_window 重置時觸發",
@@ -3734,7 +4084,6 @@
       },
       "nextRunsQuotaResetHint": "配額重置觸發依賴最新配額資料，因此不提供固定時間預覽。",
       "triggerQuotaReset": "配額重置觸發",
-      "noticeSavedEnabledWithQuotaReset": "任務已儲存，共 {{count}} 個。已將 Codex 自動刷新調整為每 {{minutes}} 分鐘。",
       "runtimeConfigTitle": "自訂執行環境路徑",
       "runtimeConfigHint": "可填寫可執行檔或資料夾路徑；留空時會依系統 PATH 自動偵測。",
       "runtimeConfigCodexCliLabel": "Codex CLI 路徑",
@@ -3840,6 +4189,11 @@
         "confirm": "複製工作階段"
       },
       "repairModal": {
+        "historyDuplicateOrdinals": "以下歷史記錄有重複序號。修復歷史索引會略過這些記錄，完整修復無法繼續。可選擇「修復會話索引」處理其他工作階段。\n{{details}}",
+        "projectsDeferredAction": "請關閉執行個體，再於「修復歷史對話」選擇「本機專案」繼續。",
+        "projectsStopHint": "復原前請完全關閉所選執行個體。現在可以預覽變更。",
+        "modeProjectsDesc": "復原本機專案與對話歸屬，保留訊息記錄。",
+        "modeProjects": "本機專案",
         "running": "正在修復...",
         "progress": {
           "queued": "正在啟動修復任務...",
@@ -3907,6 +4261,7 @@
         "historyPreview": "發現 {{count}} 段可重建的異常歷史索引；聊天記錄保持原樣。",
         "historySuccess": "已重設 {{count}} 段異常歷史索引。請重新啟動用戶端並重新開啟會話以重建；備份已保留。",
         "historyNoChanges": "未發現可安全重建的異常歷史索引。",
+        "historySkippedSources": "有 {{count}} 項因會話記錄或依賴的歷史來源缺失而未修復，現有資料已保留；其他可修復索引會繼續處理。還原缺失檔案後可重試。以下為「執行個體：受影響 ID → 缺失來源 ID」：\n{{details}}",
         "historyFailed": "歷史索引修復未完成：{{error}}",
         "historyChanged": "會話資料在修復期間發生變化，本次修復未寫入。請稍後重試。",
         "historyScan": "正在檢查歷史索引（{{current}}/{{total}}）…",
@@ -3916,7 +4271,8 @@
         "projectsPreview": "預覽：{{projects}} 個專案、{{assignments}} 筆歸屬；略過 {{skipped}} 個專案及 {{ambiguous}} 筆歸屬不明對話。",
         "projectsSuccess": "還原完成：{{projects}} 個專案、{{assignments}} 筆歸屬；略過 {{skipped}} 個專案及 {{ambiguous}} 筆歸屬不明對話。",
         "projectsPending": "上次還原未完成。請結束目標執行個體後執行完整修復，先復原中斷的寫入。",
-        "projectsDeferred": "部分專案中繼資料尚未處理，請結束目標執行個體後重試快速修復，或使用完整修復。"
+        "projectsDeferred": "部分專案中繼資料尚未處理，請結束目標執行個體後重試快速修復，或使用完整修復。",
+        "switchProjectsDeferred": "憑證已更新，但無法同步本機專案或對話狀態。請結束受影響的 Codex 執行個體，再從 Cockpit 啟動該執行個體重試。"
       },
       "importModal": {
         "title": "匯入會話",
@@ -4016,6 +4372,14 @@
       }
     },
     "sessionUsage": {
+      "comparison": {
+        "localTotal": "本機工作階段 Token · 所選時間和執行個體",
+        "profileTotal": "官方個人資料 · 累計 Token 數",
+        "account": "Codex 帳號",
+        "noAccount": "新增 Codex OAuth 帳號後可查看官方累計用量。",
+        "loadError": "無法讀取官方累計用量。",
+        "unavailable": "官方個人資料未提供累計用量。"
+      },
       "tab": "會話用量",
       "listTab": "會話列表",
       "title": "會話用量",
@@ -4131,6 +4495,8 @@
       }
     },
     "modelProviders": {
+      "updateApiKeyFailed": "無法更新 API 金鑰：{{error}}",
+      "editApiKey": "編輯 API 金鑰",
       "keyModels": {
         "title": "Key 模型設定",
         "override": "獨立設定",
@@ -4176,6 +4542,8 @@
         "supportsWebsockets": "WebSocket 傳輸"
       },
       "validation": {
+        "apiKeyExists": "目前供應商已有相同的 API 金鑰",
+        "apiKeyRequired": "請輸入 API 金鑰",
         "nameRequired": "供應商名稱不能為空",
         "baseUrlInvalid": "Base URL 格式無效",
         "baseUrlExists": "此 Base URL 已存在",
@@ -4213,6 +4581,8 @@
         "anthropic": "Anthropic 協定",
         "gatewayRequired": "此協定須透過本機閘道使用，請在此選擇啟動模型。"
       },
+      "searchSavedProviders": "搜尋供應商",
+      "noMatchingSavedProviders": "沒有符合的供應商",
       "selectSavedProvider": "已儲存供應商",
       "selectSavedApiKey": "已儲存 API Key",
       "selectSavedApiKeyPlaceholder": "選擇 API Key",
@@ -4296,6 +4666,7 @@
         "checkModelsApi": "請確認該供應商提供 OpenAI 相容的模型列表回應。"
       },
       "batchTest": {
+        "firstText": "首字",
         "entry": "一鍵測試",
         "entryHint": "批次測試供應商實際對話能力",
         "selectedCount": "已選 {{count}} 個",
@@ -4382,6 +4753,15 @@
         "detailTitle": "服務面板",
         "rawFields": "服務資料",
         "fields": {
+          "intervalRemaining": "週期剩餘",
+          "intervalLimit": "週期上限",
+          "intervalRemainingPercent": "週期剩餘比例",
+          "intervalExpiresAt": "週期重設",
+          "weeklyRemaining": "每週剩餘",
+          "weeklyLimit": "每週上限",
+          "weeklyRemainingPercent": "每週剩餘比例",
+          "weeklyExpiresAt": "每週重設",
+          "currency": "幣別",
           "status": "狀態",
           "planName": "訂閱",
           "remaining": "剩餘額度",
@@ -4404,7 +4784,9 @@
           "expiresAt": "過期時間",
           "totalGranted": "授予額度",
           "totalAvailable": "可用額度",
-          "modelLimitsEnabled": "模型限制"
+          "isAvailable": "餘額可用",
+          "modelLimitsEnabled": "模型限制",
+          "weeklyShort": "週"
         },
         "accountBalance": "帳戶餘額",
         "unlimitedQuota": "無限額度",
@@ -4568,6 +4950,7 @@
       "repairFailedWithError": "修復可見性失敗：{{error}}"
     },
     "accountNote": {
+      "refreshEmailHint": "如果 OpenAI 帳號的電子郵件地址已變更，請重新授權同一個帳號和工作區以更新此處的電子郵件地址。",
       "title": "帳號備註",
       "label": "帳號備註",
       "desc": "給 {{account}} 填寫密碼、2FA、郵件地址、手機號和其他備註。",
@@ -4650,6 +5033,8 @@
       "launchHint": "切換帳號及透過 Cockpit 啟動時寫入客戶端設定。執行中的客戶端需重新啟動；新對話使用預設檔位，既有對話的獨立速度設定需在客戶端調整。"
     },
     "apiService": {
+      "providerQuotaStale": "額度資料已過期",
+      "providerQuotaUnitUnknown": "單位未知",
       "inspection": {
         "internalScope": "這是內部用戶端請求，請檢查服務帳號池及執行個體綁定；它不對應公開用戶端 Key。",
         "keyUnavailable": "請求對應的用戶端 Key 已刪除或不存在，請檢查目前 Key 和帳號池。",
@@ -4680,6 +5065,11 @@
         "responsesTitle": "Responses 入口",
         "responsesNote": "Codex 原生 Responses 入口。",
         "anthropicTitle": "Anthropic Messages 入口",
+        "claudeCodeNoModels": "所選 Key 沒有可用的對話模型。請檢查該 Key 的模型規則和帳號池。",
+        "claudeCodeSettingsChanged": "設定在預覽後已變更，請重新預覽。",
+        "claudeCodeServiceUnavailable": "無法讀取所選 Key 的模型。請檢查 API 服務與金鑰狀態。",
+        "claudeCodeNoBackup": "目前的設定沒有相符的備份。",
+        "claudeCodeSettingsHint": "儲存會合併所列變數並加密備份原設定。值為 null 的變數將移除。",
         "anthropicNote": "使用同一個服務 Key。",
         "geminiTitle": "Gemini 入口",
         "geminiNote": "Base URL 使用 /v1beta。",
@@ -4704,6 +5094,7 @@
         "capabilityTitle": "能力開關",
         "capabilityDesc": "gpt-image-2 會依服務開關、帳號方案與已記錄的圖片能力狀態自動顯示或隱藏。",
         "rulesTitle": "模型規則",
+        "claudeCodePreset": "Claude Code 預設",
         "aliasTitle": "模型別名",
         "aliasPlaceholder": "gpt-5 => g5；保留原模型加 +",
         "excludedTitle": "隱藏模型",
@@ -4711,6 +5102,11 @@
         "saveRules": "儲存規則",
         "rulesSaved": "模型規則已儲存",
         "pricingAction": "價格設定",
+        "refreshCatalog": "重新整理模型",
+        "refreshComplete": "已檢查模型和價格。",
+        "refreshFailed": "無法重新整理模型和價格，繼續使用現有資料。",
+        "refreshModelsFailed": "無法重新整理模型，繼續使用現有目錄。",
+        "refreshPricesFailed": "無法重新整理價格，繼續使用現有費率。",
         "pricingTitle": "模型價格設定",
         "pricingDesc": "單位為 USD / 1M tokens，僅用於本機價值統計。",
         "pricingModel": "模型",
@@ -4747,6 +5143,16 @@
         "pricingRepriceCompleted": "歷史估算價值已更新",
         "pricingRepriceSaveBlocked": "歷史估算價值更新中，完成後再儲存"
       },
+      "accountPools": {
+        "title": "命名帳號池",
+        "add": "新增帳號池",
+        "name": "帳號池名稱",
+        "deleteHint": "刪除帳號池後，關聯的 Key 會保留目前的帳號範圍。",
+        "detach": "解除關聯",
+        "saved": "帳號池已儲存",
+        "removed": "帳號池已刪除",
+        "detached": "Key 已解除帳號池關聯"
+      },
       "keys": {
         "policyTitle": "帳號池與模型策略",
         "advancedPolicyTitle": "帳號池與模型策略",
@@ -4769,6 +5175,13 @@
         "tokenLimit": "Token 總上限",
         "tokenLimitPlaceholder": "例如：10m",
         "tokenLimitHint": "留空表示不限額；所有模型的輸入與輸出 Token 合併累計。",
+        "monthlyTokens": {
+          "title": "每月 Token 提醒",
+          "used": "本月已使用 {{used}} Token",
+          "hint": "留白可關閉提醒。每個本地曆月提醒一次，達到門檻後仍可繼續請求。",
+          "invalid": "請輸入整數 Token 數量。",
+          "notification": "{{label}} 本月已使用 {{used}} Token，已達設定的 {{threshold}} Token 提醒門檻。"
+        },
         "tokenLimitInvalid": "請輸入有效的 Token 上限，例如 10m 或 10000000",
         "tokenLimitUsage": "Token 限額",
         "tokenLimitCurrentUsage": "已用：{{used}} Token",
@@ -4776,9 +5189,15 @@
         "unsaved": "尚未儲存",
         "resetPolicy": "撤銷修改",
         "modelPrefix": "模型前綴",
+        "maxReasoningEffort": "思考深度上限",
+        "maxReasoningHint": "超過上限或無法確認思考深度的請求會遭拒絕。",
+        "reasoningNone": "無",
+        "reasoningMinimal": "最低",
         "modelPrefixPlaceholder": "例如 codex",
         "allowedModels": "允許模型",
         "allowedModelsPlaceholder": "留空允許全部；每行一個模型或萬用字元",
+        "modelsOutsideAllowlist": "白名單外的模型",
+        "allowCurrentAndFutureModels": "允許目前及未來的模型",
         "excludedModels": "排除模型",
         "excludedModelsPlaceholder": "每行一個模型或萬用字元",
         "savePolicy": "儲存策略",
@@ -4789,8 +5208,8 @@
       "routing": {
         "optionsTitle": "調度選項",
         "sessionIdentityMapping": "工作階段 ID 對應",
-        "sessionIdentityMappingEnableHint": "開啟後，切換上游帳號會使用獨立的 Session-Id 和 Thread-Id，會話識別碼隔離更強，但跨帳號快取重用可能減少。同一帳號內仍重用既有對應。",
-        "sessionIdentityMappingDisableHint": "關閉後，保留用戶端原始 Session-Id 和 Thread-Id。不同上游帳號可能共用相同識別碼，隔離性減弱，但跨帳號快取重用可能增加。",
+        "sessionIdentityMappingEnableHint": "僅適用於 Codex 官方帳號。開啟後，各帳號使用獨立的 Session-Id 和 Thread-Id，同一帳號重用既有對應，跨帳號快取重用可能減少。",
+        "sessionIdentityMappingDisableHint": "關閉後，Codex 官方帳號保留用戶端原始 Session-Id 和 Thread-Id。不同帳號可能共用相同識別碼，隔離性減弱，但跨帳號快取重用可能增加。",
         "sessionIdentityMappingCacheNote": "快取命中率還取決於上游規則、帳號範圍和請求內容，不保證因切換而升降。",
         "sessionIdentityMappingSaveNote": "確認後仍需儲存設定才會生效。",
         "sessionAffinity": "會話親和",
@@ -4800,6 +5219,10 @@
         "maxRetryInterval": "重試等待",
         "disableCooling": "停用冷卻",
         "saveOptions": "儲存選項",
+        "accountQuotaFloor": "最低剩餘額度",
+        "accountQuotaFloorHint": "任一方案額度週期的剩餘百分比達到或低於此值時，API 服務將暫停向此帳號分配新請求。留空可關閉。",
+        "accountQuotaFloorInvalid": "請輸入 1 到 100 的整數百分比。",
+        "accountQuotaFloorSaveFailed": "無法儲存最低剩餘額度。",
         "immediateSseResponse": "SSE 立即回傳 200",
         "maxConcurrentImageRequests": "每個帳戶的圖片請求數",
         "maxAccountConcurrency": "帳號併發數",
@@ -4818,7 +5241,7 @@
         "modelFilter": "模型",
         "modelPlaceholder": "模型 ID",
         "accountFilter": "帳號",
-        "accountPlaceholder": "信箱或帳號 ID",
+        "accountPlaceholder": "名稱、信箱或 ID",
         "apiKeyFilter": "API 金鑰",
         "apiKeyPlaceholder": "名稱或 ID",
         "kindFilter": "類型",
@@ -4832,6 +5255,12 @@
         "requestIdShort": "請求 ID {{id}}",
         "httpStatus": "HTTP 狀態 {{status}}",
         "allInstances": "全部實例",
+        "allSources": "全部來源",
+        "connectionSource": "連線來源",
+        "peerIp": "對端 IP",
+        "sourceLocal": "本機",
+        "sourceLan": "區域網路",
+        "sourceRemote": "遠端",
         "instanceFilter": "實例",
         "instanceUnknown": "實例 -",
         "reasoningEffort": "思考強度",
@@ -4862,12 +5291,20 @@
         "tokenOutput": "輸出",
         "tokenCache": "快取",
         "tokenTotal": "總量",
+        "inputTextCharacters": "輸入字元數",
+        "inputTextCharactersHint": "統計用戶端此次提交的訊息與指令文字的 Unicode 碼點數，包含隨要求傳送的文字歷史。",
+        "highTokenRequests": "高 Token 請求",
+        "highTokenBadge": "高用量",
+        "tokenThreshold": "單次 Token 標記門檻",
+        "highTokenHint": "單次記錄達到 {{threshold}} Token 時標記",
         "speedAdjusted": "{{tier}} → 標準",
         "officialDefaultSpeed": "官方方案通道不支援速度覆寫，本次已以預設速度傳送。",
         "sentTier": "傳送：{{tier}}",
-        "originalTier": "原檔位：{{tier}}"
+        "originalTier": "原檔位：{{tier}}",
+        "moreFilters": "更多篩選"
       },
       "timeouts": {
+        "retryTitle": "傳送與帳號重試",
         "entryLabel": "進階參數",
         "openAction": "逾時與重試",
         "title": "逾時與重試",
@@ -4889,6 +5326,10 @@
         "bootstrapRetries": "啟動重試",
         "websocketTitle": "WebSocket 設定",
         "websocketConnect": "連線逾時",
+        "requestBody": "本文接收逾時",
+        "requestBodyHelp": "接收完整 HTTP 請求本文的時限（1–600 秒）。",
+        "websocketFragment": "分段接收逾時",
+        "websocketFragmentHelp": "接收一則完整 WebSocket 分段訊息的總時限（1–600 秒）。",
         "websocketInitial": "首包逾時",
         "websocketIdle": "閒置逾時",
         "websocketHeartbeat": "心跳間隔",
@@ -4930,7 +5371,13 @@
       "usage": {
         "title": "用量統計",
         "lastRecorded": "最近記錄",
-        "trendEmpty": "所選時間範圍沒有請求記錄"
+        "inputTextCoverage": "已採集 {{measured}} / {{total}} 個請求",
+        "trendEmpty": "所選時間範圍沒有請求記錄",
+        "periodTokens": "時段 Token 用量",
+        "cumulativeTokens": "累計 Token 用量",
+        "tokenComposition": "Token 用量分布",
+        "nonReasoningOutput": "非推理輸出",
+        "reasoningTokens": "推理"
       },
       "accountModelMappings": {
         "action": "模型對應",
@@ -4940,7 +5387,7 @@
         "upstreamModel": "發送模型",
         "addRow": "新增一行",
         "fillDeepSeek": "填入 DeepSeek",
-        "empty": "目前成員中沒有可對應的 API Key 帳號",
+        "empty": "沒有可設定模型對應的帳號",
         "incomplete": "請補全請求模型與發送模型",
         "duplicate": "請求模型不可重複",
         "saveSuccess": "帳號模型對應已儲存",
@@ -4992,6 +5439,9 @@
       "imported": "已匯入",
       "failed": "失敗",
       "quotaOk": "帳號正常",
+      "minimumQuota": "最低剩餘額度 (%)",
+      "minimumQuotaHint": "任一已知額度低於此值時略過該帳號。",
+      "minimumQuotaEmpty": "沒有符合額度篩選條件的帳號。",
       "quotaFailed": "異常",
       "checkQuotaToggle": "匯入前檢測帳號",
       "preparing": "正在準備匯入任務...",
@@ -5130,18 +5580,21 @@
       "syncNow": "立即同步",
       "connectionOk": "已連接",
       "syncVerified": "SSH 同步已驗證",
+      "connectionRefreshFailed": "驗證資料已同步，SSH 連線尚未重新整理完成。請稍後再試。",
       "syncFailed": "SSH 同步失敗",
       "syncedAs": "已同步 {{email}} · {{time}}",
       "neverSynced": "尚未同步",
       "latestVerified": "上次 SSH 同步已驗證",
       "syncSwitchActive": "已啟用 · {{name}}（{{user}}@{{host}}）",
+      "syncSwitchActiveMultiple": "已啟用 · {{count}} 台伺服器",
+      "selectedServerCount": "已選 {{selected}} / {{total}} 台",
       "footerHint": "儲存後開關打開；隨時將其關閉以停止自動同步。",
       "formLead": "遠端主機詳細資訊",
       "namePlaceholder": "例如家庭網路存儲",
       "syncOnSwitchHint": "儲存並選擇後，Codex 切換將身份驗證推送到該主機",
       "addAndSave": "添加並保存",
       "serverList": "伺服器",
-      "serverListLead": "選擇同步目標",
+      "serverListLead": "選擇同步目標（可複選）",
       "serverCount": "{{count}} 台",
       "autoSyncBadge": "汽車"
     },
@@ -5177,6 +5630,13 @@
       "restartFailed": "重新啟動閘道失敗：{{error}}"
     },
     "proxy": {
+      "directHosts": {
+        "title": "Codex 直連主機",
+        "hint": "每行輸入一個主機名稱、IP 位址或 CIDR 網段。內部 MCP 等符合規則的目標會略過 Codex 託管代理。用戶端設定於重新啟動 Codex 後生效。",
+        "invalid": "每行請輸入有效的主機名稱、IP 位址或 CIDR 網段。",
+        "loadFailed": "無法載入直連主機。",
+        "saveFailed": "無法儲存直連主機。"
+      },
       "legacyBoundHint": "沿用先前綁定帳號的代理，重新儲存後將使用所選模式。",
       "boundAccountUnavailable": "綁定帳號無法使用，請重新選擇代理。",
       "boundProxyUnavailable": "綁定帳號沒有可用代理，請重新選擇。",
@@ -5607,6 +6067,13 @@
         "nodeCount": "{{count}} 個節點",
         "updatedAt": "更新於 {{time}}",
         "autoUpdate": "每 6 小時自動更新",
+        "dnsOverride": "DNS 覆寫",
+        "ipv6": "啟用 IPv6",
+        "dnsServers": "DNS 伺服器",
+        "dnsServersHint": "每行一個位址，留空使用 Cloudflare DoH。",
+        "networkScope": "適用於此來源代理的新連線。",
+        "invalidDnsServer": "請在每行輸入一個有效的 DNS 伺服器位址。",
+        "networkSaveFailed": "無法儲存或套用網路設定，請再試一次。",
         "snapshotNotice": "更新訂閱不會變更已綁定的設定；重新綁定後才會套用更新。",
         "defaultLabel": "預設項目",
         "defaultEmpty": "未設定",
@@ -5875,6 +6342,19 @@
       "done": "完成"
     },
     "cliDaemon": {
+      "profileChanged": "目前的設定目錄已更新。執行中的 CLI 背景程序可能仍在使用舊帳號或模型清單。",
+      "restartWarning": "請先完成執行中的 CLI 工作。重新啟動會中斷連線至此背景程序的工作階段。",
+      "restart": "重啟 CLI",
+      "restarting": "正在重啟…",
+      "restarted": "CLI 背景程序已重新啟動。",
+      "autoRefresh": "切換帳號後自動重新整理 CLI",
+      "autoRefreshHint": "預設 CLI 守護程序閒置且無用戶端連線時自動重新整理。",
+      "autoDeferred": "無法確認 CLI 已自動重新整理。重新啟動前請確認守護程序的狀態。",
+      "workspaceConfirmed": "CLI 守護程序已重新啟動，並已確認所選 OAuth 工作區。",
+      "workspaceUnconfirmed": "CLI 守護程序已重新啟動，暫無法確認所選 OAuth 工作區。",
+      "workspaceMismatch": "重新啟動後的 CLI 守護程序使用了其他 OAuth 帳號或工作區。",
+      "restartUnconfirmed": "無法確認新的 CLI 守護程序已就緒。請再試一次，或將指令複製到終端機執行。",
+      "restartFailed": "重新啟動失敗。請重試，或複製指令至終端機執行。",
       "title": "CLI 帳號需重新整理",
       "description": "憑證已儲存，但偵測到此設定目錄的 Codex CLI 背景服務仍在執行，可能繼續使用原帳號。",
       "restartHint": "請先結束正在執行的 CLI 工作，再於終端機執行下列指令。重新啟動會中斷連線至此服務的工作階段。",
@@ -5901,6 +6381,9 @@
       }
     },
     "requestDiagnostics": {
+      "cloudflareGatewayError": "Cloudflare 閘道錯誤（HTTP {{status}}，Ray ID {{ray}}）",
+      "responseModel": "上游回報模型",
+      "responseModelDiffers": "上游回報的模型與送出的模型不同。",
       "requestSizeTitle": "請求大小",
       "requestSizeHint": "以解壓後的用戶端 JSON 統計；各欄位採精簡 JSON 位元組數，僅記錄大小。",
       "requestBytes": "請求",
@@ -6004,7 +6487,9 @@
       "defaultReasoning": "預設檔位",
       "defaultReasoningFollow": "沿用預設",
       "defaultReasoningHint": "留空沿用模型預設檔位；所選檔位必須在目前支援範圍內。",
-      "defaultReasoningInvalid": "預設推理檔位必須屬於目前支援的檔位。"
+      "defaultReasoningInvalid": "預設推理檔位必須屬於目前支援的檔位。",
+      "ultraReasoning": "Ultra 強度",
+      "ultraReasoningInvalid": "請選擇支援 Ultra 的模型所提供的推理強度。"
     },
     "modelConfig": {
       "transfer": "匯入 / 匯出",
@@ -6091,6 +6576,12 @@
       "saveOnly": "僅儲存設定",
       "validationBusy": "上一個路徑仍在檢查，請稍後重試。"
     },
+    "customProviderUsage": {
+      "title": "自訂額度查詢",
+      "settings": "查詢設定（JSON）",
+      "hint": "留空時使用自動偵測。可填寫 headers 加入請求標頭。用 | 分隔備選欄位路徑時，會依序採用第一個非 null 的值。",
+      "invalid": "請檢查額度查詢 JSON、端點是否同源，以及欄位對應。"
+    },
     "openaiUsage": {
       "monthCost": "本月支出",
       "scope": "組織支出；請求與 Token 僅含文字介面；依 UTC 統計。",
@@ -6122,6 +6613,44 @@
     },
     "officialApi": {
       "hint": "OpenAI 官方 API Key 接入，依實際位址識別。"
+    },
+    "resetHistory": {
+      "redeemedCardId": "已用卡片編號",
+      "windowsReset": "重設的額度視窗數",
+      "observations": "用卡詳情",
+      "effectiveRule": "生效規則",
+      "before": "請求前",
+      "after": "確認後",
+      "availableCardIds": "可用卡片編號",
+      "title": "重設記錄",
+      "available": "可用次數",
+      "official": "官方歷史",
+      "local": "本機使用",
+      "officialHint": "過去 30 天，來自官方記錄。",
+      "localHint": "記錄本工具中的手動操作，並保留早期自動用卡記錄；不回填舊資料。",
+      "officialEmpty": "過去 30 天暫無重設記錄",
+      "localEmpty": "暫無本機使用記錄",
+      "received": "已獲得重設次數",
+      "used": "已使用重設次數",
+      "alreadyRedeemed": "已兌換（重試確認）",
+      "nothingToReset": "無需重設，未使用次數",
+      "noCredit": "無可用次數",
+      "pending": "等待確認",
+      "unconfirmed": "結果未確認",
+      "manual": "手動使用",
+      "expiry": "自動使用 · 即將到期",
+      "weekly": "自動使用 · 每週額度",
+      "unknown": "未知記錄",
+      "requestId": "請求 ID",
+      "more": "載入更多",
+      "loadFailed": "讀取記錄失敗",
+      "officialUnavailable": "此帳號不支援官方重設歷史",
+      "legacyActivityTitle": "早期活動記錄（唯讀）",
+      "legacyActivityHint": "僅依目前帳號原有歸屬顯示，不推斷工作區身分或實際扣卡結果。",
+      "legacyReasonExpiry": "到期前使用",
+      "legacyReasonQuota": "低額度使用",
+      "legacyReasonManual": "手動重設",
+      "legacyReasonCheck": "背景檢查"
     }
   },
   "githubCopilot": {
@@ -6141,7 +6670,8 @@
       "desc": "點擊下方按鈕，在瀏覽器中完成 GitHub Copilot 授權。"
     },
     "token": {
-      "desc": "貼上 GitHub Copilot 存取權杖或匯出的 JSON 資料。"
+      "desc": "貼上 GitHub Copilot 存取權杖或匯出的 JSON 資料。",
+      "requiredFields": "必填欄位：Token 模式請直接貼上 GitHub access token；JSON 模式須包含 id、github_login、github_id、github_access_token、copilot_token、created_at、last_used"
     },
     "import": {
       "localDesc": "支援從本機 VS Code 或 JSON 檔案匯入 GitHub Copilot 帳號資料。",
@@ -6252,6 +6782,9 @@
     }
   },
   "quickSettings": {
+    "codexWindow": {
+      "orDivider": "符合任一條件即觸發"
+    },
     "antigravity": {
       "title": "Antigravity IDE 設定",
       "appPath": "啟動路徑"
@@ -6318,6 +6851,10 @@
       "hint": "命中監控的模型分組閾值時會自動切號；啟用 Credits 監控後，剩餘 Credits 低於閾值時也會觸發。",
       "creditsEnable": "監控 Credits",
       "creditsThreshold": "Credits 閾值",
+      "windowThresholdsEnable": "分設 5 小時與週額度門檻",
+      "fiveHourThreshold": "5 小時切換門檻",
+      "weeklyThreshold": "週額度切換門檻",
+      "windowThresholdsHint": "任一額度達到門檻時自動切換帳號。通用門檻仍適用於模型額度。",
       "creditsThresholdDesc": "剩餘 Credits 小於等於此值時也會觸發自動切號",
       "triggerModel": "觸發模型",
       "scopeAnyGroup": "任一模型分組",
@@ -6412,16 +6949,16 @@
       "appTargetPlaceholder": "Claude.exe 路徑或 shell:AppsFolder\\..."
     },
     "traeSolo": {
-      "appPath": "TRAE SOLO 路徑",
-      "title": "TRAE SOLO 設定"
+      "appPath": "TraeWork 路徑",
+      "title": "TraeWork 設定"
     },
     "traeCn": {
       "appPath": "Trae CN 路徑",
       "title": "Trae CN 設定"
     },
     "traeSoloCn": {
-      "appPath": "TRAE SOLO CN 路徑",
-      "title": "TRAE SOLO CN 設定"
+      "appPath": "TraeWork CN 路徑",
+      "title": "TraeWork CN 設定"
     }
   },
   "quotaAlert": {
@@ -6512,7 +7049,8 @@
       "desc": "點擊下方按鈕，在瀏覽器中完成 Devin 授權。"
     },
     "token": {
-      "desc": "貼上 Devin 存取權杖或匯出的 JSON 資料。"
+      "desc": "貼上 Devin 存取權杖或匯出的 JSON 資料。",
+      "requiredFields": "必填欄位：github_access_token (API Key)"
     },
     "import": {
       "localDesc": "從本機已登入的會話匯入 Devin 帳號。",
@@ -6553,6 +7091,8 @@
   },
   "kiro": {
     "account": {
+      "signedInWithUnknown": "登入管道未知",
+      "signedInWithProvider": "透過 {{provider}} 登入",
       "signedInWith": "使用 {{provider}} 登入",
       "providerUnknown": "未知",
       "userId": "使用者身分"
@@ -6614,7 +7154,8 @@
       "startUrlRequired": "請輸入 IAM Identity Center 起始 URL"
     },
     "token": {
-      "desc": "貼上您的 Kiro 存取權杖或匯出的 JSON 資料。"
+      "desc": "貼上您的 Kiro 存取權杖或匯出的 JSON 資料。",
+      "requiredFields": "必填欄位：JSON 建議使用 access_token + refresh_token（accessToken/refreshToken 僅供相容）"
     },
     "import": {
       "localDesc": "支援本機或 JSON 匯入；JSON 帳號先儲存，再於背景更新登入狀態與額度。",
@@ -6638,6 +7179,17 @@
       "usageDetails": "用量明細",
       "otherModels": "其他模型",
       "grokBotWeekly": "Grok Bot（週用量）",
+      "weeklyUsage": "每週用量",
+      "monthlyUsage": "每月用量",
+      "additionalBalance": "額外用量餘額",
+      "additionalMonthlyUsed": "本月額外用量",
+      "additionalMonthlyLimit": "每月額外用量上限",
+      "limitUnset": "未設定",
+      "autoTopUp": "自動加值",
+      "autoTopUpDetails": "低於 {{threshold}} 時加值 {{amount}}",
+      "usedPercent": "已用 {{percent}}%",
+      "details": "用量明細",
+      "sandUsage": "Grok Bot 用量",
       "onDemand": "按需使用"
     },
     "title": "Cursor 帳號管理",
@@ -6653,13 +7205,14 @@
       "title": "新增 Cursor 帳號"
     },
     "token": {
-      "desc": "貼上您的 Cursor 存取權杖（JWT）或匯出的 JSON 資料。",
+      "desc": "貼上 Cursor JWT、瀏覽器工作階段權杖或匯出的 JSON 資料。",
       "formatHint": "必填欄位與範例（點擊展開）",
-      "formatRequired": "單一權杖：直接貼上 JWT；批次匯入：使用 JSON 陣列格式",
+      "formatRequired": "單筆可使用 JWT 或瀏覽器工作階段權杖。批次匯入使用 JSON 陣列。",
       "singleExample": "單一範例（JWT）",
       "batchExample": "批次範例（JSON）",
       "webNotSwitchable": "不可切換",
-      "webNotSwitchableTooltip": "此帳號的 token 是網頁會話（web）類型，只能查額度，Cursor 桌面端無法用它登入。請用 OAuth 重新登入，或改用桌面 session token。"
+      "webNotSwitchableTooltip": "此帳號的 token 是網頁會話（web）類型，只能查額度，Cursor 桌面端無法用它登入。請用 OAuth 重新登入，或改用桌面 session token。",
+      "invalidBrowserToken": "瀏覽器工作階段權杖格式錯誤，或使用者 ID 與 JWT 不相符。"
     },
     "import": {
       "localDesc": "從本機 Cursor 用戶端或 JSON 檔案匯入帳號資料。",
@@ -7044,6 +7597,31 @@
     }
   },
   "codebuddy": {
+    "sessionManager": {
+      "statusAll": "所有狀態",
+      "statusCompleted": "已完成",
+      "statusInProgress": "進行中",
+      "statusFilter": "工作階段狀態",
+      "noMatching": "沒有相符的工作階段",
+      "noSessions": "尚無工作階段",
+      "untitled": "（無標題）",
+      "labels": {
+        "session": "工作階段",
+        "user": "使用者",
+        "dir": "資料夾"
+      },
+      "unknownTime": "時間未知",
+      "searchPlaceholder": "搜尋標題或工作目錄",
+      "rebind": {
+        "title": "變更工作區資料夾",
+        "scope": "重新繫結所選 WorkBuddy 執行個體中此資料夾的所有本機工作階段。套用前請結束該執行個體。",
+        "instance": "WorkBuddy 執行個體",
+        "choose": "選擇新資料夾",
+        "apply": "重新繫結工作階段",
+        "noSessions": "此資料夾已沒有可重新繫結的本機工作階段。請重新整理清單後再試一次。",
+        "success": "已重新繫結 {{count}} 個本機工作階段。"
+      }
+    },
     "title": "CodeBuddy 帳號管理",
     "noAccounts": "暫無 CodeBuddy 帳號",
     "addAccount": "新增 CodeBuddy 帳號",
@@ -7144,6 +7722,22 @@
     }
   },
   "qoder": {
+    "diagnostics": {
+      "profileUninitialized": "Qoder IDE 尚未初始化。請用目前的系統帳號開啟此設定檔，結束後再試。目錄：{{detail}}",
+      "storageUnavailable": "無法存取 Qoder IDE 憑證。請確認兩個程式使用同一系統帳號。{{detail}}",
+      "profileConflict": "啟動設定指向其他設定檔。實際目錄：{{detail}}",
+      "dataRootUnavailable": "找不到 Qoder IDE 設定檔目錄。",
+      "busy": "Qoder 正在處理另一項操作，請稍後再試。",
+      "reauthRequired": "Qoder 登入已過期，請重新授權，或在 IDE 登入後重新匯入。",
+      "apiUnauthorized": "Qoder 服務未授權此請求。",
+      "renewalFailed": "Qoder 憑證續期失敗，請稍後再試。",
+      "sessionChanged": "Qoder 工作階段已變更，請重新整理後再試。",
+      "endpointUnavailable": "無法確認此 Qoder 工作階段的服務位址。請檢查對應 IDE 的登入及組織設定。",
+      "switchLaunchFailed": "帳號已寫入，但 Qoder IDE 啟動失敗。{{detail}}",
+      "refreshCount": "已重新整理 {{count}}／{{total}} 個帳號。",
+      "launchUnconfirmed": "未確認 Qoder IDE 已啟動。",
+      "workerFailed": "Qoder 背景作業失敗。{{detail}}"
+    },
     "title": "Qoder 帳號管理",
     "comingSoon": {
       "title": "應用多開功能即將上線",
@@ -7159,6 +7753,7 @@
       "copyLoginUrl": "複製登入連結"
     },
     "usageOverview": {
+      "enterpriseManaged": "組織管理",
       "title": "用量總覽",
       "viewDetails": "查看詳情",
       "includedCredits": "方案內 Credits",
@@ -7170,8 +7765,8 @@
     "flowNotice": {
       "title": "Qoder 帳號接入說明（點擊展開/收起）",
       "desc": "目前支援官方授權登入（回調）、本機匯入、JSON 匯入、切號注入、應用多開綁定與配額概覽。登入流程沿用 Qoder 用戶端真實落盤資料。",
-      "permission": "權限範圍：讀取 Qoder 本地認證儲存（auth 憑證與使用者資訊），用於帳號切換與工作階段注入；所有資料僅在本機處理。",
-      "network": "網路範圍：OAuth 授權登入需連網請求 Qoder 官方服務完成回調；配額查詢透過 Qoder API 取得用量資料。不會上傳本地金鑰或憑證。"
+      "permission": "Cockpit 讀取 Qoder IDE 的登入、方案、用量及機器識別快取。切換時會使用系統憑證保護，寫入選定的設定檔。",
+      "network": "瀏覽器授權使用 Qoder 登入頁面。Cockpit 會將授權參數、適用的機器識別及權杖傳送到該工作階段的 Qoder 服務，以查詢登入結果、續期及查詢用量。"
     },
     "addModal": {
       "title": "新增 Qoder 帳號"
@@ -7265,6 +7860,39 @@
       "detailError": "簽到異常"
     }
   },
+  "codebuddyCli": {
+    "launchTitle": "啟動 CodeBuddy CN",
+    "launchDesktop": "啟動桌面版",
+    "recheck": "重新偵測",
+    "checking": "正在偵測 CodeBuddy CLI…",
+    "rememberDirectory": "記住此帳號上次使用的工作目錄。",
+    "installGuide": "官方安裝指南",
+    "launch": "啟動 CLI",
+    "terminalOpened": "已將啟動命令傳送到終端機，請查看 CLI 輸出。",
+    "account": "帳號",
+    "selectAccount": "選擇帳號",
+    "chooseDirectory": "選擇資料夾",
+    "homeDirectory": "使用者家目錄",
+    "instances": "CLI 執行個體",
+    "newInstance": "新增執行個體",
+    "editInstance": "編輯執行個體",
+    "noInstances": "沒有已儲存的執行個體。",
+    "removeConfirmation": "移除此執行個體？CLI 設定和工作階段記錄仍會保留在磁碟上。",
+    "errors": {
+      "cliCheckFailed": "無法偵測 CodeBuddy CLI。",
+      "accountMissing": "找不到已儲存的帳號。",
+      "accountUnreadable": "無法讀取已儲存的帳號。",
+      "credentialMissing": "此帳號沒有存取權杖，請在 CodeBuddy 或 CodeBuddy CN 重新授權。",
+      "workingDirInvalid": "請選擇現有的工作目錄。",
+      "nameRequired": "請輸入執行個體名稱。",
+      "instanceMissing": "找不到此執行個體。",
+      "storageError": "無法讀取或儲存 CLI 執行個體資料。",
+      "cliMissing": "找不到 CodeBuddy CLI，請依官方指南安裝。",
+      "launchFailed": "無法啟動 CodeBuddy CLI。",
+      "terminalFailed": "無法開啟終端機。",
+      "terminalUnsupported": "請在一般設定選擇支援的終端機。macOS 可用 Terminal、iTerm2 或 Ghostty。"
+    }
+  },
   "codebuddyCn": {
     "title": "CodeBuddy CN 帳號管理",
     "noAccounts": "暫無 CodeBuddy CN 帳號",
@@ -7291,7 +7919,29 @@
     "syncSuccess": "已將 {{count}} 個帳號同步至 WorkBuddy",
     "syncToWorkbuddy": "同步至 WorkBuddy"
   },
+  "workbuddyAi": {
+    "search": "搜尋 WorkBuddy AI 帳號",
+    "noAccounts": "沒有 WorkBuddy AI 帳號",
+    "addAccount": "新增 WorkBuddy AI 帳號",
+    "oauthDesc": "在瀏覽器開啟 WorkBuddy AI 授權頁。",
+    "tokenDesc": "貼上 WorkBuddy AI 存取權杖或匯出的 JSON。",
+    "importDesc": "從本機應用程式或 JSON 匯入。",
+    "importClient": "從 WorkBuddy AI 匯入",
+    "flowNotice": {
+      "title": "關於 WorkBuddy AI 帳號",
+      "desc": "切換帳號會更新本機登入檔並啟動國際版。",
+      "permission": "只有國際版登入檔會被讀取或寫入。應用程式會處理現有加密欄位。",
+      "network": "授權、更新權杖和查詢點數會連線至 WorkBuddy AI。登入檔與加密資料留在本機。"
+    },
+    "oauthFeature": {
+      "title": "WorkBuddy AI 授權",
+      "signIn": "在瀏覽器登入 WorkBuddy AI。",
+      "switch": "授權後可從清單切換國際版帳號。",
+      "credits": "帳號卡片會顯示剩餘點數。"
+    }
+  },
   "workbuddy": {
+    "desktopEdition": "WorkBuddy 中國版",
     "credits": {
       "planBase": "方案基礎點數",
       "planBonus": "方案贈送點數",
@@ -7328,7 +7978,7 @@
       "title": "WorkBuddy 帳號管理說明（點擊展開/收起）",
       "desc": "切換帳號會依新版 WorkBuddy 官方用戶端規則寫入本機登入檔；本機匯入讀取同一檔案，資料僅在本機處理。",
       "permission": "權限範圍：讀取並寫入 WorkBuddy 登入檔（CodeBuddyExtension/Data/Public/auth/workbuddy-desktop.info），用於本機匯入與帳號切換；不再讀取或修改舊版 state.vscdb。",
-      "network": "OAuth 登入與 Token 更新會連線至 WorkBuddy 服務。點數餘額與明細會使用帳號 Token 向 WorkBuddy 計費服務查詢。本機登入檔案和系統金鑰保留在裝置上。"
+      "network": "OAuth 登入與 Token 更新會連線至 WorkBuddy 服務。點數餘額與明細會使用帳號 Token 向 WorkBuddy 計費服務查詢。本機登入檔案和系統金鑰保留在裝置上。 模型探測亦會向 WorkBuddy 對話服務及其工作階段端點傳送所選模型和測試訊息，並讀取回覆。"
     },
     "nickname": "暱稱",
     "enterprise": "企業",
@@ -7463,32 +8113,62 @@
       "endTime": "結束時間",
       "timeRangeHint": "應用程式保持執行時，會在這個時間段內隨機選取一個時間點完成背景自動簽到。",
       "errors": "異常",
-      "tabSettings": "自動簽到設定",
-      "tabHistory": "自動簽到紀錄",
-      "manualTest": "測試執行",
-      "clearLogs": "清空",
-      "clearLogsFailed": "清空簽到記錄失敗：{{message}}",
-      "historyLoading": "正在讀取自動簽到記錄...",
-      "historyLoadFailed": "讀取自動簽到記錄失敗：{{message}}",
       "totalCredits": "{{credits}} 積分",
-      "historyRangeHint": "僅保留近 30 天的自動簽到紀錄（共 {{count}} 條）",
-      "noHistory": "暫無近 30 天的自動簽到紀錄",
-      "saveFailed": "自動簽到設定儲存失敗：{{message}}",
-      "manualTestPartialFailure": "部分帳號簽到失敗，請查看紀錄；背景稍後會自動重試。",
-      "manualTestAlreadyRunning": "自動簽到任務正在執行，請稍後查看紀錄。",
-      "manualTestFailed": "測試執行失敗：{{message}}",
       "timeRangeError": "開始時間不能晚於結束時間"
+    },
+    "modelProbe": {
+      "results": "探測結果",
+      "reply": "模型回覆",
+      "backToSetup": "返回設定",
+      "catalogUnavailable": "模型目錄載入失敗",
+      "scopeAll": "全部（{{count}}）",
+      "scopeSelected": "已勾選（{{count}}）",
+      "scopeCurrent": "目前帳號",
+      "title": "模型探測",
+      "hint": "傳送一則簡短訊息並讀取實際回覆，會消耗少量額度。預設刪除測試對話。",
+      "account": "帳號",
+      "model": "模型",
+      "catalog": "選擇模型",
+      "modelPlaceholder": "輸入模型 ID",
+      "catalog_loading": "正在載入模型目錄…",
+      "catalog_loaded": "可選擇模型或直接輸入 ID。",
+      "catalog_error": "模型目錄載入失敗，可輸入模型 ID 重試。",
+      "keep": "保留測試對話",
+      "run": "開始探測",
+      "running": "探測中…",
+      "failed": "探測失敗",
+      "status_available": "可用",
+      "status_rate_limited": "受限",
+      "status_error": "請求失敗",
+      "status_unknown": "尚未確認",
+      "deleted": "測試對話已刪除",
+      "retained": "測試對話已保留",
+      "cleanupFailed": "對話刪除失敗，可稍後手動清理。",
+      "protocolFailure": "尚未完成協定確認，可重試或檢查帳號授權。",
+      "open": "探測模型"
+    },
+    "probeNotice": {
+      "recovered": "{{model}} 已恢復（{{time}}）",
+      "until": "{{model}} 上次探測受限，恢復時間 {{time}}",
+      "unavailable": "{{model}} 上次探測受限",
+      "failed": "{{model}} 上次探測失敗"
     }
   },
   "minimaxCode": {
+    "credentialRefresh": {
+      "signInClient": "請登入 MiniMax Code 用戶端後再試一次。",
+      "authorizeAgain": "請重新授權 MiniMax Code 帳號，或在用戶端登入後重新匯入。",
+      "credentialsChanged": "MiniMax Code 憑證已更新，請再試一次。",
+      "missingAccessToken": "MiniMax Code 續期時未傳回存取權杖。"
+    },
     "title": "MiniMax Code 帳號管理",
     "noAccounts": "暫無 MiniMax Code 帳號",
     "addAccount": "新增 MiniMax Code 帳號",
     "flowNotice": {
       "title": "MiniMax Code 帳號管理說明（點擊展開/收起）",
-      "desc": "切換帳號會依新版 MiniMax Code 官方用戶端規則寫入本機登入檔；本機匯入讀取同一檔案，資料僅在本機處理。",
-      "permission": "權限範圍：讀取並寫入 MiniMax Code 登入檔（~/.minimax/auth/auth.json），用於本機匯入與帳號切換；不再讀取或修改舊版 state.vscdb。",
-      "network": "網路範圍：OAuth 登入與 Token 刷新需連線請求 MiniMax Code；配額查詢需呼叫計費 API。不會上傳本機登入檔或憑證原文。"
+      "desc": "管理 MiniMax Code 的本機登入與帳號切換。",
+      "permission": "讀取並寫入 MiniMax Code 官方登入檔案；預設與多開執行個體使用各自的資料目錄。",
+      "network": "僅向 MiniMax 官方介面請求授權、帳號、方案及積分資訊；不會上傳本機登入檔案。"
     },
     "nickname": "暱稱",
     "enterprise": "企業",
@@ -7505,8 +8185,8 @@
       "oauth": {
         "title": "僅授權 IDE 登入資訊",
         "item1": "在瀏覽器完成 OAuth 後即可新增帳號並用於 IDE 切換。",
-        "item2": "不會自動綁定配額查詢參數。",
-        "item3": "如需顯示配額，請在帳號卡片中手動執行「查詢配額」綁定。"
+        "item2": "積分餘額",
+        "item3": "購買積分 · 贈送積分"
       }
     },
     "oauthWebviewTab": "WebView 授權",
@@ -7581,7 +8261,10 @@
       }
     },
     "quota": {
-      "usedOfTotal": "{{used}} / {{total}}"
+      "usedOfTotal": "{{used}} / {{total}}",
+      "noPlan": "未訂閱 M Plan",
+      "purchased": "購買積分",
+      "gifted": "贈送積分"
     },
     "checkin": {
       "title": "每日簽到",
@@ -7842,6 +8525,14 @@
     "btnExportTitle": "导出已保存为 JSON"
   },
   "mfaVault": {
+    "checkpointAvailable": "找不到 2FA 保管庫檔案。還原前會先驗證本機備份。備份後的變更可能遺失。",
+    "restoreCheckpoint": "還原本機備份",
+    "checkpointRestoring": "正在驗證並還原 2FA 備份…",
+    "checkpointRestoreFailed": "無法驗證或還原本機 2FA 備份。",
+    "checkpointLiveVaultExists": "已找到目前的 2FA 保管庫，請重新載入。",
+    "checkpointSidecarExists": "SQLite 復原檔案仍存在，並已保留。",
+    "recoveryFailed": "無法復原 2FA 金鑰。",
+    "storageWriteFailed": "無法儲存 2FA 變更。",
     "pageDesc": "安全地儲存並管理您的 MFA 備用恢復碼、安全密碼集及其他敏感認證資訊。以下 MFA 帳號均在本機儲存，誤刪、清快取、換/丟裝置都可能導致 MFA 遺失，建議備份 MFA。您也可以從備份中匯入 MFA。",
     "manualAdd": "手動新增憑證",
     "add": "新增",
@@ -7882,7 +8573,29 @@
     "continueMigrationScan": "繼續掃描",
     "savePartialMigrationBatch": "儲存部分批次",
     "saveCompleteMigrationBatch": "儲存完整批次",
-    "clearMigrationBatch": "清除批次"
+    "clearMigrationBatch": "清除批次",
+    "searchPlaceholder": "搜尋帳號或類型",
+    "noSearchResults": "沒有符合的帳號或類型",
+    "exportMigrationQr": "匯出移轉 QR 碼",
+    "exportBackup": "匯出備份",
+    "importBackup": "匯入備份",
+    "batchDelete": "刪除所選項目",
+    "exportBackupHint": "匯出所有已儲存記錄的 JSON 備份，不受搜尋或選取範圍影響。",
+    "editAccountHint": "請使用「類型:帳號」格式，例如 OpenAI:alice@example.com",
+    "migrationTitle": "匯出移轉 QR 碼",
+    "migrationSelectedSummary": "本次匯出所選的 {{count}} 個帳號。",
+    "migrationAllSummary": "本次匯出全部 {{count}} 個已儲存帳號，不受搜尋影響。",
+    "migrationWarning": "這些 QR 碼包含 2FA 密鑰，請妥善保管。",
+    "migrationPage": "第 {{current}} / {{total}} 張 QR 碼 · 本張包含 {{count}} 個帳號",
+    "migrationPrevious": "上一張",
+    "migrationNext": "下一張",
+    "migrationSaveImage": "儲存 QR 碼",
+    "migrationImageAlt": "移轉 QR 碼，第 {{current}} 張，共 {{total}} 張",
+    "migrationInvalidRecord": "部分記錄的密鑰無效，請檢查後再匯出移轉 QR 碼。",
+    "migrationRecordTooLarge": "單一帳號的資訊過長，無法放入移轉 QR 碼。請縮短帳號名稱後重試。",
+    "migrationUnsupportedParameters": "目前移轉匯出僅支援 SHA1、6 位數、30 秒驗證碼；部分帳號的參數不受支援。",
+    "migrationQrFailed": "無法產生移轉 QR 碼，請重試。",
+    "exportFailed": "匯出失敗，請檢查儲存位置後重試。"
   },
   "logViewer": {
     "fileLabel": "日誌檔案",
@@ -8032,6 +8745,14 @@
       "queryFailed": "模型清單讀取失敗：{{error}}"
     },
     "keyManager": {
+      "prefillOpened": "已開啟 {{target}} 的新增對話框，請確認資訊後儲存。",
+      "checkpointAvailable": "找不到金鑰庫檔案。還原前會先驗證本機備份。備份後的變更可能遺失。",
+      "restoreCheckpoint": "還原本機備份",
+      "checkpointRestoreFailed": "無法驗證或還原本機金鑰備份。",
+      "exportLegacy": "匯出明文 JSON",
+      "legacyExportFailed": "無法匯出舊版金鑰清單。",
+      "vaultLoadFailed": "無法讀取已儲存的金鑰。",
+      "vaultWriteFailed": "無法儲存金鑰變更。",
       "title": "金鑰管理",
       "desc": "保存常用 API Key，點擊即可切換並自動查詢額度。",
       "saveButton": "保存金鑰",
@@ -8056,15 +8777,18 @@
       "addToClaude": "加入 Claude CLI",
       "addToClaudeDesktop": "加入 Claude",
       "addToClaudeCli": "加入 Claude CLI",
+      "addToGrok": "加入 Grok",
       "codexShort": "Codex",
       "claudeShort": "Claude CLI",
       "deployToCodex": "快速部署到 Codex",
       "deploying": "正在拉取模型…",
       "deploySuccess": "已部署到 Codex：{{count}} 個模型",
       "deployFailed": "部署失敗：{{error}}",
-      "useKey": "使用密鑰"
+      "useKey": "使用密鑰",
+      "deleteConfirm": "確定刪除已儲存的金鑰「{{name}}」嗎？此操作無法復原。"
     },
     "prefill": {
+      "codexReady": "已填入 APIKEY.FUN 設定，請確認後新增至 Codex。",
       "claudeDesktopReady": "已帶入 APIKEY.FUN 設定，請確認後加入 Claude。"
     },
     "copyKey": "複製金鑰",
@@ -8083,7 +8807,7 @@
       "title": "使用 API 密鑰",
       "family": "分組",
       "platform": "目前系統",
-      "unsupportedGroup": "該分組暫無可一鍵寫入的用戶端。"
+      "unsupportedGroup": "Cockpit Tools 目前沒有適用於 APIKEY.FUN {{family}} 介面的用戶端設定範本。可以在支援此介面的用戶端手動設定。"
     },
     "campaign": {
       "badge": "雙11",
@@ -8098,6 +8822,7 @@
     }
   },
   "grok": {
+    "emptyBillingQuota": "Grok 帳單介面未傳回額度資料，請稍後再試。",
     "search": "搜尋 Grok CLI 帳號...",
     "flowNotice": {
       "title": "Grok CLI 帳號管理說明",
@@ -8142,6 +8867,8 @@
       "apiBaseUrlInvalid": "請輸入完整的 http:// 或 https:// 位址，且不要包含使用者名稱、查詢參數或片段"
     },
     "instances": {
+      "accountHomeReady": "已為 {{email}} 準備獨立資料夾",
+      "installLaunchHint": "在終端機執行下方官方指令。安裝完成後，再按「在終端機執行」。",
       "unsupported": "Grok CLI 多開僅支援 macOS、Windows 與 Linux。",
       "launchDialogTitle": "啟動執行個體",
       "launchHint": "可複製命令手動執行，或按下方按鈕直接在終端機執行。",
@@ -8171,6 +8898,7 @@
       "sectionTitle": "配額查詢"
     },
     "quota": {
+      "cliUnavailable": "暫無 CLI 用量",
       "weekly": "每週用量",
       "sharedPool": "共用額度",
       "monthly": "每月用量",
@@ -8293,6 +9021,7 @@
       "baseUrlInvalid": "Base URL 不是有效 URL"
     },
     "desktopOAuth": {
+      "cliUnsupported": "此帳號無法啟動 Claude Code CLI。",
       "title": "Claude 登入",
       "desc": "在本工具開啟 Claude 登入視窗，支援 Google、Apple、電子郵件與 free 帳號。",
       "start": "開啟登入",
@@ -8342,6 +9071,7 @@
       }
     },
     "oauth": {
+      "switchHint": "切換至本機 Claude Code",
       "title": "Claude OAuth 授權",
       "desc": "開啟 Claude 官方 OAuth 授權頁，完成後貼上回呼連結或 code 匯入帳號。",
       "start": "OAuth 授權",
@@ -8370,6 +9100,9 @@
       "cliUnsupported": "舊 OAuth 帳號不能啟動 Claude CLI"
     },
     "cli": {
+      "applyUserConfig": "寫入全域設定",
+      "userConfigHint": "將此帳號寫入 ~/.claude，供 Claude Code 和 VS Code 擴充功能使用。",
+      "userConfigApplied": "全域設定已更新",
       "quickLaunch": "CLI 啟動",
       "selectWorkingDir": "選擇 Claude CLI 工作目錄",
       "launchSuccess": "已啟動 Claude CLI",
@@ -8409,6 +9142,8 @@
     "noDesktopAccounts": "暫無 Claude 帳號",
     "noCliAccounts": "暫無 Claude CLI 帳號",
     "desktopGateway": {
+      "switchHint": "套用供應商設定並啟動 Claude Desktop",
+      "switchSuccess": "已套用 Claude Desktop 供應商設定：{{name}}。",
       "label": "閘道",
       "authScheme": "認證方式",
       "importAction": "匯入 Gateway",
@@ -8796,5 +9531,125 @@
     "errorModel": "請輸入不重複的完整模型名稱，不支援萬用字元。",
     "errorSave": "讀取或儲存失敗，請重試。",
     "saved": "已儲存，後續請求使用新設定。"
+  },
+  "antigravityTokenUsage": {
+    "tab": "工作階段用量",
+    "subtitle": "Antigravity 本機工作階段 Token 用量統計",
+    "title": "Antigravity 工作階段 Token 用量",
+    "desc": "以唯讀方式從本機 Antigravity 工作階段資料庫（~/.gemini/antigravity）彙總真實 Token 用量，嚴格區分 Thinking 與 Output。",
+    "hint": "唯讀解析 SQLite steps/gen_metadata（支援 WAL 感知）、RPC 快取與 transcript JSONL。Output 已剔除 Thinking 避免重複計費；估算 Token（如有）與精確 API 用量嚴格分離。",
+    "summary": {
+      "badge": "本機 Token",
+      "input": "輸入",
+      "thinking": "思考",
+      "output": "輸出",
+      "cache": "快取",
+      "total": "合計",
+      "turns": "輪次",
+      "sessionsUnit": "個工作階段",
+      "scanning": "掃描中…",
+      "updating": "更新中…",
+      "detail": "詳情"
+    },
+    "range": {
+      "label": "時間範圍",
+      "today": "今日",
+      "7d": "近 7 天",
+      "30d": "近 30 天",
+      "month": "本月",
+      "all": "全部"
+    },
+    "granularity": {
+      "label": "時間粒度",
+      "day": "按日",
+      "week": "按週",
+      "month": "按月"
+    },
+    "kinds": {
+      "all": "全部類型",
+      "main": "主工作階段",
+      "swarm": "Swarm 協作",
+      "subagent": "子代理"
+    },
+    "filters": {
+      "kindLabel": "工作階段類型",
+      "modelLabel": "模型",
+      "workspaceLabel": "工作區",
+      "allModels": "全部模型",
+      "allWorkspaces": "全部工作區",
+      "searchPlaceholder": "搜尋標題、工作階段 ID、工作區、模型…"
+    },
+    "dataDir": {
+      "label": "資料目錄：",
+      "customBadge": "自訂",
+      "choose": "切換目錄",
+      "reset": "恢復預設"
+    },
+    "actions": {
+      "refresh": "重新整理",
+      "rebuild": "重新掃描",
+      "backToAccounts": "返回帳號總覽"
+    },
+    "rebuildConfirm": {
+      "title": "重新掃描",
+      "message": "將清空 Cockpit Tools 的本機掃描快取，並以唯讀方式重新讀取全部 Antigravity 工作階段資料。確認繼續？"
+    },
+    "status": {
+      "scanning": "正在掃描 Antigravity 工作階段資料庫…",
+      "ready": "已掃描 {{dbFiles}} 個 DB 檔案 · {{sessions}} 個工作階段 · {{turns}} 次回應",
+      "idle": "尚未掃描",
+      "cacheStats": "快取命中 {{hits}} / 新增 {{misses}}（{{durationMs}} ms）",
+      "scannedAt": "同步於 {{time}}"
+    },
+    "cards": {
+      "total": "合計 Tokens",
+      "totalExact": "精確合計 Tokens",
+      "input": "輸入 Tokens",
+      "thinking": "思考 Tokens",
+      "output": "輸出 Tokens",
+      "cache": "快取 Tokens",
+      "conversations": "工作階段數",
+      "turns": "回應輪次",
+      "coverage": "精確覆蓋率",
+      "avgPerDay": "活躍日均"
+    },
+    "estimated": {
+      "notice": "另有 {{turns}} 輪缺少原始 API 用量，已單獨估算（不計入精確合計）："
+    },
+    "trend": {
+      "title": "Token 用量趨勢",
+      "empty": "所選時間範圍暫無 Token 用量記錄"
+    },
+    "tables": {
+      "byModel": "依模型分佈",
+      "byWorkspace": "依工作區分佈",
+      "byKind": "依類型分佈（主工作階段 / Swarm / 子代理）",
+      "conversations": "工作階段明細列表",
+      "conversationTitle": "工作階段",
+      "modelName": "模型",
+      "workspaceName": "工作區",
+      "sessions": "工作階段",
+      "turns": "輪次",
+      "total": "合計",
+      "updatedAt": "更新時間"
+    },
+    "pagination": {
+      "info": "第 {{page}} / {{totalPages}} 頁（共 {{totalItems}} 個工作階段）"
+    },
+    "detail": {
+      "openParent": "開啟父工作階段",
+      "children": "子工作階段（Swarm / 子代理）",
+      "turnsTimeline": "逐輪 Token 時間軸"
+    },
+    "empty": {
+      "title": "目前篩選下暫無工作階段 Token 資料",
+      "desc": "可嘗試將時間範圍切換為「全部」，或在使用 Antigravity 後點擊重新整理。",
+      "dirMissing": "找不到 Antigravity 資料目錄，請檢查上方目錄路徑。",
+      "noRows": "暫無相符資料"
+    },
+    "errors": {
+      "loadFailed": "讀取 Token 用量失敗：{{error}}",
+      "syncFailed": "掃描 Token 用量失敗：{{error}}"
+    }
   }
 }

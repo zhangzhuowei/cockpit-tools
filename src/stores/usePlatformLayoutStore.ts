@@ -1,10 +1,8 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
-import { ALL_PLATFORM_IDS, PlatformId } from '../types/platform';
-import { persistPlatformLayout } from '../utils/uiPreferences';
-import { CLASSIC_SIDEBAR_ENTRY_LIMIT } from './useSideNavLayoutStore';
+import { ALL_PLATFORM_IDS, isMenuVisiblePlatform, MENU_VISIBLE_PLATFORM_IDS, PlatformId } from '../types/platform';
+import { persistPlatformLayout, readPlatformLayout } from '../utils/uiPreferences';
 
-const PLATFORM_LAYOUT_STORAGE_KEY = 'agtools.platform_layout.v1';
 const LEGACY_TRAY_CORE_IDS: PlatformId[] = ['antigravity', 'codex', 'github-copilot', 'windsurf'];
 const TRAY_MIGRATED_PLATFORM_IDS: PlatformId[] = [
   'antigravity_ide',
@@ -22,6 +20,7 @@ const TRAY_MIGRATED_PLATFORM_IDS: PlatformId[] = [
   'trae_cn',
   'trae_solo_cn',
   'workbuddy',
+  'workbuddy_ai',
   'minimaxcode',
 ];
 const DEFAULT_CODEBUDDY_GROUP_ID = 'codebuddy-suite';
@@ -248,6 +247,7 @@ export function resolveEntryIdForPlatform(
   platformId: PlatformId,
   groups: PlatformLayoutGroup[],
 ): PlatformLayoutEntryId {
+  if (platformId === 'antigravity_ide') platformId = 'antigravity';
   const group = findGroupByPlatform(groups, platformId);
   if (group) {
     return makeGroupEntryId(group.id);
@@ -300,9 +300,9 @@ function createDefaultTraeSuiteGroup(): PlatformLayoutGroup {
     iconPlatformId: 'trae',
     childConfigs: [
       { platformId: 'trae', name: 'Trae' },
-      { platformId: 'trae_solo', name: 'TRAE SOLO' },
+      { platformId: 'trae_solo', name: 'TraeWork' },
       { platformId: 'trae_cn', name: 'Trae CN' },
-      { platformId: 'trae_solo_cn', name: 'TRAE SOLO CN' },
+      { platformId: 'trae_solo_cn', name: 'TraeWork CN' },
     ],
   };
 }
@@ -398,13 +398,80 @@ function migrateAutomaticPlatformGroups(raw: PersistedPlatformLayout): Persisted
     : oldRelayPosition;
   return restoreDefaultCodexGroup({
     ...raw,
-    platformGroups: groups.filter((group) => !removed.has(makeGroupEntryId(group.id))),
+    platformGroups: raw.platformGroups === undefined ? undefined
+      : groups.filter((group) => !removed.has(makeGroupEntryId(group.id))),
     orderedEntryIds: expand(raw.orderedEntryIds),
     hiddenEntryIds: expand(raw.hiddenEntryIds),
     sidebarEntryIds: expand(raw.sidebarEntryIds),
     apiRelayEntryOrder,
     independentPlatformsMigrated: true,
   });
+}
+
+function mergeAntigravityLayoutEntries(raw: PersistedPlatformLayout): PersistedPlatformLayout {
+  const groups = normalizePlatformGroups(raw.platformGroups, false);
+  const appGroup = findGroupByPlatform(groups, 'antigravity');
+  const ideGroup = findGroupByPlatform(groups, 'antigravity_ide');
+  const appEntry = appGroup ? makeGroupEntryId(appGroup.id) : makePlatformEntryId('antigravity');
+  const ideEntry = ideGroup
+    ? makeGroupEntryId(ideGroup.id)
+    : makePlatformEntryId('antigravity_ide');
+  const removedIdeGroup = ideGroup && appGroup && ideGroup !== appGroup && ideGroup.platformIds.length === 1;
+  const targetEntry = appGroup ? appEntry : ideGroup ? ideEntry : appEntry;
+  const appPlatformEntry = makePlatformEntryId('antigravity');
+  const idePlatformEntry = makePlatformEntryId('antigravity_ide');
+  const remap = (entries?: PlatformLayoutEntryId[]) => Array.isArray(entries)
+    ? [...new Set(entries.map((entry) =>
+      entry === appPlatformEntry
+        || entry === idePlatformEntry || (removedIdeGroup && entry === ideEntry)
+        ? targetEntry : entry,
+    ))]
+    : undefined;
+  const remapLegacy = (ids?: PlatformId[]) => Array.isArray(ids)
+    ? [...new Set(ids.map((id) => id === 'antigravity_ide' ? 'antigravity' : id))]
+    : undefined;
+
+  return {
+    ...raw,
+    platformGroups: raw.platformGroups === undefined ? undefined : groups.flatMap((group) => {
+      if (group !== ideGroup) return [group];
+      const replaceIde = !appGroup;
+      const platformIds = group.platformIds.flatMap((id): PlatformId[] =>
+        id !== 'antigravity_ide' ? [id] : replaceIde ? ['antigravity'] : [],
+      );
+      if (platformIds.length === 0) return [];
+      return [{
+        ...group,
+        platformIds,
+        defaultPlatformId: group.defaultPlatformId === 'antigravity_ide'
+          ? (platformIds.includes('antigravity') ? 'antigravity' : platformIds[0])
+          : group.defaultPlatformId,
+        iconPlatformId: group.iconPlatformId === 'antigravity_ide'
+          ? (platformIds.includes('antigravity') ? 'antigravity' : platformIds[0])
+          : group.iconPlatformId,
+        childConfigs: group.childConfigs?.flatMap((child) => child.platformId !== 'antigravity_ide'
+          ? [child]
+          : replaceIde ? [{
+            ...child,
+            platformId: 'antigravity' as const,
+            iconPlatformId: child.iconPlatformId === 'antigravity_ide' ? 'antigravity' as const : child.iconPlatformId,
+          }] : []),
+      }];
+    }),
+    orderedPlatformIds: remapLegacy(raw.orderedPlatformIds),
+    orderedEntryIds: remap(raw.orderedEntryIds),
+    hiddenEntryIds: remap(raw.hiddenEntryIds),
+    sidebarEntryIds: Array.isArray(raw.sidebarEntryIds)
+      ? [...new Set(raw.sidebarEntryIds.map((entry) =>
+        entry === idePlatformEntry || (removedIdeGroup && entry === ideEntry) ? targetEntry : entry,
+      ))]
+      : undefined,
+    hiddenPlatformIds: remapLegacy(raw.hiddenPlatformIds),
+    sidebarPlatformIds: remapLegacy(raw.sidebarPlatformIds),
+    apiRelayEntryOrder: typeof raw.apiRelayEntryOrder === 'number' && Array.isArray(raw.orderedEntryIds)
+      ? remap(raw.orderedEntryIds.slice(0, Math.max(0, raw.apiRelayEntryOrder)))?.length
+      : raw.apiRelayEntryOrder,
+  };
 }
 
 function restoreDefaultCodexGroup(raw: PersistedPlatformLayout): PersistedPlatformLayout {
@@ -472,7 +539,7 @@ function defaultSidebarEntryIds(
   groups: PlatformLayoutGroup[],
   orderedEntryIds = buildEntryOrderFromPlatformOrder(defaultPlatformOrder(), groups),
 ): PlatformLayoutEntryId[] {
-  return orderedEntryIds.slice(0, CLASSIC_SIDEBAR_ENTRY_LIMIT - 1);
+  return orderedEntryIds.slice(0, 5);
 }
 
 function defaultSidebarPlatformIds(): PlatformId[] {
@@ -537,7 +604,7 @@ function normalizeGroupName(raw: unknown, fallbackPlatform: PlatformId): string 
   if (typeof raw === 'string') {
     const name = raw.trim();
     if (name) {
-      return name;
+      return normalizeLegacyTraeBrand(name, fallbackPlatform);
     }
   }
   if (fallbackPlatform === 'antigravity') {
@@ -561,6 +628,9 @@ function normalizeGroupName(raw: unknown, fallbackPlatform: PlatformId): string 
   if (fallbackPlatform === 'codex_api_service') {
     return 'Codex API';
   }
+  if (fallbackPlatform === 'workbuddy_ai') {
+    return 'WorkBuddy AI';
+  }
   if (fallbackPlatform === 'workbuddy') {
     return 'WorkBuddy';
   }
@@ -577,18 +647,25 @@ function normalizeGroupName(raw: unknown, fallbackPlatform: PlatformId): string 
     return 'Trae';
   }
   if (fallbackPlatform === 'trae_solo') {
-    return 'TRAE SOLO';
+    return 'TraeWork';
   }
   if (fallbackPlatform === 'trae_cn') {
     return 'Trae CN';
   }
   if (fallbackPlatform === 'trae_solo_cn') {
-    return 'TRAE SOLO CN';
+    return 'TraeWork CN';
   }
   if (fallbackPlatform === 'grok') {
     return 'Grok CLI';
   }
   return fallbackPlatform.charAt(0).toUpperCase() + fallbackPlatform.slice(1);
+}
+
+function normalizeLegacyTraeBrand(name: string, platformId: PlatformId): string {
+  const legacyName = name.replace(/\u200b$/, '');
+  if (platformId === 'trae_solo' && legacyName === 'TRAE SOLO') return 'TraeWork';
+  if (platformId === 'trae_solo_cn' && legacyName === 'TRAE SOLO CN') return 'TraeWork CN';
+  return name;
 }
 
 function normalizeGroupChildName(raw: unknown, platformId: PlatformId): string | undefined {
@@ -605,7 +682,7 @@ function normalizeGroupChildName(raw: unknown, platformId: PlatformId): string |
   if (platformId === 'claude_manager' && (value === 'Claude' || value === 'Claude CLI')) {
     return 'Claude';
   }
-  return value;
+  return normalizeLegacyTraeBrand(value, platformId);
 }
 
 function normalizeGroupChildConfigs(
@@ -750,7 +827,7 @@ function getAvailableEntryIds(groups: PlatformLayoutGroup[]): PlatformLayoutEntr
     }
   }
 
-  for (const platformId of ALL_PLATFORM_IDS) {
+  for (const platformId of MENU_VISIBLE_PLATFORM_IDS) {
     if (grouped.has(platformId)) {
       continue;
     }
@@ -775,6 +852,7 @@ function buildEntryOrderFromPlatformOrder(
   const addedGroups = new Set<string>();
   const entries: PlatformLayoutEntryId[] = [];
   for (const platformId of order) {
+    if (!isMenuVisiblePlatform(platformId)) continue;
     const groupId = platformToGroup.get(platformId);
     if (groupId) {
       if (!addedGroups.has(groupId)) {
@@ -917,33 +995,15 @@ function normalizeHiddenEntryIds(
 function normalizeSidebarEntryIds(
   rawSidebarEntryIds: unknown,
   orderedEntryIds: PlatformLayoutEntryId[],
-  _hiddenEntryIds: PlatformLayoutEntryId[],
   groups: PlatformLayoutGroup[],
   legacySidebarPlatformIds: PlatformId[],
 ): PlatformLayoutEntryId[] {
-  const normalized = normalizeEntryVisibilityList(rawSidebarEntryIds, orderedEntryIds, groups);
-  if (normalized.length > 0) {
-    return normalized;
-  }
-
   if (Array.isArray(rawSidebarEntryIds)) {
-    const rawItems = rawSidebarEntryIds.filter((item): item is string => typeof item === 'string');
-    if (rawItems.length === 0) {
-      return [];
-    }
-
-    const isLegacyPlatformEntryList = rawItems.every((entryId) => {
-      const platformId = parsePlatformEntryId(entryId);
-      if (!platformId) {
-        return false;
-      }
-      const resolvedEntryId = resolveEntryIdForPlatform(platformId, groups);
-      return resolvedEntryId !== entryId;
-    });
-
-    if (!isLegacyPlatformEntryList) {
-      return [];
-    }
+    const availableEntryIds = [
+      ...orderedEntryIds,
+      ...groups.flatMap((group) => group.platformIds.filter(isMenuVisiblePlatform).map(makePlatformEntryId)),
+    ];
+    return normalizeEntryVisibilityList(rawSidebarEntryIds, availableEntryIds, groups);
   }
 
   const fallback = deriveEntryVisibilityFromLegacyPlatforms(
@@ -1136,7 +1196,6 @@ function normalizeStateData(
   const sidebarEntryIds = normalizeSidebarEntryIds(
     raw.sidebarEntryIds,
     orderedEntryIds,
-    hiddenEntryIds,
     platformGroups,
     normalizeSidebar(raw.sidebarPlatformIds, []),
   );
@@ -1175,7 +1234,7 @@ function normalizeStateData(
 
 function loadPersistedState(): NormalizedLayoutStateData {
   try {
-    const raw = localStorage.getItem(PLATFORM_LAYOUT_STORAGE_KEY);
+    const raw = readPlatformLayout();
     if (!raw) {
       const defaultGroups = defaultPlatformGroups();
       const defaultOrder = defaultPlatformOrder();
@@ -1200,7 +1259,9 @@ function loadPersistedState(): NormalizedLayoutStateData {
       return defaults;
     }
 
-    const parsed = migrateAutomaticPlatformGroups(JSON.parse(raw) as PersistedPlatformLayout);
+    const parsed = mergeAntigravityLayoutEntries(
+      migrateAutomaticPlatformGroups(JSON.parse(raw) as PersistedPlatformLayout),
+    );
     const antigravityGroupFirstMigrated = parsed.antigravityGroupFirstMigrated === true;
     const orderedPlatformIds = normalizeOrder(parsed.orderedPlatformIds ?? defaultPlatformOrder());
     const hiddenPlatformIds = normalizeHidden(parsed.hiddenPlatformIds ?? []);
@@ -1224,7 +1285,6 @@ function loadPersistedState(): NormalizedLayoutStateData {
     const sidebarEntryIds = normalizeSidebarEntryIds(
       parsed.sidebarEntryIds,
       orderedEntryIds,
-      hiddenEntryIds,
       platformGroups,
       sidebarPlatformIds,
     );
@@ -1232,6 +1292,7 @@ function loadPersistedState(): NormalizedLayoutStateData {
     const normalized = normalizeStateData({
       orderedPlatformIds,
       hiddenPlatformIds,
+      disabledPlatformIds: parsed.disabledPlatformIds,
       sidebarPlatformIds,
       trayPlatformIds: normalizeTray(
         parsed.trayPlatformIds ?? defaultPlatformOrder(),
@@ -1735,7 +1796,6 @@ export const usePlatformLayoutStore = create<PlatformLayoutState>((set, get) => 
       normalizedGroups,
       get().orderedPlatformIds,
     );
-
     const next = normalizeStateData({
       orderedPlatformIds,
       hiddenPlatformIds: get().hiddenPlatformIds,
@@ -1869,7 +1929,7 @@ export const usePlatformLayoutStore = create<PlatformLayoutState>((set, get) => 
 if (typeof window !== 'undefined') {
   window.addEventListener('agtools:platform-layout-hydrated', () => {
     // Hydration can finish after the store module has initialized. Reload the
-    // durable value once so a stale WebView cache cannot win after upgrades.
+    // committed value after hydration or a successful configuration restore.
     usePlatformLayoutStore.setState(loadPersistedState());
     usePlatformLayoutStore.getState().syncTrayLayout();
   });
